@@ -7,7 +7,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::State;
-use tidal_api::{AuthTokens, DeviceCode, TidalClient, TidalPlaylist, TidalTrack};
+use tidal_api::{AuthTokens, DeviceCode, PaginatedTracks, TidalAlbumDetail, TidalClient, TidalPlaylist, TidalTrack};
+
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -99,6 +100,23 @@ fn load_saved_auth(state: State<AppState>) -> Result<Option<AuthTokens>, String>
 }
 
 #[tauri::command]
+fn refresh_tidal_auth(state: State<AppState>) -> Result<AuthTokens, String> {
+    let mut client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    let new_tokens = client.refresh_token()?;
+
+    // Save refreshed tokens to settings
+    let mut settings = state.load_settings().unwrap_or(Settings {
+        auth_tokens: None,
+        volume: 1.0,
+        last_track_id: None,
+    });
+    settings.auth_tokens = Some(new_tokens.clone());
+    state.save_settings(&settings)?;
+
+    Ok(new_tokens)
+}
+
+#[tauri::command]
 fn logout(state: State<AppState>) -> Result<(), String> {
     // Clear tokens
     let mut client = state.tidal_client.lock().map_err(|e| e.to_string())?;
@@ -125,7 +143,9 @@ fn get_user_playlists(state: State<AppState>, user_id: u64) -> Result<Vec<TidalP
     let result = client.get_user_playlists(user_id);
     match &result {
         Ok(playlists) => println!("DEBUG: Got {} playlists", playlists.len()),
-        Err(e) => println!("DEBUG: Failed to get playlists: {}", e),
+        Err(e) => {
+            println!("DEBUG: Failed to get playlists: {}", e);
+        }
     }
     result
 }
@@ -137,6 +157,34 @@ fn get_playlist_tracks(
 ) -> Result<Vec<TidalTrack>, String> {
     let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
     client.get_playlist_tracks(&playlist_id)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_favorite_tracks(
+    state: State<AppState>,
+    user_id: u64,
+    offset: u32,
+    limit: u32,
+) -> Result<PaginatedTracks, String> {
+    let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    client.get_favorite_tracks(user_id, offset, limit)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_album_detail(state: State<AppState>, album_id: u64) -> Result<TidalAlbumDetail, String> {
+    let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    client.get_album_detail(album_id)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_album_tracks(
+    state: State<AppState>,
+    album_id: u64,
+    offset: u32,
+    limit: u32,
+) -> Result<PaginatedTracks, String> {
+    let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    client.get_album_tracks(album_id, offset, limit)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -210,6 +258,11 @@ fn get_playback_position(state: State<AppState>) -> Result<f32, String> {
     state.audio_player.get_position()
 }
 
+#[tauri::command(rename_all = "camelCase")]
+fn seek_track(state: State<AppState>, position_secs: f32) -> Result<(), String> {
+    state.audio_player.seek(position_secs)
+}
+
 #[tauri::command]
 fn is_track_finished(state: State<AppState>) -> Result<bool, String> {
     state.audio_player.is_finished()
@@ -227,10 +280,14 @@ pub fn run() {
             start_tidal_auth,
             poll_tidal_auth,
             load_saved_auth,
+            refresh_tidal_auth,
             logout,
             get_session_user_id,
             get_user_playlists,
             get_playlist_tracks,
+            get_favorite_tracks,
+            get_album_detail,
+            get_album_tracks,
             get_stream_url,
             play_tidal_track,
             pause_track,
@@ -238,6 +295,7 @@ pub fn run() {
             stop_track,
             set_volume,
             get_playback_position,
+            seek_track,
             is_track_finished
         ])
         .run(tauri::generate_context!())

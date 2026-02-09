@@ -41,6 +41,34 @@ pub struct TidalTrack {
     pub album: Option<TidalAlbum>,
     #[serde(default)]
     pub audio_quality: Option<String>,
+    #[serde(default)]
+    pub track_number: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TidalAlbumDetail {
+    pub id: u64,
+    pub title: String,
+    #[serde(default)]
+    pub cover: Option<String>,
+    #[serde(default)]
+    pub artist: Option<TidalArtist>,
+    #[serde(default)]
+    pub number_of_tracks: Option<u32>,
+    #[serde(default)]
+    pub duration: Option<u32>,
+    #[serde(default)]
+    pub release_date: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PaginatedTracks {
+    pub items: Vec<TidalTrack>,
+    pub total_number_of_items: u32,
+    pub offset: u32,
+    pub limit: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -169,6 +197,61 @@ impl TidalClient {
         Ok(tokens)
     }
 
+    pub fn refresh_token(&mut self) -> Result<AuthTokens, String> {
+        let current_tokens = self.tokens.as_ref().ok_or("Not authenticated")?;
+        let refresh_tok = current_tokens.refresh_token.clone();
+        let old_user_id = current_tokens.user_id;
+
+        let params = [
+            ("client_id", CLIENT_ID),
+            ("client_secret", CLIENT_SECRET),
+            ("refresh_token", refresh_tok.as_str()),
+            ("grant_type", "refresh_token"),
+            ("scope", "r_usr w_usr w_sub"),
+        ];
+
+        let response = self
+            .client
+            .post(format!("{}/token", TIDAL_AUTH_URL))
+            .form(&params)
+            .send()
+            .map_err(|e| format!("Failed to refresh token: {}", e))?;
+
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("Token refresh failed ({}): {}", status, body));
+        }
+
+        // Tidal's refresh response may not include refresh_token, so use a
+        // permissive struct and fall back to the existing refresh token.
+        #[derive(Deserialize)]
+        struct RefreshResponse {
+            access_token: String,
+            #[serde(default)]
+            refresh_token: Option<String>,
+            expires_in: u64,
+            token_type: String,
+            #[serde(default)]
+            user_id: Option<u64>,
+        }
+
+        let parsed = serde_json::from_str::<RefreshResponse>(&body)
+            .map_err(|e| format!("Failed to parse refreshed tokens: {} - Body: {}", e, body))?;
+
+        let new_tokens = AuthTokens {
+            access_token: parsed.access_token,
+            refresh_token: parsed.refresh_token.unwrap_or(refresh_tok),
+            expires_in: parsed.expires_in,
+            token_type: parsed.token_type,
+            user_id: parsed.user_id.or(old_user_id),
+        };
+
+        self.tokens = Some(new_tokens.clone());
+        Ok(new_tokens)
+    }
+
     pub fn get_session_info(&self) -> Result<u64, String> {
         let tokens = self.tokens.as_ref().ok_or("Not authenticated")?;
 
@@ -260,6 +343,123 @@ impl TidalClient {
             .map_err(|e| format!("Failed to parse tracks: {} - Body: {}", e, body))?;
 
         Ok(data.items.into_iter().map(|t| t.item).collect())
+    }
+
+    pub fn get_album_detail(&self, album_id: u64) -> Result<TidalAlbumDetail, String> {
+        let tokens = self.tokens.as_ref().ok_or("Not authenticated")?;
+
+        let response = self
+            .client
+            .get(format!("{}/albums/{}", TIDAL_API_URL, album_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[("countryCode", "US")])
+            .send()
+            .map_err(|e| format!("Failed to fetch album: {}", e))?;
+
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("API error ({}): {}", status, body));
+        }
+
+        serde_json::from_str::<TidalAlbumDetail>(&body)
+            .map_err(|e| format!("Failed to parse album: {} - Body: {}", e, body))
+    }
+
+    pub fn get_album_tracks(&self, album_id: u64, offset: u32, limit: u32) -> Result<PaginatedTracks, String> {
+        let tokens = self.tokens.as_ref().ok_or("Not authenticated")?;
+
+        let response = self
+            .client
+            .get(format!("{}/albums/{}/tracks", TIDAL_API_URL, album_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("countryCode", "US"),
+                ("limit", &limit.to_string()),
+                ("offset", &offset.to_string()),
+            ])
+            .send()
+            .map_err(|e| format!("Failed to fetch album tracks: {}", e))?;
+
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("API error ({}): {}", status, body));
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AlbumTracksResponse {
+            items: Vec<TidalTrack>,
+            total_number_of_items: u32,
+            #[serde(default)]
+            offset: u32,
+            #[serde(default)]
+            limit: u32,
+        }
+
+        let data = serde_json::from_str::<AlbumTracksResponse>(&body)
+            .map_err(|e| format!("Failed to parse album tracks: {} - Body: {}", e, body))?;
+
+        Ok(PaginatedTracks {
+            items: data.items,
+            total_number_of_items: data.total_number_of_items,
+            offset: data.offset,
+            limit: data.limit,
+        })
+    }
+
+    pub fn get_favorite_tracks(&self, user_id: u64, offset: u32, limit: u32) -> Result<PaginatedTracks, String> {
+        let tokens = self.tokens.as_ref().ok_or("Not authenticated")?;
+
+        let response = self
+            .client
+            .get(format!("{}/users/{}/favorites/tracks", TIDAL_API_URL, user_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("countryCode", "US"),
+                ("limit", &limit.to_string()),
+                ("offset", &offset.to_string()),
+                ("order", "DATE"),
+                ("orderDirection", "DESC"),
+            ])
+            .send()
+            .map_err(|e| format!("Failed to fetch favorite tracks: {}", e))?;
+
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("API error ({}): {}", status, body));
+        }
+
+        #[derive(Deserialize)]
+        struct FavoriteTrackItem {
+            item: TidalTrack,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct FavoriteTracksResponse {
+            items: Vec<FavoriteTrackItem>,
+            total_number_of_items: u32,
+            #[serde(default)]
+            offset: u32,
+            #[serde(default)]
+            limit: u32,
+        }
+
+        let data = serde_json::from_str::<FavoriteTracksResponse>(&body)
+            .map_err(|e| format!("Failed to parse favorite tracks: {} - Body: {}", e, body))?;
+
+        Ok(PaginatedTracks {
+            items: data.items.into_iter().map(|f| f.item).collect(),
+            total_number_of_items: data.total_number_of_items,
+            offset: data.offset,
+            limit: data.limit,
+        })
     }
 
     pub fn get_stream_url(&self, track_id: u64, quality: &str) -> Result<String, String> {

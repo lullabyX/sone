@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 // Helper to convert Tidal cover UUID to image URL
@@ -27,7 +27,34 @@ export interface Track {
   album?: { id: number; title: string; cover?: string };
   duration: number;
   audioQuality?: string;
+  trackNumber?: number;
 }
+
+export interface AlbumDetail {
+  id: number;
+  title: string;
+  cover?: string;
+  artist?: { id: number; name: string };
+  numberOfTracks?: number;
+  duration?: number;
+  releaseDate?: string;
+}
+
+export interface PaginatedTracks {
+  items: Track[];
+  totalNumberOfItems: number;
+  offset: number;
+  limit: number;
+}
+
+export type AppView =
+  | { type: "home" }
+  | {
+      type: "album";
+      albumId: number;
+      albumInfo?: { title: string; cover?: string; artistName?: string };
+    }
+  | { type: "favorites" };
 
 export interface Playlist {
   uuid: string;
@@ -63,6 +90,14 @@ export function useAudio() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userPlaylists, setUserPlaylists] = useState<Playlist[]>([]);
   const [authTokens, setAuthTokens] = useState<AuthTokens | null>(null);
+  const [currentView, setCurrentView] = useState<AppView>({ type: "home" });
+  const [history, setHistory] = useState<Track[]>([]);
+  const currentTrackRef = useRef<Track | null>(null);
+
+  // Keep ref in sync so callbacks always see latest value
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
 
   // Load saved auth on mount
   useEffect(() => {
@@ -84,8 +119,8 @@ export function useAudio() {
             }
           }
 
-          const updatedTokens = { ...tokens, user_id: userId };
-          setAuthTokens(updatedTokens);
+          let activeTokens = { ...tokens, user_id: userId };
+          setAuthTokens(activeTokens);
           setIsAuthenticated(true);
 
           // Load playlists inline to avoid closure issues
@@ -97,9 +132,47 @@ export function useAudio() {
               });
               console.log("Loaded playlists:", playlists?.length);
               setUserPlaylists(playlists || []);
-            } catch (playlistErr) {
+            } catch (playlistErr: any) {
+              const errStr = String(playlistErr);
               console.error("Failed to load playlists:", playlistErr);
-              setUserPlaylists([]);
+
+              // Auto-refresh token on 401/expired errors
+              if (errStr.includes("401") || errStr.includes("expired")) {
+                try {
+                  console.log("Token expired, attempting refresh...");
+                  const refreshedTokens = await invoke<AuthTokens>(
+                    "refresh_tidal_auth"
+                  );
+                  console.log("Token refreshed successfully");
+
+                  activeTokens = {
+                    ...refreshedTokens,
+                    user_id: userId ?? refreshedTokens.user_id,
+                  };
+                  setAuthTokens(activeTokens);
+
+                  // Retry loading playlists with refreshed token
+                  const playlists = await invoke<Playlist[]>(
+                    "get_user_playlists",
+                    {
+                      userId: userId,
+                    }
+                  );
+                  console.log(
+                    "Loaded playlists after refresh:",
+                    playlists?.length
+                  );
+                  setUserPlaylists(playlists || []);
+                } catch (refreshErr) {
+                  console.error("Token refresh failed:", refreshErr);
+                  // Refresh failed - force re-login
+                  setIsAuthenticated(false);
+                  setAuthTokens(null);
+                  setUserPlaylists([]);
+                }
+              } else {
+                setUserPlaylists([]);
+              }
             }
           }
         }
@@ -128,44 +201,6 @@ export function useAudio() {
 
     return () => clearInterval(checkInterval);
   }, [isPlaying, currentTrack, queue]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return; // Don't intercept if typing
-      }
-
-      switch (e.code) {
-        case "Space":
-          e.preventDefault();
-          if (isPlaying) {
-            pauseTrack();
-          } else {
-            resumeTrack();
-          }
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          playNext();
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setVolume(Math.min(1.0, volume + 0.1));
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          setVolume(Math.max(0.0, volume - 0.1));
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, volume]);
 
   const startAuth = async (): Promise<DeviceCode> => {
     try {
@@ -244,14 +279,15 @@ export function useAudio() {
 
   const playTrack = async (track: Track) => {
     try {
-      console.log("Invoking play_tidal_track with trackId:", track.id);
+      // Push current track to history before switching
+      if (currentTrackRef.current) {
+        setHistory((h) => [...h, currentTrackRef.current!]);
+      }
       await invoke("play_tidal_track", { trackId: track.id });
-      console.log("Play invoked successfully");
       setCurrentTrack(track);
       setIsPlaying(true);
     } catch (error: any) {
       console.error("Failed to play track:", error);
-      alert(`Failed to play: ${error?.message || error}`);
     }
   };
 
@@ -282,8 +318,87 @@ export function useAudio() {
     }
   };
 
+  const getPlaybackPosition = async (): Promise<number> => {
+    try {
+      return await invoke<number>("get_playback_position");
+    } catch (error) {
+      console.error("Failed to get playback position:", error);
+      return 0;
+    }
+  };
+
+  const seekTo = async (positionSecs: number) => {
+    try {
+      await invoke("seek_track", { positionSecs });
+    } catch (error) {
+      console.error("Failed to seek:", error);
+    }
+  };
+
   const addToQueue = (track: Track) => {
     setQueue((prev) => [...prev, track]);
+  };
+
+  const setQueueTracks = (tracks: Track[]) => {
+    setQueue(tracks);
+  };
+
+  const getAlbumDetail = async (albumId: number): Promise<AlbumDetail> => {
+    try {
+      return await invoke<AlbumDetail>("get_album_detail", { albumId });
+    } catch (error: any) {
+      console.error("Failed to get album detail:", error);
+      throw error;
+    }
+  };
+
+  const getAlbumTracks = async (
+    albumId: number,
+    offset: number = 0,
+    limit: number = 50
+  ): Promise<PaginatedTracks> => {
+    try {
+      return await invoke<PaginatedTracks>("get_album_tracks", {
+        albumId,
+        offset,
+        limit,
+      });
+    } catch (error: any) {
+      console.error("Failed to get album tracks:", error);
+      throw error;
+    }
+  };
+
+  const navigateToAlbum = (
+    albumId: number,
+    albumInfo?: { title: string; cover?: string; artistName?: string }
+  ) => {
+    setCurrentView({ type: "album", albumId, albumInfo });
+  };
+
+  const getFavoriteTracks = async (
+    offset: number = 0,
+    limit: number = 50
+  ): Promise<PaginatedTracks> => {
+    if (!authTokens?.user_id) throw new Error("Not authenticated");
+    try {
+      return await invoke<PaginatedTracks>("get_favorite_tracks", {
+        userId: authTokens.user_id,
+        offset,
+        limit,
+      });
+    } catch (error: any) {
+      console.error("Failed to get favorite tracks:", error);
+      throw error;
+    }
+  };
+
+  const navigateToFavorites = () => {
+    setCurrentView({ type: "favorites" });
+  };
+
+  const navigateHome = () => {
+    setCurrentView({ type: "home" });
   };
 
   const playNext = useCallback(async () => {
@@ -296,6 +411,86 @@ export function useAudio() {
     }
   }, [queue]);
 
+  const playPrevious = useCallback(async () => {
+    // If more than 3 seconds in, restart the current track
+    try {
+      const pos = await getPlaybackPosition();
+      if (pos > 3) {
+        await seekTo(0);
+        return;
+      }
+    } catch {
+      // ignore position errors
+    }
+
+    // Go to previous track from history
+    if (history.length > 0) {
+      const newHistory = [...history];
+      const prevTrack = newHistory.pop()!;
+      setHistory(newHistory);
+
+      // Put current track back at front of queue
+      if (currentTrackRef.current) {
+        const curr = currentTrackRef.current;
+        setQueue((prev) => [curr, ...prev]);
+      }
+
+      // Play previous track directly (playTrack would push to history again)
+      try {
+        await invoke("play_tidal_track", { trackId: prevTrack.id });
+        setCurrentTrack(prevTrack);
+        setIsPlaying(true);
+      } catch (error: any) {
+        console.error("Failed to play previous track:", error);
+      }
+    } else if (currentTrackRef.current) {
+      // No history, just restart current track
+      await seekTo(0);
+    }
+  }, [history]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          if (isPlaying) {
+            pauseTrack();
+          } else {
+            resumeTrack();
+          }
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          playPrevious();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          playNext();
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setVolume(Math.min(1.0, volume + 0.1));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setVolume(Math.max(0.0, volume - 0.1));
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPlaying, volume, playNext, playPrevious]);
+
   return {
     isPlaying,
     currentTrack,
@@ -304,16 +499,27 @@ export function useAudio() {
     isAuthenticated,
     userPlaylists,
     authTokens,
+    currentView,
     playTrack,
     pauseTrack,
     resumeTrack,
     setVolume,
+    seekTo,
+    getPlaybackPosition,
     addToQueue,
+    setQueueTracks,
     playNext,
+    playPrevious,
     startAuth,
     pollAuth,
     logout,
     getUserPlaylists,
     getPlaylistTracks,
+    getAlbumDetail,
+    getAlbumTracks,
+    getFavoriteTracks,
+    navigateToAlbum,
+    navigateToFavorites,
+    navigateHome,
   };
 }

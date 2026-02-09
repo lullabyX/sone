@@ -1,12 +1,19 @@
-import { Play, ChevronLeft, ChevronRight, Bell } from "lucide-react";
+import { Play, ChevronLeft, ChevronRight, Bell, Heart } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAudioContext } from "../contexts/AudioContext";
 import { getTidalImageUrl, type Track } from "../hooks/useAudio";
 import TidalImage from "./TidalImage";
 
 export default function Home() {
-  const { getPlaylistTracks, playTrack, userPlaylists, authTokens } =
-    useAudioContext();
+  const {
+    getPlaylistTracks,
+    playTrack,
+    setQueueTracks,
+    userPlaylists,
+    authTokens,
+    navigateToAlbum,
+    navigateToFavorites,
+  } = useAudioContext();
   const [featuredTracks, setFeaturedTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [greeting, setGreeting] = useState("Good evening");
@@ -43,6 +50,7 @@ export default function Home() {
     try {
       const tracks = await getPlaylistTracks(playlistId);
       if (tracks.length > 0) {
+        setQueueTracks(tracks.slice(1));
         await playTrack(tracks[0]);
       }
     } catch (err) {
@@ -95,7 +103,24 @@ export default function Home() {
             {greeting}
           </h1>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {userPlaylists.slice(0, 8).map((playlist) => (
+            {/* Loved Tracks - always first */}
+            <div
+              onClick={navigateToFavorites}
+              className="flex items-center bg-[#2a2a2a]/40 hover:bg-[#2a2a2a] rounded-[4px] overflow-hidden cursor-pointer group transition-all duration-300 h-[64px] shadow-sm hover:shadow-md"
+            >
+              <div className="w-[64px] h-[64px] flex-shrink-0 bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] shadow-lg flex items-center justify-center">
+                <Heart size={24} className="text-white" fill="white" />
+              </div>
+              <div className="flex-1 flex items-center justify-between px-4 min-w-0">
+                <span className="font-bold text-[14px] text-white truncate pr-2">
+                  Loved Tracks
+                </span>
+                <div className="w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 transform scale-90 group-hover:scale-100">
+                  <Play size={20} fill="black" className="text-black ml-1" />
+                </div>
+              </div>
+            </div>
+            {userPlaylists.slice(0, 7).map((playlist) => (
               <div
                 key={playlist.uuid}
                 onClick={() => handlePlaylistPlay(playlist.uuid)}
@@ -134,10 +159,18 @@ export default function Home() {
               </button>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-8 gap-5">
-              {featuredTracks.map((track) => (
+              {featuredTracks.map((track, index) => (
                 <div
                   key={track.id}
-                  onClick={() => handlePlayTrack(track)}
+                  onClick={() => {
+                    if (track.album?.id) {
+                      navigateToAlbum(track.album.id, {
+                        title: track.album.title,
+                        cover: track.album.cover,
+                        artistName: track.artist?.name,
+                      });
+                    }
+                  }}
                   className="p-3 bg-[#181818] hover:bg-[#282828] rounded-md cursor-pointer group transition-all duration-300"
                 >
                   <div className="aspect-square w-full rounded-md mb-3 relative overflow-hidden shadow-lg bg-[#282828]">
@@ -147,16 +180,23 @@ export default function Home() {
                       className="w-full h-full transform group-hover:scale-105 transition-transform duration-500 ease-out"
                     />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <div className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 transform scale-90 group-hover:scale-100">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQueueTracks(featuredTracks.slice(index + 1));
+                        handlePlayTrack(track);
+                      }}
+                      className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 transform scale-90 group-hover:scale-100 hover:scale-110"
+                    >
                       <Play
                         size={20}
                         fill="black"
                         className="text-black ml-1"
                       />
-                    </div>
+                    </button>
                   </div>
                   <h4 className="font-bold text-[15px] text-white truncate mb-1">
-                    {track.title}
+                    {track.album?.title || track.title}
                   </h4>
                   <p className="text-[13px] text-[#a6a6a6] truncate hover:text-white hover:underline transition-colors">
                     {track.artist?.name || "Unknown Artist"}

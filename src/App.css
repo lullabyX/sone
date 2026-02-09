@@ -67,30 +67,13 @@ body {
   background: #444;
 }
 
-/* Volume Slider Styling */
-.volume-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 10px;
-  height: 10px;
-  background: white;
-  border-radius: 50%;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
+/* Player bar - prevent text selection during scrubbing */
+.player-bar {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.volume-slider:hover::-webkit-slider-thumb {
-  opacity: 1;
-}
-
-.volume-slider::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
-    white 0%,
-    white var(--volume-percent, 75%),
-    #333 var(--volume-percent, 75%),
-    #333 100%
-  );
-  height: 4px;
-  border-radius: 2px;
+/* Scrubber - expand hit area */
+.scrubber {
+  touch-action: none;
 }

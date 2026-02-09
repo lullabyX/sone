@@ -1,11 +1,18 @@
-import { Home, Compass, Search, Plus, Library } from "lucide-react";
+import { Home, Compass, Search, Plus, Library, Heart } from "lucide-react";
 import { useAudioContext } from "../contexts/AudioContext";
 import { getTidalImageUrl } from "../hooks/useAudio";
 import TidalImage from "./TidalImage";
 import { useState } from "react";
 
 export default function Sidebar() {
-  const { userPlaylists, getPlaylistTracks, playTrack } = useAudioContext();
+  const {
+    userPlaylists,
+    getPlaylistTracks,
+    playTrack,
+    navigateToFavorites,
+    navigateHome,
+    currentView,
+  } = useAudioContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handlePlaylistClick = async (playlistId: string) => {
@@ -21,50 +28,46 @@ export default function Sidebar() {
 
   return (
     <div
-      className={`h-full bg-[#0b0b0b] flex flex-col border-r border-[#1a1a1a] transition-all duration-300 ${
-        isCollapsed ? "w-[78px]" : "w-[260px]"
-      } flex-shrink-0`}
+      className={`sidebar h-full bg-[#0b0b0b] flex flex-col border-r border-white/[0.06] transition-all duration-300 ease-in-out flex-shrink-0 ${
+        isCollapsed ? "w-[60px]" : "w-[240px] min-w-[200px] max-w-[300px]"
+      }`}
     >
       {/* Navigation */}
-      <nav className="px-3 pt-4 pb-2 space-y-1">
-        <a
-          href="#"
-          className={`flex items-center gap-4 px-3 py-2.5 text-white hover:bg-[#1a1a1a] rounded-md transition-colors group ${
-            isCollapsed ? "justify-center px-0" : ""
-          }`}
+      <nav className="px-2 pt-3 pb-1 space-y-0.5">
+        <button
+          onClick={navigateHome}
+          className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md transition-all duration-150 group ${
+            currentView.type === "home"
+              ? "text-white bg-white/[0.08]"
+              : "text-[#b3b3b3] hover:text-white hover:bg-white/[0.06]"
+          } ${isCollapsed ? "justify-center px-0" : ""}`}
           title="Home"
         >
-          <Home
-            size={22}
-            strokeWidth={2}
-            className="text-white group-hover:text-white"
-          />
-          {!isCollapsed && (
-            <span className="font-semibold text-[15px]">Home</span>
-          )}
-        </a>
+          <Home size={20} strokeWidth={2} />
+          {!isCollapsed && <span className="font-semibold text-sm">Home</span>}
+        </button>
         <a
           href="#"
-          className={`flex items-center gap-4 px-3 py-2.5 text-[#b3b3b3] hover:text-white hover:bg-[#1a1a1a] rounded-md transition-colors group ${
+          className={`flex items-center gap-3 px-2.5 py-2 text-[#b3b3b3] hover:text-white hover:bg-white/[0.06] rounded-md transition-all duration-150 group ${
             isCollapsed ? "justify-center px-0" : ""
           }`}
           title="Explore"
         >
-          <Compass size={22} strokeWidth={2} />
+          <Compass size={20} strokeWidth={2} />
           {!isCollapsed && (
-            <span className="font-semibold text-[15px]">Explore</span>
+            <span className="font-semibold text-sm">Explore</span>
           )}
         </a>
         <a
           href="#"
-          className={`flex items-center gap-4 px-3 py-2.5 text-[#b3b3b3] hover:text-white hover:bg-[#1a1a1a] rounded-md transition-colors group ${
+          className={`flex items-center gap-3 px-2.5 py-2 text-[#b3b3b3] hover:text-white hover:bg-white/[0.06] rounded-md transition-all duration-150 group ${
             isCollapsed ? "justify-center px-0" : ""
           }`}
           title="Search"
         >
-          <Search size={22} strokeWidth={2} />
+          <Search size={20} strokeWidth={2} />
           {!isCollapsed && (
-            <span className="font-semibold text-[15px]">Search</span>
+            <span className="font-semibold text-sm">Search</span>
           )}
         </a>
       </nav>
@@ -72,38 +75,36 @@ export default function Sidebar() {
       {/* Library Header */}
       <div className="flex-1 flex flex-col min-h-0 mt-1">
         <div
-          className={`px-3 py-2 flex items-center ${
+          className={`px-2 py-1.5 flex items-center ${
             isCollapsed ? "justify-center" : "justify-between"
           }`}
         >
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className={`flex items-center gap-2 text-[#b3b3b3] hover:text-white transition-colors group ${
+            className={`flex items-center gap-2 text-[#b3b3b3] hover:text-white transition-colors duration-150 group ${
               isCollapsed ? "justify-center w-full" : ""
             }`}
           >
-            <Library size={22} />
+            <Library size={20} />
             {!isCollapsed && (
-              <span className="font-semibold text-[15px]">Your Library</span>
+              <span className="font-semibold text-sm">Your Library</span>
             )}
           </button>
 
           {!isCollapsed && (
-            <div className="flex items-center gap-1">
-              <button className="text-[#b3b3b3] hover:text-white p-1 rounded-full hover:bg-[#1a1a1a] transition-colors">
-                <Plus size={18} />
-              </button>
-            </div>
+            <button className="text-[#b3b3b3] hover:text-white p-1 rounded-full hover:bg-white/[0.08] transition-colors duration-150">
+              <Plus size={16} />
+            </button>
           )}
         </div>
 
-        {/* Filter Pills (Only visible when expanded) */}
+        {/* Filter Pills */}
         {!isCollapsed && (
-          <div className="px-3 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
+          <div className="px-2 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar">
             {["Playlists", "Artists", "Albums"].map((pill) => (
               <button
                 key={pill}
-                className="px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-full text-[13px] font-semibold text-white whitespace-nowrap transition-colors"
+                className="px-2.5 py-1 bg-white/[0.07] hover:bg-white/[0.12] rounded-full text-xs font-medium text-[#e0e0e0] whitespace-nowrap transition-colors duration-150"
               >
                 {pill}
               </button>
@@ -112,7 +113,7 @@ export default function Sidebar() {
         )}
 
         {/* Playlists List */}
-        <div className="flex-1 overflow-y-auto px-2 pb-2 hover:scrollbar-thin scrollbar-thumb-[#4d4d4d] scrollbar-track-transparent">
+        <div className="flex-1 overflow-y-auto px-1.5 pb-2 custom-scrollbar">
           {userPlaylists.length === 0 ? (
             <div
               className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
@@ -125,23 +126,53 @@ export default function Sidebar() {
               </button>
             </div>
           ) : (
-            <div className="space-y-0.5 mt-1">
+            <div className="space-y-px">
+              {/* Loved Tracks - pinned at top */}
+              <button
+                onClick={navigateToFavorites}
+                className={`w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded-md transition-all duration-150 group ${
+                  currentView.type === "favorites"
+                    ? "bg-white/[0.08]"
+                    : "hover:bg-white/[0.06]"
+                } ${isCollapsed ? "justify-center" : ""}`}
+                title="Loved Tracks"
+              >
+                <div
+                  className={`flex-shrink-0 overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] ${
+                    isCollapsed ? "w-9 h-9 rounded" : "w-9 h-9 rounded"
+                  }`}
+                >
+                  <Heart size={14} className="text-white" fill="white" />
+                </div>
+
+                {!isCollapsed && (
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="text-[13px] font-medium text-white truncate leading-tight">
+                      Loved Tracks
+                    </div>
+                    <div className="text-[11px] text-[#808080] truncate leading-tight mt-0.5">
+                      Collection
+                    </div>
+                  </div>
+                )}
+              </button>
+
               {userPlaylists.map((playlist) => (
                 <button
                   key={playlist.uuid}
                   onClick={() => handlePlaylistClick(playlist.uuid)}
-                  className={`w-full flex items-center gap-3 p-2 rounded-lg hover:bg-[#1a1a1a] transition-colors group ${
+                  className={`w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded-md transition-all duration-150 group hover:bg-white/[0.06] ${
                     isCollapsed ? "justify-center" : ""
                   }`}
                   title={playlist.title}
                 >
                   <div
-                    className={`bg-[#282828] flex-shrink-0 overflow-hidden shadow-lg ${
-                      isCollapsed ? "w-12 h-12 rounded-md" : "w-12 h-12 rounded"
+                    className={`bg-[#282828] flex-shrink-0 overflow-hidden rounded ${
+                      isCollapsed ? "w-9 h-9" : "w-9 h-9"
                     }`}
                   >
                     <TidalImage
-                      src={getTidalImageUrl(playlist.image, 160)}
+                      src={getTidalImageUrl(playlist.image, 80)}
                       alt={playlist.title}
                       type="playlist"
                     />
@@ -149,12 +180,12 @@ export default function Sidebar() {
 
                   {!isCollapsed && (
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="text-[15px] font-medium text-white truncate mb-0.5">
+                      <div className="text-[13px] font-medium text-white truncate leading-tight">
                         {playlist.title}
                       </div>
-                      <div className="flex items-center gap-1 text-[13px] text-[#a6a6a6] truncate">
+                      <div className="text-[11px] text-[#808080] truncate leading-tight mt-0.5">
                         <span>Playlist</span>
-                        <span>•</span>
+                        <span className="mx-0.5">·</span>
                         <span>{playlist.creator?.name || "You"}</span>
                       </div>
                     </div>
