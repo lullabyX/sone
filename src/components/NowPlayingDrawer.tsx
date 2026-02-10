@@ -8,7 +8,7 @@ import {
   Loader2,
   Plus,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAudioContext } from "../contexts/AudioContext";
 import {
   getTidalImageUrl,
@@ -42,26 +42,23 @@ function QueueTab() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* History */}
+      {/* History — chronological order, most recent at the bottom */}
       {history.length > 0 && (
         <section>
           <h3 className="text-[13px] font-bold text-[#a6a6a6] uppercase tracking-wider mb-3">
             History
           </h3>
           <div className="flex flex-col gap-0.5">
-            {history
-              .slice(-10)
-              .reverse()
-              .map((track, i) => (
-                <TrackRow
-                  key={`hist-${track.id}-${i}`}
-                  track={track}
-                  isActive={false}
-                  isPlaying={false}
-                  dimmed
-                  onClick={() => playTrack(track)}
-                />
-              ))}
+            {history.slice(-10).map((track, i) => (
+              <TrackRow
+                key={`hist-${track.id}-${i}`}
+                track={track}
+                isActive={false}
+                isPlaying={false}
+                dimmed
+                onClick={() => playTrack(track)}
+              />
+            ))}
           </div>
         </section>
       )}
@@ -103,7 +100,6 @@ function QueueTab() {
                 isActive={false}
                 isPlaying={false}
                 onClick={() => {
-                  // Play this track and set remaining as new queue
                   const remaining = queue.slice(i + 1);
                   setQueueTracks(remaining);
                   playTrack(track);
@@ -190,14 +186,46 @@ function SuggestedTab() {
   );
 }
 
+// ─── Lyrics helpers ──────────────────────────────────────────────────────────
+
+interface LrcLine {
+  time: number; // seconds
+  text: string;
+}
+
+function parseLrc(subtitles: string): LrcLine[] {
+  const lines: LrcLine[] = [];
+  // Match [mm:ss.xx] or [mm:ss:xx] patterns
+  const regex = /\[(\d{1,2}):(\d{2})[.:]([\d]{2,3})\]\s*(.*)/g;
+  let match;
+  while ((match = regex.exec(subtitles)) !== null) {
+    const mins = parseInt(match[1], 10);
+    const secs = parseInt(match[2], 10);
+    const ms =
+      match[3].length === 2
+        ? parseInt(match[3], 10) * 10
+        : parseInt(match[3], 10);
+    const time = mins * 60 + secs + ms / 1000;
+    const text = match[4].trim();
+    if (text) lines.push({ time, text });
+  }
+  return lines;
+}
+
 // ─── Lyrics Tab ──────────────────────────────────────────────────────────────
 
 function LyricsTab() {
-  const { currentTrack, getTrackLyrics } = useAudioContext();
+  const { currentTrack, isPlaying, getTrackLyrics, getPlaybackPosition } =
+    useAudioContext();
   const [lyrics, setLyrics] = useState<Lyrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lrcLines, setLrcLines] = useState<LrcLine[]>([]);
+  const [activeLine, setActiveLine] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
 
+  // Fetch lyrics
   useEffect(() => {
     if (!currentTrack) return;
 
@@ -205,10 +233,17 @@ function LyricsTab() {
     setLoading(true);
     setError(null);
     setLyrics(null);
+    setLrcLines([]);
+    setActiveLine(-1);
 
     getTrackLyrics(currentTrack.id)
       .then((result) => {
-        if (active) setLyrics(result);
+        if (!active) return;
+        setLyrics(result);
+        if (result.subtitles) {
+          const parsed = parseLrc(result.subtitles);
+          if (parsed.length > 0) setLrcLines(parsed);
+        }
       })
       .catch((err) => {
         if (active) setError(String(err));
@@ -222,6 +257,39 @@ function LyricsTab() {
     };
   }, [currentTrack?.id]);
 
+  // Sync active line with playback position
+  useEffect(() => {
+    if (lrcLines.length === 0 || !isPlaying) return;
+
+    const sync = async () => {
+      const pos = await getPlaybackPosition();
+      let idx = -1;
+      for (let i = lrcLines.length - 1; i >= 0; i--) {
+        if (pos >= lrcLines[i].time) {
+          idx = i;
+          break;
+        }
+      }
+      setActiveLine(idx);
+    };
+
+    sync();
+    const interval = setInterval(sync, 300);
+    return () => clearInterval(interval);
+  }, [lrcLines, isPlaying, getPlaybackPosition]);
+
+  // Auto-scroll to active line
+  const scrollToLine = useCallback((idx: number) => {
+    const el = lineRefs.current[idx];
+    if (el && containerRef.current) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeLine >= 0) scrollToLine(activeLine);
+  }, [activeLine, scrollToLine]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -230,7 +298,7 @@ function LyricsTab() {
     );
   }
 
-  if (error || !lyrics?.lyrics) {
+  if (error || (!lyrics?.lyrics && lrcLines.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-[#535353]">
         <Mic2 size={40} className="mb-3" />
@@ -239,13 +307,49 @@ function LyricsTab() {
     );
   }
 
+  // Synced lyrics view (from subtitles/LRC)
+  if (lrcLines.length > 0) {
+    lineRefs.current = [];
+    return (
+      <div
+        ref={containerRef}
+        className="flex flex-col items-center gap-4 py-8 px-4"
+        dir={lyrics?.isRightToLeft ? "rtl" : "ltr"}
+      >
+        {lrcLines.map((line, i) => (
+          <p
+            key={i}
+            ref={(el) => {
+              lineRefs.current[i] = el;
+            }}
+            className={`text-center transition-all duration-300 leading-snug ${
+              i === activeLine
+                ? "text-[24px] font-bold text-white scale-105"
+                : "text-[20px] font-medium text-[#5a5a5a]"
+            }`}
+          >
+            {line.text}
+          </p>
+        ))}
+        {lyrics?.lyricsProvider && (
+          <p className="mt-8 text-[11px] text-[#535353]">
+            Lyrics provided by {lyrics.lyricsProvider}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Plain lyrics fallback
   return (
     <div
-      className="whitespace-pre-wrap text-[16px] leading-relaxed text-[#e0e0e0] pr-4"
-      dir={lyrics.isRightToLeft ? "rtl" : "ltr"}
+      className="flex flex-col items-center py-8 px-4"
+      dir={lyrics?.isRightToLeft ? "rtl" : "ltr"}
     >
-      {lyrics.lyrics}
-      {lyrics.lyricsProvider && (
+      <div className="whitespace-pre-wrap text-[20px] leading-relaxed text-[#b0b0b0] text-center max-w-[600px]">
+        {lyrics?.lyrics}
+      </div>
+      {lyrics?.lyricsProvider && (
         <p className="mt-8 text-[11px] text-[#535353]">
           Lyrics provided by {lyrics.lyricsProvider}
         </p>
@@ -304,24 +408,46 @@ function CreditsTab() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2">
+      {/* Track metadata header */}
+      {currentTrack && (
+        <div className="flex flex-col gap-4 pb-4 mb-2 border-b border-white/[0.06]">
+          <MetaRow label="Title" value={currentTrack.title} />
+          <MetaRow
+            label="Artist"
+            value={currentTrack.artist?.name || "Unknown"}
+          />
+          {currentTrack.album?.title && (
+            <MetaRow label="Album" value={currentTrack.album.title} />
+          )}
+        </div>
+      )}
+
+      {/* Credit roles */}
       {credits.map((credit, i) => (
-        <div key={`${credit.creditType}-${i}`}>
-          <h4 className="text-[12px] font-bold text-[#a6a6a6] uppercase tracking-wider mb-2">
+        <div
+          key={`${credit.creditType}-${i}`}
+          className="flex flex-col gap-1 py-2.5 border-b border-white/[0.04] last:border-0"
+        >
+          <span className="text-[11px] font-bold text-[#666] uppercase tracking-widest">
             {credit.creditType}
-          </h4>
-          <div className="flex flex-col gap-1">
-            {credit.contributors.map((c, j) => (
-              <span
-                key={`${c.name}-${j}`}
-                className="text-[14px] text-white/90"
-              >
-                {c.name}
-              </span>
-            ))}
-          </div>
+          </span>
+          <span className="text-[14px] text-white/90 leading-relaxed">
+            {credit.contributors.map((c) => c.name).join(", ")}
+          </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] font-bold text-[#666] uppercase tracking-widest">
+        {label}
+      </span>
+      <span className="text-[15px] text-white font-medium">{value}</span>
     </div>
   );
 }
@@ -352,7 +478,7 @@ function TrackRow({
         isActive ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"
       } ${dimmed ? "opacity-50" : ""}`}
     >
-      <div className="w-10 h-10 rounded bg-[#282828] overflow-hidden flex-shrink-0 relative">
+      <div className="w-10 h-10 rounded bg-[#282828] overflow-hidden shrink-0 relative">
         <TidalImage
           src={getTidalImageUrl(track.album?.cover, 80)}
           alt={track.title}
@@ -442,18 +568,18 @@ export default function NowPlayingDrawer() {
         onClick={() => setDrawerOpen(false)}
       />
 
-      {/* Drawer content - above backdrop, below player bar (z-50) */}
+      {/* Drawer content */}
       <div className="relative z-10 flex-1 flex overflow-hidden bg-[#121212] animate-slideUp">
-        {/* Left: Album Art */}
-        <div className="w-[45%] min-w-[300px] max-w-[500px] flex flex-col items-center justify-center p-10 gap-6">
-          <div className="w-full max-w-[360px] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60">
+        {/* Left: Album Art — 40% */}
+        <div className="w-[40%] flex flex-col items-center justify-center p-10 gap-6">
+          <div className="w-full max-w-[380px] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60">
             <TidalImage
               src={getTidalImageUrl(currentTrack.album?.cover, 640)}
               alt={currentTrack.album?.title || currentTrack.title}
               className="w-full h-full"
             />
           </div>
-          <div className="text-center w-full max-w-[360px]">
+          <div className="text-center w-full max-w-[380px]">
             <h2 className="text-[22px] font-bold text-white truncate">
               {currentTrack.title}
             </h2>
@@ -463,19 +589,19 @@ export default function NowPlayingDrawer() {
           </div>
         </div>
 
-        {/* Right: Tabs */}
-        <div className="flex-1 flex flex-col min-w-0 border-l border-white/[0.06]">
-          {/* Close button */}
+        {/* Right: Tabs — 60% */}
+        <div className="w-[60%] flex flex-col min-w-0 border-l border-white/[0.06]">
+          {/* Tab bar + close */}
           <div className="flex items-center justify-between px-6 pt-5 pb-2">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 flex-wrap">
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-all ${
                     activeTab === tab.id
-                      ? "bg-white/[0.12] text-white"
-                      : "text-[#a6a6a6] hover:text-white hover:bg-white/[0.05]"
+                      ? "bg-white/12 text-white"
+                      : "text-[#a6a6a6] hover:text-white hover:bg-white/5"
                   }`}
                 >
                   <tab.icon size={14} />
@@ -485,7 +611,7 @@ export default function NowPlayingDrawer() {
             </div>
             <button
               onClick={() => setDrawerOpen(false)}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-[#a6a6a6] hover:text-white hover:bg-white/[0.08] transition-all flex-shrink-0 ml-2"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[#a6a6a6] hover:text-white hover:bg-white/8 transition-all shrink-0 ml-2"
             >
               <X size={18} />
             </button>
