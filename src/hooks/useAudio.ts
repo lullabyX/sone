@@ -85,6 +85,12 @@ export interface Playlist {
   creator?: { id: number; name?: string };
 }
 
+export interface PkceAuthParams {
+  authorizeUrl: string;
+  codeVerifier: string;
+  clientUniqueKey: string;
+}
+
 export interface DeviceCode {
   deviceCode: string;
   userCode: string;
@@ -147,6 +153,7 @@ export function useAudio() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<string>("queue");
   const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
+  const [userName, setUserName] = useState<string>("Tidal User");
   const currentTrackRef = useRef<Track | null>(null);
   const hasRestoredPlaybackRef = useRef(false);
   const volumePersistReady = useRef(false);
@@ -244,8 +251,15 @@ export function useAudio() {
           setAuthTokens(activeTokens);
           setIsAuthenticated(true);
 
-          // Load playlists inline to avoid closure issues
+          // Load user profile and playlists
           if (userId) {
+            // Fetch user name (non-blocking)
+            invoke<[string, string | null]>("get_user_profile", { userId })
+              .then(([name]) => {
+                if (name) setUserName(name);
+              })
+              .catch(() => {});
+
             try {
               console.log("Loading playlists for user:", userId);
               const playlists = await invoke<Playlist[]>("get_user_playlists", {
@@ -378,6 +392,46 @@ export function useAudio() {
       return await invoke("start_tidal_auth");
     } catch (error) {
       console.error("Failed to start auth:", error);
+      throw error;
+    }
+  };
+
+  const startPkceAuth = async (): Promise<PkceAuthParams> => {
+    try {
+      return await invoke<PkceAuthParams>("start_pkce_auth");
+    } catch (error) {
+      console.error("Failed to start PKCE auth:", error);
+      throw error;
+    }
+  };
+
+  const completePkceAuth = async (
+    code: string,
+    codeVerifier: string,
+    clientUniqueKey: string
+  ): Promise<AuthTokens> => {
+    try {
+      const tokens = await invoke<AuthTokens>("complete_pkce_auth", {
+        code,
+        codeVerifier,
+        clientUniqueKey,
+      });
+
+      let userId = tokens.user_id;
+      if (!userId) {
+        try {
+          userId = await invoke<number>("get_session_user_id");
+        } catch (e) {
+          console.error("Failed to get user ID:", e);
+        }
+      }
+
+      const updatedTokens = { ...tokens, user_id: userId };
+      setAuthTokens(updatedTokens);
+      setIsAuthenticated(true);
+      return updatedTokens;
+    } catch (error) {
+      console.error("Failed to complete PKCE auth:", error);
       throw error;
     }
   };
@@ -875,6 +929,7 @@ export function useAudio() {
     drawerOpen,
     drawerTab,
     streamInfo,
+    userName,
     playTrack,
     pauseTrack,
     resumeTrack,
@@ -888,6 +943,8 @@ export function useAudio() {
     playPrevious,
     startAuth,
     pollAuth,
+    startPkceAuth,
+    completePkceAuth,
     logout,
     getUserPlaylists,
     getPlaylistTracks,

@@ -1,8 +1,9 @@
-import { Play, ChevronLeft, ChevronRight, Bell, Heart } from "lucide-react";
+import { Play, ChevronLeft, ChevronRight, Heart } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAudioContext } from "../contexts/AudioContext";
 import { getTidalImageUrl, type Playlist, type Track } from "../hooks/useAudio";
 import TidalImage from "./TidalImage";
+import UserMenu from "./UserMenu";
 
 export default function Home() {
   const {
@@ -10,7 +11,6 @@ export default function Home() {
     playTrack,
     setQueueTracks,
     userPlaylists,
-    authTokens,
     navigateToAlbum,
     navigateToPlaylist,
     navigateToFavorites,
@@ -78,21 +78,7 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button className="px-4 py-1.5 bg-white text-black text-[14px] font-bold rounded-full hover:scale-105 transition-transform">
-            Explore Premium
-          </button>
-          <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-[#a6a6a6] hover:text-white hover:scale-105 transition-all">
-            <Bell size={18} />
-          </button>
-          <button className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-[#a6a6a6] hover:text-white hover:scale-105 transition-all p-1">
-            <div className="w-full h-full bg-[#535353] rounded-full flex items-center justify-center">
-              <span className="text-[10px] font-bold text-black">
-                {authTokens?.user_id?.toString().charAt(0) || "U"}
-              </span>
-            </div>
-          </button>
-        </div>
+        <UserMenu />
       </div>
 
       <div className="px-6 pb-8">

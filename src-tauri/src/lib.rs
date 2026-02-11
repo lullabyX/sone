@@ -2,7 +2,10 @@ mod audio;
 mod tidal_api;
 
 use audio::AudioPlayer;
+use base64::Engine;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -20,6 +23,8 @@ struct Settings {
     auth_tokens: Option<AuthTokens>,
     volume: f32,
     last_track_id: Option<u64>,
+    #[serde(default)]
+    is_pkce: bool,
 }
 
 pub struct AppState {
@@ -75,6 +80,7 @@ fn poll_tidal_auth(state: State<AppState>, device_code: String) -> Result<AuthTo
         auth_tokens: Some(tokens.clone()),
         volume: 1.0,
         last_track_id: None,
+        is_pkce: false,
     };
     state.save_settings(&settings)?;
 
@@ -85,12 +91,13 @@ fn poll_tidal_auth(state: State<AppState>, device_code: String) -> Result<AuthTo
 fn load_saved_auth(state: State<AppState>) -> Result<Option<AuthTokens>, String> {
     println!("DEBUG: Loading saved auth from {:?}", state.settings_path);
     if let Some(settings) = state.load_settings() {
-        println!("DEBUG: Settings loaded, auth_tokens present: {}", settings.auth_tokens.is_some());
+        println!("DEBUG: Settings loaded, auth_tokens present: {}, is_pkce: {}", settings.auth_tokens.is_some(), settings.is_pkce);
         if let Some(tokens) = settings.auth_tokens {
             // Restore tokens to client
             let mut client = state.tidal_client.lock().map_err(|e| e.to_string())?;
             client.tokens = Some(tokens.clone());
-            println!("DEBUG: Tokens restored to client, user_id: {:?}", tokens.user_id);
+            client.is_pkce = settings.is_pkce;
+            println!("DEBUG: Tokens restored to client, user_id: {:?}, is_pkce: {}", tokens.user_id, settings.is_pkce);
             return Ok(Some(tokens));
         }
     } else {
@@ -109,6 +116,7 @@ fn refresh_tidal_auth(state: State<AppState>) -> Result<AuthTokens, String> {
         auth_tokens: None,
         volume: 1.0,
         last_track_id: None,
+        is_pkce: client.is_pkce,
     });
     settings.auth_tokens = Some(new_tokens.clone());
     state.save_settings(&settings)?;
@@ -116,11 +124,75 @@ fn refresh_tidal_auth(state: State<AppState>) -> Result<AuthTokens, String> {
     Ok(new_tokens)
 }
 
+const PKCE_REDIRECT_URI: &str = "https://tidal.com/android/login/auth";
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PkceAuthParams {
+    authorize_url: String,
+    code_verifier: String,
+    client_unique_key: String,
+}
+
+#[tauri::command]
+fn start_pkce_auth() -> Result<PkceAuthParams, String> {
+    // Generate PKCE values
+    let mut rng = rand::rng();
+    let random_bytes: [u8; 32] = rng.random();
+    let code_verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(random_bytes);
+
+    let mut hasher = Sha256::new();
+    hasher.update(code_verifier.as_bytes());
+    let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(hasher.finalize());
+
+    let client_unique_key = format!("{:016x}", rng.random::<u64>());
+
+    let authorize_url = format!(
+        "https://login.tidal.com/authorize?response_type=code&redirect_uri={}&client_id=REDACTED_CLIENT_ID_PKCE&lang=EN&appMode=android&client_unique_key={}&code_challenge={}&code_challenge_method=S256&restrict_signup=true",
+        "https%3A%2F%2Ftidal.com%2Fandroid%2Flogin%2Fauth",
+        client_unique_key,
+        code_challenge,
+    );
+
+    Ok(PkceAuthParams {
+        authorize_url,
+        code_verifier,
+        client_unique_key,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn complete_pkce_auth(
+    state: State<AppState>,
+    code: String,
+    code_verifier: String,
+    client_unique_key: String,
+) -> Result<AuthTokens, String> {
+    let mut client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    let tokens = client.exchange_pkce_code(&code, &code_verifier, PKCE_REDIRECT_URI, &client_unique_key)?;
+
+    // Save tokens and mark as PKCE session
+    let mut settings = state.load_settings().unwrap_or(Settings {
+        auth_tokens: None,
+        volume: 1.0,
+        last_track_id: None,
+        is_pkce: false,
+    });
+    settings.auth_tokens = Some(tokens.clone());
+    settings.is_pkce = true;
+    state.save_settings(&settings)?;
+
+    Ok(tokens)
+}
+
 #[tauri::command]
 fn logout(state: State<AppState>) -> Result<(), String> {
     // Clear tokens
     let mut client = state.tidal_client.lock().map_err(|e| e.to_string())?;
     client.tokens = None;
+    client.is_pkce = false;
 
     // Delete settings file
     fs::remove_file(&state.settings_path).ok();
@@ -132,6 +204,12 @@ fn logout(state: State<AppState>) -> Result<(), String> {
 fn get_session_user_id(state: State<AppState>) -> Result<u64, String> {
     let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
     client.get_session_info()
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_user_profile(state: State<AppState>, user_id: u64) -> Result<(String, Option<String>), String> {
+    let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    client.get_user_profile(user_id)
 }
 
 // ==================== Tidal API Calls ====================
@@ -261,17 +339,33 @@ fn get_track_radio(state: State<AppState>, track_id: u64, limit: u32) -> Result<
 
 #[tauri::command(rename_all = "camelCase")]
 fn play_tidal_track(state: State<AppState>, track_id: u64) -> Result<StreamInfo, String> {
-    // Get stream URL at max quality (fast API call – typically 200-500ms)
+    // Try quality tiers from highest to lowest.
     let stream_info = {
         let client = state.tidal_client.lock().map_err(|e| e.to_string())?;
-        client.get_stream_url(track_id, "HI_RES_LOSSLESS")?
+
+        client.get_stream_url(track_id, "HI_RES_LOSSLESS")
+            .or_else(|_| client.get_stream_url(track_id, "HI_RES"))
+            .or_else(|_| client.get_stream_url(track_id, "LOSSLESS"))
+            .or_else(|_| client.get_stream_url(track_id, "HIGH"))?
     };
 
-    println!("DEBUG: Dispatching background download for: {}", stream_info.url);
+    println!(
+        "DEBUG: Playing track {} — quality={:?}, bitDepth={:?}, sampleRate={:?}, codec={:?}, dash={}",
+        track_id, stream_info.audio_quality, stream_info.bit_depth, stream_info.sample_rate,
+        stream_info.codec, stream_info.manifest.is_some()
+    );
 
-    // Hand the URL to the audio player – the actual download + decode happens
-    // on a background thread so this command returns almost immediately.
-    state.audio_player.play_url(stream_info.url.clone())?;
+    let uri = if let Some(ref mpd) = stream_info.manifest {
+        // DASH: pass MPD manifest as a data URI for GStreamer's dashdemux.
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(mpd.as_bytes());
+        format!("data:application/dash+xml;base64,{}", b64)
+    } else {
+        // BTS: direct URL.
+        stream_info.url.clone()
+    };
+
+    state.audio_player.play_url(&uri)?;
 
     // Save last played track
     if let Some(mut settings) = state.load_settings() {
@@ -339,8 +433,11 @@ pub fn run() {
             poll_tidal_auth,
             load_saved_auth,
             refresh_tidal_auth,
+            start_pkce_auth,
+            complete_pkce_auth,
             logout,
             get_session_user_id,
+            get_user_profile,
             get_user_playlists,
             get_playlist_tracks,
             get_favorite_tracks,

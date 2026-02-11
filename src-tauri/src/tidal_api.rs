@@ -4,9 +4,12 @@ use std::time::Duration;
 
 const TIDAL_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2";
 const TIDAL_API_URL: &str = "https://api.tidal.com/v1";
-// Credentials from python-tidal
+// Device-code credentials (from python-tidal) – limited to LOSSLESS quality
 const CLIENT_ID: &str = "REDACTED_CLIENT_ID";
 const CLIENT_SECRET: &str = "REDACTED_CLIENT_SECRET";
+// PKCE credentials (from python-tidal) – enables HI_RES_LOSSLESS (24-bit)
+const CLIENT_ID_PKCE: &str = "REDACTED_CLIENT_ID_PKCE";
+const CLIENT_SECRET_PKCE: &str = "REDACTED_CLIENT_SECRET_PKCE";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -167,6 +170,10 @@ pub struct StreamInfo {
     pub sample_rate: Option<u32>,
     #[serde(default)]
     pub audio_quality: Option<String>,
+    /// Raw MPD/DASH manifest XML when the stream is DASH.
+    /// `None` for BTS (single-URL) streams.
+    #[serde(default)]
+    pub manifest: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -183,6 +190,7 @@ pub struct TidalSearchResults {
 pub struct TidalClient {
     client: Client,
     pub tokens: Option<AuthTokens>,
+    pub is_pkce: bool,
 }
 
 impl TidalClient {
@@ -193,6 +201,7 @@ impl TidalClient {
                 .build()
                 .unwrap(),
             tokens: None,
+            is_pkce: false,
         }
     }
 
@@ -259,9 +268,15 @@ impl TidalClient {
         let refresh_tok = current_tokens.refresh_token.clone();
         let old_user_id = current_tokens.user_id;
 
+        let (cid, csec) = if self.is_pkce {
+            (CLIENT_ID_PKCE, CLIENT_SECRET_PKCE)
+        } else {
+            (CLIENT_ID, CLIENT_SECRET)
+        };
+
         let params = [
-            ("client_id", CLIENT_ID),
-            ("client_secret", CLIENT_SECRET),
+            ("client_id", cid),
+            ("client_secret", csec),
             ("refresh_token", refresh_tok.as_str()),
             ("grant_type", "refresh_token"),
             ("scope", "r_usr w_usr w_sub"),
@@ -307,6 +322,83 @@ impl TidalClient {
 
         self.tokens = Some(new_tokens.clone());
         Ok(new_tokens)
+    }
+
+    pub fn exchange_pkce_code(
+        &mut self,
+        code: &str,
+        code_verifier: &str,
+        redirect_uri: &str,
+        client_unique_key: &str,
+    ) -> Result<AuthTokens, String> {
+        let response = self
+            .client
+            .post(format!("{}/token", TIDAL_AUTH_URL))
+            .form(&[
+                ("code", code),
+                ("client_id", CLIENT_ID_PKCE),
+                ("grant_type", "authorization_code"),
+                ("redirect_uri", redirect_uri),
+                ("scope", "r_usr+w_usr+w_sub"),
+                ("code_verifier", code_verifier),
+                ("client_unique_key", client_unique_key),
+            ])
+            .send()
+            .map_err(|e| format!("Failed to exchange PKCE code: {}", e))?;
+
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("PKCE token exchange failed ({}): {}", status, body));
+        }
+
+        let tokens = serde_json::from_str::<AuthTokens>(&body)
+            .map_err(|e| format!("Failed to parse PKCE tokens: {} - Body: {}", e, body))?;
+
+        self.tokens = Some(tokens.clone());
+        self.is_pkce = true;
+        Ok(tokens)
+    }
+
+    pub fn get_user_profile(&self, user_id: u64) -> Result<(String, Option<String>), String> {
+        let tokens = self.tokens.as_ref().ok_or("Not authenticated")?;
+
+        let response = self
+            .client
+            .get(format!("{}/users/{}", TIDAL_API_URL, user_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[("countryCode", "US")])
+            .send()
+            .map_err(|e| format!("Failed to get user profile: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("User profile request failed: {}", response.status()));
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct UserProfile {
+            #[serde(default)]
+            first_name: Option<String>,
+            #[serde(default)]
+            last_name: Option<String>,
+            #[serde(default)]
+            username: Option<String>,
+        }
+
+        let data = response
+            .json::<UserProfile>()
+            .map_err(|e| format!("Failed to parse user profile: {}", e))?;
+
+        let username = data.username.clone();
+        let name = match (&data.first_name, &data.last_name) {
+            (Some(f), Some(l)) if !f.is_empty() => format!("{} {}", f, l),
+            (Some(f), _) if !f.is_empty() => f.clone(),
+            _ => username.clone().unwrap_or_else(|| "Tidal User".to_string()),
+        };
+
+        Ok((name, username))
     }
 
     pub fn get_session_info(&self) -> Result<u64, String> {
@@ -786,9 +878,9 @@ impl TidalClient {
                 .next()
                 .ok_or("No URL in BTS manifest".to_string())?
         }
-        // Handle MPD/DASH format
+        // Handle DASH/MPD format — return raw manifest for GStreamer
         else if data.manifest_mime_type.contains("dash+xml") {
-            // Extract codec from MPD
+            // Extract codec from manifest
             if let Some(codecs_start) = manifest_str.find("codecs=\"") {
                 let start = codecs_start + 8;
                 if let Some(codecs_end) = manifest_str[start..].find("\"") {
@@ -797,23 +889,14 @@ impl TidalClient {
                 }
             }
 
-            if let Some(base_url_start) = manifest_str.find("<BaseURL>") {
-                let start = base_url_start + 9;
-                if let Some(base_url_end) = manifest_str[start..].find("</BaseURL>") {
-                    manifest_str[start..start + base_url_end].to_string()
-                } else {
-                    return Err("Malformed MPD manifest".to_string());
-                }
-            } else if let Some(init_start) = manifest_str.find("initialization=\"") {
-                let start = init_start + 16;
-                if let Some(init_end) = manifest_str[start..].find("\"") {
-                    manifest_str[start..start + init_end].to_string()
-                } else {
-                    return Err("Malformed MPD manifest".to_string());
-                }
-            } else {
-                return Err(format!("Could not extract URL from MPD manifest: {}", &manifest_str[..manifest_str.len().min(300)]));
-            }
+            return Ok(StreamInfo {
+                url: String::new(),
+                codec,
+                bit_depth: data.bit_depth,
+                sample_rate: data.sample_rate,
+                audio_quality: data.audio_quality,
+                manifest: Some(manifest_str),
+            });
         }
         // JSON fallback
         else {
@@ -843,6 +926,7 @@ impl TidalClient {
             bit_depth: data.bit_depth,
             sample_rate: data.sample_rate,
             audio_quality: data.audio_quality,
+            manifest: None,
         })
     }
 
