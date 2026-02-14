@@ -18,6 +18,7 @@ export default function Sidebar() {
     navigateToPlaylist,
     navigateToFavorites,
     navigateHome,
+    navigateToExplore,
     currentView,
   } = useNavigation();
   const { authTokens } = useAuth();
@@ -113,18 +114,20 @@ export default function Sidebar() {
           <Home size={20} strokeWidth={2} />
           {!isCollapsed && <span className="font-semibold text-sm">Home</span>}
         </button>
-        <a
-          href="#"
-          className={`flex items-center gap-3 px-2.5 py-2 text-[#b3b3b3] hover:text-white hover:bg-white/[0.06] rounded-md transition-colors duration-150 group ${
-            isCollapsed ? "justify-center px-0" : ""
-          }`}
+        <button
+          onClick={navigateToExplore}
+          className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md transition-colors duration-150 group ${
+            currentView.type === "explore" || currentView.type === "explorePage"
+              ? "text-white bg-white/[0.08]"
+              : "text-[#b3b3b3] hover:text-white hover:bg-white/[0.06]"
+          } ${isCollapsed ? "justify-center px-0" : ""}`}
           title="Explore"
         >
           <Compass size={20} strokeWidth={2} />
           {!isCollapsed && (
             <span className="font-semibold text-sm">Explore</span>
           )}
-        </a>
+        </button>
       </nav>
 
       {/* Library Header */}

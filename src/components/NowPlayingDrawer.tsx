@@ -1194,37 +1194,55 @@ function useDominantColor(imageUrl: string | undefined) {
         const img = new Image();
         img.onload = () => {
           try {
+            const size = 50;
             const canvas = document.createElement("canvas");
-            canvas.width = 1;
-            canvas.height = 1;
+            canvas.width = size;
+            canvas.height = size;
             const ctx = canvas.getContext("2d");
             if (!ctx) {
               console.error("useDominantColor: No 2d context");
               return;
             }
 
-            // Draw just the center pixel
-            ctx.drawImage(
-              img,
-              Math.floor(img.width / 2),
-              Math.floor(img.height / 2),
-              1,
-              1,
-              0,
-              0,
-              1,
-              1
-            );
+            // Draw the image scaled down
+            ctx.drawImage(img, 0, 0, size, size);
 
-            const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-            const newColor = `${r}, ${g}, ${b}`;
+            const imageData = ctx.getImageData(0, 0, size, size).data;
+            const colorCounts: Record<string, number> = {};
+            let maxCount = 0;
+            let dominantColor = "0, 0, 0";
+
+            // Quantize colors to group similar shades
+            const quantization = 10;
+
+            for (let i = 0; i < imageData.length; i += 4) {
+              const r = imageData[i];
+              const g = imageData[i + 1];
+              const b = imageData[i + 2];
+              const a = imageData[i + 3];
+
+              // Skip transparent pixels
+              if (a < 128) continue;
+
+              const qr = Math.floor(r / quantization) * quantization;
+              const qg = Math.floor(g / quantization) * quantization;
+              const qb = Math.floor(b / quantization) * quantization;
+
+              const key = `${qr},${qg},${qb}`;
+              colorCounts[key] = (colorCounts[key] || 0) + 1;
+
+              if (colorCounts[key] > maxCount) {
+                maxCount = colorCounts[key];
+                dominantColor = `${qr}, ${qg}, ${qb}`;
+              }
+            }
 
             console.log(
-              "useDominantColor: Found color (middle pixel)",
-              newColor
+              "useDominantColor: Found dominant color",
+              dominantColor
             );
             if (!cancelled) {
-              setColor(newColor);
+              setColor(dominantColor);
             }
           } catch (e) {
             console.error("useDominantColor: Canvas error", e);
@@ -1288,10 +1306,10 @@ export default function NowPlayingDrawer() {
           className="absolute inset-0 pointer-events-none z-0 transition-colors duration-1000 ease-in-out"
           style={{
             backgroundColor: dominantColor
-              ? `rgb(${dominantColor})`
+              ? `rgba(${dominantColor}, 0.50)`
               : "transparent",
-            maskImage: `linear-gradient(to bottom, rgba(${dominantColor}) 0%, rgba(0,0,0,0.05) 60%, transparent 70%)`,
-            WebkitMaskImage: `linear-gradient(to bottom, rgba(${dominantColor}) 0%, rgba(0,0,0,0.05) 60%, transparent 70%)`,
+            maskImage: `linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.05) 60%, transparent 70%)`,
+            WebkitMaskImage: `linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.05) 60%, transparent 70%)`,
           }}
         />
 

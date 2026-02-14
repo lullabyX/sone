@@ -1,131 +1,22 @@
 import { useRef, useState, useCallback } from "react";
-import { Play, ChevronLeft, ChevronRight, User, Music } from "lucide-react";
+import { Play, ChevronLeft, ChevronRight, Music } from "lucide-react";
 import { usePlayback } from "../hooks/usePlayback";
 import { useNavigation } from "../hooks/useNavigation";
 import {
-  getTidalImageUrl,
   type HomeSection as HomeSectionType,
   type MediaItemType,
 } from "../types";
 import MediaContextMenu from "./MediaContextMenu";
-
-// Helpers for extracting data from the raw JSON items
-// These handle both V1 (direct fields) and V2 (unwrapped from data.{}) formats
-function getItemImage(item: any, size: number = 320): string {
-  // Mix items: images.SMALL/MEDIUM/LARGE
-  if (item.images) {
-    if (typeof item.images === "object" && !Array.isArray(item.images)) {
-      if (size <= 320 && item.images.SMALL?.url) return item.images.SMALL.url;
-      if (size <= 640 && item.images.MEDIUM?.url) return item.images.MEDIUM.url;
-      if (item.images.LARGE?.url) return item.images.LARGE.url;
-      if (item.images.SMALL?.url) return item.images.SMALL.url;
-    }
-  }
-  // V2 mix images (array of {url, width, height})
-  if (
-    item.mixImages &&
-    Array.isArray(item.mixImages) &&
-    item.mixImages.length > 0
-  ) {
-    return item.mixImages[0]?.url || "";
-  }
-  // V2 detail images
-  if (
-    item.detailImages &&
-    typeof item.detailImages === "object" &&
-    !Array.isArray(item.detailImages)
-  ) {
-    if (item.detailImages.MEDIUM?.url) return item.detailImages.MEDIUM.url;
-    if (item.detailImages.SMALL?.url) return item.detailImages.SMALL.url;
-  }
-  if (
-    item.detailMixImages &&
-    Array.isArray(item.detailMixImages) &&
-    item.detailMixImages.length > 0
-  ) {
-    return item.detailMixImages[0]?.url || "";
-  }
-  // Album/playlist cover UUID
-  if (item.cover) return getTidalImageUrl(item.cover, size);
-  if (item.squareImage) return getTidalImageUrl(item.squareImage, size);
-  if (item.image) return getTidalImageUrl(item.image, size);
-  // Artist picture UUID
-  if (item.picture) return getTidalImageUrl(item.picture, size);
-  // Nested album cover
-  if (item.album?.cover) return getTidalImageUrl(item.album.cover, size);
-  // V2 imageUrl direct
-  if (item.imageUrl) return item.imageUrl;
-  // Video items
-  if (item.imageId) return getTidalImageUrl(item.imageId, size);
-  if (item.imagePath)
-    return `https://resources.tidal.com/images/${item.imagePath.replace(
-      /-/g,
-      "/"
-    )}/${size}x${size}.jpg`;
-  return "";
-}
-
-function getItemTitle(item: any): string {
-  if (item.title) return item.title;
-  if (item.name) return item.name;
-  if (item.titleTextInfo?.text) return item.titleTextInfo.text;
-  return "";
-}
-
-function getItemSubtitle(item: any): string {
-  if (item.subTitle) return item.subTitle;
-  if (item.shortSubtitle) return item.shortSubtitle;
-  if (item.subtitleTextInfo?.text) return item.subtitleTextInfo.text;
-  if (item.subTitleTextInfo?.text) return item.subTitleTextInfo.text;
-  if (item.shortSubtitleTextInfo?.text) return item.shortSubtitleTextInfo.text;
-  if (item.artist?.name) return item.artist.name;
-  if (item.artists && item.artists.length > 0)
-    return item.artists.map((a: any) => a.name).join(", ");
-  if (item.creator?.name) return `By ${item.creator.name}`;
-  if (item.description) return item.description;
-  return "";
-}
-
-function getItemId(item: any): string {
-  return (
-    item.id?.toString() || item.uuid || item.mixId || Math.random().toString(36)
-  );
-}
-
-function getItemType(item: any): string {
-  return item._itemType || item.type || "";
-}
-
-function isArtistItem(item: any, sectionType: string): boolean {
-  return (
-    sectionType === "ARTIST_LIST" ||
-    getItemType(item) === "ARTIST" ||
-    (item.picture !== undefined &&
-      !item.cover &&
-      !item.album &&
-      !item.images &&
-      !item.mixType)
-  );
-}
-
-function isTrackItem(item: any, sectionType: string): boolean {
-  return (
-    sectionType === "TRACK_LIST" ||
-    getItemType(item) === "TRACK" ||
-    (item.duration !== undefined &&
-      item.artist !== undefined &&
-      item.album !== undefined)
-  );
-}
-
-function isMixItem(item: any, sectionType: string): boolean {
-  return (
-    sectionType === "MIX_LIST" ||
-    getItemType(item) === "MIX" ||
-    item.mixType !== undefined ||
-    item.mixImages !== undefined
-  );
-}
+import MediaCard from "./MediaCard";
+import {
+  getItemImage,
+  getItemTitle,
+  getItemSubtitle,
+  getItemId,
+  isArtistItem,
+  isTrackItem,
+  isMixItem,
+} from "../utils/itemHelpers";
 
 interface HomeSectionProps {
   section: HomeSectionType;
@@ -325,81 +216,16 @@ export default function HomeSection({ section }: HomeSectionProps) {
         onScroll={handleScroll}
         className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2"
       >
-        {items.map((item: any) => {
-          const id = getItemId(item);
-          const isArtist = isArtistItem(item, section.sectionType);
-          return (
-            <div
-              key={id}
-              onClick={() => handleItemClick(item)}
-              onContextMenu={(e) => handleContextMenu(e, item)}
-              className="flex-shrink-0 w-[180px] p-3 bg-[#181818] hover:bg-[#282828] rounded-lg cursor-pointer group transition-[background-color] duration-300"
-            >
-              {/* Image */}
-              <div
-                className={`w-full aspect-square mb-3 relative overflow-hidden shadow-lg bg-[#282828] ${
-                  isArtist ? "rounded-full" : "rounded-md"
-                }`}
-              >
-                {getItemImage(item) ? (
-                  <img
-                    src={getItemImage(item)}
-                    alt={getItemTitle(item)}
-                    className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500 ease-out"
-                    loading="lazy"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#333] to-[#1a1a1a]">
-                    {isArtist ? (
-                      <User size={40} className="text-gray-600" />
-                    ) : (
-                      <Music size={40} className="text-gray-600" />
-                    )}
-                  </div>
-                )}
-                {!isArtist && (
-                  <>
-                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleItemClick(item);
-                      }}
-                      className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 hover:scale-110"
-                    >
-                      <Play
-                        size={20}
-                        fill="black"
-                        className="text-black ml-1"
-                      />
-                    </button>
-                  </>
-                )}
-              </div>
-              {/* Title */}
-              <h4
-                className={`font-bold text-[14px] text-white truncate mb-1 ${
-                  isArtist ? "text-center" : ""
-                }`}
-              >
-                {getItemTitle(item)}
-              </h4>
-              {/* Subtitle */}
-              {getItemSubtitle(item) && (
-                <p
-                  className={`text-[12px] text-[#a6a6a6] line-clamp-2 ${
-                    isArtist ? "text-center" : ""
-                  }`}
-                >
-                  {getItemSubtitle(item)}
-                </p>
-              )}
-            </div>
-          );
-        })}
+        {items.map((item: any) => (
+          <MediaCard
+            key={getItemId(item)}
+            item={item}
+            onClick={() => handleItemClick(item)}
+            onContextMenu={(e) => handleContextMenu(e, item)}
+            isArtist={isArtistItem(item, section.sectionType)}
+            widthClass="w-[180px] flex-shrink-0"
+          />
+        ))}
       </div>
 
       {/* Media context menu */}

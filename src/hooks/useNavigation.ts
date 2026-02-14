@@ -106,6 +106,21 @@ export function useNavigation() {
     [setCurrentView]
   );
 
+  const navigateToExplore = useCallback(() => {
+    const view: AppView = { type: "explore" };
+    window.history.pushState(view, "");
+    setCurrentView(view);
+  }, [setCurrentView]);
+
+  const navigateToExplorePage = useCallback(
+    (apiPath: string, title: string) => {
+      const view: AppView = { type: "explorePage", apiPath, title };
+      window.history.pushState(view, "");
+      setCurrentView(view);
+    },
+    [setCurrentView]
+  );
+
   return {
     currentView,
     navigateToAlbum,
@@ -117,5 +132,7 @@ export function useNavigation() {
     navigateToArtist,
     navigateToMix,
     navigateToTrackRadio,
+    navigateToExplore,
+    navigateToExplorePage,
   };
 }

@@ -1964,6 +1964,10 @@ impl TidalClient {
             if s.title.trim().is_empty() {
                 continue;
             }
+            // Skip PAGE_LINKS navigation sections on the home page
+            if s.section_type == "PAGE_LINKS_CLOUD" || s.section_type == "PAGE_LINKS" {
+                continue;
+            }
             let key = Self::section_dedup_key(&s);
             if seen.insert(key) {
                 all.push(s);
@@ -2250,10 +2254,8 @@ impl TidalClient {
             .unwrap_or("")
             .to_string();
 
-        // PAGE_LINKS are navigation sections, not content - skip
-        if section_type == "PAGE_LINKS_CLOUD" || section_type == "PAGE_LINKS" {
-            return None;
-        }
+        // PAGE_LINKS are navigation sections (explore categories) — allow them through
+        // so the explore page can use them. The home page filters them out in add_unique_sections.
 
         // Allow sections even with empty titles if they have items
         // (some sections have descriptions but no title)

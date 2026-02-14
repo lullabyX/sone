@@ -9,6 +9,8 @@ import ViewAllPage from "./components/ViewAllPage";
 import ArtistPage from "./components/ArtistPage";
 import MixPage from "./components/MixPage";
 import TrackRadioPage from "./components/TrackRadioPage";
+import ExplorePage from "./components/ExplorePage";
+import ExploreSubPage from "./components/ExploreSubPage";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
 import { useAuth } from "./hooks/useAuth";
@@ -72,7 +74,7 @@ function useZoom() {
 
 function AppContent() {
   const { isAuthenticated } = useAuth();
-  const { currentView, navigateHome } = useNavigation();
+  const { currentView, navigateHome, navigateToExplore } = useNavigation();
 
   if (!isAuthenticated) {
     return <Login />;
@@ -130,6 +132,16 @@ function AppContent() {
             trackId={currentView.trackId}
             trackInfo={currentView.trackInfo}
             onBack={navigateHome}
+          />
+        );
+      case "explore":
+        return <ExplorePage />;
+      case "explorePage":
+        return (
+          <ExploreSubPage
+            apiPath={currentView.apiPath}
+            title={currentView.title}
+            onBack={navigateToExplore}
           />
         );
       case "home":

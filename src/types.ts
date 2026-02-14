@@ -4,13 +4,18 @@ export function getTidalImageUrl(
   size: number = 320
 ): string {
   if (!coverUuid) return "";
+  
+  // If it's already a full URL, return it as is (or resize if supported, but usually these are static)
+  if (coverUuid.startsWith("http")) {
+    return coverUuid;
+  }
+
   // Tidal cover UUIDs need to be converted: uuid with dashes -> path with slashes
   const path = coverUuid.replace(/-/g, "/");
-  // Use standard Tidal sizes: 80, 160, 320, 640, 1280
+  // Use standard Tidal sizes: 160, 320, 640, 1280
   // If an invalid size is requested, snap to the nearest supported size
   let validSize = 320;
-  if (size <= 80) validSize = 80;
-  else if (size <= 160) validSize = 160;
+  if (size <= 160) validSize = 160;
   else if (size <= 320) validSize = 320;
   else if (size <= 640) validSize = 640;
   else validSize = 1280;
@@ -86,7 +91,9 @@ export type AppView =
       type: "trackRadio";
       trackId: number;
       trackInfo?: { title: string; artistName?: string; cover?: string };
-    };
+    }
+  | { type: "explore" }
+  | { type: "explorePage"; apiPath: string; title: string };
 
 export interface SearchResults {
   artists: { id: number; name: string; picture?: string }[];
