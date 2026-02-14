@@ -8,8 +8,8 @@
   font-weight: 400;
 
   color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #121212;
+  color: var(--th-text-primary, rgba(255, 255, 255, 0.87));
+  background-color: var(--th-bg-base, #121212);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -28,7 +28,7 @@ body {
 
 body {
   min-width: 320px;
-  background-color: #121212; /* Tidal BG */
+  background-color: var(--th-bg-base, #121212);
 }
 
 #root {
@@ -47,12 +47,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--th-scrollbar, #333);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--th-scrollbar-hover, #555);
 }
 
 /* Hide scrollbar for specific elements but keep functionality */
@@ -69,10 +69,10 @@ body {
   width: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #222;
+  background: var(--th-scrollbar, #222);
 }
 .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: #444;
+  background: var(--th-scrollbar-hover, #444);
 }
 
 /* Player bar - prevent text selection during scrubbing */

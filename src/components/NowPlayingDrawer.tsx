@@ -174,7 +174,7 @@ function QueueTab() {
       {/* History — chronological order, most recent at the bottom */}
       {history.length > 0 && (
         <section>
-          <h3 className="text-[13px] font-bold text-[#a6a6a6] uppercase tracking-wider mb-3">
+          <h3 className="text-[13px] font-bold text-th-text-muted uppercase tracking-wider mb-3">
             History
           </h3>
           <div className="flex flex-col gap-0.5">
@@ -196,7 +196,7 @@ function QueueTab() {
       {/* Now Playing */}
       {currentTrack && (
         <section>
-          <h3 className="text-[13px] font-bold text-[#a6a6a6] uppercase tracking-wider mb-3">
+          <h3 className="text-[13px] font-bold text-th-text-muted uppercase tracking-wider mb-3">
             Now playing
           </h3>
           <TrackRow
@@ -213,12 +213,12 @@ function QueueTab() {
       {queue.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[13px] font-bold text-[#a6a6a6] uppercase tracking-wider">
+            <h3 className="text-[13px] font-bold text-th-text-muted uppercase tracking-wider">
               Next up
             </h3>
             <button
               onClick={() => setQueueTracks([])}
-              className="text-[11px] text-[#a6a6a6] hover:text-white transition-colors"
+              className="text-[11px] text-th-text-muted hover:text-white transition-colors"
             >
               Clear
             </button>
@@ -246,12 +246,12 @@ function QueueTab() {
                 >
                   {/* Drop indicator line — above */}
                   {showDropAbove && (
-                    <div className="absolute -top-[1px] left-6 right-0 h-[2px] bg-[#00FFFF] rounded-full z-10 pointer-events-none">
-                      <div className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-[#00FFFF]" />
+                    <div className="absolute -top-[1px] left-6 right-0 h-[2px] bg-th-accent rounded-full z-10 pointer-events-none">
+                      <div className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-th-accent" />
                     </div>
                   )}
 
-                  <div className="flex items-center justify-center w-6 shrink-0 cursor-grab active:cursor-grabbing text-[#535353] hover:text-[#a6a6a6] transition-colors">
+                  <div className="flex items-center justify-center w-6 shrink-0 cursor-grab active:cursor-grabbing text-th-text-disabled hover:text-th-text-muted transition-colors">
                     <GripVertical size={14} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -271,8 +271,8 @@ function QueueTab() {
 
                   {/* Drop indicator line — below */}
                   {showDropBelow && (
-                    <div className="absolute -bottom-[1px] left-6 right-0 h-[2px] bg-[#00FFFF] rounded-full z-10 pointer-events-none">
-                      <div className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-[#00FFFF]" />
+                    <div className="absolute -bottom-[1px] left-6 right-0 h-[2px] bg-th-accent rounded-full z-10 pointer-events-none">
+                      <div className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-th-accent" />
                     </div>
                   )}
                 </div>
@@ -283,7 +283,7 @@ function QueueTab() {
       )}
 
       {queue.length === 0 && !currentTrack && (
-        <div className="flex flex-col items-center justify-center py-16 text-[#535353]">
+        <div className="flex flex-col items-center justify-center py-16 text-th-text-disabled">
           <Music size={40} className="mb-3" />
           <p className="text-sm">Queue is empty</p>
         </div>
@@ -377,7 +377,7 @@ function SuggestedTrackRow({
       >
         {/* Album art with play overlay — scoped hover via group/image */}
         <div
-          className="w-10 h-10 rounded bg-[#282828] overflow-hidden shrink-0 relative cursor-pointer group/image"
+          className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative cursor-pointer group/image"
           onClick={handlePlayClick}
         >
           <TidalImage
@@ -395,12 +395,12 @@ function SuggestedTrackRow({
         <div className="flex-1 min-w-0">
           <p
             className={`text-[13px] font-medium truncate ${
-              isActive ? "text-[#00FFFF]" : "text-white"
+              isActive ? "text-th-accent" : "text-white"
             }`}
           >
             {track.title}
           </p>
-          <p className="text-[11px] text-[#a6a6a6] truncate">
+          <p className="text-[11px] text-th-text-muted truncate">
             {track.artist?.name ? (
               <span
                 className="hover:text-white hover:underline cursor-pointer"
@@ -437,7 +437,7 @@ function SuggestedTrackRow({
           <button
             ref={dotsBtnRef}
             onClick={handleDotsClick}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[#535353] hover:text-white hover:bg-white/10 transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
             title="More options"
           >
             <MoreHorizontal size={15} />
@@ -446,13 +446,13 @@ function SuggestedTrackRow({
           {/* Heart / favorite */}
           <button
             onClick={handleToggleFavorite}
-            className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-th-border-subtle transition-colors duration-150"
             title={isFav ? "Remove from Loved tracks" : "Add to Loved tracks"}
           >
             <Heart
               size={15}
               className={
-                isFav ? "text-[#00FFFF]" : "text-[#535353] hover:text-white"
+                isFav ? "text-th-accent" : "text-th-text-disabled hover:text-white"
               }
               fill={isFav ? "currentColor" : "none"}
             />
@@ -461,7 +461,7 @@ function SuggestedTrackRow({
           {/* Add to queue */}
           <button
             onClick={handleAddToQueue}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[#535353] hover:text-white hover:bg-white/10 transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
             title="Add to queue"
           >
             <ListPlus size={15} />
@@ -588,14 +588,14 @@ function SuggestedTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 size={24} className="animate-spin text-[#00FFFF]" />
+        <Loader2 size={24} className="animate-spin text-th-accent" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-[#535353]">
+      <div className="flex flex-col items-center justify-center py-16 text-th-text-disabled">
         <Sparkles size={40} className="mb-3" />
         <p className="text-sm">Suggested tracks not available</p>
       </div>
@@ -792,14 +792,14 @@ function LyricsTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 size={24} className="animate-spin text-[#00FFFF]" />
+        <Loader2 size={24} className="animate-spin text-th-accent" />
       </div>
     );
   }
 
   if (error || (!lyrics?.lyrics && lrcLines.length === 0)) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-[#535353]">
+      <div className="flex flex-col items-center justify-center py-16 text-th-text-disabled">
         <Mic2 size={40} className="mb-3" />
         <p className="text-sm">No lyrics available for this track</p>
       </div>
@@ -813,7 +813,7 @@ function LyricsTab() {
       <div className="relative h-full">
         <div
           ref={containerRef}
-          className="h-full overflow-y-auto flex flex-col gap-3 py-10 px-2 scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent"
+          className="h-full overflow-y-auto flex flex-col gap-3 py-10 px-2 scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent"
           dir={lyrics?.isRightToLeft ? "rtl" : "ltr"}
         >
           {lrcLines.map((line, i) => {
@@ -829,8 +829,8 @@ function LyricsTab() {
                   isActive
                     ? "scale-[1.22] font-bold text-white"
                     : isPast
-                    ? "text-[#555]"
-                    : "text-[#777]"
+                    ? "text-th-text-disabled"
+                    : "text-th-text-faint"
                 }`}
                 style={isActive ? { willChange: "transform" } : undefined}
               >
@@ -840,7 +840,7 @@ function LyricsTab() {
           })}
           <div className="h-40" /> {/* bottom spacer */}
           {lyrics?.lyricsProvider && (
-            <p className="text-[11px] text-[#535353] pb-4">
+            <p className="text-[11px] text-th-text-disabled pb-4">
               Lyrics provided by {lyrics.lyricsProvider}
             </p>
           )}
@@ -850,7 +850,7 @@ function LyricsTab() {
         {userScrolled && (
           <button
             onClick={handleResync}
-            className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2.5 bg-[#00FFFF] text-black text-[12px] font-bold rounded-full shadow-lg shadow-black/40 hover:brightness-110 active:scale-95 transition-[filter,transform] duration-150 animate-fadeIn"
+            className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2.5 bg-th-accent text-black text-[12px] font-bold rounded-full shadow-lg shadow-black/40 hover:brightness-110 active:scale-95 transition-[filter,transform] duration-150 animate-fadeIn"
           >
             <Mic2 size={14} />
             Sync lyrics
@@ -863,11 +863,11 @@ function LyricsTab() {
   // Plain lyrics fallback
   return (
     <div className="py-8 px-2" dir={lyrics?.isRightToLeft ? "rtl" : "ltr"}>
-      <div className="whitespace-pre-wrap text-[18px] leading-loose text-[#999]">
+      <div className="whitespace-pre-wrap text-[18px] leading-loose text-th-text-faint">
         {lyrics?.lyrics}
       </div>
       {lyrics?.lyricsProvider && (
-        <p className="mt-8 text-[11px] text-[#535353]">
+        <p className="mt-8 text-[11px] text-th-text-disabled">
           Lyrics provided by {lyrics.lyricsProvider}
         </p>
       )}
@@ -910,14 +910,14 @@ function CreditsTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 size={24} className="animate-spin text-[#00FFFF]" />
+        <Loader2 size={24} className="animate-spin text-th-accent" />
       </div>
     );
   }
 
   if (error || credits.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-[#535353]">
+      <div className="flex flex-col items-center justify-center py-16 text-th-text-disabled">
         <Users size={40} className="mb-3" />
         <p className="text-sm">No credits available for this track</p>
       </div>
@@ -928,7 +928,7 @@ function CreditsTab() {
     <div className="flex flex-col gap-2">
       {/* Track metadata header */}
       {currentTrack && (
-        <div className="flex flex-col gap-4 pb-4 mb-2 border-b border-white/[0.06]">
+        <div className="flex flex-col gap-4 pb-4 mb-2 border-b border-th-border-subtle">
           <MetaRow label="Title" value={currentTrack.title} />
           <MetaRow
             label="Artist"
@@ -946,7 +946,7 @@ function CreditsTab() {
           key={`${credit.creditType}-${i}`}
           className="flex flex-col gap-1 py-2.5 border-b border-white/[0.04] last:border-0"
         >
-          <span className="text-[11px] font-bold text-[#666] uppercase tracking-widest">
+          <span className="text-[11px] font-bold text-th-text-faint uppercase tracking-widest">
             {credit.creditType}
           </span>
           <span className="text-[14px] text-white/90 leading-relaxed">
@@ -961,7 +961,7 @@ function CreditsTab() {
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[11px] font-bold text-[#666] uppercase tracking-widest">
+      <span className="text-[11px] font-bold text-th-text-faint uppercase tracking-widest">
         {label}
       </span>
       <span className="text-[15px] text-white font-medium">{value}</span>
@@ -1014,7 +1014,7 @@ function TrackRow({
           isActive ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"
         } ${dimmed ? "opacity-50" : ""}`}
       >
-        <div className="w-10 h-10 rounded bg-[#282828] overflow-hidden shrink-0 relative">
+        <div className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
           <TidalImage
             src={getTidalImageUrl(track.album?.cover, 80)}
             alt={track.title}
@@ -1023,13 +1023,13 @@ function TrackRow({
           {isActive && isPlaying && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <div className="flex items-end gap-[2px] h-3.5">
-                <span className="w-[2px] h-full bg-[#00FFFF] rounded-full playing-bar" />
+                <span className="w-[2px] h-full bg-th-accent rounded-full playing-bar" />
                 <span
-                  className="w-[2px] h-full bg-[#00FFFF] rounded-full playing-bar"
+                  className="w-[2px] h-full bg-th-accent rounded-full playing-bar"
                   style={{ animationDelay: "0.2s" }}
                 />
                 <span
-                  className="w-[2px] h-full bg-[#00FFFF] rounded-full playing-bar"
+                  className="w-[2px] h-full bg-th-accent rounded-full playing-bar"
                   style={{ animationDelay: "0.4s" }}
                 />
               </div>
@@ -1039,12 +1039,12 @@ function TrackRow({
         <div className="flex-1 min-w-0">
           <p
             className={`text-[13px] font-medium truncate ${
-              isActive ? "text-[#00FFFF]" : "text-white"
+              isActive ? "text-th-accent" : "text-white"
             }`}
           >
             {track.title}
           </p>
-          <p className="text-[11px] text-[#a6a6a6] truncate">
+          <p className="text-[11px] text-th-text-muted truncate">
             {track.artist?.name ? (
               <span
                 className={
@@ -1098,7 +1098,7 @@ function TrackRow({
               e.stopPropagation();
               setDotsMenuOpen(true);
             }}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[#535353] hover:text-white hover:bg-white/10 transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
             title="More options"
           >
             <MoreHorizontal size={15} />
@@ -1111,13 +1111,13 @@ function TrackRow({
                 e.stopPropagation();
                 onToggleFavorite();
               }}
-              className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors duration-150"
+              className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-th-border-subtle transition-colors duration-150"
               title={isFav ? "Remove from Loved tracks" : "Add to Loved tracks"}
             >
               <Heart
                 size={15}
                 className={
-                  isFav ? "text-[#00FFFF]" : "text-[#535353] hover:text-white"
+                  isFav ? "text-th-accent" : "text-th-text-disabled hover:text-white"
                 }
                 fill={isFav ? "currentColor" : "none"}
               />
@@ -1130,7 +1130,7 @@ function TrackRow({
                 e.stopPropagation();
                 onRemove();
               }}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[#535353] hover:text-white hover:bg-white/10 transition-colors duration-150"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
               title="Remove"
             >
               <X size={14} />
@@ -1300,7 +1300,7 @@ export default function NowPlayingDrawer() {
       />
 
       {/* Drawer content */}
-      <div className="relative z-10 flex-1 flex overflow-hidden bg-[#121212] animate-slideUp">
+      <div className="relative z-10 flex-1 flex overflow-hidden bg-th-base animate-slideUp">
         {/* Gradient overlay from dominant album color */}
         <div
           className="absolute inset-0 pointer-events-none z-0 transition-colors duration-1000 ease-in-out"
@@ -1326,14 +1326,14 @@ export default function NowPlayingDrawer() {
             <h2 className="text-[22px] font-bold text-white truncate">
               {currentTrack.title}
             </h2>
-            <p className="text-[15px] text-[#a6a6a6] truncate mt-1">
+            <p className="text-[15px] text-th-text-muted truncate mt-1">
               {currentTrack.artist?.name || "Unknown Artist"}
             </p>
           </div>
         </div>
 
         {/* Right: Tabs — 60% */}
-        <div className="relative z-[1] w-[60%] flex flex-col min-w-0 border-l border-white/[0.06]">
+        <div className="relative z-[1] w-[60%] flex flex-col min-w-0 border-l border-th-border-subtle">
           {/* Tab bar + close */}
           <div className="flex items-center justify-between px-6 pt-5 pb-2">
             <div className="flex items-center gap-1 flex-wrap">
@@ -1344,7 +1344,7 @@ export default function NowPlayingDrawer() {
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-colors duration-150 ${
                     activeTab === tab.id
                       ? "bg-white/12 text-white"
-                      : "text-[#a6a6a6] hover:text-white hover:bg-white/5"
+                      : "text-th-text-muted hover:text-white hover:bg-white/5"
                   }`}
                 >
                   <tab.icon size={14} />
@@ -1354,7 +1354,7 @@ export default function NowPlayingDrawer() {
             </div>
             <button
               onClick={() => setDrawerOpen(false)}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-[#a6a6a6] hover:text-white hover:bg-white/8 transition-colors duration-150 shrink-0 ml-2"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors duration-150 shrink-0 ml-2"
             >
               <X size={18} />
             </button>
@@ -1363,28 +1363,28 @@ export default function NowPlayingDrawer() {
           {/* Tab content — all tabs stay mounted to preserve state; inactive ones are hidden */}
           <div className="flex-1 overflow-hidden relative">
             <div
-              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent ${
+              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent ${
                 activeTab === "queue" ? "" : "hidden"
               }`}
             >
               <QueueTab />
             </div>
             <div
-              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent ${
+              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent ${
                 activeTab === "suggested" ? "" : "hidden"
               }`}
             >
               <SuggestedTab />
             </div>
             <div
-              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent ${
+              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent ${
                 activeTab === "lyrics" ? "" : "hidden"
               }`}
             >
               <LyricsTab />
             </div>
             <div
-              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent ${
+              className={`absolute inset-0 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent ${
                 activeTab === "credits" ? "" : "hidden"
               }`}
             >

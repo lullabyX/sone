@@ -108,10 +108,10 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
   if (loading) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-[#00FFFF] border-t-transparent rounded-full animate-spin" />
-          <p className="text-[#a6a6a6] text-sm">Loading favorites...</p>
+          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
+          <p className="text-th-text-muted text-sm">Loading favorites...</p>
         </div>
       </div>
     );
@@ -119,13 +119,13 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
-          <Heart size={48} className="text-[#535353]" />
+          <Heart size={48} className="text-th-text-disabled" />
           <p className="text-white font-semibold text-lg">
             Couldn't load favorites
           </p>
-          <p className="text-[#a6a6a6] text-sm max-w-md">{error}</p>
+          <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
             className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
@@ -138,7 +138,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] overflow-y-auto scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent">
+    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Favorites Header */}
       <div className="px-8 pb-8 flex items-end gap-7">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
@@ -151,7 +151,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight">
             Loved Tracks
           </h1>
-          <div className="flex items-center gap-1.5 text-[14px] text-[#a6a6a6] mt-2">
+          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <span>
               {totalTracks} song{totalTracks !== 1 ? "s" : ""}
             </span>
@@ -176,7 +176,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
         {/* End of list */}
         {!hasMore && tracks.length > 0 && (
-          <div className="py-6 text-center text-[13px] text-[#535353]">
+          <div className="py-6 text-center text-[13px] text-th-text-disabled">
             {totalTracks} song{totalTracks !== 1 ? "s" : ""}
           </div>
         )}
@@ -184,11 +184,11 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         {/* Empty state */}
         {!hasMore && tracks.length === 0 && (
           <div className="py-16 text-center">
-            <Heart size={48} className="text-[#535353] mx-auto mb-4" />
+            <Heart size={48} className="text-th-text-disabled mx-auto mb-4" />
             <p className="text-white font-semibold text-lg mb-2">
               No loved tracks yet
             </p>
-            <p className="text-[#a6a6a6] text-sm">
+            <p className="text-th-text-muted text-sm">
               Heart songs on Tidal to see them here.
             </p>
           </div>

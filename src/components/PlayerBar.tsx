@@ -29,14 +29,14 @@ const TrackInfoSection = memo(function TrackInfoSection() {
   const { toggleDrawer } = useDrawer();
 
   if (!currentTrack) {
-    return <div className="text-[#666] text-sm">No track playing</div>;
+    return <div className="text-th-text-faint text-sm">No track playing</div>;
   }
 
   return (
     <>
       <div
         onClick={toggleDrawer}
-        className="w-16 h-16 rounded-md bg-[#282828] flex-shrink-0 overflow-hidden shadow-lg shadow-black/40 group cursor-pointer"
+        className="w-16 h-16 rounded-md bg-th-surface-hover flex-shrink-0 overflow-hidden shadow-lg shadow-black/40 group cursor-pointer"
       >
         <TidalImage
           src={getTidalImageUrl(currentTrack.album?.cover, 160)}
@@ -48,7 +48,7 @@ const TrackInfoSection = memo(function TrackInfoSection() {
         <span className="text-white text-[13px] font-semibold truncate hover:underline cursor-pointer leading-tight">
           {currentTrack.title}
         </span>
-        <span className="text-[#b3b3b3] text-[11px] truncate hover:text-white hover:underline cursor-pointer transition-colors duration-200">
+        <span className="text-th-text-secondary text-[11px] truncate hover:text-white hover:underline cursor-pointer transition-colors duration-200">
           {currentTrack.artist?.name || "Unknown Artist"}
         </span>
       </div>
@@ -86,7 +86,7 @@ const FavoriteButton = memo(function FavoriteButton() {
     <button
       onClick={toggleLike}
       className={`ml-1 flex-shrink-0 transition-[color,transform] duration-200 active:scale-90 ${
-        isLiked ? "text-[#1ed760]" : "text-[#666] hover:text-white"
+        isLiked ? "text-th-accent" : "text-th-text-faint hover:text-white"
       }`}
     >
       <Heart
@@ -200,7 +200,7 @@ const ProgressScrubber = memo(function ProgressScrubber() {
   );
 
   return (
-    <div className="w-full flex items-center gap-2 text-[#a0a0a0]">
+    <div className="w-full flex items-center gap-2 text-th-text-muted">
       <span className="min-w-[40px] text-right text-[11px] tabular-nums select-none">
         {formatTime(displayTime)}
       </span>
@@ -221,7 +221,7 @@ const ProgressScrubber = memo(function ProgressScrubber() {
           <div
             className={`absolute left-0 rounded-full transition-[height,top,background-color] duration-100 ${
               isHoveringProgress || isDragging
-                ? "h-full top-0 bg-[#00ffff]"
+                ? "h-full top-0 bg-th-accent"
                 : "h-[3px] top-[1px] bg-white/60"
             }`}
             style={{ width: `${clampedProgress}%` }}
@@ -229,8 +229,8 @@ const ProgressScrubber = memo(function ProgressScrubber() {
           {/* Unfilled track overlay — thinner when not hovered */}
           {!(isHoveringProgress || isDragging) && (
             <div className="absolute inset-0 rounded-full">
-              <div className="absolute left-0 right-0 top-0 h-[1px] bg-[#181818]" />
-              <div className="absolute left-0 right-0 bottom-0 h-[1px] bg-[#181818]" />
+              <div className="absolute left-0 right-0 top-0 h-[1px] bg-th-elevated" />
+              <div className="absolute left-0 right-0 bottom-0 h-[1px] bg-th-elevated" />
             </div>
           )}
         </div>
@@ -268,18 +268,18 @@ const TransportControls = memo(function TransportControls() {
           onClick={() => setIsShuffle(!isShuffle)}
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
             isShuffle
-              ? "text-[#00ffff]"
-              : "text-[#b3b3b3] hover:text-white hover:bg-white/[0.07]"
+              ? "text-th-accent"
+              : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
           }`}
         >
           <Shuffle size={15} strokeWidth={2} />
           {isShuffle && (
-            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#00ffff]" />
+            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
           )}
         </button>
         <button
           onClick={playPrevious}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-[#b3b3b3] hover:text-white hover:bg-white/[0.07] transition-[color,background-color,transform] duration-150 active:scale-90"
+          className="w-8 h-8 flex items-center justify-center rounded-full text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-[color,background-color,transform] duration-150 active:scale-90"
         >
           <SkipBack size={18} fill="currentColor" />
         </button>
@@ -295,7 +295,7 @@ const TransportControls = memo(function TransportControls() {
         </button>
         <button
           onClick={playNext}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-[#b3b3b3] hover:text-white hover:bg-white/[0.07] transition-[color,background-color,transform] duration-150 active:scale-90"
+          className="w-8 h-8 flex items-center justify-center rounded-full text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-[color,background-color,transform] duration-150 active:scale-90"
         >
           <SkipForward size={18} fill="currentColor" />
         </button>
@@ -303,18 +303,18 @@ const TransportControls = memo(function TransportControls() {
           onClick={() => setRepeatMode((repeatMode + 1) % 3)}
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
             repeatMode > 0
-              ? "text-[#00ffff]"
-              : "text-[#b3b3b3] hover:text-white hover:bg-white/[0.07]"
+              ? "text-th-accent"
+              : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
           }`}
         >
           <Repeat size={15} strokeWidth={2} />
           {repeatMode === 2 && (
-            <span className="absolute -top-0.5 -right-0.5 text-[7px] font-bold bg-[#00ffff] text-black rounded-full w-3 h-3 flex items-center justify-center leading-none">
+            <span className="absolute -top-0.5 -right-0.5 text-[7px] font-bold bg-th-accent text-black rounded-full w-3 h-3 flex items-center justify-center leading-none">
               1
             </span>
           )}
           {repeatMode > 0 && (
-            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#00ffff]" />
+            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
           )}
         </button>
       </div>
@@ -350,24 +350,26 @@ const QualityBadge = memo(function QualityBadge() {
   if (streamInfo?.codec) parts.push(streamInfo.codec);
   const detail = parts.join(" ");
 
+  const label = isMax ? "HI-RES LOSSLESS" : isHiFi ? "LOSSLESS" : "HIGH";
+
   return (
-    <div className="flex items-center gap-2">
-      {detail && (
-        <span className="text-[10px] text-[#888] font-medium tracking-wide hidden xl:inline">
-          {detail}
-        </span>
-      )}
+    <div className="flex flex-col items-end gap-0.5">
       <span
         className={`px-2 py-0.5 text-[9px] font-black rounded tracking-wider leading-none ${
           isMax
-            ? "bg-[#ffa726] text-black"
+            ? "bg-th-accent text-black"
             : isHiFi
-            ? "bg-[#1ed760] text-black"
-            : "bg-[#555] text-white"
+            ? "bg-th-accent/70 text-black"
+            : "bg-th-button-hover text-white"
         }`}
       >
-        {isMax ? "MAX" : isHiFi ? "HiFi" : "HIGH"}
+        {label}
       </span>
+      {detail && (
+        <span className="text-[9px] text-th-text-faint font-medium tracking-wide hidden xl:inline">
+          {detail}
+        </span>
+      )}
     </div>
   );
 });
@@ -390,7 +392,7 @@ const VolumeSlider = memo(function VolumeSlider() {
         onClick={() => {
           setVolume(volume > 0 ? 0 : 1);
         }}
-        className="text-[#b3b3b3] hover:text-white transition-colors duration-150 flex-shrink-0"
+        className="text-th-text-secondary hover:text-white transition-colors duration-150 flex-shrink-0"
       >
         <VolumeIcon size={16} strokeWidth={2} />
       </button>
@@ -407,7 +409,7 @@ const VolumeSlider = memo(function VolumeSlider() {
         <div className="relative h-[3px] group-hover/vol:h-[4px] transition-[height] duration-100 rounded-full">
           <div className="absolute inset-0 bg-white/[0.12] rounded-full" />
           <div
-            className="absolute h-full bg-white/70 group-hover/vol:bg-[#00ffff] rounded-full transition-colors duration-100"
+            className="absolute h-full bg-white/70 group-hover/vol:bg-th-accent rounded-full transition-colors duration-100"
             style={{ width: `${volume * 100}%` }}
           />
           <div
@@ -429,7 +431,7 @@ const DrawerButtons = memo(function DrawerButtons() {
     <>
       <button
         onClick={() => openDrawerToTab("lyrics")}
-        className="text-[#666] hover:text-white transition-colors duration-150"
+        className="text-th-text-faint hover:text-white transition-colors duration-150"
         title="Lyrics"
       >
         <Mic2 size={16} strokeWidth={2} />
@@ -437,7 +439,7 @@ const DrawerButtons = memo(function DrawerButtons() {
       <VolumeSlider />
       <button
         onClick={() => openDrawerToTab("queue")}
-        className="text-[#666] hover:text-white transition-colors duration-150"
+        className="text-th-text-faint hover:text-white transition-colors duration-150"
         title="Play queue"
       >
         <ListMusic size={16} strokeWidth={2} />
@@ -450,7 +452,7 @@ const DrawerButtons = memo(function DrawerButtons() {
 
 export default function PlayerBar() {
   return (
-    <div className="player-bar h-[90px] bg-[#181818] border-t border-white/[0.06] px-4 flex items-center justify-between relative z-50 select-none">
+    <div className="player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none">
       {/* Left: Track Info */}
       <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
         <TrackInfoSection />

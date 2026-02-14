@@ -20,7 +20,7 @@ function TidalImageComponent({
   if (!src || hasError) {
     return (
       <div
-        className={`bg-gradient-to-br from-[#333] to-[#1a1a1a] flex items-center justify-center ${className}`}
+        className={`bg-gradient-to-br from-th-button to-th-surface flex items-center justify-center ${className}`}
       >
         {type === "playlist" ? (
           <Play size={24} className="text-gray-600" />
@@ -34,7 +34,7 @@ function TidalImageComponent({
   return (
     <div className={`relative ${className}`}>
       {isLoading && (
-        <div className="absolute inset-0 bg-[#282828] animate-pulse" />
+        <div className="absolute inset-0 bg-th-surface-hover animate-pulse" />
       )}
       <img
         src={src}

@@ -135,26 +135,26 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="flex-1 bg-gradient-to-b from-[#1a1a1a] to-[#121212] min-h-full">
+      <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
         <div className="px-6 py-8">
           {/* Skeleton greeting */}
-          <div className="h-10 w-64 bg-[#282828] rounded-lg animate-pulse mb-6" />
+          <div className="h-10 w-64 bg-th-surface-hover rounded-lg animate-pulse mb-6" />
           {/* Skeleton quick access */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-10">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-[56px] bg-[#282828]/40 rounded-[4px] animate-pulse" />
+              <div key={i} className="h-[56px] bg-th-surface-hover/40 rounded-[4px] animate-pulse" />
             ))}
           </div>
           {/* Skeleton sections */}
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="mb-8">
-              <div className="h-7 w-48 bg-[#282828] rounded animate-pulse mb-4" />
+              <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
               <div className="flex gap-4">
                 {Array.from({ length: 6 }).map((_, j) => (
                   <div key={j} className="flex-shrink-0 w-[180px]">
-                    <div className="aspect-square bg-[#282828] rounded-md animate-pulse mb-2" />
-                    <div className="h-4 w-32 bg-[#282828] rounded animate-pulse mb-1" />
-                    <div className="h-3 w-24 bg-[#282828] rounded animate-pulse" />
+                    <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+                    <div className="h-4 w-32 bg-th-surface-hover rounded animate-pulse mb-1" />
+                    <div className="h-3 w-24 bg-th-surface-hover rounded animate-pulse" />
                   </div>
                 ))}
               </div>
@@ -174,7 +174,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-[#1a1a1a] to-[#121212] min-h-full">
+    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <div className="px-6 py-8">
         {/* Quick Access Grid (Hero) */}
         <section className="mb-10">
@@ -185,7 +185,7 @@ export default function Home() {
             {/* Loved Tracks - always first */}
             <div
               onClick={navigateToFavorites}
-              className="flex items-center bg-[#2a2a2a]/40 hover:bg-[#2a2a2a] rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
+              className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
             >
               <div className="w-[56px] h-[56px] flex-shrink-0 bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] shadow-lg flex items-center justify-center">
                 <Heart size={22} className="text-white" fill="white" />
@@ -194,7 +194,7 @@ export default function Home() {
                 <span className="font-bold text-[13px] text-white truncate pr-2">
                   Loved Tracks
                 </span>
-                <div className="w-9 h-9 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 flex-shrink-0">
+                <div className="w-9 h-9 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 flex-shrink-0">
                   <Play size={18} fill="black" className="text-black ml-0.5" />
                 </div>
               </div>
@@ -204,9 +204,9 @@ export default function Home() {
                 key={playlist.uuid}
                 onClick={() => handleOpenPlaylist(playlist)}
                 onContextMenu={(e) => handlePlaylistContextMenu(e, playlist)}
-                className="flex items-center bg-[#2a2a2a]/40 hover:bg-[#2a2a2a] rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
+                className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
               >
-                <div className="w-[56px] h-[56px] flex-shrink-0 bg-[#282828] shadow-lg">
+                <div className="w-[56px] h-[56px] flex-shrink-0 bg-th-surface-hover shadow-lg">
                   <TidalImage
                     src={getTidalImageUrl(playlist.image, 160)}
                     alt={playlist.title}
@@ -218,7 +218,7 @@ export default function Home() {
                   <span className="font-bold text-[13px] text-white truncate pr-2">
                     {playlist.title}
                   </span>
-                  <div className="w-9 h-9 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 flex-shrink-0">
+                  <div className="w-9 h-9 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 flex-shrink-0">
                     <Play
                       size={18}
                       fill="black"

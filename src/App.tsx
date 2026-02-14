@@ -16,6 +16,7 @@ import { AppInitializer } from "./components/AppInitializer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
 import { ToastProvider } from "./contexts/ToastContext";
+import { useTheme } from "./hooks/useTheme";
 import "./App.css";
 
 const ZOOM_KEY = "tide-vibe.zoom.v1";
@@ -155,6 +156,7 @@ function AppContent() {
 
 function App() {
   useZoom();
+  useTheme();
 
   // Disable the default browser/webview context menu globally
   useEffect(() => {

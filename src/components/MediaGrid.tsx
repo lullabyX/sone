@@ -19,9 +19,9 @@ export function MediaGridSkeleton({ count = 18 }: { count?: number }) {
     <MediaGrid>
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="p-3">
-          <div className="aspect-square bg-[#282828] rounded-md animate-pulse mb-2" />
-          <div className="h-4 w-3/4 bg-[#282828] rounded animate-pulse mb-1" />
-          <div className="h-3 w-1/2 bg-[#282828] rounded animate-pulse" />
+          <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+          <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+          <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
         </div>
       ))}
     </MediaGrid>
@@ -32,7 +32,7 @@ export function MediaGridSkeleton({ count = 18 }: { count?: number }) {
 export function MediaGridEmpty({ message = "No items found" }: { message?: string }) {
   return (
     <div className="text-center py-12">
-      <p className="text-[#a6a6a6] text-sm">{message}</p>
+      <p className="text-th-text-muted text-sm">{message}</p>
     </div>
   );
 }
@@ -41,8 +41,8 @@ export function MediaGridEmpty({ message = "No items found" }: { message?: strin
 export function MediaGridError({ error }: { error: string }) {
   return (
     <div className="text-center py-12">
-      <p className="text-[#a6a6a6] text-sm">Failed to load content</p>
-      <p className="text-[#666] text-xs mt-1">{error}</p>
+      <p className="text-th-text-muted text-sm">Failed to load content</p>
+      <p className="text-th-text-faint text-xs mt-1">{error}</p>
     </div>
   );
 }

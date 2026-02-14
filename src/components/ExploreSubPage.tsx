@@ -73,7 +73,7 @@ export default function ExploreSubPage({
   };
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-[#1a1a1a] to-[#121212] min-h-full">
+    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <div className="px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
@@ -103,7 +103,7 @@ export default function ExploreSubPage({
               <button
                 key={getItemId(item)}
                 onClick={() => handleNavItemClick(item)}
-                className="text-left text-[15px] font-medium text-[#b3b3b3] hover:text-white transition-colors duration-150"
+                className="text-left text-[15px] font-medium text-th-text-secondary hover:text-white transition-colors duration-150"
               >
                 {getItemTitle(item)}
               </button>

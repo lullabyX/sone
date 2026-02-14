@@ -329,15 +329,15 @@ export default function Login() {
 
   if (!credentialsLoaded) {
     return (
-      <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-[#0a0a0a] via-[#121212] to-[#0a0a0a]">
-        <Loader2 className="animate-spin text-[#00FFFF]" size={32} />
+      <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+        <Loader2 className="animate-spin text-th-accent" size={32} />
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-[#0a0a0a] via-[#121212] to-[#0a0a0a]">
-      <div className="text-center p-10 bg-[#1a1a1a]/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/[0.06] max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+      <div className="text-center p-10 bg-th-surface/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-th-border-subtle max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-center gap-3">
           <div className="w-12 h-12 bg-white text-black font-extrabold flex items-center justify-center rounded-md text-2xl">
@@ -351,19 +351,19 @@ export default function Login() {
         {/* ==================== Idle ==================== */}
         {step === "idle" && (
           <>
-            <p className="text-[#a6a6a6] mb-6 text-lg">
+            <p className="text-th-text-muted mb-6 text-lg">
               Connect your Tidal account to start streaming
             </p>
 
             {/* Credentials */}
-            <div className={`text-left bg-[#0f0f0f] rounded-xl p-5 border border-white/[0.06] mb-4 transition-opacity ${authMethod === "import" ? "opacity-70 cursor-not-allowed" : ""}`}>
+            <div className={`text-left bg-th-overlay rounded-xl p-5 border border-th-border-subtle mb-4 transition-opacity ${authMethod === "import" ? "opacity-70 cursor-not-allowed" : ""}`}>
               <div className="flex items-center gap-2 mb-4">
-                <KeyRound size={16} className="text-[#00FFFF]" />
+                <KeyRound size={16} className="text-th-accent" />
                 <span className="text-[14px] text-white font-medium">
                   API Credentials
                 </span>
                 {authMethod === "import" && (
-                  <span className="text-[10px] text-[#777] ml-auto">
+                  <span className="text-[10px] text-th-text-faint ml-auto">
                     Extracted from pasted data
                   </span>
                 )}
@@ -372,10 +372,10 @@ export default function Login() {
               <div className="space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[12px] text-[#808080]">
+                    <label className="text-[12px] text-th-text-faint">
                       Client ID <span className="text-red-400/70">*</span>
                     </label>
-                    <span className="text-[10px] text-[#555]">Required</span>
+                    <span className="text-[10px] text-th-text-disabled">Required</span>
                   </div>
                   <input
                     type="text"
@@ -383,16 +383,16 @@ export default function Login() {
                     onChange={(e) => setClientId(e.target.value)}
                     disabled={authMethod === "import"}
                     placeholder={authMethod === "import" ? "Auto-extracted from cURL" : "Your Tidal app Client ID"}
-                    className="w-full bg-[#1a1a1a] border border-white/[0.1] rounded-lg px-3 py-2.5 text-[13px] text-white placeholder-[#444] outline-none focus:border-[#00FFFF]/50 font-mono disabled:cursor-not-allowed disabled:placeholder-[#666]"
+                    className="w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2.5 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[12px] text-[#808080]">
+                    <label className="text-[12px] text-th-text-faint">
                       Client Secret
                     </label>
-                    <span className="text-[10px] text-[#555]">
+                    <span className="text-[10px] text-th-text-disabled">
                       Optional -- enables Hi-Res
                     </span>
                   </div>
@@ -403,13 +403,13 @@ export default function Login() {
                       onChange={(e) => setClientSecret(e.target.value)}
                       disabled={authMethod === "import"}
                       placeholder={authMethod === "import" ? "Auto-extracted from cURL" : "Leave blank for Lossless (CD quality)"}
-                      className="w-full bg-[#1a1a1a] border border-white/[0.1] rounded-lg px-3 py-2.5 pr-10 text-[13px] text-white placeholder-[#444] outline-none focus:border-[#00FFFF]/50 font-mono disabled:cursor-not-allowed disabled:placeholder-[#666]"
+                      className="w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2.5 pr-10 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
                     />
                     <button
                       type="button"
                       onClick={() => setShowSecret(!showSecret)}
                       disabled={authMethod === "import"}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#666] hover:text-[#999] transition-colors disabled:cursor-not-allowed"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-th-text-faint hover:text-th-text-faint transition-colors disabled:cursor-not-allowed"
                     >
                       {showSecret ? (
                         <EyeOff size={15} />
@@ -445,15 +445,15 @@ export default function Login() {
                 </div>
               )}
 
-              <p className="text-[11px] text-[#444] mt-3">
+              <p className="text-[11px] text-th-text-disabled mt-3">
                 Credentials are stored locally and only sent to Tidal's auth
                 servers.
               </p>
             </div>
 
             {/* Auth Method Tabs */}
-            <div className="text-left bg-[#0f0f0f] rounded-xl border border-white/[0.06] mb-6 overflow-hidden">
-              <div className="flex border-b border-white/[0.06]">
+            <div className="text-left bg-th-overlay rounded-xl border border-th-border-subtle mb-6 overflow-hidden">
+              <div className="flex border-b border-th-border-subtle">
                 {(
                   [
                     ["device", Smartphone, "Device Code"],
@@ -470,8 +470,8 @@ export default function Login() {
                     }}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-3 text-[12px] font-medium transition-colors ${
                       authMethod === id
-                        ? "text-[#00FFFF] bg-[#00FFFF]/[0.06] border-b-2 border-[#00FFFF]"
-                        : "text-[#666] hover:text-[#999]"
+                        ? "text-th-accent bg-th-accent/[0.06] border-b-2 border-th-accent"
+                        : "text-th-text-faint hover:text-th-text-faint"
                     }`}
                   >
                     <Icon size={13} />
@@ -484,9 +484,9 @@ export default function Login() {
                 {/* ---- Device Code ---- */}
                 {authMethod === "device" && (
                   <>
-                    <p className="text-[12px] text-[#666] mb-2">
+                    <p className="text-[12px] text-th-text-faint mb-2">
                       Get a code, visit{" "}
-                      <span className="text-[#999]">link.tidal.com</span>, and
+                      <span className="text-th-text-faint">link.tidal.com</span>, and
                       enter it to log in. No redirect URLs needed.
                     </p>
                     <p className="text-[11px] text-amber-400/70 mb-4">
@@ -497,7 +497,7 @@ export default function Login() {
                     <button
                       onClick={handleDeviceLogin}
                       disabled={!clientId.trim()}
-                      className="w-full px-6 py-3 bg-[#00FFFF] text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Get Login Code
                     </button>
@@ -507,7 +507,7 @@ export default function Login() {
                 {/* ---- PKCE ---- */}
                 {authMethod === "pkce" && (
                   <>
-                    <p className="text-[12px] text-[#666] mb-2">
+                    <p className="text-[12px] text-th-text-faint mb-2">
                       Opens Tidal's login in your browser. After login, copy the
                       redirect URL back here.
                     </p>
@@ -519,7 +519,7 @@ export default function Login() {
                     <button
                       onClick={handlePkceLogin}
                       disabled={!clientId.trim() || !hasSecret}
-                      className="w-full px-6 py-3 bg-[#00FFFF] text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Login with Tidal
                     </button>
@@ -529,9 +529,9 @@ export default function Login() {
                 {/* ---- Token Import ---- */}
                 {authMethod === "import" && (
                   <>
-                    <p className="text-[12px] text-[#666] mb-4">
+                    <p className="text-[12px] text-th-text-faint mb-4">
                       For{" "}
-                      <span className="text-[#999]">
+                      <span className="text-th-text-faint">
                         web player client IDs
                       </span>{" "}
                       or any client that doesn't support Device Code. Paste the
@@ -541,12 +541,12 @@ export default function Login() {
                     {/* cURL field */}
                     <div className="mb-3">
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] text-[#808080] font-medium">
+                        <label className="text-[11px] text-th-text-faint font-medium">
                           cURL Command
                         </label>
                         <button
                           onClick={() => pasteTo(setCurlText)}
-                          className="flex items-center gap-1 text-[10px] text-[#666] hover:text-white transition-colors"
+                          className="flex items-center gap-1 text-[10px] text-th-text-faint hover:text-white transition-colors"
                         >
                           <ClipboardPaste size={10} />
                           Paste
@@ -561,7 +561,7 @@ export default function Login() {
                           }}
                           placeholder="Right-click token request → Copy as cURL"
                           rows={2}
-                          className={`w-full bg-[#1a1a1a] border border-white/[0.1] rounded-lg px-3 py-2 text-[11px] text-white placeholder-[#444] outline-none focus:border-[#00FFFF]/50 font-mono resize-none ${
+                          className={`w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2 text-[11px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono resize-none ${
                             curlMasked && curlText.length > 0
                               ? "[-webkit-text-security:disc]"
                               : ""
@@ -571,7 +571,7 @@ export default function Login() {
                           <button
                             type="button"
                             onClick={() => setCurlMasked(!curlMasked)}
-                            className="absolute right-2 top-2 text-[#555] hover:text-[#999] transition-colors"
+                            className="absolute right-2 top-2 text-th-text-disabled hover:text-th-text-faint transition-colors"
                           >
                             {curlMasked ? (
                               <Eye size={11} />
@@ -581,7 +581,7 @@ export default function Login() {
                           </button>
                         )}
                       </div>
-                      <p className="text-[10px] text-[#444] mt-0.5">
+                      <p className="text-[10px] text-th-text-disabled mt-0.5">
                         Provides Client ID.
                       </p>
                     </div>
@@ -589,12 +589,12 @@ export default function Login() {
                     {/* Response body field */}
                     <div className="mb-3">
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] text-[#808080] font-medium">
+                        <label className="text-[11px] text-th-text-faint font-medium">
                           Response Body
                         </label>
                         <button
                           onClick={() => pasteTo(setResponseText)}
-                          className="flex items-center gap-1 text-[10px] text-[#666] hover:text-white transition-colors"
+                          className="flex items-center gap-1 text-[10px] text-th-text-faint hover:text-white transition-colors"
                         >
                           <ClipboardPaste size={10} />
                           Paste
@@ -609,7 +609,7 @@ export default function Login() {
                           }}
                           placeholder='Same request → Response tab → copy JSON&#10;{"access_token":"...","refresh_token":"..."}'
                           rows={2}
-                          className={`w-full bg-[#1a1a1a] border border-white/[0.1] rounded-lg px-3 py-2 text-[11px] text-white placeholder-[#444] outline-none focus:border-[#00FFFF]/50 font-mono resize-none ${
+                          className={`w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2 text-[11px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono resize-none ${
                             responseMasked && responseText.length > 0
                               ? "[-webkit-text-security:disc]"
                               : ""
@@ -619,7 +619,7 @@ export default function Login() {
                           <button
                             type="button"
                             onClick={() => setResponseMasked(!responseMasked)}
-                            className="absolute right-2 top-2 text-[#555] hover:text-[#999] transition-colors"
+                            className="absolute right-2 top-2 text-th-text-disabled hover:text-th-text-faint transition-colors"
                           >
                             {responseMasked ? (
                               <Eye size={11} />
@@ -629,7 +629,7 @@ export default function Login() {
                           </button>
                         )}
                       </div>
-                      <p className="text-[10px] text-[#444] mt-0.5">
+                      <p className="text-[10px] text-th-text-disabled mt-0.5">
                         Provides session tokens (access_token, refresh_token).
                       </p>
                     </div>
@@ -645,7 +645,7 @@ export default function Login() {
                       disabled={
                         (!curlText.trim() && !responseText.trim()) || importing
                       }
-                      className="w-full px-6 py-3 bg-[#00FFFF] text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {importing ? (
                         <span className="flex items-center justify-center gap-2">
@@ -666,8 +666,8 @@ export default function Login() {
         {/* ==================== Device Code Pending ==================== */}
         {step === "device_pending" && (
           <div className="flex flex-col gap-5">
-            <div className="text-left bg-[#0f0f0f] rounded-xl p-6 border border-white/[0.06]">
-              <p className="text-[14px] text-[#a6a6a6] mb-4">
+            <div className="text-left bg-th-overlay rounded-xl p-6 border border-th-border-subtle">
+              <p className="text-[14px] text-th-text-muted mb-4">
                 Go to the link below and enter this code:
               </p>
               <div className="flex items-center justify-center py-4">
@@ -676,7 +676,7 @@ export default function Login() {
                 </span>
               </div>
               <div className="flex items-center justify-center gap-2 mt-2 mb-4">
-                <span className="text-[13px] text-[#808080]">
+                <span className="text-[13px] text-th-text-faint">
                   {verificationUri}
                 </span>
               </div>
@@ -688,19 +688,19 @@ export default function Login() {
                     window.open(verificationUri, "_blank");
                   }
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-white/[0.12] rounded-full text-[13px] text-white font-medium transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-th-inset rounded-full text-[13px] text-white font-medium transition-colors"
               >
                 <ExternalLink size={14} />
                 Open {verificationUri}
               </button>
             </div>
-            <div className="flex items-center justify-center gap-3 text-[#808080]">
+            <div className="flex items-center justify-center gap-3 text-th-text-faint">
               <Loader2 className="animate-spin" size={16} />
               <span className="text-[13px]">Waiting for authorization...</span>
             </div>
             <button
               onClick={reset}
-              className="text-[12px] text-[#666] hover:text-[#999] transition-colors"
+              className="text-[12px] text-th-text-faint hover:text-th-text-faint transition-colors"
             >
               Cancel
             </button>
@@ -710,10 +710,10 @@ export default function Login() {
         {/* ==================== PKCE Waiting ==================== */}
         {step === "pkce_waiting" && (
           <div className="flex flex-col gap-5">
-            <div className="text-left bg-[#0f0f0f] rounded-xl p-5 border border-white/[0.06]">
+            <div className="text-left bg-th-overlay rounded-xl p-5 border border-th-border-subtle">
               <div className="flex items-start gap-3 mb-4">
-                <div className="w-7 h-7 rounded-full bg-[#00FFFF]/20 flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-[13px] font-bold text-[#00FFFF]">
+                <div className="w-7 h-7 rounded-full bg-th-accent/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span className="text-[13px] font-bold text-th-accent">
                     1
                   </span>
                 </div>
@@ -721,14 +721,14 @@ export default function Login() {
                   <p className="text-[14px] text-white font-medium">
                     Log in to Tidal in your browser
                   </p>
-                  <p className="text-[12px] text-[#808080] mt-1">
+                  <p className="text-[12px] text-th-text-faint mt-1">
                     A browser window should have opened.
                   </p>
                 </div>
               </div>
               <div className="flex items-start gap-3 mb-4">
-                <div className="w-7 h-7 rounded-full bg-[#00FFFF]/20 flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-[13px] font-bold text-[#00FFFF]">
+                <div className="w-7 h-7 rounded-full bg-th-accent/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span className="text-[13px] font-bold text-th-accent">
                     2
                   </span>
                 </div>
@@ -736,14 +736,14 @@ export default function Login() {
                   <p className="text-[14px] text-white font-medium">
                     Copy the redirect URL
                   </p>
-                  <p className="text-[12px] text-[#808080] mt-1">
+                  <p className="text-[12px] text-th-text-faint mt-1">
                     After login you'll see an "Oops" page. Copy the full URL.
                   </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-[#00FFFF]/20 flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-[13px] font-bold text-[#00FFFF]">
+                <div className="w-7 h-7 rounded-full bg-th-accent/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span className="text-[13px] font-bold text-th-accent">
                     3
                   </span>
                 </div>
@@ -760,11 +760,11 @@ export default function Login() {
                         if (e.key === "Enter") handleSubmitUrl();
                       }}
                       placeholder="https://tidal.com/android/login/auth?code=..."
-                      className="flex-1 bg-[#1a1a1a] border border-white/[0.1] rounded-lg px-3 py-2 text-[13px] text-white placeholder-[#555] outline-none focus:border-[#00FFFF]/50 min-w-0"
+                      className="flex-1 bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 min-w-0"
                     />
                     <button
                       onClick={handlePaste}
-                      className="px-3 py-2 bg-white/[0.08] hover:bg-white/[0.12] rounded-lg text-[#a6a6a6] hover:text-white transition-colors shrink-0"
+                      className="px-3 py-2 bg-white/[0.08] hover:bg-th-inset rounded-lg text-th-text-muted hover:text-white transition-colors shrink-0"
                     >
                       <ClipboardPaste size={16} />
                     </button>
@@ -781,7 +781,7 @@ export default function Login() {
                     window.open(authorizeUrl, "_blank");
                   }
                 }}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-white/[0.12] rounded-full text-[13px] text-white font-medium transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-th-inset rounded-full text-[13px] text-white font-medium transition-colors"
               >
                 <ExternalLink size={14} />
                 Open Tidal Login
@@ -789,14 +789,14 @@ export default function Login() {
               <button
                 onClick={handleSubmitUrl}
                 disabled={!pasteUrl.trim()}
-                className="flex-1 px-4 py-2.5 bg-[#00FFFF] text-black rounded-full text-[13px] font-bold hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 px-4 py-2.5 bg-th-accent text-black rounded-full text-[13px] font-bold hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Complete Login
               </button>
             </div>
             <button
               onClick={reset}
-              className="text-[12px] text-[#666] hover:text-[#999] transition-colors"
+              className="text-[12px] text-th-text-faint hover:text-th-text-faint transition-colors"
             >
               Cancel
             </button>
@@ -806,8 +806,8 @@ export default function Login() {
         {/* ==================== Loading ==================== */}
         {step === "exchanging" && (
           <div className="flex flex-col items-center gap-4 py-8">
-            <Loader2 className="animate-spin text-[#00FFFF]" size={32} />
-            <p className="text-[#a6a6a6]">
+            <Loader2 className="animate-spin text-th-accent" size={32} />
+            <p className="text-th-text-muted">
               {status || "Completing login..."}
             </p>
           </div>

@@ -141,15 +141,15 @@ const TrackRow = memo(function TrackRow({
       <div className="flex items-center justify-end">
         {playing ? (
           <div className="flex items-end gap-[3px] h-4">
-            <span className="w-[3px] h-full bg-[#00FFFF] rounded-full playing-bar" />
-            <span className="w-[3px] h-full bg-[#00FFFF] rounded-full playing-bar" style={{ animationDelay: "0.2s" }} />
-            <span className="w-[3px] h-full bg-[#00FFFF] rounded-full playing-bar" style={{ animationDelay: "0.4s" }} />
+            <span className="w-[3px] h-full bg-th-accent rounded-full playing-bar" />
+            <span className="w-[3px] h-full bg-th-accent rounded-full playing-bar" style={{ animationDelay: "0.2s" }} />
+            <span className="w-[3px] h-full bg-th-accent rounded-full playing-bar" style={{ animationDelay: "0.4s" }} />
           </div>
         ) : (
           <>
             <span
               className={`text-[15px] tabular-nums group-hover:hidden ${
-                isActive ? "text-[#00FFFF]" : "text-[#a6a6a6]"
+                isActive ? "text-th-accent" : "text-th-text-muted"
               }`}
             >
               {context === "album" ? (track.trackNumber ?? index + 1) : index + 1}
@@ -166,7 +166,7 @@ const TrackRow = memo(function TrackRow({
       {/* Title + Thumbnail */}
       <div className="flex items-center gap-3 min-w-0">
         {showCover && (
-          <div className="relative w-10 h-10 shrink-0 rounded bg-[#282828] overflow-hidden">
+          <div className="relative w-10 h-10 shrink-0 rounded bg-th-surface-hover overflow-hidden">
             <TidalImage
               src={getTidalImageUrl(track.album?.cover, 160)}
               alt={track.album?.title || track.title}
@@ -177,14 +177,14 @@ const TrackRow = memo(function TrackRow({
         <div className="flex flex-col justify-center min-w-0">
           <span
             className={`text-[15px] font-medium truncate leading-snug ${
-              isActive ? "text-[#00FFFF]" : "text-white"
+              isActive ? "text-th-accent" : "text-white"
             }`}
           >
             {track.title}
           </span>
           {!showArtist && (
              <span
-               className="text-[13px] text-[#a6a6a6] truncate leading-snug hover:text-white hover:underline transition-colors cursor-pointer"
+               className="text-[13px] text-th-text-muted truncate leading-snug hover:text-white hover:underline transition-colors cursor-pointer"
                onClick={(e) => {
                  e.stopPropagation();
                  if (track.artist?.id) {
@@ -205,7 +205,7 @@ const TrackRow = memo(function TrackRow({
       {showArtist && (
         <div className="flex items-center min-w-0">
           <span
-            className="text-[14px] text-[#a6a6a6] truncate hover:text-white hover:underline transition-colors cursor-pointer"
+            className="text-[14px] text-th-text-muted truncate hover:text-white hover:underline transition-colors cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
               if (track.artist?.id) {
@@ -225,7 +225,7 @@ const TrackRow = memo(function TrackRow({
       {showAlbum && (
         <div className="flex items-center min-w-0">
           <span
-            className="text-[14px] text-[#a6a6a6] truncate hover:text-white hover:underline transition-colors cursor-pointer"
+            className="text-[14px] text-th-text-muted truncate hover:text-white hover:underline transition-colors cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
               if (track.album?.id) {
@@ -245,14 +245,14 @@ const TrackRow = memo(function TrackRow({
       {/* Date Added */}
       {showDateAdded && (
         <div className="flex items-center min-w-0">
-          <span className="text-[14px] text-[#a6a6a6] truncate">
+          <span className="text-[14px] text-th-text-muted truncate">
             {formatDate(track.dateAdded)}
           </span>
         </div>
       )}
 
       {/* Duration */}
-      <div className="flex items-center justify-end text-[14px] text-[#a6a6a6] tabular-nums">
+      <div className="flex items-center justify-end text-[14px] text-th-text-muted tabular-nums">
         {formatDuration(track.duration)}
       </div>
 
@@ -263,7 +263,7 @@ const TrackRow = memo(function TrackRow({
           className={`p-1.5 rounded-full transition-colors ${
             contextMenuOpen
               ? "text-white opacity-100"
-              : "text-[#a6a6a6] hover:text-white opacity-0 group-hover:opacity-100"
+              : "text-th-text-muted hover:text-white opacity-0 group-hover:opacity-100"
           }`}
           title="More options"
           onClick={handleDotsClick}
@@ -286,8 +286,8 @@ const TrackRow = memo(function TrackRow({
           ref={plusButtonRef}
           className={`p-1.5 rounded-full transition-colors ${
             playlistMenuOpen
-              ? "text-[#00FFFF]"
-              : "text-[#a6a6a6] hover:text-white"
+              ? "text-th-accent"
+              : "text-th-text-muted hover:text-white"
           }`}
           title="Add to playlist"
           onClick={handlePlusClick}
@@ -302,7 +302,7 @@ const TrackRow = memo(function TrackRow({
           />
         )}
         <button 
-          className={`p-1.5 rounded-full transition-colors ${isFav ? 'text-[#00FFFF]' : 'text-[#a6a6a6] hover:text-white'}`}
+          className={`p-1.5 rounded-full transition-colors ${isFav ? 'text-th-accent' : 'text-th-text-muted hover:text-white'}`}
           title={isFav ? "Remove from favorites" : "Add to favorites"}
           onClick={toggleFavorite}
         >
@@ -371,7 +371,7 @@ export default function TrackList({
     <div className="flex flex-col w-full">
       {/* Header Row */}
       <div
-        className="grid gap-4 px-4 py-3 border-b border-[#2a2a2a] text-[12px] text-[#a6a6a6] uppercase tracking-widest mb-2"
+        className="grid gap-4 px-4 py-3 border-b border-th-inset text-[12px] text-th-text-muted uppercase tracking-widest mb-2"
         style={{ gridTemplateColumns: gridCols }}
       >
         <span className="text-right">#</span>
@@ -411,7 +411,7 @@ export default function TrackList({
           className="flex items-center justify-center py-8"
         >
           {loadingMore ? (
-            <div className="flex items-center gap-3 text-[#a6a6a6]">
+            <div className="flex items-center gap-3 text-th-text-muted">
               <Loader2 size={20} className="animate-spin" />
               <span className="text-sm">Loading more tracks...</span>
             </div>

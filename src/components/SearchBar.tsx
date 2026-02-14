@@ -176,10 +176,10 @@ export default function SearchBar() {
 
   return (
     <div className="relative max-w-[360px] w-64 lg:w-80">
-      <div className="flex items-center gap-2 px-3 py-2 bg-[#242424] hover:bg-[#2a2a2a] focus-within:bg-[#2a2a2a] rounded-full transition-colors group border border-transparent focus-within:border-white/10">
+      <div className="flex items-center gap-2 px-3 py-2 bg-th-inset hover:bg-th-inset focus-within:bg-th-inset rounded-full transition-colors group border border-transparent focus-within:border-white/10">
         <Search
           size={18}
-          className="text-[#b3b3b3] group-focus-within:text-white shrink-0"
+          className="text-th-text-secondary group-focus-within:text-white shrink-0"
         />
         <input
           ref={searchInputRef}
@@ -189,12 +189,12 @@ export default function SearchBar() {
           onKeyDown={handleSearchKeyDown}
           onFocus={() => setSearchOpen(true)}
           placeholder="Search"
-          className="bg-transparent text-sm text-white placeholder-[#808080] outline-none flex-1 min-w-0"
+          className="bg-transparent text-sm text-white placeholder-th-text-faint outline-none flex-1 min-w-0"
         />
         {searchQuery && (
           <button
             onClick={clearSearch}
-            className="text-[#808080] hover:text-white shrink-0"
+            className="text-th-text-faint hover:text-white shrink-0"
           >
             <X size={16} />
           </button>
@@ -205,20 +205,20 @@ export default function SearchBar() {
       {showDropdown && (
         <div
           ref={dropdownRef}
-          className="absolute right-0 top-full mt-2 w-[420px] bg-[#1a1a1a] rounded-lg shadow-2xl shadow-black/60 border border-white/8 z-50 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent"
+          className="absolute right-0 top-full mt-2 w-[420px] bg-th-surface rounded-lg shadow-2xl shadow-black/60 border border-th-border-subtle z-50 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent"
         >
           {/* Local history (when input is empty) */}
           {showLocalHistory && (
             <div className="py-1">
-              <div className="px-3 pt-2 pb-1 text-[11px] text-[#666] uppercase tracking-wider font-medium">
+              <div className="px-3 pt-2 pb-1 text-[11px] text-th-text-faint uppercase tracking-wider font-medium">
                 Recent searches
               </div>
               {matchingHistory.slice(0, 5).map((item) => (
                 <div
                   key={item}
-                  className="flex items-center gap-3 px-3 py-3 hover:bg-white/6 transition-colors cursor-pointer"
+                  className="flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors cursor-pointer"
                 >
-                  <Clock size={15} className="text-[#666] shrink-0" />
+                  <Clock size={15} className="text-th-text-faint shrink-0" />
                   <button
                     className="flex-1 text-left text-[13px] text-white truncate"
                     onClick={() => {
@@ -235,7 +235,7 @@ export default function SearchBar() {
                       e.stopPropagation();
                       removeFromHistory(item);
                     }}
-                    className="text-[#666] hover:text-white shrink-0 p-0.5"
+                    className="text-th-text-faint hover:text-white shrink-0 p-0.5"
                     title="Remove"
                   >
                     <X size={14} />
@@ -251,7 +251,7 @@ export default function SearchBar() {
               {textSuggestions.map((s, i) => (
                 <button
                   key={`sug-${i}`}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/6 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-th-border-subtle transition-colors text-left"
                   onClick={() => {
                     setSearchQuery(s.query);
                     setTextSuggestions([]);
@@ -262,9 +262,9 @@ export default function SearchBar() {
                   }}
                 >
                   {s.source === "history" ? (
-                    <Clock size={15} className="text-[#666] shrink-0" />
+                    <Clock size={15} className="text-th-text-faint shrink-0" />
                   ) : (
-                    <Search size={15} className="text-[#666] shrink-0" />
+                    <Search size={15} className="text-th-text-faint shrink-0" />
                   )}
                   <span className="text-[13px] text-white truncate">{s.query}</span>
                   {s.source === "history" && (
@@ -273,7 +273,7 @@ export default function SearchBar() {
                         e.stopPropagation();
                         removeFromHistory(s.query);
                       }}
-                      className="ml-auto text-[#666] hover:text-white shrink-0 p-0.5"
+                      className="ml-auto text-th-text-faint hover:text-white shrink-0 p-0.5"
                       title="Remove"
                     >
                       <X size={14} />
@@ -282,7 +282,7 @@ export default function SearchBar() {
                 </button>
               ))}
               {showDirectHits && (
-                <div className="border-b border-white/6 mx-3" />
+                <div className="border-b border-th-border-subtle mx-3" />
               )}
             </div>
           )}
@@ -292,12 +292,12 @@ export default function SearchBar() {
             <>
               {searching && !hasDirectHits && (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 size={18} className="animate-spin text-[#00FFFF]" />
+                  <Loader2 size={18} className="animate-spin text-th-accent" />
                 </div>
               )}
 
               {!searching && !hasDirectHits && searchQuery.trim() && (
-                <div className="py-6 text-center text-[13px] text-[#666]">
+                <div className="py-6 text-center text-[13px] text-th-text-faint">
                   No results found
                 </div>
               )}
@@ -316,9 +316,9 @@ export default function SearchBar() {
                               picture: hit.picture,
                             });
                           }}
-                          className="w-full flex items-center gap-3 px-3 py-3 hover:bg-white/6 transition-colors text-left"
+                          className="w-full flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left"
                         >
-                          <div className="w-12 h-12 rounded-full bg-[#282828] overflow-hidden shrink-0">
+                          <div className="w-12 h-12 rounded-full bg-th-surface-hover overflow-hidden shrink-0">
                             {hit.picture ? (
                               <TidalImage
                                 src={getTidalImageUrl(hit.picture, 80)}
@@ -327,7 +327,7 @@ export default function SearchBar() {
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center">
-                                <span className="text-[12px] font-bold text-[#666]">
+                                <span className="text-[12px] font-bold text-th-text-faint">
                                   {(hit.name || "?").charAt(0)}
                                 </span>
                               </div>
@@ -337,9 +337,9 @@ export default function SearchBar() {
                             <p className="text-[14px] text-white truncate font-medium">
                               {hit.name}
                             </p>
-                            <p className="text-[11px] text-[#808080]">Artist</p>
+                            <p className="text-[11px] text-th-text-faint">Artist</p>
                           </div>
-                          <MoreHorizontal size={16} className="text-[#666] shrink-0" />
+                          <MoreHorizontal size={16} className="text-th-text-faint shrink-0" />
                         </button>
                       );
                     }
@@ -355,9 +355,9 @@ export default function SearchBar() {
                               artistName: hit.artistName,
                             });
                           }}
-                          className="w-full flex items-center gap-3 px-3 py-3 hover:bg-white/6 transition-colors text-left"
+                          className="w-full flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left"
                         >
-                          <div className="w-12 h-12 rounded bg-[#282828] overflow-hidden shrink-0">
+                          <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0">
                             <TidalImage
                               src={getTidalImageUrl(hit.cover, 80)}
                               alt={hit.title || ""}
@@ -368,11 +368,11 @@ export default function SearchBar() {
                             <p className="text-[14px] text-white truncate">
                               {hit.title}
                             </p>
-                            <p className="text-[11px] text-[#808080] truncate">
+                            <p className="text-[11px] text-th-text-faint truncate">
                               Album &middot; {hit.artistName || "Unknown"}
                             </p>
                           </div>
-                          <MoreHorizontal size={16} className="text-[#666] shrink-0" />
+                          <MoreHorizontal size={16} className="text-th-text-faint shrink-0" />
                         </button>
                       );
                     }
@@ -388,7 +388,7 @@ export default function SearchBar() {
                       return (
                         <div
                           key={`dh-${idx}`}
-                          className="flex items-center gap-3 px-3 py-3 hover:bg-white/6 transition-colors text-left group/track"
+                          className="flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left group/track"
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -405,7 +405,7 @@ export default function SearchBar() {
                               playTrack(trackObj);
                             }}
                           >
-                            <div className="w-12 h-12 rounded bg-[#282828] overflow-hidden shrink-0">
+                            <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0">
                               <TidalImage
                                 src={getTidalImageUrl(hit.albumCover, 80)}
                                 alt={hit.title || ""}
@@ -416,7 +416,7 @@ export default function SearchBar() {
                               <p className="text-[14px] text-white truncate">
                                 {hit.title}
                               </p>
-                              <p className="text-[11px] text-[#808080] truncate">
+                              <p className="text-[11px] text-th-text-faint truncate">
                                 Track &middot; {hit.artistName || "Unknown Artist"}
                               </p>
                             </div>
@@ -426,7 +426,7 @@ export default function SearchBar() {
                               if (el) dotsRefs.current.set(hit.id || 0, el);
                               else dotsRefs.current.delete(hit.id || 0);
                             }}
-                            className="p-1 rounded-full text-[#666] hover:text-white opacity-0 group-hover/track:opacity-100 transition-opacity shrink-0"
+                            className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/track:opacity-100 transition-opacity shrink-0"
                             title="More options"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -460,9 +460,9 @@ export default function SearchBar() {
                               image: hit.image,
                             });
                           }}
-                          className="w-full flex items-center gap-3 px-3 py-3 hover:bg-white/6 transition-colors text-left"
+                          className="w-full flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left"
                         >
-                          <div className="w-12 h-12 rounded bg-[#282828] overflow-hidden shrink-0">
+                          <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0">
                             <TidalImage
                               src={getTidalImageUrl(hit.image, 80)}
                               alt={hit.title || ""}
@@ -473,11 +473,11 @@ export default function SearchBar() {
                             <p className="text-[14px] text-white truncate">
                               {hit.title}
                             </p>
-                            <p className="text-[11px] text-[#808080] truncate">
+                            <p className="text-[11px] text-th-text-faint truncate">
                               Playlist{hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}
                             </p>
                           </div>
-                          <MoreHorizontal size={16} className="text-[#666] shrink-0" />
+                          <MoreHorizontal size={16} className="text-th-text-faint shrink-0" />
                         </button>
                       );
                     }
@@ -491,7 +491,7 @@ export default function SearchBar() {
                       addToHistory(searchQuery.trim());
                       navigateToSearch(searchQuery.trim());
                     }}
-                    className="w-full py-2.5 text-center text-[12px] font-semibold text-[#00FFFF] hover:bg-white/4 border-t border-white/6 transition-colors"
+                    className="w-full py-2.5 text-center text-[12px] font-semibold text-th-accent hover:bg-white/4 border-t border-th-border-subtle transition-colors"
                   >
                     View all results
                   </button>

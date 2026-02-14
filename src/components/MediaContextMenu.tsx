@@ -246,7 +246,7 @@ export default function MediaContextMenu({
   ]);
 
   const menuItemClass =
-    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#ffffff0a] transition-colors text-left text-[14px] text-[#e0e0e0] hover:text-white";
+    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-text-secondary hover:text-white";
 
   const isLoading = (action: string) => loadingAction === action;
 
@@ -257,7 +257,7 @@ export default function MediaContextMenu({
     <>
       <div
         ref={menuRef}
-        className="fixed z-[9999] w-[240px] bg-[#1a1a1a] rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
+        className="fixed z-[9999] w-[240px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
         style={{
           top: position.top,
           left: position.left,
@@ -270,9 +270,9 @@ export default function MediaContextMenu({
         {/* Play now */}
         <button className={menuItemClass} onClick={handlePlayNow} disabled={!!loadingAction}>
           {isLoading("play") ? (
-            <Loader2 size={18} className="shrink-0 text-[#a6a6a6] animate-spin" />
+            <Loader2 size={18} className="shrink-0 text-th-text-muted animate-spin" />
           ) : (
-            <Play size={18} className="shrink-0 text-[#a6a6a6]" />
+            <Play size={18} className="shrink-0 text-th-text-muted" />
           )}
           <span>Play now</span>
         </button>
@@ -280,9 +280,9 @@ export default function MediaContextMenu({
         {/* Play next */}
         <button className={menuItemClass} onClick={handlePlayNext} disabled={!!loadingAction}>
           {isLoading("play next") ? (
-            <Loader2 size={18} className="shrink-0 text-[#a6a6a6] animate-spin" />
+            <Loader2 size={18} className="shrink-0 text-th-text-muted animate-spin" />
           ) : (
-            <ListEnd size={18} className="shrink-0 text-[#a6a6a6]" />
+            <ListEnd size={18} className="shrink-0 text-th-text-muted" />
           )}
           <span>Play next</span>
         </button>
@@ -290,15 +290,15 @@ export default function MediaContextMenu({
         {/* Add to queue */}
         <button className={menuItemClass} onClick={handleAddToQueue} disabled={!!loadingAction}>
           {isLoading("add to queue") ? (
-            <Loader2 size={18} className="shrink-0 text-[#a6a6a6] animate-spin" />
+            <Loader2 size={18} className="shrink-0 text-th-text-muted animate-spin" />
           ) : (
-            <ListPlus size={18} className="shrink-0 text-[#a6a6a6]" />
+            <ListPlus size={18} className="shrink-0 text-th-text-muted" />
           )}
           <span>Add to play queue</span>
         </button>
 
         {/* Divider */}
-        <div className="my-1 border-t border-[#2a2a2a]" />
+        <div className="my-1 border-t border-th-inset" />
 
         {/* Add to playlist */}
         <button
@@ -308,9 +308,9 @@ export default function MediaContextMenu({
           disabled={fetchingForPlaylist}
         >
           {fetchingForPlaylist ? (
-            <Loader2 size={18} className="shrink-0 text-[#a6a6a6] animate-spin" />
+            <Loader2 size={18} className="shrink-0 text-th-text-muted animate-spin" />
           ) : (
-            <ListMusic size={18} className="shrink-0 text-[#a6a6a6]" />
+            <ListMusic size={18} className="shrink-0 text-th-text-muted" />
           )}
           <span>Add to playlist</span>
         </button>
@@ -318,18 +318,18 @@ export default function MediaContextMenu({
         {/* Add to / Remove from library (albums & playlists only) */}
         {canFavorite && (
           <>
-            <div className="my-1 border-t border-[#2a2a2a]" />
+            <div className="my-1 border-t border-th-inset" />
             <button
               className={menuItemClass}
               onClick={handleToggleFavorite}
               disabled={!!loadingAction || checkingFav}
             >
               {isLoading("favorite") || checkingFav ? (
-                <Loader2 size={18} className="shrink-0 text-[#a6a6a6] animate-spin" />
+                <Loader2 size={18} className="shrink-0 text-th-text-muted animate-spin" />
               ) : (
                 <Heart
                   size={18}
-                  className={`shrink-0 ${isFav ? "text-[#00FFFF]" : "text-[#a6a6a6]"}`}
+                  className={`shrink-0 ${isFav ? "text-th-accent" : "text-th-text-muted"}`}
                   fill={isFav ? "currentColor" : "none"}
                 />
               )}

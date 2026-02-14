@@ -96,7 +96,7 @@ export default function Sidebar() {
 
   return (
     <div
-      className={`sidebar h-full bg-[#0b0b0b] flex flex-col border-r border-white/[0.06] transition-[width,min-width,max-width] duration-300 ease-in-out flex-shrink-0 ${
+      className={`sidebar h-full bg-th-sidebar flex flex-col border-r border-th-border-subtle transition-[width,min-width,max-width] duration-300 ease-in-out flex-shrink-0 ${
         isCollapsed ? "w-[60px]" : "w-[240px] min-w-[200px] max-w-[300px]"
       }`}
     >
@@ -107,7 +107,7 @@ export default function Sidebar() {
           className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md transition-colors duration-150 group ${
             currentView.type === "home"
               ? "text-white bg-white/[0.08]"
-              : "text-[#b3b3b3] hover:text-white hover:bg-white/[0.06]"
+              : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
           } ${isCollapsed ? "justify-center px-0" : ""}`}
           title="Home"
         >
@@ -119,7 +119,7 @@ export default function Sidebar() {
           className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md transition-colors duration-150 group ${
             currentView.type === "explore" || currentView.type === "explorePage"
               ? "text-white bg-white/[0.08]"
-              : "text-[#b3b3b3] hover:text-white hover:bg-white/[0.06]"
+              : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
           } ${isCollapsed ? "justify-center px-0" : ""}`}
           title="Explore"
         >
@@ -139,7 +139,7 @@ export default function Sidebar() {
         >
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className={`flex items-center gap-3 px-2.5 py-2 text-[#b3b3b3] hover:text-white transition-colors duration-150 group ${
+            className={`flex items-center gap-3 px-2.5 py-2 text-th-text-secondary hover:text-white transition-colors duration-150 group ${
               isCollapsed ? "justify-center w-full px-0" : ""
             }`}
           >
@@ -156,7 +156,7 @@ export default function Sidebar() {
             {["Playlists", "Artists", "Albums"].map((pill) => (
               <button
                 key={pill}
-                className="px-2.5 py-1 bg-white/[0.07] hover:bg-white/[0.12] rounded-full text-xs font-medium text-[#e0e0e0] whitespace-nowrap transition-colors duration-150"
+                className="px-2.5 py-1 bg-white/[0.07] hover:bg-th-inset rounded-full text-xs font-medium text-th-text-secondary whitespace-nowrap transition-colors duration-150"
               >
                 {pill}
               </button>
@@ -170,7 +170,7 @@ export default function Sidebar() {
             <div
               className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
             >
-              <p className="text-[#a6a6a6] text-sm">
+              <p className="text-th-text-muted text-sm">
                 Create your first playlist
               </p>
               <button className="mt-4 px-4 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform">
@@ -185,7 +185,7 @@ export default function Sidebar() {
                 className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
                   currentView.type === "favorites"
                     ? "bg-white/[0.08]"
-                    : "hover:bg-white/[0.06]"
+                    : "hover:bg-th-border-subtle"
                 } ${isCollapsed ? "justify-center" : ""}`}
                 title="Loved Tracks"
               >
@@ -202,7 +202,7 @@ export default function Sidebar() {
                     <div className="text-[13px] font-medium text-white truncate leading-tight">
                       Loved Tracks
                     </div>
-                    <div className="text-[11px] text-[#808080] truncate leading-tight mt-0.5">
+                    <div className="text-[11px] text-th-text-faint truncate leading-tight mt-0.5">
                       Collection
                     </div>
                   </div>
@@ -236,12 +236,12 @@ export default function Sidebar() {
                       currentView.type === "playlist" &&
                       currentView.playlistId === playlist.uuid
                         ? "bg-white/[0.08]"
-                        : "hover:bg-white/[0.06]"
+                        : "hover:bg-th-border-subtle"
                     } ${isCollapsed ? "justify-center" : ""}`}
                     title={playlist.title}
                   >
                     <div
-                      className={`bg-[#282828] shrink-0 overflow-hidden rounded ${
+                      className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${
                         isCollapsed ? "w-10 h-10" : "w-10 h-10"
                       }`}
                     >
@@ -257,7 +257,7 @@ export default function Sidebar() {
                         <div className="text-[14px] font-medium text-white truncate leading-snug">
                           {playlist.title}
                         </div>
-                        <div className="text-[12px] text-[#808080] truncate leading-snug mt-0.5">
+                        <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
                           {subtitle}
                         </div>
                       </div>

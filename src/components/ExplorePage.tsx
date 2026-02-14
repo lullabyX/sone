@@ -98,7 +98,7 @@ export default function ExplorePage() {
   console.log("iconSection", iconSection);
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-[#1a1a1a] to-[#121212] min-h-full">
+    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <div className="px-8 py-10">
         {/* Header */}
         <h1 className="text-[32px] font-bold text-white tracking-tight mb-10">
@@ -196,7 +196,7 @@ function PillSection({
           {section.apiPath && (
             <button
               onClick={onViewAll}
-              className="text-[14px] font-semibold text-[#a6a6a6] hover:text-white transition-colors mr-2"
+              className="text-[14px] font-semibold text-th-text-muted hover:text-white transition-colors mr-2"
             >
               View all
             </button>
@@ -205,8 +205,8 @@ function PillSection({
             onClick={() => scroll("left")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollLeft
-                ? "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white"
-                : "text-[#4a4a4a] cursor-default opacity-0"
+                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                : "text-th-text-disabled cursor-default opacity-0"
             }`}
             disabled={!canScrollLeft}
           >
@@ -216,8 +216,8 @@ function PillSection({
             onClick={() => scroll("right")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollRight
-                ? "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white"
-                : "text-[#4a4a4a] cursor-default opacity-0"
+                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                : "text-th-text-disabled cursor-default opacity-0"
             }`}
             disabled={!canScrollRight}
           >
@@ -236,7 +236,7 @@ function PillSection({
           <button
             key={getItemId(item)}
             onClick={() => onItemClick(item)}
-            className="shrink-0 px-6 py-3 bg-[#2a2a2a] hover:bg-[#3a3a3a] rounded-lg text-[15px] font-medium text-white whitespace-nowrap transition-colors duration-150"
+            className="shrink-0 px-6 py-3 bg-th-inset hover:bg-th-inset-hover rounded-lg text-[15px] font-medium text-white whitespace-nowrap transition-colors duration-150"
           >
             {getItemTitle(item)}
           </button>
@@ -268,7 +268,7 @@ function IconGrid({
             className="flex items-center gap-4 text-left group"
           >
             {Icon ? (
-              <Icon className="w-6 h-6 text-[#a6a6a6] group-hover:text-white transition-colors" />
+              <Icon className="w-6 h-6 text-th-text-muted group-hover:text-white transition-colors" />
             ) : (
               item.icon && (
                 <img
@@ -281,7 +281,7 @@ function IconGrid({
                 />
               )
             )}
-            <span className="text-[16px] font-medium text-[#a6a6a6] group-hover:text-white transition-colors">
+            <span className="text-[16px] font-medium text-th-text-muted group-hover:text-white transition-colors">
               {title}
             </span>
           </button>
@@ -296,12 +296,12 @@ function ExploreSkeleton() {
     <div className="space-y-10">
       {[1, 2, 3].map((i) => (
         <div key={i}>
-          <div className="h-7 w-32 bg-[#282828] rounded animate-pulse mb-4" />
+          <div className="h-7 w-32 bg-th-surface-hover rounded animate-pulse mb-4" />
           <div className="flex gap-3">
             {Array.from({ length: 8 }).map((_, j) => (
               <div
                 key={j}
-                className="h-11 w-32 bg-[#282828] rounded-lg animate-pulse shrink-0"
+                className="h-11 w-32 bg-th-surface-hover rounded-lg animate-pulse shrink-0"
               />
             ))}
           </div>

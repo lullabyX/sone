@@ -196,10 +196,10 @@ export default function AlbumView({
 
   if (loading) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-[#00FFFF] border-t-transparent rounded-full animate-spin" />
-          <p className="text-[#a6a6a6] text-sm">Loading album...</p>
+          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
+          <p className="text-th-text-muted text-sm">Loading album...</p>
         </div>
       </div>
     );
@@ -207,13 +207,13 @@ export default function AlbumView({
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
-          <Music size={48} className="text-[#535353]" />
+          <Music size={48} className="text-th-text-disabled" />
           <p className="text-white font-semibold text-lg">
             Couldn't load album
           </p>
-          <p className="text-[#a6a6a6] text-sm max-w-md">{error}</p>
+          <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
             className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
@@ -226,10 +226,10 @@ export default function AlbumView({
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] overflow-y-auto scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent">
+    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Album Header */}
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-[#282828]">
+        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover">
           <TidalImage
             src={getTidalImageUrl(displayCover, 640)}
             alt={displayTitle}
@@ -243,7 +243,7 @@ export default function AlbumView({
           <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight line-clamp-2">
             {displayTitle}
           </h1>
-          <div className="flex items-center gap-1.5 text-[14px] text-[#a6a6a6] mt-2">
+          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <span className="text-white font-semibold hover:underline cursor-pointer">
               {displayArtist}
             </span>
@@ -276,7 +276,7 @@ export default function AlbumView({
       <div className="px-8 py-5 flex items-center gap-5">
         <button
           onClick={handlePlayAll}
-          className="w-14 h-14 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl hover:scale-105 hover:brightness-110 transition-[transform,filter] duration-150"
+          className="w-14 h-14 bg-th-accent rounded-full flex items-center justify-center shadow-xl hover:scale-105 hover:brightness-110 transition-[transform,filter] duration-150"
         >
           {albumPlaying ? (
             <Pause size={24} fill="black" className="text-black" />
@@ -289,8 +289,8 @@ export default function AlbumView({
           disabled={favoriteLoading || favoritePending}
           className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
             albumFavorited
-              ? "text-[#1ed760] hover:brightness-110"
-              : "text-[#a6a6a6] hover:text-white hover:bg-white/8"
+              ? "text-th-accent hover:brightness-110"
+              : "text-th-text-muted hover:text-white hover:bg-white/8"
           } disabled:opacity-60 disabled:cursor-not-allowed`}
           title={albumFavorited ? "Remove from favorites" : "Add to favorites"}
           aria-label={albumFavorited ? "Unfavorite album" : "Favorite album"}
@@ -324,7 +324,7 @@ export default function AlbumView({
 
         {/* End of list */}
         {!hasMore && tracks.length > 0 && (
-          <div className="py-6 text-center text-[13px] text-[#535353]">
+          <div className="py-6 text-center text-[13px] text-th-text-disabled">
             {totalTracks} song{totalTracks !== 1 ? "s" : ""}
           </div>
         )}

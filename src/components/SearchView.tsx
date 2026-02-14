@@ -132,10 +132,10 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
 
   if (loading) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={28} className="animate-spin text-[#00FFFF]" />
-          <p className="text-[#a6a6a6] text-sm">Searching for "{query}"...</p>
+          <Loader2 size={28} className="animate-spin text-th-accent" />
+          <p className="text-th-text-muted text-sm">Searching for "{query}"...</p>
         </div>
       </div>
     );
@@ -143,11 +143,11 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
-          <Search size={48} className="text-[#535353]" />
+          <Search size={48} className="text-th-text-disabled" />
           <p className="text-white font-semibold text-lg">Search failed</p>
-          <p className="text-[#a6a6a6] text-sm max-w-md">{error}</p>
+          <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
             className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
@@ -167,7 +167,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
     results.playlists.length === 0;
 
   return (
-    <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] min-h-full">
+    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base min-h-full">
       <div className="px-6 py-6">
         {/* Tab bar */}
         <div className="pb-6 flex items-center gap-2">
@@ -178,7 +178,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
               className={`px-4 py-1.5 rounded-full text-[13px] font-medium transition-colors duration-150 ${
                 activeTab === tab.id
                   ? "bg-white text-black"
-                  : "bg-white/7 text-[#e0e0e0] hover:bg-white/12"
+                  : "bg-white/7 text-th-text-secondary hover:bg-th-inset"
               }`}
             >
               {tab.label}
@@ -187,7 +187,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
         </div>
 
         {noResults && (
-          <div className="flex flex-col items-center justify-center py-20 text-[#535353]">
+          <div className="flex flex-col items-center justify-center py-20 text-th-text-disabled">
             <Search size={48} className="mb-4" />
             <p className="text-white font-semibold text-lg mb-1">
               No results found
@@ -395,9 +395,9 @@ function ArtistGrid({
         <div
           key={artist.id}
           onClick={() => onArtistClick(artist)}
-          className="p-3 bg-[#181818] hover:bg-[#282828] rounded-md cursor-pointer group transition-[background-color] duration-300 flex flex-col items-center"
+          className="p-3 bg-th-elevated hover:bg-th-surface-hover rounded-md cursor-pointer group transition-[background-color] duration-300 flex flex-col items-center"
         >
-          <div className="aspect-square w-full rounded-full mb-3 relative overflow-hidden shadow-lg bg-[#282828]">
+          <div className="aspect-square w-full rounded-full mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover">
             {artist.picture ? (
               <TidalImage
                 src={getTidalImageUrl(artist.picture, 320)}
@@ -406,18 +406,18 @@ function ArtistGrid({
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <User size={48} className="text-[#535353]" />
+                <User size={48} className="text-th-text-disabled" />
               </div>
             )}
             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full" />
-            <div className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100">
+            <div className="absolute bottom-2 right-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100">
               <Play size={20} fill="black" className="text-black ml-1" />
             </div>
           </div>
           <h4 className="font-bold text-[15px] text-white truncate w-full text-center mb-1">
             {artist.name}
           </h4>
-          <p className="text-[13px] text-[#a6a6a6]">Artist</p>
+          <p className="text-[13px] text-th-text-muted">Artist</p>
         </div>
       ))}
     </div>
@@ -459,9 +459,9 @@ function AlbumGrid({
           onContextMenu={
             onContextMenu ? (e) => onContextMenu(e, album) : undefined
           }
-          className="p-3 bg-[#181818] hover:bg-[#282828] rounded-md cursor-pointer group transition-[background-color] duration-300"
+          className="p-3 bg-th-elevated hover:bg-th-surface-hover rounded-md cursor-pointer group transition-[background-color] duration-300"
         >
-          <div className="aspect-square w-full rounded-md mb-3 relative overflow-hidden shadow-lg bg-[#282828]">
+          <div className="aspect-square w-full rounded-md mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover">
             <TidalImage
               src={getTidalImageUrl(album.cover, 320)}
               alt={album.title}
@@ -479,14 +479,14 @@ function AlbumGrid({
             >
               <MoreHorizontal size={16} className="text-white" />
             </button>
-            <div className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100">
+            <div className="absolute bottom-2 right-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100">
               <Play size={20} fill="black" className="text-black ml-1" />
             </div>
           </div>
           <h4 className="font-bold text-[15px] text-white truncate mb-1">
             {album.title}
           </h4>
-          <p className="text-[13px] text-[#a6a6a6] truncate">
+          <p className="text-[13px] text-th-text-muted truncate">
             {album.artist?.name || "Unknown Artist"}
             {album.releaseDate && (
               <span> &middot; {new Date(album.releaseDate).getFullYear()}</span>
@@ -513,7 +513,7 @@ function TopHitsList({
 }) {
   if (topHits.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-[#535353]">
+      <div className="flex flex-col items-center justify-center py-20 text-th-text-disabled">
         <Search size={48} className="mb-4" />
         <p className="text-white font-semibold text-lg mb-1">No top hits</p>
         <p className="text-sm">Try the other tabs for more results</p>
@@ -529,9 +529,9 @@ function TopHitsList({
             <button
               key={`th-${idx}`}
               onClick={() => onPlayTrack(hit)}
-              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-white/6 rounded-md transition-colors text-left group"
+              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group"
             >
-              <div className="w-12 h-12 rounded bg-[#282828] overflow-hidden shrink-0">
+              <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0">
                 <TidalImage
                   src={getTidalImageUrl(hit.albumCover, 80)}
                   alt={hit.title || ""}
@@ -540,11 +540,11 @@ function TopHitsList({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[14px] text-white truncate">{hit.title}</p>
-                <p className="text-[12px] text-[#808080] truncate">
+                <p className="text-[12px] text-th-text-faint truncate">
                   Track &middot; {hit.artistName || "Unknown Artist"}
                 </p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-[#00FFFF] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <div className="w-10 h-10 rounded-full bg-th-accent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                 <Play size={16} fill="black" className="text-black ml-0.5" />
               </div>
             </button>
@@ -555,9 +555,9 @@ function TopHitsList({
             <button
               key={`th-${idx}`}
               onClick={() => onAlbumClick(hit)}
-              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-white/6 rounded-md transition-colors text-left group"
+              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group"
             >
-              <div className="w-12 h-12 rounded bg-[#282828] overflow-hidden shrink-0">
+              <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0">
                 <TidalImage
                   src={getTidalImageUrl(hit.cover, 80)}
                   alt={hit.title || ""}
@@ -566,7 +566,7 @@ function TopHitsList({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[14px] text-white truncate">{hit.title}</p>
-                <p className="text-[12px] text-[#808080] truncate">
+                <p className="text-[12px] text-th-text-faint truncate">
                   Album &middot; {hit.artistName || "Unknown"}
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}
                 </p>
@@ -579,9 +579,9 @@ function TopHitsList({
             <button
               key={`th-${idx}`}
               onClick={() => onArtistClick(hit)}
-              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-white/6 rounded-md transition-colors text-left group"
+              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group"
             >
-              <div className="w-12 h-12 rounded-full bg-[#282828] overflow-hidden shrink-0">
+              <div className="w-12 h-12 rounded-full bg-th-surface-hover overflow-hidden shrink-0">
                 {hit.picture ? (
                   <TidalImage
                     src={getTidalImageUrl(hit.picture, 80)}
@@ -590,7 +590,7 @@ function TopHitsList({
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <User size={20} className="text-[#535353]" />
+                    <User size={20} className="text-th-text-disabled" />
                   </div>
                 )}
               </div>
@@ -598,7 +598,7 @@ function TopHitsList({
                 <p className="text-[14px] text-white truncate font-medium">
                   {hit.name}
                 </p>
-                <p className="text-[12px] text-[#808080]">Artist</p>
+                <p className="text-[12px] text-th-text-faint">Artist</p>
               </div>
             </button>
           );
@@ -608,9 +608,9 @@ function TopHitsList({
             <button
               key={`th-${idx}`}
               onClick={() => onPlaylistClick(hit)}
-              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-white/6 rounded-md transition-colors text-left group"
+              className="w-full flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group"
             >
-              <div className="w-12 h-12 rounded bg-[#282828] overflow-hidden shrink-0">
+              <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0">
                 {hit.image ? (
                   <TidalImage
                     src={getTidalImageUrl(hit.image, 80)}
@@ -620,13 +620,13 @@ function TopHitsList({
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <Music size={20} className="text-[#535353]" />
+                    <Music size={20} className="text-th-text-disabled" />
                   </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[14px] text-white truncate">{hit.title}</p>
-                <p className="text-[12px] text-[#808080] truncate">
+                <p className="text-[12px] text-th-text-faint truncate">
                   Playlist
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}
                 </p>
@@ -685,9 +685,9 @@ function PlaylistGrid({
           onContextMenu={
             onContextMenu ? (e) => onContextMenu(e, pl) : undefined
           }
-          className="p-3 bg-[#181818] hover:bg-[#282828] rounded-md cursor-pointer group transition-[background-color] duration-300"
+          className="p-3 bg-th-elevated hover:bg-th-surface-hover rounded-md cursor-pointer group transition-[background-color] duration-300"
         >
-          <div className="aspect-square w-full rounded-md mb-3 relative overflow-hidden shadow-lg bg-[#282828]">
+          <div className="aspect-square w-full rounded-md mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover">
             {pl.image ? (
               <TidalImage
                 src={getTidalImageUrl(pl.image, 320)}
@@ -697,7 +697,7 @@ function PlaylistGrid({
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <Music size={32} className="text-[#535353]" />
+                <Music size={32} className="text-th-text-disabled" />
               </div>
             )}
             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -712,14 +712,14 @@ function PlaylistGrid({
             >
               <MoreHorizontal size={16} className="text-white" />
             </button>
-            <div className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100">
+            <div className="absolute bottom-2 right-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100">
               <Play size={20} fill="black" className="text-black ml-1" />
             </div>
           </div>
           <h4 className="font-bold text-[15px] text-white truncate mb-1">
             {pl.title}
           </h4>
-          <p className="text-[13px] text-[#a6a6a6] line-clamp-1">
+          <p className="text-[13px] text-th-text-muted line-clamp-1">
             {pl.description ||
               (pl.creator?.name
                 ? `By ${pl.creator.name}`
@@ -728,7 +728,7 @@ function PlaylistGrid({
                 : "Playlist")}
           </p>
           {pl.numberOfTracks != null && (
-            <p className="text-[12px] text-[#666] mt-0.5">
+            <p className="text-[12px] text-th-text-faint mt-0.5">
               {pl.numberOfTracks} tracks
             </p>
           )}

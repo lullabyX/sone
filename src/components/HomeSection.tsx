@@ -181,8 +181,8 @@ export default function HomeSection({ section }: HomeSectionProps) {
             onClick={() => scroll("left")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollLeft
-                ? "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white"
-                : "text-[#4a4a4a] cursor-default"
+                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                : "text-th-text-disabled cursor-default"
             }`}
             disabled={!canScrollLeft}
           >
@@ -192,8 +192,8 @@ export default function HomeSection({ section }: HomeSectionProps) {
             onClick={() => scroll("right")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollRight
-                ? "bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white"
-                : "text-[#4a4a4a] cursor-default"
+                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                : "text-th-text-disabled cursor-default"
             }`}
             disabled={!canScrollRight}
           >
@@ -202,7 +202,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           {section.hasMore && section.apiPath && (
             <button
               onClick={() => navigateToViewAll(section.title, section.apiPath!)}
-              className="text-[13px] font-bold text-[#a6a6a6] hover:text-white uppercase tracking-wider transition-colors ml-2"
+              className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors ml-2"
             >
               View all
             </button>
@@ -272,7 +272,7 @@ function TrackListSection({
         {section.hasMore && section.apiPath && (
           <button
             onClick={() => navigateToViewAll(section.title, section.apiPath!)}
-            className="text-[13px] font-bold text-[#a6a6a6] hover:text-white uppercase tracking-wider transition-colors"
+            className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
           >
             View all
           </button>
@@ -287,9 +287,9 @@ function TrackListSection({
                 <div
                   key={getItemId(item)}
                   onClick={() => handlePlayTrack(item, globalIdx)}
-                  className="flex items-center gap-3 p-2 rounded-md hover:bg-[#2a2a2a] cursor-pointer group transition-colors"
+                  className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
                 >
-                  <div className="w-10 h-10 flex-shrink-0 rounded bg-[#282828] overflow-hidden relative">
+                  <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
                     {getItemImage(item, 160) ? (
                       <img
                         src={getItemImage(item, 160)}
@@ -314,10 +314,10 @@ function TrackListSection({
                     <p className="text-[14px] text-white truncate font-medium">
                       {getItemTitle(item)}
                     </p>
-                    <p className="text-[12px] text-[#a6a6a6] truncate">
+                    <p className="text-[12px] text-th-text-muted truncate">
                       {item.artist?.name || item.artists?.[0]?.name || ""}
                       {item.followInfo && (
-                        <span className="ml-1 text-[#00FFFF]">+</span>
+                        <span className="ml-1 text-th-accent">+</span>
                       )}
                     </p>
                   </div>
@@ -330,7 +330,7 @@ function TrackListSection({
                           cover: item.album.cover,
                         });
                       }}
-                      className="text-[12px] text-[#666] hover:text-white truncate max-w-[120px] transition-colors hidden sm:block"
+                      className="text-[12px] text-th-text-faint hover:text-white truncate max-w-[120px] transition-colors hidden sm:block"
                     >
                       {item.album.title}
                     </button>

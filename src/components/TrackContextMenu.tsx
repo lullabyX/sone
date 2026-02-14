@@ -195,13 +195,13 @@ export default function TrackContextMenu({
   }, [playlistId, index, trackLabel, removeTrackFromPlaylist, onTrackRemoved, showToast, onClose]);
 
   const menuItemClass =
-    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#ffffff0a] transition-colors text-left text-[14px] text-[#e0e0e0] hover:text-white";
+    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-text-secondary hover:text-white";
 
   return (
     <>
       <div
         ref={menuRef}
-        className="fixed z-9999 w-[240px] bg-[#1a1a1a] rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
+        className="fixed z-9999 w-[240px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
         style={{
           top: position.top,
           left: position.left,
@@ -212,18 +212,18 @@ export default function TrackContextMenu({
       >
         {/* Play next */}
         <button className={menuItemClass} onClick={handlePlayNext}>
-          <ListEnd size={18} className="shrink-0 text-[#a6a6a6]" />
+          <ListEnd size={18} className="shrink-0 text-th-text-muted" />
           <span>Play next</span>
         </button>
 
         {/* Add to queue */}
         <button className={menuItemClass} onClick={handleAddToQueue}>
-          <ListPlus size={18} className="shrink-0 text-[#a6a6a6]" />
+          <ListPlus size={18} className="shrink-0 text-th-text-muted" />
           <span>Add to play queue</span>
         </button>
 
         {/* Divider */}
-        <div className="my-1 border-t border-[#2a2a2a]" />
+        <div className="my-1 border-t border-th-inset" />
 
         {/* Add to playlist */}
         <button
@@ -231,7 +231,7 @@ export default function TrackContextMenu({
           className={menuItemClass}
           onClick={() => setShowPlaylistSubmenu(true)}
         >
-          <ListMusic size={18} className="shrink-0 text-[#a6a6a6]" />
+          <ListMusic size={18} className="shrink-0 text-th-text-muted" />
           <span>Add to playlist</span>
         </button>
 
@@ -239,27 +239,27 @@ export default function TrackContextMenu({
         <button className={menuItemClass} onClick={handleToggleFavorite}>
           <Heart
             size={18}
-            className={`shrink-0 ${isFav ? "text-[#00FFFF]" : "text-[#a6a6a6]"}`}
+            className={`shrink-0 ${isFav ? "text-th-accent" : "text-th-text-muted"}`}
             fill={isFav ? "currentColor" : "none"}
           />
           <span>{isFav ? "Remove from Loved tracks" : "Add to Loved tracks"}</span>
         </button>
 
         {/* Divider */}
-        <div className="my-1 border-t border-[#2a2a2a]" />
+        <div className="my-1 border-t border-th-inset" />
 
         {/* Go to track radio */}
         <button className={menuItemClass} onClick={handleGoToTrackRadio}>
-          <Radio size={18} className="shrink-0 text-[#a6a6a6]" />
+          <Radio size={18} className="shrink-0 text-th-text-muted" />
           <span>Go to track radio</span>
         </button>
 
         {/* Remove from playlist (only for user's own playlist) */}
         {canRemoveFromPlaylist && (
           <>
-            <div className="my-1 border-t border-[#2a2a2a]" />
+            <div className="my-1 border-t border-th-inset" />
             <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#ffffff0a] transition-colors text-left text-[14px] text-[#ff6666] hover:text-[#ff4444]"
+              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-error hover:text-th-error"
               onClick={handleRemoveFromPlaylist}
             >
               <Trash2 size={18} className="shrink-0" />

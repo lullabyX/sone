@@ -101,7 +101,7 @@ function CreatePlaylistModal({
 
       {/* Modal panel */}
       <div
-        className="relative w-full max-w-[520px] bg-[#1a1a1a] rounded-xl shadow-2xl overflow-hidden mx-4"
+        className="relative w-full max-w-[520px] bg-th-surface rounded-xl shadow-2xl overflow-hidden mx-4"
         style={{ animation: "slideUp 0.2s ease-out" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -111,7 +111,7 @@ function CreatePlaylistModal({
             Create playlist
           </h2>
           <button
-            className="p-1 text-[#a6a6a6] hover:text-white rounded-full transition-colors"
+            className="p-1 text-th-text-muted hover:text-white rounded-full transition-colors"
             onClick={onClose}
           >
             <X size={20} />
@@ -129,7 +129,7 @@ function CreatePlaylistModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={saving}
-              className="w-full bg-transparent text-white text-[15px] px-4 py-3.5 rounded-lg border border-[#3a3a3a] focus:border-[#666] focus:outline-none placeholder-[#666] transition-colors"
+              className="w-full bg-transparent text-white text-[15px] px-4 py-3.5 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint transition-colors"
             />
           </div>
 
@@ -144,10 +144,10 @@ function CreatePlaylistModal({
               }}
               disabled={saving}
               rows={4}
-              className="w-full bg-transparent text-white text-[14px] px-4 py-3 rounded-lg border border-[#3a3a3a] focus:border-[#666] focus:outline-none placeholder-[#666] resize-none transition-colors"
+              className="w-full bg-transparent text-white text-[14px] px-4 py-3 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint resize-none transition-colors"
             />
             <div className="text-right mt-1">
-              <span className="text-[12px] text-[#666]">
+              <span className="text-[12px] text-th-text-faint">
                 {description.length}/{DESC_MAX_LEN} characters
               </span>
             </div>
@@ -155,7 +155,7 @@ function CreatePlaylistModal({
 
           {/* Error */}
           {error && (
-            <p className="text-[13px] text-[#ff6666]">{error}</p>
+            <p className="text-[13px] text-th-error">{error}</p>
           )}
         </div>
 
@@ -164,7 +164,7 @@ function CreatePlaylistModal({
           <button
             onClick={handleSave}
             disabled={!title.trim() || saving}
-            className="px-6 py-2.5 bg-[#00FFFF] text-black text-[14px] font-semibold rounded-full hover:bg-[#00e5e5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="px-6 py-2.5 bg-th-accent text-black text-[14px] font-semibold rounded-full hover:bg-th-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
             {saving && <Loader2 size={16} className="animate-spin" />}
             Save
@@ -325,24 +325,24 @@ export default function AddToPlaylistMenu({
 
     return (
       <button
-        className="w-full flex items-center justify-between px-5 py-3 hover:bg-[#ffffff0a] transition-colors text-left group/row"
+        className="w-full flex items-center justify-between px-5 py-3 hover:bg-white/[0.04] transition-colors text-left group/row"
         onClick={() => handleAddToPlaylist(playlist)}
         disabled={isAdding || isAdded}
       >
-        <span className="text-[14px] text-[#e0e0e0] truncate pr-3 group-hover/row:text-white transition-colors">
+        <span className="text-[14px] text-th-text-secondary truncate pr-3 group-hover/row:text-white transition-colors">
           {playlist.title}
         </span>
         <div className="shrink-0 w-5 flex items-center justify-center">
           {isAdding ? (
-            <Loader2 size={16} className="text-[#a6a6a6] animate-spin" />
+            <Loader2 size={16} className="text-th-text-muted animate-spin" />
           ) : isAdded ? (
-            <span className="text-[#00FFFF] text-[11px] font-semibold">
+            <span className="text-th-accent text-[11px] font-semibold">
               Added
             </span>
           ) : (
             <Plus
               size={18}
-              className="text-[#666] group-hover/row:text-white transition-colors"
+              className="text-th-text-faint group-hover/row:text-white transition-colors"
             />
           )}
         </div>
@@ -357,12 +357,12 @@ export default function AddToPlaylistMenu({
 
     return (
       <button
-        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#ffffff0a] transition-colors text-left group/row"
+        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left group/row"
         onClick={() => handleAddToPlaylist(playlist)}
         disabled={isAdding || isAdded}
       >
         {/* Thumbnail */}
-        <div className="w-10 h-10 shrink-0 rounded bg-[#282828] overflow-hidden">
+        <div className="w-10 h-10 shrink-0 rounded bg-th-surface-hover overflow-hidden">
           <TidalImage
             src={getTidalImageUrl(playlist.image, 160)}
             alt={playlist.title}
@@ -373,10 +373,10 @@ export default function AddToPlaylistMenu({
 
         {/* Title + track count */}
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[14px] text-[#e0e0e0] truncate group-hover/row:text-white transition-colors leading-snug">
+          <span className="text-[14px] text-th-text-secondary truncate group-hover/row:text-white transition-colors leading-snug">
             {playlist.title}
           </span>
-          <span className="text-[12px] text-[#666] leading-snug">
+          <span className="text-[12px] text-th-text-faint leading-snug">
             {playlist.numberOfTracks != null
               ? `${playlist.numberOfTracks} track${playlist.numberOfTracks !== 1 ? "s" : ""}`
               : "Playlist"}
@@ -386,15 +386,15 @@ export default function AddToPlaylistMenu({
         {/* Action */}
         <div className="shrink-0 w-5 flex items-center justify-center">
           {isAdding ? (
-            <Loader2 size={16} className="text-[#a6a6a6] animate-spin" />
+            <Loader2 size={16} className="text-th-text-muted animate-spin" />
           ) : isAdded ? (
-            <span className="text-[#00FFFF] text-[11px] font-semibold">
+            <span className="text-th-accent text-[11px] font-semibold">
               Added
             </span>
           ) : (
             <Plus
               size={18}
-              className="text-[#666] group-hover/row:text-white transition-colors"
+              className="text-th-text-faint group-hover/row:text-white transition-colors"
             />
           )}
         </div>
@@ -409,7 +409,7 @@ export default function AddToPlaylistMenu({
       {/* Context menu */}
       <div
         ref={menuRef}
-        className="fixed z-[9999] w-[320px] max-h-[420px] bg-[#1a1a1a] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="fixed z-[9999] w-[320px] max-h-[420px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col"
         style={{
           top: position.top,
           left: position.left,
@@ -426,7 +426,7 @@ export default function AddToPlaylistMenu({
               <div className="relative">
                 <Search
                   size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-th-text-faint"
                 />
                 <input
                   ref={searchRef}
@@ -434,11 +434,11 @@ export default function AddToPlaylistMenu({
                   placeholder="Find a playlist"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#2a2a2a] text-white text-[13px] pl-9 pr-8 py-2 rounded-md focus:outline-none placeholder-[#555]"
+                  className="w-full bg-th-inset text-white text-[13px] pl-9 pr-8 py-2 rounded-md focus:outline-none placeholder-th-text-disabled"
                 />
                 {searchQuery && (
                   <button
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#666] hover:text-white"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-th-text-faint hover:text-white"
                     onClick={() => setSearchQuery("")}
                   >
                     <X size={14} />
@@ -449,7 +449,7 @@ export default function AddToPlaylistMenu({
 
             {/* Back link */}
             <button
-              className="px-5 py-2 text-[12px] text-white hover:text-[#00FFFF] text-left transition-colors"
+              className="px-5 py-2 text-[12px] text-white hover:text-th-accent text-left transition-colors"
               onClick={() => {
                 setShowAll(false);
                 setSearchQuery("");
@@ -461,7 +461,7 @@ export default function AddToPlaylistMenu({
             {/* Filtered list */}
             <div className="flex-1 overflow-y-auto custom-scrollbar pb-2">
               {filteredPlaylists.length === 0 ? (
-                <div className="px-5 py-8 text-center text-[13px] text-[#555]">
+                <div className="px-5 py-8 text-center text-[13px] text-th-text-disabled">
                   {searchQuery ? "No playlists found" : "No playlists yet"}
                 </div>
               ) : (
@@ -476,10 +476,10 @@ export default function AddToPlaylistMenu({
           <>
             {/* Create new playlist */}
             <button
-              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-[#ffffff0a] transition-colors"
+              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-white/[0.04] transition-colors"
               onClick={() => setShowCreateModal(true)}
             >
-              <div className="w-8 h-8 rounded-full bg-[#2a2a2a] flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-full bg-th-inset flex items-center justify-center shrink-0">
                 <Plus size={18} className="text-white" />
               </div>
               <span className="text-[15px] text-white font-medium">
@@ -489,10 +489,10 @@ export default function AddToPlaylistMenu({
 
             {/* Show all playlists */}
             <button
-              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-[#ffffff0a] transition-colors"
+              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/[0.04] transition-colors"
               onClick={() => setShowAll(true)}
             >
-              <span className="text-[14px] text-[#a6a6a6] hover:text-white transition-colors">
+              <span className="text-[14px] text-th-text-muted hover:text-white transition-colors">
                 Show all playlists
               </span>
             </button>
@@ -501,7 +501,7 @@ export default function AddToPlaylistMenu({
             {recentPlaylists.length > 0 ? (
               <div className="flex flex-col mt-1">
                 <div className="px-5 pt-2 pb-1">
-                  <span className="text-[11px] font-bold text-[#a6a6a6] uppercase tracking-[0.12em]">
+                  <span className="text-[11px] font-bold text-th-text-muted uppercase tracking-[0.12em]">
                     Recent
                   </span>
                 </div>
@@ -514,7 +514,7 @@ export default function AddToPlaylistMenu({
             ) : userPlaylists.length > 0 ? (
               <div className="flex flex-col mt-1">
                 <div className="px-5 pt-2 pb-1">
-                  <span className="text-[11px] font-bold text-[#a6a6a6] uppercase tracking-[0.12em]">
+                  <span className="text-[11px] font-bold text-th-text-muted uppercase tracking-[0.12em]">
                     Recent
                   </span>
                 </div>
@@ -530,8 +530,8 @@ export default function AddToPlaylistMenu({
 
         {/* Error bar */}
         {error && (
-          <div className="px-5 py-2.5 bg-[#ff444418] border-t border-[#ff444430]">
-            <span className="text-[12px] text-[#ff6666]">{error}</span>
+          <div className="px-5 py-2.5 bg-th-error/10 border-t border-th-error/20">
+            <span className="text-[12px] text-th-error">{error}</span>
           </div>
         )}
       </div>

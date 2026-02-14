@@ -75,19 +75,19 @@ function Toaster({
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="pointer-events-auto flex items-center gap-2.5 pl-3.5 pr-2.5 py-2.5 bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl shadow-2xl max-w-[380px] min-w-[220px]"
+          className="pointer-events-auto flex items-center gap-2.5 pl-3.5 pr-2.5 py-2.5 bg-th-surface border border-th-inset rounded-xl shadow-2xl max-w-[380px] min-w-[220px]"
           style={{ animation: "toastIn 0.25s ease-out" }}
         >
           {/* Icon */}
           <div className="shrink-0">
             {toast.type === "success" && (
-              <div className="w-5 h-5 rounded-full bg-[#00FFFF]/15 flex items-center justify-center">
-                <Check size={12} className="text-[#00FFFF]" strokeWidth={3} />
+              <div className="w-5 h-5 rounded-full bg-th-accent/15 flex items-center justify-center">
+                <Check size={12} className="text-th-accent" strokeWidth={3} />
               </div>
             )}
             {toast.type === "error" && (
-              <div className="w-5 h-5 rounded-full bg-[#ff4444]/15 flex items-center justify-center">
-                <AlertCircle size={12} className="text-[#ff6666]" strokeWidth={3} />
+              <div className="w-5 h-5 rounded-full bg-th-error/15 flex items-center justify-center">
+                <AlertCircle size={12} className="text-th-error" strokeWidth={3} />
               </div>
             )}
             {toast.type === "info" && (
@@ -98,14 +98,14 @@ function Toaster({
           </div>
 
           {/* Message */}
-          <span className="text-[13px] text-[#e0e0e0] font-medium flex-1 leading-snug">
+          <span className="text-[13px] text-th-text-secondary font-medium flex-1 leading-snug">
             {toast.message}
           </span>
 
           {/* Dismiss */}
           <button
             onClick={() => onDismiss(toast.id)}
-            className="shrink-0 p-0.5 text-[#666] hover:text-white transition-colors rounded"
+            className="shrink-0 p-0.5 text-th-text-faint hover:text-white transition-colors rounded"
           >
             <X size={14} />
           </button>

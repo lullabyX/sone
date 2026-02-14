@@ -121,7 +121,7 @@ export default function ViewAllPage({
   const hasArtists = items.length > 0 && items.every((item) => isArtistItem(item));
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-[#1a1a1a] to-[#121212] min-h-full">
+    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <div className="px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">

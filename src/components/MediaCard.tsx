@@ -27,11 +27,11 @@ export default function MediaCard({
     <div
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className={`p-3 bg-[#181818] hover:bg-[#282828] rounded-lg cursor-pointer group transition-[background-color] duration-300 ${widthClass ?? ""}`}
+      className={`p-3 bg-th-elevated hover:bg-th-surface-hover rounded-lg cursor-pointer group transition-[background-color] duration-300 ${widthClass ?? ""}`}
     >
       {/* Image */}
       <div
-        className={`w-full aspect-square mb-3 relative overflow-hidden shadow-lg bg-[#282828] ${
+        className={`w-full aspect-square mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover ${
           isArtist ? "rounded-full" : "rounded-md"
         }`}
       >
@@ -46,7 +46,7 @@ export default function MediaCard({
             }}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#333] to-[#1a1a1a]">
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-th-button to-th-surface">
             {isArtist ? (
               <User size={40} className="text-gray-600" />
             ) : (
@@ -62,7 +62,7 @@ export default function MediaCard({
                 e.stopPropagation();
                 onClick();
               }}
-              className="absolute bottom-2 right-2 w-10 h-10 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 hover:scale-110"
+              className="absolute bottom-2 right-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 hover:scale-110"
             >
               <Play size={20} fill="black" className="text-black ml-1" />
             </button>
@@ -80,7 +80,7 @@ export default function MediaCard({
       {/* Subtitle */}
       {subtitle && (
         <p
-          className={`text-[12px] text-[#a6a6a6] line-clamp-2 ${
+          className={`text-[12px] text-th-text-muted line-clamp-2 ${
             isArtist ? "text-center" : ""
           }`}
         >

@@ -108,10 +108,10 @@ export default function TrackRadioPage({
 
   if (loading) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-[#00FFFF] border-t-transparent rounded-full animate-spin" />
-          <p className="text-[#a6a6a6] text-sm">Loading track radio...</p>
+          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
+          <p className="text-th-text-muted text-sm">Loading track radio...</p>
         </div>
       </div>
     );
@@ -119,13 +119,13 @@ export default function TrackRadioPage({
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] flex items-center justify-center">
+      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
-          <Radio size={48} className="text-[#535353]" />
+          <Radio size={48} className="text-th-text-disabled" />
           <p className="text-white font-semibold text-lg">
             Couldn't load track radio
           </p>
-          <p className="text-[#a6a6a6] text-sm max-w-md">{error}</p>
+          <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
             className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
@@ -138,9 +138,9 @@ export default function TrackRadioPage({
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-[#1a1a1a] to-[#121212] overflow-y-auto scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent">
+    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-[#282828] flex items-center justify-center relative">
+        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center relative">
           {trackInfo?.cover ? (
             <>
               <TidalImage
@@ -155,7 +155,7 @@ export default function TrackRadioPage({
             </>
           ) : (
             <div className="flex flex-col items-center gap-3">
-              <Radio size={56} className="text-[#00FFFF]" />
+              <Radio size={56} className="text-th-accent" />
             </div>
           )}
         </div>
@@ -167,11 +167,11 @@ export default function TrackRadioPage({
             {displayTitle}
           </h1>
           {displayArtist && (
-            <p className="text-[14px] text-[#a6a6a6] mt-1">
+            <p className="text-[14px] text-th-text-muted mt-1">
               Based on <span className="text-white">{displayArtist}</span> — {trackInfo?.title}
             </p>
           )}
-          <div className="flex items-center gap-1.5 text-[14px] text-[#a6a6a6] mt-2">
+          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <span>
               {tracks.length} song{tracks.length !== 1 ? "s" : ""}
             </span>
@@ -182,7 +182,7 @@ export default function TrackRadioPage({
       <div className="px-8 py-5 flex items-center gap-5">
         <button
           onClick={handlePlayAll}
-          className="w-14 h-14 bg-[#00FFFF] rounded-full flex items-center justify-center shadow-xl hover:scale-105 hover:brightness-110 transition-[transform,filter] duration-150"
+          className="w-14 h-14 bg-th-accent rounded-full flex items-center justify-center shadow-xl hover:scale-105 hover:brightness-110 transition-[transform,filter] duration-150"
         >
           {radioPlaying ? (
             <Pause size={24} fill="black" className="text-black" />
@@ -205,11 +205,11 @@ export default function TrackRadioPage({
 
         {tracks.length === 0 && (
           <div className="py-16 text-center">
-            <Radio size={48} className="text-[#535353] mx-auto mb-4" />
+            <Radio size={48} className="text-th-text-disabled mx-auto mb-4" />
             <p className="text-white font-semibold text-lg mb-2">
               No radio tracks found
             </p>
-            <p className="text-[#a6a6a6] text-sm">
+            <p className="text-th-text-muted text-sm">
               We couldn't find similar tracks for this song.
             </p>
           </div>
