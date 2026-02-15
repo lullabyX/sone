@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
 import { getPageSection } from "../api/tidal";
 import { useNavigation } from "../hooks/useNavigation";
 import { getItemTitle, getItemId } from "../utils/itemHelpers";
@@ -29,7 +28,6 @@ function isNavLinkSection(section: HomeSectionType): boolean {
 export default function ExploreSubPage({
   apiPath,
   title,
-  onBack,
 }: ExploreSubPageProps) {
   const { navigateToExplorePage } = useNavigation();
 
@@ -77,12 +75,6 @@ export default function ExploreSubPage({
       <div className="px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={onBack}
-            className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"
-          >
-            <ArrowLeft size={18} className="text-white" />
-          </button>
           <h1 className="text-[32px] font-bold text-white tracking-tight">
             {title}
           </h1>

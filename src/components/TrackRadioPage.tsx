@@ -5,6 +5,7 @@ import { getTrackRadio } from "../api/tidal";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
+import { DetailPageSkeleton } from "./PageSkeleton";
 
 interface TrackRadioPageProps {
   trackId: number;
@@ -107,14 +108,7 @@ export default function TrackRadioPage({
   const displayArtist = trackInfo?.artistName;
 
   if (loading) {
-    return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-th-text-muted text-sm">Loading track radio...</p>
-        </div>
-      </div>
-    );
+    return <DetailPageSkeleton type="radio" />;
   }
 
   if (error) {
@@ -173,7 +167,7 @@ export default function TrackRadioPage({
           )}
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <span>
-              {tracks.length} song{tracks.length !== 1 ? "s" : ""}
+              {tracks.length} TRACK{tracks.length !== 1 ? "S" : ""}
             </span>
           </div>
         </div>
@@ -210,7 +204,7 @@ export default function TrackRadioPage({
               No radio tracks found
             </p>
             <p className="text-th-text-muted text-sm">
-              We couldn't find similar tracks for this song.
+              We couldn't find similar tracks for this track.
             </p>
           </div>
         )}

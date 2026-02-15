@@ -1,10 +1,18 @@
-import { Play, User, Music } from "lucide-react";
-import { getItemImage, getItemTitle, getItemSubtitle } from "../utils/itemHelpers";
+import { Play, User, Music, Heart, MoreHorizontal } from "lucide-react";
+import {
+  getItemImage,
+  getItemTitle,
+  getItemSubtitle,
+} from "../utils/itemHelpers";
 
 interface MediaCardProps {
   item: any;
   onClick: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  onPlay?: (e: React.MouseEvent) => void;
+  onMoreClick?: (e: React.MouseEvent) => void;
+  isFavorited?: boolean;
+  onFavoriteToggle?: (e: React.MouseEvent) => void;
   isArtist?: boolean;
   showPlayButton?: boolean;
   /** Card width class — defaults to full-width (grid-controlled). Use "w-[180px] flex-shrink-0" for horizontal scroll rows. */
@@ -15,6 +23,10 @@ export default function MediaCard({
   item,
   onClick,
   onContextMenu,
+  onPlay,
+  onMoreClick,
+  isFavorited,
+  onFavoriteToggle,
   isArtist = false,
   showPlayButton = true,
   widthClass,
@@ -27,7 +39,9 @@ export default function MediaCard({
     <div
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className={`p-3 bg-th-elevated hover:bg-th-surface-hover rounded-lg cursor-pointer group transition-[background-color] duration-300 ${widthClass ?? ""}`}
+      className={`p-3 bg-th-elevated hover:bg-th-surface-hover rounded-lg cursor-pointer group transition-[background-color] duration-300 ${
+        widthClass ?? ""
+      }`}
     >
       {/* Image */}
       <div
@@ -57,15 +71,45 @@ export default function MediaCard({
         {showPlayButton && !isArtist && (
           <>
             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            {/* Play button — bottom-left */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onClick();
+                if (onPlay) onPlay(e);
+                else onClick();
               }}
-              className="absolute bottom-2 right-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 hover:scale-110"
+              className="absolute bottom-2 left-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform,translate] duration-300 scale-90 group-hover:scale-100 hover:scale-110"
             >
-              <Play size={20} fill="black" className="text-black ml-1" />
+              <Play size={20} fill="black" className="text-black ml-0.5" />
             </button>
+            {/* Right side icons — bottom-right */}
+            <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform,translate] duration-300">
+              {onMoreClick && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoreClick(e);
+                  }}
+                  className="w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
+                >
+                  <MoreHorizontal size={16} className="text-white" />
+                </button>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onFavoriteToggle) onFavoriteToggle(e);
+                }}
+                className="w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
+              >
+                <Heart
+                  size={16}
+                  className={isFavorited ? "text-th-accent" : "text-white"}
+                  fill={isFavorited ? "currentColor" : "none"}
+                  strokeWidth={isFavorited ? 0 : 2}
+                />
+              </button>
+            </div>
           </>
         )}
       </div>

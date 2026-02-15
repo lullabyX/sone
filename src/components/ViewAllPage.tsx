@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ArrowLeft } from "lucide-react";
 import { usePlayback } from "../hooks/usePlayback";
 import { useNavigation } from "../hooks/useNavigation";
 import { getPageSection } from "../api/tidal";
@@ -23,7 +22,6 @@ interface ViewAllPageProps {
 export default function ViewAllPage({
   title,
   apiPath,
-  onBack,
 }: ViewAllPageProps) {
   const { playTrack, setQueueTracks } = usePlayback();
   const { navigateToAlbum, navigateToPlaylist } = useNavigation();
@@ -125,12 +123,6 @@ export default function ViewAllPage({
       <div className="px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={onBack}
-            className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors"
-          >
-            <ArrowLeft size={18} className="text-white" />
-          </button>
           <h1 className="text-[32px] font-bold text-white tracking-tight">
             {title}
           </h1>

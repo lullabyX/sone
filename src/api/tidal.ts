@@ -213,6 +213,16 @@ export async function getFavoriteArtists(
   });
 }
 
+export async function getFavoriteAlbums(
+  userId: number,
+  limit: number = 50
+): Promise<AlbumDetail[]> {
+  return await invoke<AlbumDetail[]>("get_favorite_albums", {
+    userId,
+    limit,
+  });
+}
+
 // ==================== Auth helpers ====================
 
 export async function getSavedCredentials(): Promise<{

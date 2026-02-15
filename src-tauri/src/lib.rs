@@ -497,6 +497,13 @@ fn get_favorite_playlists(state: State<AppState>, user_id: u64) -> Result<Vec<Ti
 }
 
 #[tauri::command(rename_all = "camelCase")]
+fn get_favorite_albums(state: State<AppState>, user_id: u64, limit: u32) -> Result<Vec<TidalAlbumDetail>, String> {
+    println!("DEBUG [get_favorite_albums]: user_id={}, limit={}", user_id, limit);
+    let mut client = state.tidal_client.lock().map_err(|e| e.to_string())?;
+    client.get_favorite_albums(user_id, limit)
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn create_playlist(
     state: State<AppState>,
     user_id: u64,
@@ -1032,6 +1039,7 @@ pub fn run() {
             get_user_playlists,
             get_playlist_tracks,
             get_favorite_playlists,
+            get_favorite_albums,
             create_playlist,
             add_track_to_playlist,
             remove_track_from_playlist,

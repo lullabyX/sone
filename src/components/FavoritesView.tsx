@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { getFavoriteTracks } from "../api/tidal";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
+import { DetailPageSkeleton } from "./PageSkeleton";
 
 interface FavoritesViewProps {
   onBack: () => void;
@@ -107,14 +108,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
 
   if (loading) {
-    return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-th-text-muted text-sm">Loading favorites...</p>
-        </div>
-      </div>
-    );
+    return <DetailPageSkeleton type="favorites" />;
   }
 
   if (error) {
@@ -140,7 +134,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Favorites Header */}
-      <div className="px-8 pb-8 flex items-end gap-7">
+      <div className="px-8 py-8 flex items-end gap-7">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
           <Heart size={80} className="text-white drop-shadow-lg" fill="white" />
         </div>
@@ -153,7 +147,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           </h1>
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <span>
-              {totalTracks} song{totalTracks !== 1 ? "s" : ""}
+              {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
             </span>
           </div>
         </div>
@@ -177,7 +171,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         {/* End of list */}
         {!hasMore && tracks.length > 0 && (
           <div className="py-6 text-center text-[13px] text-th-text-disabled">
-            {totalTracks} song{totalTracks !== 1 ? "s" : ""}
+            {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
           </div>
         )}
 
@@ -189,7 +183,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
               No loved tracks yet
             </p>
             <p className="text-th-text-muted text-sm">
-              Heart songs on Tidal to see them here.
+              Heart tracks on Tidal to see them here.
             </p>
           </div>
         )}

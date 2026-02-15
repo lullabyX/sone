@@ -2503,6 +2503,44 @@ impl TidalClient {
         }
     }
 
+    /// Fetch user's favorite albums as structured data for the sidebar.
+    pub fn get_favorite_albums(&mut self, user_id: u64, limit: u32) -> Result<Vec<TidalAlbumDetail>, String> {
+        let url = format!("{}/users/{}/favorites/albums", TIDAL_API_URL, user_id);
+        let country_code = self.country_code.clone();
+
+        let response = self.authenticated_get(&url, &[
+            ("countryCode", &country_code),
+            ("limit", &limit.to_string()),
+            ("offset", "0"),
+            ("order", "DATE"),
+            ("orderDirection", "DESC"),
+        ])?;
+
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(format!("Favorite albums API error ({}): {}", status, body));
+        }
+
+        // The favorites endpoint wraps each album in { item: { ... }, created: "..." }
+        #[derive(Deserialize)]
+        struct FavEntry {
+            item: TidalAlbumDetail,
+        }
+        #[derive(Deserialize)]
+        struct FavResponse {
+            items: Vec<FavEntry>,
+        }
+
+        let data = serde_json::from_str::<FavResponse>(&body)
+            .map_err(|e| format!("Failed to parse favorite albums: {} - Body: {}", e, body))?;
+
+        let albums: Vec<TidalAlbumDetail> = data.items.into_iter().map(|e| e.item).collect();
+        eprintln!("DEBUG [get_favorite_albums]: got {} albums", albums.len());
+        Ok(albums)
+    }
+
     /// Fetch user's playlists as raw JSON for home page sections.
     fn get_user_playlists_raw(&self, user_id: u64, limit: u32) -> Result<Value, String> {
         let tokens = self.tokens.as_ref().ok_or("Not authenticated")?;

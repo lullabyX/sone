@@ -19,14 +19,21 @@ import TidalImage from "./TidalImage";
 import HomeSection from "./HomeSection";
 import MediaContextMenu from "./MediaContextMenu";
 
+// Simple in-memory cache to prevent skeleton flash on navigation
+let cachedHomeData: {
+  sections: HomeSectionType[];
+  favoriteArtists: ArtistDetail[];
+} | null = null;
+
 export default function Home() {
   const { userPlaylists } = usePlaylists();
   const { navigateToPlaylist, navigateToFavorites } = useNavigation();
   const { authTokens } = useAuth();
 
-  const [sections, setSections] = useState<HomeSectionType[]>([]);
-  const [favoriteArtists, setFavoriteArtists] = useState<ArtistDetail[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [sections, setSections] = useState<HomeSectionType[]>(cachedHomeData?.sections || []);
+  const [favoriteArtists, setFavoriteArtists] = useState<ArtistDetail[]>(cachedHomeData?.favoriteArtists || []);
+  // If we have cached data, don't show loading skeleton
+  const [loading, setLoading] = useState(!cachedHomeData);
   const [greeting, setGreeting] = useState("Good evening");
   const hasLoadedRef = useRef(false);
 
@@ -75,12 +82,18 @@ export default function Home() {
           "isStale:", result.isStale
         );
         setSections(result.home.sections);
+        
+        // Update in-memory cache
+        if (!cachedHomeData) cachedHomeData = { sections: [], favoriteArtists: [] };
+        cachedHomeData.sections = result.home.sections;
 
         // If cache is stale, refresh in background
         if (result.isStale) {
           refreshHomePage()
             .then((fresh) => {
               setSections(fresh.sections);
+              // Update in-memory cache with fresh data
+              if (cachedHomeData) cachedHomeData.sections = fresh.sections;
             })
             .catch((err) => {
               console.error("Background refresh failed:", err);
@@ -96,6 +109,10 @@ export default function Home() {
         if (userId != null) {
           const artists = await getFavoriteArtists(userId, 20);
           setFavoriteArtists(artists);
+          
+          // Update in-memory cache
+          if (!cachedHomeData) cachedHomeData = { sections: [], favoriteArtists: [] };
+          cachedHomeData.favoriteArtists = artists;
         }
       } catch (err) {
         console.error("Failed to load favorite artists:", err);
@@ -187,16 +204,16 @@ export default function Home() {
               onClick={navigateToFavorites}
               className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
             >
-              <div className="w-[56px] h-[56px] flex-shrink-0 bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] shadow-lg flex items-center justify-center">
+              <div className="w-[56px] h-[56px] flex-shrink-0 bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] shadow-lg flex items-center justify-center relative">
                 <Heart size={22} className="text-white" fill="white" />
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Play size={18} fill="white" className="text-white ml-0.5" />
+                </div>
               </div>
-              <div className="flex-1 flex items-center justify-between px-3 min-w-0">
-                <span className="font-bold text-[13px] text-white truncate pr-2">
+              <div className="flex-1 flex items-center px-3 min-w-0">
+                <span className="font-bold text-[13px] text-white truncate">
                   Loved Tracks
                 </span>
-                <div className="w-9 h-9 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 flex-shrink-0">
-                  <Play size={18} fill="black" className="text-black ml-0.5" />
-                </div>
               </div>
             </div>
             {userPlaylists.slice(0, 7).map((playlist) => (
@@ -206,25 +223,21 @@ export default function Home() {
                 onContextMenu={(e) => handlePlaylistContextMenu(e, playlist)}
                 className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
               >
-                <div className="w-[56px] h-[56px] flex-shrink-0 bg-th-surface-hover shadow-lg">
+                <div className="w-[56px] h-[56px] flex-shrink-0 bg-th-surface-hover shadow-lg relative">
                   <TidalImage
                     src={getTidalImageUrl(playlist.image, 160)}
                     alt={playlist.title}
                     type="playlist"
                     className="w-full h-full"
                   />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Play size={18} fill="white" className="text-white ml-0.5" />
+                  </div>
                 </div>
-                <div className="flex-1 flex items-center justify-between px-3 min-w-0">
-                  <span className="font-bold text-[13px] text-white truncate pr-2">
+                <div className="flex-1 flex items-center px-3 min-w-0">
+                  <span className="font-bold text-[13px] text-white truncate">
                     {playlist.title}
                   </span>
-                  <div className="w-9 h-9 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform] duration-300 scale-90 group-hover:scale-100 flex-shrink-0">
-                    <Play
-                      size={18}
-                      fill="black"
-                      className="text-black ml-0.5"
-                    />
-                  </div>
                 </div>
               </div>
             ))}

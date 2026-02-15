@@ -3,19 +3,22 @@ import {
   Compass,
   Library,
   Heart,
+  Music,
 } from "lucide-react";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useNavigation } from "../hooks/useNavigation";
 import { useAuth } from "../hooks/useAuth";
-import { getTidalImageUrl, type MediaItemType } from "../types";
+import { getTidalImageUrl, type MediaItemType, type AlbumDetail } from "../types";
+import { getFavoriteAlbums } from "../api/tidal";
 import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 export default function Sidebar() {
   const { userPlaylists, favoritePlaylists } = usePlaylists();
   const {
     navigateToPlaylist,
+    navigateToAlbum,
     navigateToFavorites,
     navigateHome,
     navigateToExplore,
@@ -23,6 +26,23 @@ export default function Sidebar() {
   } = useNavigation();
   const { authTokens } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<"playlists" | "albums">("playlists");
+  const [favoriteAlbumsList, setFavoriteAlbumsList] = useState<AlbumDetail[]>([]);
+  const [albumsLoading, setAlbumsLoading] = useState(false);
+
+  // Fetch favorite albums when switching to albums tab
+  useEffect(() => {
+    if (activeFilter !== "albums" || !authTokens?.user_id) return;
+    let cancelled = false;
+    setAlbumsLoading(true);
+    getFavoriteAlbums(authTokens.user_id)
+      .then((albums) => {
+        if (!cancelled) setFavoriteAlbumsList(albums);
+      })
+      .catch((err) => console.error("Failed to fetch favorite albums:", err))
+      .finally(() => { if (!cancelled) setAlbumsLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeFilter, authTokens?.user_id]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -153,119 +173,190 @@ export default function Sidebar() {
         {/* Filter Pills */}
         {!isCollapsed && (
           <div className="px-2 pt-1 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar">
-            {["Playlists", "Artists", "Albums"].map((pill) => (
+            {(["playlists", "albums"] as const).map((tab) => (
               <button
-                key={pill}
-                className="px-2.5 py-1 bg-white/[0.07] hover:bg-th-inset rounded-full text-xs font-medium text-th-text-secondary whitespace-nowrap transition-colors duration-150"
+                key={tab}
+                onClick={() => setActiveFilter(tab)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors duration-150 ${
+                  activeFilter === tab
+                    ? "bg-th-accent/15 text-th-accent"
+                    : "bg-white/[0.07] hover:bg-th-inset text-th-text-secondary"
+                }`}
               >
-                {pill}
+                {tab === "playlists" ? "Playlists" : "Albums"}
               </button>
             ))}
           </div>
         )}
 
-        {/* Playlists List */}
+        {/* Library List */}
         <div className="flex-1 overflow-y-auto px-1.5 pb-2 custom-scrollbar">
-          {allPlaylists.length === 0 ? (
-            <div
-              className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
-            >
-              <p className="text-th-text-muted text-sm">
-                Create your first playlist
-              </p>
-              <button className="mt-4 px-4 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform">
-                Create playlist
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-px">
-              {/* Loved Tracks - pinned at top */}
-              <button
-                onClick={navigateToFavorites}
-                className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
-                  currentView.type === "favorites"
-                    ? "bg-white/[0.08]"
-                    : "hover:bg-th-border-subtle"
-                } ${isCollapsed ? "justify-center" : ""}`}
-                title="Loved Tracks"
+          {activeFilter === "playlists" ? (
+            /* Playlists view */
+            allPlaylists.length === 0 ? (
+              <div
+                className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
               >
-                <div
-                  className={`shrink-0 overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] ${
-                    isCollapsed ? "w-10 h-10 rounded" : "w-10 h-10 rounded"
-                  }`}
+                <p className="text-th-text-muted text-sm">
+                  Create your first playlist
+                </p>
+                <button className="mt-4 px-4 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform">
+                  Create playlist
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-px">
+                {/* Loved Tracks - pinned at top */}
+                <button
+                  onClick={navigateToFavorites}
+                  className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
+                    currentView.type === "favorites"
+                      ? "bg-white/[0.08]"
+                      : "hover:bg-th-border-subtle"
+                  } ${isCollapsed ? "justify-center" : ""}`}
+                  title="Loved Tracks"
                 >
-                  <Heart size={15} className="text-white" fill="white" />
-                </div>
-
-                {!isCollapsed && (
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="text-[13px] font-medium text-white truncate leading-tight">
-                      Loved Tracks
-                    </div>
-                    <div className="text-[11px] text-th-text-faint truncate leading-tight mt-0.5">
-                      Collection
-                    </div>
+                  <div
+                    className={`shrink-0 overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] ${
+                      isCollapsed ? "w-10 h-10 rounded" : "w-10 h-10 rounded"
+                    }`}
+                  >
+                    <Heart size={15} className="text-white" fill="white" />
                   </div>
-                )}
-              </button>
 
-              {allPlaylists.map((playlist) => {
-                const own = isOwnPlaylist(playlist);
-                const trackCount = playlist.numberOfTracks;
+                  {!isCollapsed && (
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="text-[13px] font-medium text-white truncate leading-tight">
+                        Loved Tracks
+                      </div>
+                      <div className="text-[11px] text-th-text-faint truncate leading-tight mt-0.5">
+                        Collection
+                      </div>
+                    </div>
+                  )}
+                </button>
 
-                // Build subtitle: "N tracks" for own playlists, "Creator name · N tracks" for public
-                const creatorLabel = !own ? getCreatorName(playlist) : undefined;
-                let subtitle = "";
-                if (creatorLabel) {
-                  subtitle = creatorLabel;
-                  if (trackCount != null) {
-                    subtitle += ` \u00B7 ${trackCount} track${trackCount !== 1 ? "s" : ""}`;
+                {allPlaylists.map((playlist) => {
+                  const own = isOwnPlaylist(playlist);
+                  const trackCount = playlist.numberOfTracks;
+
+                  // Build subtitle: "N tracks" for own playlists, "Creator name · N tracks" for public
+                  const creatorLabel = !own ? getCreatorName(playlist) : undefined;
+                  let subtitle = "";
+                  if (creatorLabel) {
+                    subtitle = creatorLabel;
+                    if (trackCount != null) {
+                      subtitle += ` \u00B7 ${trackCount} track${trackCount !== 1 ? "s" : ""}`;
+                    }
+                  } else if (trackCount != null) {
+                    subtitle = `${trackCount} track${trackCount !== 1 ? "s" : ""}`;
+                  } else {
+                    subtitle = "Playlist";
                   }
-                } else if (trackCount != null) {
-                  subtitle = `${trackCount} track${trackCount !== 1 ? "s" : ""}`;
-                } else {
-                  subtitle = "Playlist";
-                }
 
-                return (
+                  return (
+                    <button
+                      key={playlist.uuid}
+                      onClick={() => handlePlaylistClick(playlist)}
+                      onContextMenu={(e) => handlePlaylistContextMenu(e, playlist)}
+                      className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
+                        currentView.type === "playlist" &&
+                        currentView.playlistId === playlist.uuid
+                          ? "bg-white/[0.08]"
+                          : "hover:bg-th-border-subtle"
+                      } ${isCollapsed ? "justify-center" : ""}`}
+                      title={playlist.title}
+                    >
+                      <div
+                        className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${
+                          isCollapsed ? "w-10 h-10" : "w-10 h-10"
+                        }`}
+                      >
+                        <TidalImage
+                          src={getTidalImageUrl(playlist.image, 80)}
+                          alt={playlist.title}
+                          type="playlist"
+                        />
+                      </div>
+
+                      {!isCollapsed && (
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="text-[14px] font-medium text-white truncate leading-snug">
+                            {playlist.title}
+                          </div>
+                          <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
+                            {subtitle}
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            /* Albums view */
+            albumsLoading ? (
+              <div className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}>
+                <div className="w-6 h-6 border-2 border-th-accent border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="text-th-text-muted text-sm mt-3">Loading albums...</p>
+              </div>
+            ) : favoriteAlbumsList.length === 0 ? (
+              <div className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}>
+                <p className="text-th-text-muted text-sm">No favorite albums yet</p>
+              </div>
+            ) : (
+              <div className="space-y-px">
+                {favoriteAlbumsList.map((album) => (
                   <button
-                    key={playlist.uuid}
-                    onClick={() => handlePlaylistClick(playlist)}
-                    onContextMenu={(e) => handlePlaylistContextMenu(e, playlist)}
+                    key={album.id}
+                    onClick={() =>
+                      navigateToAlbum(album.id, {
+                        title: album.title,
+                        cover: album.cover,
+                        artistName: album.artist?.name,
+                      })
+                    }
                     className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
-                      currentView.type === "playlist" &&
-                      currentView.playlistId === playlist.uuid
+                      currentView.type === "album" &&
+                      currentView.albumId === album.id
                         ? "bg-white/[0.08]"
                         : "hover:bg-th-border-subtle"
                     } ${isCollapsed ? "justify-center" : ""}`}
-                    title={playlist.title}
+                    title={album.title}
                   >
                     <div
                       className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${
                         isCollapsed ? "w-10 h-10" : "w-10 h-10"
                       }`}
                     >
-                      <TidalImage
-                        src={getTidalImageUrl(playlist.image, 80)}
-                        alt={playlist.title}
-                        type="playlist"
-                      />
+                      {album.cover ? (
+                        <TidalImage
+                          src={getTidalImageUrl(album.cover, 80)}
+                          alt={album.title}
+                          type="album"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Music size={16} className="text-gray-600" />
+                        </div>
+                      )}
                     </div>
 
                     {!isCollapsed && (
                       <div className="flex-1 min-w-0 text-left">
                         <div className="text-[14px] font-medium text-white truncate leading-snug">
-                          {playlist.title}
+                          {album.title}
                         </div>
                         <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
-                          {subtitle}
+                          {album.artist?.name || "Unknown Artist"}
                         </div>
                       </div>
                     )}
                   </button>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>

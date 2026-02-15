@@ -4,6 +4,8 @@ import {
   Music,
   Loader2,
   Heart,
+  Shuffle,
+  MoreHorizontal,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { usePlayback } from "../hooks/usePlayback";
@@ -12,6 +14,8 @@ import { getAlbumDetail, getAlbumTracks } from "../api/tidal";
 import { getTidalImageUrl, type Track, type AlbumDetail } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
+import MediaContextMenu from "./MediaContextMenu";
+import { DetailPageSkeleton } from "./PageSkeleton";
 
 interface AlbumViewProps {
   albumId: number;
@@ -161,6 +165,23 @@ export default function AlbumView({
     }
   };
 
+  const handleShuffle = async () => {
+    if (tracks.length === 0) return;
+    const shuffled = [...tracks];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    try {
+      setQueueTracks(shuffled.slice(1));
+      await playTrack(shuffled[0]);
+    } catch (err) {
+      console.error("Failed to shuffle play:", err);
+    }
+  };
+
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
   const handleToggleFavorite = async () => {
     if (favoriteLoading || favoritePending) return;
 
@@ -195,14 +216,7 @@ export default function AlbumView({
     album?.artist?.name || albumInfo?.artistName || "Unknown Artist";
 
   if (loading) {
-    return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-th-text-muted text-sm">Loading album...</p>
-        </div>
-      </div>
-    );
+    return <DetailPageSkeleton type="album" />;
   }
 
   if (error) {
@@ -257,8 +271,8 @@ export default function AlbumView({
               <>
                 <span className="mx-1">•</span>
                 <span>
-                  {album.numberOfTracks} song
-                  {album.numberOfTracks !== 1 ? "s" : ""}
+                  {album.numberOfTracks} TRACK
+                  {album.numberOfTracks !== 1 ? "S" : ""}
                 </span>
               </>
             )}
@@ -273,38 +287,75 @@ export default function AlbumView({
       </div>
 
       {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center gap-5">
-        <button
-          onClick={handlePlayAll}
-          className="w-14 h-14 bg-th-accent rounded-full flex items-center justify-center shadow-xl hover:scale-105 hover:brightness-110 transition-[transform,filter] duration-150"
-        >
-          {albumPlaying ? (
-            <Pause size={24} fill="black" className="text-black" />
-          ) : (
-            <Play size={24} fill="black" className="text-black ml-1" />
-          )}
-        </button>
-        <button
-          onClick={handleToggleFavorite}
-          disabled={favoriteLoading || favoritePending}
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
-            albumFavorited
-              ? "text-th-accent hover:brightness-110"
-              : "text-th-text-muted hover:text-white hover:bg-white/8"
-          } disabled:opacity-60 disabled:cursor-not-allowed`}
-          title={albumFavorited ? "Remove from favorites" : "Add to favorites"}
-          aria-label={albumFavorited ? "Unfavorite album" : "Favorite album"}
-        >
-          {favoriteLoading || favoritePending ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <Heart
-              size={20}
-              fill={albumFavorited ? "currentColor" : "none"}
-              strokeWidth={albumFavorited ? 0 : 2}
+      <div className="px-8 py-5 flex items-center justify-between">
+        {/* Left — Play & Shuffle buttons */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handlePlayAll}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
+          >
+            {albumPlaying ? (
+              <Pause size={18} fill="black" className="text-black" />
+            ) : (
+              <Play size={18} fill="black" className="text-black" />
+            )}
+            {albumPlaying ? "Pause" : "Play"}
+          </button>
+          <button
+            onClick={handleShuffle}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          >
+            <Shuffle size={18} />
+            Shuffle
+          </button>
+        </div>
+        {/* Right — Heart & More icons */}
+        <div className="flex items-center gap-2 relative">
+          <button
+            onClick={handleToggleFavorite}
+            disabled={favoriteLoading || favoritePending}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
+              albumFavorited
+                ? "text-th-accent hover:brightness-110"
+                : "text-th-text-muted hover:text-white hover:bg-white/8"
+            } disabled:opacity-60 disabled:cursor-not-allowed`}
+            title={albumFavorited ? "Remove from favorites" : "Add to favorites"}
+            aria-label={albumFavorited ? "Unfavorite album" : "Favorite album"}
+          >
+            {favoriteLoading || favoritePending ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Heart
+                size={20}
+                fill={albumFavorited ? "currentColor" : "none"}
+                strokeWidth={albumFavorited ? 0 : 2}
+              />
+            )}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setContextMenu({ x: e.clientX, y: e.clientY });
+            }}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors"
+            title="More options"
+          >
+            <MoreHorizontal size={20} />
+          </button>
+          {contextMenu && (
+            <MediaContextMenu
+              cursorPosition={contextMenu}
+              item={{
+                id: albumId,
+                title: displayTitle,
+                type: "album",
+                cover: displayCover,
+                artistName: displayArtist,
+              }}
+              onClose={() => setContextMenu(null)}
             />
           )}
-        </button>
+        </div>
       </div>
 
       {/* Track List */}
@@ -325,7 +376,7 @@ export default function AlbumView({
         {/* End of list */}
         {!hasMore && tracks.length > 0 && (
           <div className="py-6 text-center text-[13px] text-th-text-disabled">
-            {totalTracks} song{totalTracks !== 1 ? "s" : ""}
+            {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from "react";
-import { Play, ChevronLeft, ChevronRight, Music } from "lucide-react";
+import { Play, ChevronLeft, ChevronRight, Music, MoreHorizontal } from "lucide-react";
 import { usePlayback } from "../hooks/usePlayback";
 import { useNavigation } from "../hooks/useNavigation";
 import {
@@ -7,6 +7,7 @@ import {
   type MediaItemType,
 } from "../types";
 import MediaContextMenu from "./MediaContextMenu";
+import TrackContextMenu from "./TrackContextMenu";
 import MediaCard from "./MediaCard";
 import {
   getItemImage,
@@ -249,7 +250,12 @@ function TrackListSection({
   items: any[];
 }) {
   const { playTrack, setQueueTracks } = usePlayback();
-  const { navigateToAlbum, navigateToViewAll } = useNavigation();
+  const { navigateToAlbum, navigateToArtist, navigateToViewAll } = useNavigation();
+  const [trackContextMenu, setTrackContextMenu] = useState<{
+    track: any;
+    index: number;
+    position: { x: number; y: number };
+  } | null>(null);
 
   const handlePlayTrack = (item: any, index: number) => {
     const remainingTracks = items.slice(index + 1);
@@ -257,11 +263,18 @@ function TrackListSection({
     playTrack(item);
   };
 
-  // Display as a 2-column grid of track rows
-  const displayItems = items.slice(0, 8);
-  const midpoint = Math.ceil(displayItems.length / 2);
-  const col1 = displayItems.slice(0, midpoint);
-  const col2 = displayItems.slice(midpoint);
+  const openTrackMenu = (e: React.MouseEvent, item: any, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTrackContextMenu({
+      track: item,
+      index,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+
+  // Display up to 16 items in a multi-column grid
+  const displayItems = items.slice(0, 16);
 
   return (
     <section className="mb-8">
@@ -278,69 +291,96 @@ function TrackListSection({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-1">
-        {[col1, col2].map((col, colIdx) => (
-          <div key={colIdx} className="flex flex-col">
-            {col.map((item: any, idx: number) => {
-              const globalIdx = colIdx === 0 ? idx : midpoint + idx;
-              return (
-                <div
-                  key={getItemId(item)}
-                  onClick={() => handlePlayTrack(item, globalIdx)}
-                  className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
-                >
-                  <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
-                    {getItemImage(item, 160) ? (
-                      <img
-                        src={getItemImage(item, 160)}
-                        alt={getItemTitle(item)}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Music size={16} className="text-gray-600" />
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Play
-                        size={14}
-                        fill="white"
-                        className="text-white ml-0.5"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[14px] text-white truncate font-medium">
-                      {getItemTitle(item)}
-                    </p>
-                    <p className="text-[12px] text-th-text-muted truncate">
-                      {item.artist?.name || item.artists?.[0]?.name || ""}
-                      {item.followInfo && (
-                        <span className="ml-1 text-th-accent">+</span>
-                      )}
-                    </p>
-                  </div>
-                  {item.album && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigateToAlbum(item.album.id, {
-                          title: item.album.title,
-                          cover: item.album.cover,
-                        });
-                      }}
-                      className="text-[12px] text-th-text-faint hover:text-white truncate max-w-[120px] transition-colors hidden sm:block"
-                    >
-                      {item.album.title}
-                    </button>
-                  )}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-1">
+        {displayItems.map((item: any, idx: number) => (
+          <div
+            key={getItemId(item)}
+            onClick={() => handlePlayTrack(item, idx)}
+            onContextMenu={(e) => openTrackMenu(e, item, idx)}
+            className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
+          >
+            <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
+              {getItemImage(item, 160) ? (
+                <img
+                  src={getItemImage(item, 160)}
+                  alt={getItemTitle(item)}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Music size={16} className="text-gray-600" />
                 </div>
-              );
-            })}
+              )}
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <Play
+                  size={14}
+                  fill="white"
+                  className="text-white ml-0.5"
+                />
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[14px] text-white truncate font-medium">
+                {item.album ? (
+                  <span
+                    className="hover:underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigateToAlbum(item.album.id, {
+                        title: item.album.title,
+                        cover: item.album.cover,
+                      });
+                    }}
+                  >
+                    {getItemTitle(item)}
+                  </span>
+                ) : (
+                  getItemTitle(item)
+                )}
+              </p>
+              <p className="text-[12px] text-th-text-muted truncate">
+                {(item.artist || item.artists?.[0]) && (
+                  <span
+                    className="hover:underline cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const artistId = item.artist?.id || item.artists?.[0]?.id;
+                      const artistName = item.artist?.name || item.artists?.[0]?.name;
+                      if (artistId) {
+                        navigateToArtist(artistId, { name: artistName });
+                      }
+                    }}
+                  >
+                    {item.artist?.name || item.artists?.[0]?.name || ""}
+                  </span>
+                )}
+                {item.followInfo && (
+                  <span className="ml-1 text-th-accent">+</span>
+                )}
+              </p>
+            </div>
+            {/* Three-dots on hover */}
+            <button
+              onClick={(e) => openTrackMenu(e, item, idx)}
+              className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
+            >
+              <MoreHorizontal size={16} />
+            </button>
           </div>
         ))}
       </div>
+
+      {/* Track context menu */}
+      {trackContextMenu && (
+        <TrackContextMenu
+          track={trackContextMenu.track}
+          index={trackContextMenu.index}
+          cursorPosition={trackContextMenu.position}
+          anchorRef={{ current: null }}
+          onClose={() => setTrackContextMenu(null)}
+        />
+      )}
     </section>
   );
 }

@@ -1,9 +1,11 @@
-import { Play, Pause, Music } from "lucide-react";
+import { Play, Pause, Music, Shuffle, MoreHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePlayback } from "../hooks/usePlayback";
 import { getMixItems } from "../api/tidal";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
+import MediaContextMenu from "./MediaContextMenu";
+import { DetailPageSkeleton } from "./PageSkeleton";
 
 interface MixPageProps {
   mixId: string;
@@ -90,24 +92,35 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
     }
   };
 
+  const handleShuffle = async () => {
+    if (tracks.length === 0) return;
+    const shuffled = [...tracks];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    try {
+      setQueueTracks(shuffled.slice(1));
+      await playTrack(shuffled[0]);
+    } catch (err) {
+      console.error("Failed to shuffle play:", err);
+    }
+  };
+
   const mixPlaying = !!(
     currentTrack &&
     trackIds.has(currentTrack.id) &&
     isPlaying
   );
 
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
   const displayTitle = mixInfo?.title || "Mix";
   const displaySubtitle = mixInfo?.subtitle;
 
   if (loading) {
-    return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-th-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-th-text-muted text-sm">Loading mix...</p>
-        </div>
-      </div>
-    );
+    return <DetailPageSkeleton type="mix" />;
   }
 
   if (error) {
@@ -159,23 +172,61 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           )}
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <span>
-              {tracks.length} song{tracks.length !== 1 ? "s" : ""}
+              {tracks.length} TRACK{tracks.length !== 1 ? "S" : ""}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="px-8 py-5 flex items-center gap-5">
-        <button
-          onClick={handlePlayAll}
-          className="w-14 h-14 bg-th-accent rounded-full flex items-center justify-center shadow-xl hover:scale-105 hover:brightness-110 transition-[transform,filter] duration-150"
-        >
-          {mixPlaying ? (
-            <Pause size={24} fill="black" className="text-black" />
-          ) : (
-            <Play size={24} fill="black" className="text-black ml-1" />
+      {/* Play Controls */}
+      <div className="px-8 py-5 flex items-center justify-between">
+        {/* Left — Play & Shuffle buttons */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handlePlayAll}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
+          >
+            {mixPlaying ? (
+              <Pause size={18} fill="black" className="text-black" />
+            ) : (
+              <Play size={18} fill="black" className="text-black" />
+            )}
+            {mixPlaying ? "Pause" : "Play"}
+          </button>
+          <button
+            onClick={handleShuffle}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          >
+            <Shuffle size={18} />
+            Shuffle
+          </button>
+        </div>
+        {/* Right — More icon */}
+        <div className="flex items-center gap-2 relative">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setContextMenu({ x: e.clientX, y: e.clientY });
+            }}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors"
+            title="More options"
+          >
+            <MoreHorizontal size={20} />
+          </button>
+          {contextMenu && (
+            <MediaContextMenu
+              cursorPosition={contextMenu}
+              item={{
+                type: "mix",
+                mixId,
+                title: displayTitle,
+                image: mixInfo?.image,
+                subtitle: mixInfo?.subtitle,
+              }}
+              onClose={() => setContextMenu(null)}
+            />
           )}
-        </button>
+        </div>
       </div>
 
       <div className="px-8 pb-8">
