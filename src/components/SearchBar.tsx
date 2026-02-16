@@ -140,6 +140,16 @@ export default function SearchBar() {
     searchInputRef.current?.focus();
   };
 
+  // Listen for global Ctrl+S focus event
+  useEffect(() => {
+    const handler = () => {
+      searchInputRef.current?.focus();
+      setSearchOpen(true);
+    };
+    window.addEventListener("focus-search", handler);
+    return () => window.removeEventListener("focus-search", handler);
+  }, []);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {

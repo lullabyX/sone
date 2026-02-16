@@ -28,9 +28,12 @@ import {
   historyAtom,
   volumeAtom,
 } from "../atoms/playback";
+import { drawerOpenAtom } from "../atoms/ui";
 
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useFavorites } from "../hooks/useFavorites";
+import { clearCache } from "../api/tidal";
 
 import type { AuthTokens, Playlist, Track, PlaybackSnapshot } from "../types";
 
@@ -53,6 +56,8 @@ export function AppInitializer() {
   // ---- Stable playback actions (no subscriptions) ----
   const { playNext, playPrevious, pauseTrack, resumeTrack, setVolume } =
     usePlaybackActions();
+  const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } = useFavorites();
+  const setDrawerOpen = useSetAtom(drawerOpenAtom);
 
   // ---- Read only the atoms we NEED to react to ----
   const isPlaying = useAtomValue(isPlayingAtom);
@@ -278,18 +283,44 @@ export function AppInitializer() {
 
   // ================================================================
   //  KEYBOARD SHORTCUTS
-  //  All action callbacks are stable (from usePlaybackActions),
-  //  so this effect only re-registers when isPlaying changes.
-  //  Volume is read from store at call-time, not from a subscription.
+  //  All action callbacks are stable (from usePlaybackActions).
+  //  Volume / isPlaying are read from store at call-time.
   // ================================================================
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (
+      const inInput =
         e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
+        e.target instanceof HTMLTextAreaElement;
+
+      // ── Ctrl / Cmd combos (work even when inside an input) ──
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod) {
+        switch (e.code) {
+          case "ArrowRight":
+            if (e.repeat) return;
+            e.preventDefault();
+            playNext();
+            return;
+          case "ArrowLeft":
+            if (e.repeat) return;
+            e.preventDefault();
+            playPrevious();
+            return;
+          case "KeyS":
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent("focus-search"));
+            return;
+          case "KeyR":
+            e.preventDefault();
+            clearCache();
+            window.location.reload();
+            return;
+        }
       }
+
+      // ── The rest only fire when NOT typing in an input ──
+      if (inInput) return;
 
       switch (e.code) {
         case "Space":
@@ -300,14 +331,6 @@ export function AppInitializer() {
             resumeTrack();
           }
           break;
-        case "ArrowLeft":
-          e.preventDefault();
-          playPrevious();
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          playNext();
-          break;
         case "ArrowUp":
           e.preventDefault();
           setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1));
@@ -316,12 +339,45 @@ export function AppInitializer() {
           e.preventDefault();
           setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1));
           break;
+        case "KeyM":
+          if (e.repeat) return;
+          e.preventDefault();
+          // Toggle mute: store previous volume to restore
+          {
+            const vol = store.get(volumeAtom);
+            if (vol > 0) {
+              (window as any).__preMuteVolume = vol;
+              setVolume(0);
+            } else {
+              setVolume((window as any).__preMuteVolume ?? 0.5);
+            }
+          }
+          break;
+        case "KeyL":
+          if (e.repeat) return;
+          e.preventDefault();
+          // Like / unlike current track
+          {
+            const track = store.get(currentTrackAtom);
+            if (track) {
+              if (favoriteTrackIds.has(track.id)) {
+                removeFavoriteTrack(track.id);
+              } else {
+                addFavoriteTrack(track.id, track);
+              }
+            }
+          }
+          break;
+        case "Escape":
+          e.preventDefault();
+          setDrawerOpen(false);
+          break;
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [store, playNext, playPrevious, pauseTrack, resumeTrack, setVolume]);
+  }, [store, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, setDrawerOpen, favoriteTrackIds, addFavoriteTrack, removeFavoriteTrack]);
 
   // ================================================================
   //  POPSTATE (browser back/forward navigation)
