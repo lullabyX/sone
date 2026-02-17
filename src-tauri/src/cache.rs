@@ -18,7 +18,7 @@ pub enum CacheTier {
     UserContent,
     /// Artist bios, top charts, home page.  TTL: 4 hours.
     Dynamic,
-    /// Album tracklists, credits, lyrics.   TTL: 7 days.
+    /// Album tracklists, credits.           TTL: 7 days.
     StaticMeta,
     /// Album art, avatars.                  TTL: 30 days.
     Image,

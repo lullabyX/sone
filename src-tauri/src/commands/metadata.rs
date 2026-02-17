@@ -15,25 +15,8 @@ pub async fn get_stream_url(state: State<'_, AppState>, track_id: u64, quality: 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_track_lyrics(state: State<'_, AppState>, track_id: u64) -> Result<TidalLyrics, SoneError> {
     log::debug!("[get_track_lyrics]: track_id={}", track_id);
-
-    let cache_key = format!("lyrics:{}", track_id);
-    match state.disk_cache.get(&cache_key, CacheTier::StaticMeta).await {
-        CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
-            if let Ok(lyrics) = serde_json::from_slice(&bytes) {
-                return Ok(lyrics);
-            }
-        }
-        CacheResult::Miss => {}
-    }
-
     let mut client = state.tidal_client.lock().await;
-    let lyrics = client.get_track_lyrics(track_id).await?;
-    drop(client);
-
-    if let Ok(json) = serde_json::to_vec(&lyrics) {
-        state.disk_cache.put(&cache_key, &json, CacheTier::StaticMeta, &["lyrics"]).await.ok();
-    }
-    Ok(lyrics)
+    client.get_track_lyrics(track_id).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
