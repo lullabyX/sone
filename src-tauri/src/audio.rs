@@ -13,6 +13,7 @@ enum AudioCommand {
     Resume { reply: Reply<Result<(), String>> },
     Stop { reply: Reply<Result<(), String>> },
     SetVolume { level: f32, reply: Reply<Result<(), String>> },
+    SetNormalizationGain { gain: f64, reply: Reply<Result<(), String>> },
     Seek { position_secs: f32, reply: Reply<Result<(), String>> },
     GetPosition { reply: Reply<Result<f32, String>> },
     IsFinished { reply: Reply<Result<bool, String>> },
@@ -37,6 +38,14 @@ impl AudioPlayer {
             let pipeline = gst::ElementFactory::make("playbin")
                 .build()
                 .expect("Failed to create playbin");
+
+            // Dedicated volume element for normalization gain, separate from
+            // playbin's own volume property (user volume).
+            let norm_volume = gst::ElementFactory::make("volume")
+                .property("volume", 1.0_f64)
+                .build()
+                .expect("Failed to create normalization volume element");
+            pipeline.set_property("audio-filter", &norm_volume);
 
             let eos = Arc::new(AtomicBool::new(false));
             let has_uri = AtomicBool::new(false);
@@ -112,6 +121,10 @@ impl AudioPlayer {
                         pipeline.set_property("volume", level as f64);
                         reply.send(Ok(())).ok();
                     }
+                    AudioCommand::SetNormalizationGain { gain, reply } => {
+                        norm_volume.set_property("volume", gain);
+                        reply.send(Ok(())).ok();
+                    }
                     AudioCommand::Seek { position_secs, reply } => {
                         let pos = gst::ClockTime::from_nseconds(
                             (position_secs as f64 * 1_000_000_000.0) as u64,
@@ -171,6 +184,10 @@ impl AudioPlayer {
 
     pub fn set_volume(&self, level: f32) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::SetVolume { level, reply })
+    }
+
+    pub fn set_normalization_gain(&self, gain: f64) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::SetNormalizationGain { gain, reply })
     }
 
     pub fn seek(&self, position_secs: f32) -> Result<(), String> {

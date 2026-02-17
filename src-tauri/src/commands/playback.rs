@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use tauri::State;
 
 use crate::AppState;
@@ -50,6 +51,20 @@ pub async fn play_tidal_track(state: State<'_, AppState>, track_id: u64) -> Resu
     };
 
     state.audio_player.play_url(&uri).map_err(SoneError::Audio)?;
+
+    // Apply normalization gain if enabled
+    let norm_gain = if state.volume_normalization.load(Ordering::Relaxed) {
+        if let Some(rg) = stream_info.album_replay_gain {
+            let linear = 10.0_f64.powf(rg / 20.0);
+            linear.min(1.0) // cap at 0dB
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+    log::debug!("[play_tidal_track]: normalization gain={:.3} (albumReplayGain={:?})", norm_gain, stream_info.album_replay_gain);
+    state.audio_player.set_normalization_gain(norm_gain).map_err(SoneError::Audio)?;
 
     // Save last played track
     if let Some(mut settings) = state.load_settings() {

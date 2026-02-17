@@ -31,6 +31,8 @@ pub struct Settings {
     pub client_secret: String,
     #[serde(default)]
     pub minimize_to_tray: bool,
+    #[serde(default)]
+    pub volume_normalization: bool,
 }
 
 pub struct AppState {
@@ -40,6 +42,7 @@ pub struct AppState {
     pub cache_dir: PathBuf,
     pub disk_cache: DiskCache,
     pub minimize_to_tray: AtomicBool,
+    pub volume_normalization: AtomicBool,
 }
 
 pub fn now_secs() -> u64 {
@@ -62,12 +65,12 @@ impl AppState {
 
         let disk_cache = DiskCache::new(cache_dir.join("v2"));
 
-        // Load minimize_to_tray preference from saved settings
-        let minimize_to_tray = fs::read_to_string(&settings_path)
+        // Load preferences from saved settings
+        let saved = fs::read_to_string(&settings_path)
             .ok()
-            .and_then(|c| serde_json::from_str::<Settings>(&c).ok())
-            .map(|s| s.minimize_to_tray)
-            .unwrap_or(false);
+            .and_then(|c| serde_json::from_str::<Settings>(&c).ok());
+        let minimize_to_tray = saved.as_ref().map(|s| s.minimize_to_tray).unwrap_or(false);
+        let volume_normalization = saved.as_ref().map(|s| s.volume_normalization).unwrap_or(false);
 
         Self {
             audio_player: AudioPlayer::new(app_handle),
@@ -76,6 +79,7 @@ impl AppState {
             cache_dir,
             disk_cache,
             minimize_to_tray: AtomicBool::new(minimize_to_tray),
+            volume_normalization: AtomicBool::new(volume_normalization),
         }
     }
 
@@ -286,6 +290,8 @@ pub fn run() {
             commands::utility::clear_disk_cache,
             commands::utility::get_minimize_to_tray,
             commands::utility::set_minimize_to_tray,
+            commands::utility::get_volume_normalization,
+            commands::utility::set_volume_normalization,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

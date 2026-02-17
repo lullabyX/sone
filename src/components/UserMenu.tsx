@@ -1,4 +1,4 @@
-import { LogOut, Palette, RefreshCw, User, Keyboard, X, MonitorDown } from "lucide-react";
+import { LogOut, Palette, RefreshCw, User, Keyboard, X, MonitorDown, Volume2 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "../hooks/useAuth";
@@ -25,11 +25,13 @@ export default function UserMenu() {
   const [themeOpen, setThemeOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
+  const [volumeNormalization, setVolumeNormalization] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Load minimize-to-tray preference
+  // Load preferences
   useEffect(() => {
     invoke<boolean>("get_minimize_to_tray").then(setMinimizeToTray).catch(() => {});
+    invoke<boolean>("get_volume_normalization").then(setVolumeNormalization).catch(() => {});
   }, []);
 
   // Toggle shortcuts modal from ? key
@@ -112,6 +114,30 @@ export default function UserMenu() {
           >
             <Keyboard size={16} />
             Shortcuts
+          </button>
+
+          {/* Volume normalization */}
+          <button
+            onClick={() => {
+              const next = !volumeNormalization;
+              setVolumeNormalization(next);
+              invoke("set_volume_normalization", { enabled: next }).catch(() => {});
+            }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+          >
+            <Volume2 size={16} />
+            <span className="flex-1 text-left">Normalize volume</span>
+            <div
+              className={`w-8 h-[18px] rounded-full transition-colors ${
+                volumeNormalization ? "bg-th-accent" : "bg-th-border-subtle"
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
+                  volumeNormalization ? "translate-x-[16px]" : "translate-x-[2px]"
+                }`}
+              />
+            </div>
           </button>
 
           {/* Close to tray */}

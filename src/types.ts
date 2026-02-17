@@ -184,6 +184,7 @@ export interface StreamInfo {
   bitDepth?: number;
   sampleRate?: number;
   audioQuality?: string;
+  albumReplayGain?: number;
 }
 
 // ==================== Home Page Types ====================

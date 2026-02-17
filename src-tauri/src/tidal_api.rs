@@ -208,6 +208,8 @@ pub struct StreamInfo {
     /// `None` for BTS (single-URL) streams.
     #[serde(default)]
     pub manifest: Option<String>,
+    #[serde(default)]
+    pub album_replay_gain: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -1352,6 +1354,8 @@ impl TidalClient {
             bit_depth: Option<u32>,
             #[serde(default)]
             sample_rate: Option<u32>,
+            #[serde(default)]
+            album_replay_gain: Option<f64>,
         }
 
         let data = serde_json::from_str::<PlaybackInfo>(&body)
@@ -1406,6 +1410,7 @@ impl TidalClient {
                 sample_rate: data.sample_rate,
                 audio_quality: data.audio_quality,
                 manifest: Some(manifest_str),
+                album_replay_gain: data.album_replay_gain,
             });
         }
         // JSON fallback
@@ -1436,6 +1441,7 @@ impl TidalClient {
             bit_depth: data.bit_depth,
             sample_rate: data.sample_rate,
             audio_quality: data.audio_quality,
+            album_replay_gain: data.album_replay_gain,
             manifest: None,
         })
     }

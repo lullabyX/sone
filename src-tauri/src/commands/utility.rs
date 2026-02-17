@@ -49,7 +49,6 @@ pub fn get_minimize_to_tray(state: State<'_, AppState>) -> bool {
 #[tauri::command]
 pub fn set_minimize_to_tray(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
     state.minimize_to_tray.store(enabled, Ordering::Relaxed);
-    // Persist to settings
     let mut settings = state.load_settings().unwrap_or(crate::Settings {
         auth_tokens: None,
         volume: 1.0,
@@ -57,8 +56,31 @@ pub fn set_minimize_to_tray(state: State<'_, AppState>, enabled: bool) -> Result
         client_id: String::new(),
         client_secret: String::new(),
         minimize_to_tray: false,
+        volume_normalization: false,
     });
     settings.minimize_to_tray = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_volume_normalization(state: State<'_, AppState>) -> bool {
+    state.volume_normalization.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn set_volume_normalization(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    state.volume_normalization.store(enabled, Ordering::Relaxed);
+    let mut settings = state.load_settings().unwrap_or(crate::Settings {
+        auth_tokens: None,
+        volume: 1.0,
+        last_track_id: None,
+        client_id: String::new(),
+        client_secret: String::new(),
+        minimize_to_tray: false,
+        volume_normalization: false,
+    });
+    settings.volume_normalization = enabled;
     state.save_settings(&settings)?;
     Ok(())
 }
