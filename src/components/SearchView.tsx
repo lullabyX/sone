@@ -307,8 +307,8 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                             picture: artist.picture,
                           })}
                           onContextMenu={(e) => handleArtistContextMenu(e, artist)}
+                          onPlay={(e) => { e.stopPropagation(); playMedia({ type: "artist", id: artist.id, name: artist.name, picture: artist.picture }); }}
                           isArtist
-                          showPlayButton={false}
                         />
                       ))}
                     </div>
@@ -441,8 +441,8 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                       picture: artist.picture,
                     })}
                     onContextMenu={(e) => handleArtistContextMenu(e, artist)}
+                    onPlay={(e) => { e.stopPropagation(); playMedia({ type: "artist", id: artist.id, name: artist.name, picture: artist.picture }); }}
                     isArtist
-                    showPlayButton={false}
                   />
                 ))}
               </div>
