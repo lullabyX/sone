@@ -221,9 +221,17 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
               <div className="flex flex-col gap-8">
                 {results.tracks.length > 0 && (
                   <section>
-                    <h2 className="text-[16px] font-bold text-white mb-3">
-                      Tracks
-                    </h2>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-[16px] font-bold text-white">
+                        Tracks
+                      </h2>
+                      <button
+                        onClick={() => setActiveTab("tracks")}
+                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                      >
+                        View all
+                      </button>
+                    </div>
                     <ReusableTrackList
                       tracks={results.tracks.slice(0, 8)}
                       onPlay={handlePlayTrack}
@@ -236,9 +244,17 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 )}
                 {results.playlists.length > 0 && (
                   <section>
-                    <h2 className="text-[16px] font-bold text-white mb-3">
-                      Playlists
-                    </h2>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-[16px] font-bold text-white">
+                        Playlists
+                      </h2>
+                      <button
+                        onClick={() => setActiveTab("playlists")}
+                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                      >
+                        View all
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
                       {results.playlists.slice(0, 6).map((pl) => (
                         <MediaCard
@@ -266,9 +282,17 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 )}
                 {results.albums.length > 0 && (
                   <section>
-                    <h2 className="text-[16px] font-bold text-white mb-3">
-                      Albums
-                    </h2>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-[16px] font-bold text-white">
+                        Albums
+                      </h2>
+                      <button
+                        onClick={() => setActiveTab("albums")}
+                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                      >
+                        View all
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
                       {results.albums.slice(0, 6).map((album) => (
                         <MediaCard
@@ -294,9 +318,17 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 )}
                 {results.artists.length > 0 && (
                   <section>
-                    <h2 className="text-[16px] font-bold text-white mb-3">
-                      Artists
-                    </h2>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-[16px] font-bold text-white">
+                        Artists
+                      </h2>
+                      <button
+                        onClick={() => setActiveTab("artists")}
+                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                      >
+                        View all
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
                       {results.artists.slice(0, 6).map((artist) => (
                         <MediaCard
