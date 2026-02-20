@@ -470,12 +470,28 @@ export async function getArtistViewAll(artistId: number, viewAllPath: string): P
   }, TTL.MEDIUM);
 }
 
-export async function getArtistTopTracksAll(artistId: number): Promise<any[]> {
-  return cached(`artist-top-tracks-all:${artistId}`, ["artist"], async () => {
-    const raw = await invoke<any>("get_artist_top_tracks_all", { artistId });
-    const items = raw?.items || [];
-    return items.map((item: any) => item.data || item);
-  }, TTL.MEDIUM);
+export async function getArtistTopTracksAll(
+  artistId: number,
+  offset: number = 0,
+  limit: number = 50
+): Promise<{ items: Track[]; hasMore: boolean }> {
+  const fetcher = async () => {
+    const raw = await invoke<any>("get_artist_top_tracks_all", { artistId, offset, limit });
+    const rawItems = raw?.items || [];
+    const items: Track[] = rawItems.map((item: any) => {
+      const t = item.data || item;
+      if (!t.artist && t.artists?.[0]) {
+        t.artist = t.artists[0];
+      }
+      return t;
+    });
+    // v2 API doesn't return totalNumberOfItems — full page means there's probably more
+    return { items, hasMore: items.length >= limit };
+  };
+  if (offset === 0) {
+    return cached(`artist-top-tracks-all:${artistId}`, ["artist"], fetcher, TTL.MEDIUM);
+  }
+  return fetcher();
 }
 
 // ==================== Playlist / Mix ====================

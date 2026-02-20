@@ -1,4 +1,4 @@
-import { Play, Heart, MoreHorizontal, Plus, Loader2 } from "lucide-react";
+import { Play, Heart, MoreHorizontal, Plus } from "lucide-react";
 import { type Track, getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
@@ -412,14 +412,48 @@ export default function TrackList({
 
       {/* Infinite Scroll Sentinel */}
       {hasMore && (
-        <div
-          ref={sentinelRef}
-          className="flex items-center justify-center py-8"
-        >
+        <div ref={sentinelRef}>
           {loadingMore ? (
-            <div className="flex items-center gap-3 text-th-text-muted">
-              <Loader2 size={20} className="animate-spin" />
-              <span className="text-sm">Loading more tracks...</span>
+            <div className="flex flex-col">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="grid gap-4 px-4 py-2.5"
+                  style={{ gridTemplateColumns: gridCols }}
+                >
+                  <div className="flex items-center justify-end">
+                    <div className="h-4 w-5 bg-th-surface-hover rounded animate-pulse" />
+                  </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {showCover && (
+                      <div className="w-10 h-10 shrink-0 rounded bg-th-surface-hover animate-pulse" />
+                    )}
+                    <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                      <div className="h-4 w-3/5 bg-th-surface-hover rounded animate-pulse" />
+                      <div className="h-3 w-2/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                    </div>
+                  </div>
+                  {showArtist && (
+                    <div className="flex items-center">
+                      <div className="h-3.5 w-3/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                    </div>
+                  )}
+                  {showAlbum && (
+                    <div className="flex items-center">
+                      <div className="h-3.5 w-3/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                    </div>
+                  )}
+                  {showDateAdded && (
+                    <div className="flex items-center">
+                      <div className="h-3.5 w-2/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                    </div>
+                  )}
+                  <div className="flex items-center justify-end">
+                    <div className="h-3.5 w-8 bg-th-surface-hover/60 rounded animate-pulse" />
+                  </div>
+                  <div />
+                </div>
+              ))}
             </div>
           ) : (
             <div className="h-8" />

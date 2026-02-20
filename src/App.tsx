@@ -142,7 +142,6 @@ function AppContent() {
             key={currentView.artistId}
             artistId={currentView.artistId}
             artistName={currentView.artistName}
-            onBack={navigateHome}
           />
         );
       case "mix":

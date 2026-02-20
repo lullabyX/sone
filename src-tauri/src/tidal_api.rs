@@ -2691,14 +2691,16 @@ impl TidalClient {
             .map_err(|e| SoneError::Parse(format!("artist page v1 JSON: {}", e)))
     }
 
-    pub async fn get_artist_top_tracks_all(&mut self, artist_id: u64) -> Result<Value, SoneError> {
+    pub async fn get_artist_top_tracks_all(&mut self, artist_id: u64, offset: u32, limit: u32) -> Result<Value, SoneError> {
         let url = format!("{}/artist/ARTIST_TOP_TRACKS/view-all", TIDAL_API_V2_URL);
         let cc = self.country_code.clone();
         let id_str = artist_id.to_string();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
         let body = self.api_get_body(&url, &[
             ("artistId", &id_str), ("locale", "en_US"), ("countryCode", &cc),
             ("deviceType", "BROWSER"), ("platform", "WEB"),
-            ("limit", "50"), ("offset", "0"),
+            ("limit", &limit_str), ("offset", &offset_str),
         ]).await?;
         serde_json::from_str(&body)
             .map_err(|e| SoneError::Parse(format!("artist top tracks JSON: {}", e)))

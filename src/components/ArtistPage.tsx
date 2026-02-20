@@ -12,10 +12,10 @@ import {
   type ArtistPageSection,
   type MediaItemType,
 } from "../types";
-import TidalImage from "./TidalImage";
 import MediaCard from "./MediaCard";
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
+import TrackList from "./TrackList";
 import { ArtistPageSkeleton } from "./PageSkeleton";
 import {
   getItemImage,
@@ -31,11 +31,7 @@ interface ArtistPageProps {
   onBack: () => void;
 }
 
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
+
 
 /** Strip Tidal's wimpLink markup and HTML tags from bio text */
 function cleanBio(raw: string): string {
@@ -263,9 +259,6 @@ export default function ArtistPage({
     [navigateToAlbum, navigateToArtist, navigateToPlaylist, navigateToMix]
   );
 
-  const isCurrentlyPlaying = (trackId: number) =>
-    currentTrack?.id === trackId && isPlaying;
-  const isCurrentTrackRow = (trackId: number) => currentTrack?.id === trackId;
   const artistPlaying = !!(
     currentTrack &&
     trackIds.has(currentTrack.id) &&
@@ -447,18 +440,6 @@ export default function ArtistPage({
               section={section}
               onPlayTrack={handlePlayTrack}
               onViewAll={() => navigateToArtistTracks(artistId, displayName)}
-              isCurrentTrackRow={isCurrentTrackRow}
-              isCurrentlyPlaying={isCurrentlyPlaying}
-              navigateToAlbum={navigateToAlbum}
-              onTrackContextMenu={(e, track, index) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setTrackContextMenu({
-                  track,
-                  index,
-                  position: { x: e.clientX, y: e.clientY },
-                });
-              }}
             />
           );
         }
@@ -530,21 +511,21 @@ function TrackSection({
   section,
   onPlayTrack,
   onViewAll,
-  isCurrentTrackRow,
-  isCurrentlyPlaying,
-  navigateToAlbum,
-  onTrackContextMenu,
 }: {
   section: ArtistPageSection;
   onPlayTrack: (track: any, index: number, trackList: any[]) => void;
   onViewAll: () => void;
-  isCurrentTrackRow: (trackId: number) => boolean;
-  isCurrentlyPlaying: (trackId: number) => boolean;
-  navigateToAlbum: (id: number, info?: any) => void;
-  onTrackContextMenu: (e: React.MouseEvent, track: any, index: number) => void;
 }) {
   const items = section.items || [];
-  const displayTracks = items.slice(0, 5);
+  const displayTracks = useMemo(() => items.slice(0, 10).map((t: any) => {
+    if (!t.artist && t.artists?.[0]) return { ...t, artist: t.artists[0] };
+    return t;
+  }), [items]);
+
+  const handlePlay = useCallback(
+    (track: any, index: number) => onPlayTrack(track, index, items),
+    [onPlayTrack, items]
+  );
 
   return (
     <div className="px-8 pb-6">
@@ -563,100 +544,14 @@ function TrackSection({
           </button>
         )}
       </div>
-      <div className="flex flex-col">
-        {displayTracks.map((track, index) => {
-          const trackId = track.id;
-          const isActive = isCurrentTrackRow(trackId);
-          const playing = isCurrentlyPlaying(trackId);
-          const albumCover = track.album?.cover || track.album?.imageCover;
-          const albumTitle = track.album?.title;
-          const albumId = track.album?.id;
-          const artistName = track.artist?.name || track.artists?.[0]?.name;
-
-          return (
-            <div
-              key={`${trackId}-${index}`}
-              onClick={() => onPlayTrack(track, index, items)}
-              onContextMenu={(e) => onTrackContextMenu(e, track, index)}
-              className={`grid grid-cols-[36px_1fr_minmax(140px,1fr)_72px] gap-4 px-4 py-2.5 rounded-md cursor-pointer group transition-colors ${
-                isActive ? "bg-[#ffffff0a]" : "hover:bg-[#ffffff08]"
-              }`}
-            >
-              <div className="flex items-center justify-end">
-                {playing ? (
-                  <div className="flex items-end gap-[3px] h-4">
-                    <span className="w-[3px] h-full bg-th-accent rounded-full playing-bar" />
-                    <span
-                      className="w-[3px] h-full bg-th-accent rounded-full playing-bar"
-                      style={{ animationDelay: "0.2s" }}
-                    />
-                    <span
-                      className="w-[3px] h-full bg-th-accent rounded-full playing-bar"
-                      style={{ animationDelay: "0.4s" }}
-                    />
-                  </div>
-                ) : (
-                  <>
-                    <span
-                      className={`text-[15px] tabular-nums group-hover:hidden ${
-                        isActive ? "text-th-accent" : "text-th-text-muted"
-                      }`}
-                    >
-                      {index + 1}
-                    </span>
-                    <Play
-                      size={14}
-                      fill="white"
-                      className="text-white hidden group-hover:block"
-                    />
-                  </>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="relative w-10 h-10 shrink-0 rounded bg-th-surface-hover overflow-hidden">
-                  <TidalImage
-                    src={getTidalImageUrl(albumCover, 160)}
-                    alt={albumTitle || track.title}
-                    className="w-full h-full"
-                  />
-                </div>
-                <div className="flex flex-col justify-center min-w-0">
-                  <span
-                    className={`text-[15px] font-medium truncate leading-snug ${
-                      isActive ? "text-th-accent" : "text-white"
-                    }`}
-                  >
-                    {track.title}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center min-w-0">
-                <span
-                  className="text-[14px] text-th-text-muted truncate hover:text-white hover:underline transition-colors cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (albumId) {
-                      navigateToAlbum(albumId, {
-                        title: albumTitle,
-                        cover: albumCover,
-                        artistName,
-                      });
-                    }
-                  }}
-                >
-                  {albumTitle || ""}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-end text-[14px] text-th-text-muted tabular-nums">
-                {formatDuration(track.duration)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <TrackList
+        tracks={displayTracks}
+        onPlay={handlePlay}
+        showAlbum={true}
+        showCover={true}
+        showArtist={false}
+        showDateAdded={false}
+      />
     </div>
   );
 }
