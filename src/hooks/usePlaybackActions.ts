@@ -34,6 +34,17 @@ function normalizeTrack(raw: any): Track {
   return track;
 }
 
+/** Safely extract a human-readable message from a SoneError (or any thrown value). */
+function extractPlaybackError(error: unknown): string {
+  if (!error) return "Playback failed";
+  let parsed: any = error;
+  if (typeof error === "string") {
+    try { parsed = JSON.parse(error); } catch { return error; }
+  }
+  const msg = parsed?.message;
+  return typeof msg === "string" ? msg : "Playback failed";
+}
+
 export function usePlaybackActions() {
   const store = useStore();
 
@@ -54,6 +65,8 @@ export function usePlaybackActions() {
         store.set(isPlayingAtom, true);
       } catch (error: any) {
         console.error("Failed to play track:", error);
+        store.set(isPlayingAtom, false);
+        window.dispatchEvent(new CustomEvent("playback-error", { detail: extractPlaybackError(error) }));
       }
     },
     [store]
@@ -86,6 +99,8 @@ export function usePlaybackActions() {
       store.set(isPlayingAtom, true);
     } catch (error) {
       console.error("Failed to resume track:", error);
+      store.set(isPlayingAtom, false);
+      window.dispatchEvent(new CustomEvent("playback-error", { detail: extractPlaybackError(error) }));
     }
   }, [store]);
 
@@ -215,6 +230,8 @@ export function usePlaybackActions() {
         store.set(isPlayingAtom, true);
       } catch (error: any) {
         console.error("Failed to play previous track:", error);
+        store.set(isPlayingAtom, false);
+        window.dispatchEvent(new CustomEvent("playback-error", { detail: extractPlaybackError(error) }));
       }
     } else if (store.get(currentTrackAtom)) {
       await seekTo(0);

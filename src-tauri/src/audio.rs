@@ -189,16 +189,14 @@ impl AudioPlayer {
                                                     err_msg, debug_str
                                                 );
 
-                                                if err_msg.contains("busy") || debug_str.contains("busy")
-                                                    || err_msg.contains("EBUSY") || debug_str.contains("EBUSY")
-                                                {
-                                                    app_handle_clone.emit("audio-error",
-                                                        serde_json::json!({ "kind": "device_busy" })
-                                                    ).ok();
-                                                }
+                                                let is_busy = err_msg.contains("busy") || debug_str.contains("busy")
+                                                    || err_msg.contains("EBUSY") || debug_str.contains("EBUSY");
+                                                let kind = if is_busy { "device_busy" } else { "playback_error" };
+                                                app_handle_clone.emit("audio-error",
+                                                    serde_json::json!({ "kind": kind, "message": err_msg })
+                                                ).ok();
 
                                                 eos_flag.store(true, Ordering::SeqCst);
-                                                app_handle_clone.emit("track-finished", ()).ok();
                                                 break;
                                             }
                                             _ => {}

@@ -45,6 +45,7 @@ import { drawerOpenAtom } from "../atoms/ui";
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
+import { useToast } from "../contexts/ToastContext";
 import {
   clearCache,
   savePlaybackQueue,
@@ -90,6 +91,7 @@ export function AppInitializer() {
     usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } = useFavorites();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
+  const { showToast } = useToast();
 
   // ---- Store for one-time reads (volume, queue, history, etc.) — no subscription ----
   const store = useStore();
@@ -368,7 +370,7 @@ export function AppInitializer() {
   // ================================================================
   //  AUTO-PLAY next track when current finishes
   //  Listens for the "track-finished" Tauri event emitted by the GStreamer
-  //  bus thread on EOS/Error — no polling needed.
+  //  bus thread on EOS only (errors emit "audio-error" instead).
   // ================================================================
   useEffect(() => {
     const unlisten = listen("track-finished", () => {
@@ -376,6 +378,37 @@ export function AppInitializer() {
     });
     return () => { unlisten.then((fn) => fn()); };
   }, [playNext]);
+
+  // ================================================================
+  //  AUDIO ERROR HANDLING
+  //  Async GStreamer bus errors (device busy, pipeline failures, etc.)
+  // ================================================================
+  useEffect(() => {
+    const unlisten = listen<{ kind: string; message?: string }>("audio-error", (event) => {
+      store.set(isPlayingAtom, false);
+      const { kind, message } = event.payload;
+      if (kind === "device_busy") {
+        showToast("Audio device is busy — close other apps using it", "error");
+      } else {
+        const display = message && message.length > 80 ? message.slice(0, 80) + "…" : (message || "Playback error");
+        showToast(display, "error");
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [store, showToast]);
+
+  // ================================================================
+  //  SYNC PLAYBACK ERROR HANDLING
+  //  Catches invoke failures from playTrack/resumeTrack/playPrevious
+  // ================================================================
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      showToast(detail || "Playback failed", "error");
+    };
+    window.addEventListener("playback-error", handler);
+    return () => window.removeEventListener("playback-error", handler);
+  }, [showToast]);
 
   // ================================================================
   //  TRAY & GLOBAL MEDIA KEY EVENTS
