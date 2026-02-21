@@ -3,6 +3,7 @@ use tauri::State;
 
 use crate::AppState;
 use crate::SoneError;
+use crate::audio::AudioDevice;
 use crate::cache::{CacheResult, CacheTier};
 use super::playback::compute_norm_gain;
 
@@ -115,4 +116,112 @@ pub fn set_volume_normalization(state: State<'_, AppState>, enabled: bool) -> Re
     settings.volume_normalization = enabled;
     state.save_settings(&settings)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_exclusive_mode(state: State<'_, AppState>) -> bool {
+    state.exclusive_mode.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn set_exclusive_mode(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    state.exclusive_mode.store(enabled, Ordering::Relaxed);
+
+    if !enabled {
+        state.bit_perfect.store(false, Ordering::Relaxed);
+        state.audio_player.set_bit_perfect(false).map_err(SoneError::Audio)?;
+    }
+
+    let device = state.exclusive_device.lock().unwrap().clone();
+    state.audio_player.set_exclusive_mode(enabled, device).map_err(SoneError::Audio)?;
+
+    let mut settings = state.load_settings().unwrap_or(crate::Settings {
+        auth_tokens: None,
+        volume: 1.0,
+        last_track_id: None,
+        client_id: String::new(),
+        client_secret: String::new(),
+        minimize_to_tray: false,
+        volume_normalization: false,
+        exclusive_mode: false,
+        exclusive_device: None,
+        bit_perfect: false,
+    });
+    settings.exclusive_mode = enabled;
+    if !enabled {
+        settings.bit_perfect = false;
+    }
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_bit_perfect(state: State<'_, AppState>) -> bool {
+    state.bit_perfect.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn set_bit_perfect(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    state.bit_perfect.store(enabled, Ordering::Relaxed);
+
+    if enabled && !state.exclusive_mode.load(Ordering::Relaxed) {
+        state.exclusive_mode.store(true, Ordering::Relaxed);
+        let device = state.exclusive_device.lock().unwrap().clone();
+        state.audio_player.set_exclusive_mode(true, device).map_err(SoneError::Audio)?;
+    }
+
+    state.audio_player.set_bit_perfect(enabled).map_err(SoneError::Audio)?;
+
+    let mut settings = state.load_settings().unwrap_or(crate::Settings {
+        auth_tokens: None,
+        volume: 1.0,
+        last_track_id: None,
+        client_id: String::new(),
+        client_secret: String::new(),
+        minimize_to_tray: false,
+        volume_normalization: false,
+        exclusive_mode: false,
+        exclusive_device: None,
+        bit_perfect: false,
+    });
+    settings.bit_perfect = enabled;
+    if enabled {
+        settings.exclusive_mode = true;
+    }
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_exclusive_device(state: State<'_, AppState>) -> Option<String> {
+    state.exclusive_device.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn set_exclusive_device(state: State<'_, AppState>, device: String) -> Result<(), SoneError> {
+    *state.exclusive_device.lock().unwrap() = Some(device.clone());
+
+    let enabled = state.exclusive_mode.load(Ordering::Relaxed);
+    state.audio_player.set_exclusive_mode(enabled, Some(device.clone())).map_err(SoneError::Audio)?;
+
+    let mut settings = state.load_settings().unwrap_or(crate::Settings {
+        auth_tokens: None,
+        volume: 1.0,
+        last_track_id: None,
+        client_id: String::new(),
+        client_secret: String::new(),
+        minimize_to_tray: false,
+        volume_normalization: false,
+        exclusive_mode: false,
+        exclusive_device: None,
+        bit_perfect: false,
+    });
+    settings.exclusive_device = Some(device);
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>, SoneError> {
+    state.audio_player.list_devices().map_err(SoneError::Audio)
 }

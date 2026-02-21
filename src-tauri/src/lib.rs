@@ -189,6 +189,20 @@ pub fn run() {
         .setup(|app| {
             app.manage(AppState::new(app.handle().clone()));
 
+            // Apply saved audio mode to audio thread
+            {
+                let state = app.state::<AppState>();
+                let excl = state.exclusive_mode.load(std::sync::atomic::Ordering::Relaxed);
+                let bp = state.bit_perfect.load(std::sync::atomic::Ordering::Relaxed);
+                let dev = state.exclusive_device.lock().unwrap().clone();
+                if excl || bp {
+                    state.audio_player.set_exclusive_mode(excl, dev).ok();
+                }
+                if bp {
+                    state.audio_player.set_bit_perfect(true).ok();
+                }
+            }
+
             if let Some(window) = app.get_webview_window("main") {
                 // Set window icon at runtime (needed for dev mode taskbar icon)
                 let icon_bytes = include_bytes!("../icons/icon.png");
@@ -414,6 +428,13 @@ pub fn run() {
             commands::utility::get_volume_normalization,
             commands::utility::set_volume_normalization,
             commands::utility::update_tray_tooltip,
+            commands::utility::get_exclusive_mode,
+            commands::utility::set_exclusive_mode,
+            commands::utility::get_bit_perfect,
+            commands::utility::set_bit_perfect,
+            commands::utility::get_exclusive_device,
+            commands::utility::set_exclusive_device,
+            commands::utility::list_audio_devices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
