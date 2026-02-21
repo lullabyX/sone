@@ -39,6 +39,12 @@ pub struct Settings {
     pub minimize_to_tray: bool,
     #[serde(default)]
     pub volume_normalization: bool,
+    #[serde(default)]
+    pub exclusive_mode: bool,
+    #[serde(default)]
+    pub exclusive_device: Option<String>,
+    #[serde(default)]
+    pub bit_perfect: bool,
 }
 
 pub struct AppState {
@@ -50,6 +56,9 @@ pub struct AppState {
     pub crypto: Arc<Crypto>,
     pub minimize_to_tray: AtomicBool,
     pub volume_normalization: AtomicBool,
+    pub exclusive_mode: AtomicBool,
+    pub bit_perfect: AtomicBool,
+    pub exclusive_device: std::sync::Mutex<Option<String>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
     /// Album or track gain depending on playback context.
     pub last_replay_gain: AtomicU64,
@@ -117,6 +126,9 @@ impl AppState {
 
         let minimize_to_tray = saved.as_ref().map(|s| s.minimize_to_tray).unwrap_or(false);
         let volume_normalization = saved.as_ref().map(|s| s.volume_normalization).unwrap_or(false);
+        let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
+        let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
+        let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
         Self {
             audio_player: AudioPlayer::new(app_handle.clone()),
@@ -127,6 +139,9 @@ impl AppState {
             crypto,
             minimize_to_tray: AtomicBool::new(minimize_to_tray),
             volume_normalization: AtomicBool::new(volume_normalization),
+            exclusive_mode: AtomicBool::new(exclusive_mode),
+            bit_perfect: AtomicBool::new(bit_perfect),
+            exclusive_device: std::sync::Mutex::new(exclusive_device),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
             last_peak_amplitude: AtomicU64::new(f64::NAN.to_bits()),
             #[cfg(target_os = "linux")]

@@ -70,6 +70,9 @@ pub fn set_minimize_to_tray(state: State<'_, AppState>, enabled: bool) -> Result
         client_secret: String::new(),
         minimize_to_tray: false,
         volume_normalization: false,
+        exclusive_mode: false,
+        exclusive_device: None,
+        bit_perfect: false,
     });
     settings.minimize_to_tray = enabled;
     state.save_settings(&settings)?;
@@ -105,6 +108,9 @@ pub fn set_volume_normalization(state: State<'_, AppState>, enabled: bool) -> Re
         client_secret: String::new(),
         minimize_to_tray: false,
         volume_normalization: false,
+        exclusive_mode: false,
+        exclusive_device: None,
+        bit_perfect: false,
     });
     settings.volume_normalization = enabled;
     state.save_settings(&settings)?;
