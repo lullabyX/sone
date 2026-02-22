@@ -89,7 +89,10 @@ fn parse_pcm_format(caps: &gst::CapsRef) -> Option<PcmFormat> {
         "S16LE" => 2,
         "S24LE" => 3,
         "S24_32LE" | "S32LE" | "F32LE" => 4,
-        _ => 4,
+        other => {
+            log::warn!("[audio] unsupported PCM format: {other}");
+            return None;
+        }
     };
     Some(PcmFormat {
         sample_rate: rate,
@@ -117,6 +120,7 @@ fn gst_format_to_alsa(gst_format: &str) -> alsa::pcm::Format {
 fn configure_alsa_hwparams(
     pcm: &alsa::PCM,
     fmt: &PcmFormat,
+    bit_perfect: bool,
 ) -> Result<(), String> {
     use alsa::pcm::{Access, HwParams};
     use alsa::ValueOr;
@@ -127,6 +131,10 @@ fn configure_alsa_hwparams(
         .map_err(|e| format!("set_access: {e}"))?;
     hwp.set_format(gst_format_to_alsa(&fmt.gst_format))
         .map_err(|e| format!("set_format({}): {e}", fmt.gst_format))?;
+    if bit_perfect {
+        hwp.set_rate_resample(false)
+            .map_err(|e| format!("set_rate_resample: {e}"))?;
+    }
     hwp.set_rate(fmt.sample_rate, ValueOr::Nearest)
         .map_err(|e| format!("set_rate({}): {e}", fmt.sample_rate))?;
     hwp.set_channels(fmt.channels)
@@ -151,6 +159,7 @@ fn spawn_alsa_writer(
     current_sample_rate: Arc<AtomicU32>,
     writer_gen: Arc<AtomicU64>,
     paused: Arc<AtomicBool>,
+    bit_perfect: bool,
 ) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>), String> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
@@ -167,7 +176,7 @@ fn spawn_alsa_writer(
             }
         })?;
 
-    configure_alsa_hwparams(&pcm, &initial_format)?;
+    configure_alsa_hwparams(&pcm, &initial_format, bit_perfect)?;
     pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
     current_sample_rate.store(initial_format.sample_rate, Ordering::Relaxed);
 
@@ -259,11 +268,12 @@ fn spawn_alsa_writer(
                 fmt: &PcmFormat,
                 sr: &AtomicU32,
                 sbuf: &mut Vec<u8>,
+                bit_perfect: bool,
             ) -> Result<alsa::PCM, String> {
                 // Old PCM is dropped by caller before this (or passed by value)
                 let pcm = alsa::PCM::new(device, alsa::Direction::Playback, false)
                     .map_err(|e| format!("Failed to reopen ALSA device: {e}"))?;
-                configure_alsa_hwparams(&pcm, fmt)?;
+                configure_alsa_hwparams(&pcm, fmt, bit_perfect)?;
                 pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
                 sr.store(fmt.sample_rate, Ordering::Relaxed);
                 let silence_frames = (fmt.sample_rate as usize * 50) / 1000;
@@ -320,7 +330,7 @@ fn spawn_alsa_writer(
                         if chunk.format != current_fmt {
                             log::info!("[alsa-writer] format change: {current_fmt:?} -> {:?}", chunk.format);
                             drop(pcm);
-                            match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf) {
+                            match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                 Ok(new_pcm) => {
                                     pcm = new_pcm;
                                     current_fmt = chunk.format;
@@ -342,7 +352,7 @@ fn spawn_alsa_writer(
                         if new_fmt != current_fmt {
                             log::info!("[alsa-writer] format hint: {current_fmt:?} -> {new_fmt:?}");
                             drop(pcm);
-                            match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf) {
+                            match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                 Ok(new_pcm) => {
                                     pcm = new_pcm;
                                     current_fmt = new_fmt;
@@ -382,7 +392,7 @@ fn spawn_alsa_writer(
                                     if chunk.format != current_fmt {
                                         // reopen_alsa drops old PCM — buffer cleared implicitly
                                         drop(pcm);
-                                        match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf) {
+                                        match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                             Ok(new_pcm) => {
                                                 pcm = new_pcm;
                                                 current_fmt = chunk.format;
@@ -410,7 +420,7 @@ fn spawn_alsa_writer(
                                     if new_fmt != current_fmt {
                                         log::info!("[alsa-writer] format hint (idle): {current_fmt:?} -> {new_fmt:?}");
                                         drop(pcm);
-                                        match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf) {
+                                        match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                             Ok(new_pcm) => {
                                                 pcm = new_pcm;
                                                 current_fmt = new_fmt;
@@ -573,7 +583,7 @@ impl AudioPlayer {
                                         track_generation += 1;
                                         writer_gen.store(track_generation, Ordering::Release);
                                         if let Some(ref tx) = writer_tx {
-                                            tx.send(WriterCommand::Flush).ok();
+                                            tx.try_send(WriterCommand::Flush).ok();
                                         }
                                         if let Some(bus) = pipeline.bus() {
                                             bus.set_flushing(true);
@@ -615,7 +625,7 @@ impl AudioPlayer {
                                     if !writer_alive || writer_tx.is_none() {
                                         // Shut down old writer cleanly
                                         if let Some(tx) = writer_tx.take() {
-                                            tx.send(WriterCommand::Shutdown).ok();
+                                            tx.try_send(WriterCommand::Shutdown).ok();
                                         }
                                         if let Some(h) = writer_thread.take() {
                                             h.join().ok();
@@ -629,6 +639,7 @@ impl AudioPlayer {
                                             Arc::clone(&current_sample_rate),
                                             Arc::clone(&writer_gen),
                                             Arc::clone(&paused),
+                                            bit_perfect,
                                         )?;
                                         writer_tx = Some(tx);
                                         writer_thread = Some(handle);
@@ -707,7 +718,7 @@ impl AudioPlayer {
                                 // ── Normal path (unchanged) ──
                                 // Shut down any lingering ALSA writer from a mode switch
                                 if let Some(tx) = writer_tx.take() {
-                                    tx.send(WriterCommand::Shutdown).ok();
+                                    tx.try_send(WriterCommand::Shutdown).ok();
                                 }
                                 if let Some(h) = writer_thread.take() {
                                     h.join().ok();
@@ -869,7 +880,7 @@ impl AudioPlayer {
                                     bus.set_flushing(true);
                                 }
                                 if let Some(tx) = writer_tx.take() {
-                                    tx.send(WriterCommand::Shutdown).ok();
+                                    tx.try_send(WriterCommand::Shutdown).ok();
                                 }
                                 pipeline.set_state(gst::State::Null).ok();
                                 if let Some(h) = writer_thread.take() {
@@ -914,7 +925,7 @@ impl AudioPlayer {
                                 track_generation += 1;
                                 writer_gen.store(track_generation, Ordering::Release);
                                 if let Some(ref tx) = writer_tx {
-                                    tx.send(WriterCommand::Flush).ok();
+                                    tx.try_send(WriterCommand::Flush).ok();
                                 }
                                 let pos = gst::ClockTime::from_nseconds(
                                     (position_secs as f64 * 1_000_000_000.0) as u64,
