@@ -29,7 +29,7 @@ interface CacheEntry {
   estimatedSize: number;
 }
 
-const MAX_BYTES = 500 * 1024 * 1024; // 500 MB
+const MAX_BYTES = 150 * 1024 * 1024; // 150 MB
 let currentBytes = 0;
 let accessCounter = 0;
 
