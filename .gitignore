@@ -33,3 +33,7 @@ docs/
 
 # local files
 nocommit
+
+# flatpak
+.flatpak-builder
+flatpak*
