@@ -1,7 +1,7 @@
 <div align="center">
   <img src="sone.png" alt="SONE" width="150">
   <h1>SONE</h1>
-  <p>The native desktop client for <a href="https://tidal.com">Tidal</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz — your DAC, not your browser's resampler.</p>
+  <p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz — your DAC, not your browser's resampler.</p>
 
   [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
   [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
@@ -9,7 +9,7 @@
 </div>
 
 > [!IMPORTANT]
-> Requires an active [Tidal](https://tidal.com) subscription. Not affiliated with Tidal.
+> Requires an active [TIDAL](https://tidal.com) subscription. Not affiliated with TIDAL.
 
 <!-- TODO: Add a hero screenshot showcasing a custom theme (e.g. Cyberpunk or Midnight Cyan) with the now-playing drawer open -->
 
@@ -48,8 +48,9 @@
 
 ## Why SONE?
 
-SONE is a lightweight, native alternative to the official Tidal web player and Electron-based unofficial clients.
+SONE is a lightweight, native alternative to the official TIDAL web player and Electron-based unofficial clients.
 
+- **Familiar interface** — a modern UI inspired by the streaming apps you already use
 - **Direct hardware access** — GStreamer talks directly to your audio hardware. Lock your DAC to the exact source format, bypassing the system mixer
 - **Lightweight** — built with Tauri and Rust. Small binary, low memory footprint
 - **Encrypted at rest** — credentials, cache, and settings are encrypted with AES-256-GCM
@@ -150,9 +151,9 @@ npm run tauri build        # Release build (produces .deb, .rpm, .AppImage)
 <details>
 <summary>What are Client ID and Client Secret?</summary>
 
-They are OAuth application credentials used to connect to Tidal's API. Official Tidal apps (Android, iOS, desktop) have these built in. Since SONE is an unofficial client, it does not ship with any credentials — you provide your own.
+They are OAuth application credentials used to connect to TIDAL's API. Official TIDAL apps (Android, iOS, desktop) have these built in. Since SONE is an unofficial client, it does not ship with any credentials — you provide your own.
 
-SONE requires credentials from a **native Tidal application** (such as the Android or desktop client). Credentials from the [Tidal Developer Portal](https://developer.tidal.com/) (`developer.tidal.com`) **will not work** — those are for Tidal's public catalog API, which is a different system that does not support authentication or streaming.
+SONE requires credentials from a **native TIDAL application** (such as the Android or desktop client). Credentials from the [TIDAL Developer Portal](https://developer.tidal.com/) (`developer.tidal.com`) **will not work** — those are for TIDAL's public catalog API, which is a different system that does not support authentication or streaming.
 
 SONE does not provide or endorse any specific method for obtaining credentials. You may find guidance by searching online.
 
@@ -161,7 +162,7 @@ SONE does not provide or endorse any specific method for obtaining credentials. 
 - **Device Code** — works with Client ID alone (CD-quality lossless, 16-bit/44.1kHz). Adding Client Secret unlocks Hi-Res up to 24-bit/192kHz.
 - **PKCE** — requires both Client ID and Client Secret. Supports Hi-Res up to 24-bit/192kHz.
 
-**Are my credentials safe?** Client ID and Client Secret identify an application, not your personal account. Your Tidal login is handled separately through Tidal's standard OAuth 2.0 flow — the same mechanism used by all official Tidal applications. Credentials are stored locally (encrypted at rest with AES-256-GCM) and only sent to Tidal's authentication servers.
+**Are my credentials safe?** Client ID and Client Secret identify an application, not your personal account. Your TIDAL login is handled separately through TIDAL's standard OAuth 2.0 flow — the same mechanism used by all official TIDAL applications. Credentials are stored locally (encrypted at rest with AES-256-GCM) and only sent to TIDAL's authentication servers.
 
 </details>
 
@@ -194,7 +195,7 @@ If you enjoy using SONE, consider giving the project a star to help others find 
 
 ## Disclaimer
 
-SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to Tidal** in any way. All content is streamed directly from Tidal's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content.
+SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content.
 
 All trademarks belong to their respective owners.
 

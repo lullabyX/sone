@@ -297,7 +297,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
               No loved tracks yet
             </p>
             <p className="text-th-text-muted text-sm">
-              Heart tracks on Tidal to see them here.
+              Heart tracks on TIDAL to see them here.
             </p>
           </div>
         )}

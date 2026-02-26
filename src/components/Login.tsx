@@ -355,7 +355,7 @@ export default function Login() {
         {step === "idle" && (
           <>
             <p className="text-th-text-muted mb-2 text-lg">
-              Connect your Tidal account to start streaming
+              Connect your TIDAL account to start streaming
             </p>
             <button
               onClick={() => setShowHelp(true)}
@@ -401,7 +401,7 @@ export default function Login() {
                     placeholder={
                       authMethod === "import"
                         ? "Auto-extracted from cURL"
-                        : "Your Tidal app Client ID"
+                        : "Your TIDAL app Client ID"
                     }
                     className="w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2.5 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
                   />
@@ -465,7 +465,7 @@ export default function Login() {
               )}
 
               <p className="text-[11px] text-th-text-disabled mt-3">
-                Credentials are stored locally and only sent to Tidal's auth
+                Credentials are stored locally and only sent to TIDAL's auth
                 servers.
               </p>
             </div>
@@ -527,7 +527,7 @@ export default function Login() {
                 {authMethod === "pkce" && (
                   <>
                     <p className="text-[12px] text-th-text-faint mb-2">
-                      Opens Tidal's login in your browser. After login, copy the
+                      Opens TIDAL's login in your browser. After login, copy the
                       redirect URL back here.
                     </p>
                     <p className="text-[11px] text-amber-400/70 mb-4">
@@ -540,7 +540,7 @@ export default function Login() {
                       disabled={!clientId.trim() || !hasSecret}
                       className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
-                      Login with Tidal
+                      Login with TIDAL
                     </button>
                   </>
                 )}
@@ -738,7 +738,7 @@ export default function Login() {
                 </div>
                 <div>
                   <p className="text-[14px] text-white font-medium">
-                    Log in to Tidal in your browser
+                    Log in to TIDAL in your browser
                   </p>
                   <p className="text-[12px] text-th-text-faint mt-1">
                     A browser window should have opened.
@@ -803,7 +803,7 @@ export default function Login() {
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-th-inset rounded-full text-[13px] text-white font-medium transition-colors"
               >
                 <ExternalLink size={14} />
-                Open Tidal Login
+                Open TIDAL Login
               </button>
               <button
                 onClick={handleSubmitUrl}
@@ -875,7 +875,7 @@ export default function Login() {
             <div className="space-y-4 text-[13px] text-th-text-muted leading-relaxed">
               <p>
                 They are OAuth application credentials used to connect to
-                Tidal's API. Official Tidal apps (Android, iOS, desktop) have
+                TIDAL's API. Official TIDAL apps (Android, iOS, desktop) have
                 these built in. Since SONE is an unofficial client, it does not
                 ship with any credentials — you provide your own.
               </p>
@@ -883,16 +883,16 @@ export default function Login() {
               <p>
                 SONE requires credentials from a{" "}
                 <span className="text-white font-medium">
-                  native Tidal application
+                  native TIDAL application
                 </span>{" "}
                 (such as the Android or desktop client). Credentials from the
-                Tidal Developer Portal (
+                TIDAL Developer Portal (
                 <span className="text-th-text-faint font-mono text-[12px]">
                   developer.tidal.com
                 </span>
                 ){" "}
                 <span className="text-red-400 font-medium">will not work</span>{" "}
-                — those are for Tidal's public catalog API, which is a different
+                — those are for TIDAL's public catalog API, which is a different
                 system that does not support authentication or streaming.
               </p>
 
@@ -926,11 +926,11 @@ export default function Login() {
                 </p>
                 <p>
                   Client ID and Client Secret identify an application, not your
-                  personal account. Your Tidal login is handled separately
-                  through Tidal's standard OAuth 2.0 flow — the same mechanism
-                  used by all official Tidal applications. Credentials are
+                  personal account. Your TIDAL login is handled separately
+                  through TIDAL's standard OAuth 2.0 flow — the same mechanism
+                  used by all official TIDAL applications. Credentials are
                   stored locally (encrypted at rest with AES-256-GCM) and only
-                  sent to Tidal's authentication servers.
+                  sent to TIDAL's authentication servers.
                 </p>
               </div>
 
@@ -938,8 +938,8 @@ export default function Login() {
 
               <p className="text-[11px] text-th-text-disabled leading-relaxed">
                 SONE is an independent, community-driven project. It is not
-                affiliated with, endorsed by, or connected to Tidal in any way.
-                All content is streamed directly from Tidal's service and
+                affiliated with, endorsed by, or connected to TIDAL in any way.
+                All content is streamed directly from TIDAL's service and
                 requires a valid paid subscription. SONE is a streaming client
                 only — it does not support offline downloads, and does not
                 redistribute or circumvent protection of any content. All

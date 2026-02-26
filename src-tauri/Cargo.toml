@@ -1,7 +1,7 @@
 [package]
 name = "sone"
 version = "0.6.2"
-description = "Unofficial Linux client for Tidal"
+description = "Native Linux client for TIDAL — lossless and bit-perfect audio streaming"
 authors = ["lullabyX"]
 license = "GPL-3.0-only"
 edition = "2021"

@@ -1076,7 +1076,7 @@ impl TidalClient {
         let name = match (&data.first_name, &data.last_name) {
             (Some(f), Some(l)) if !f.is_empty() => format!("{} {}", f, l),
             (Some(f), _) if !f.is_empty() => f.clone(),
-            _ => username.clone().unwrap_or_else(|| "Tidal User".to_string()),
+            _ => username.clone().unwrap_or_else(|| "TIDAL User".to_string()),
         };
         Ok((name, username))
     }

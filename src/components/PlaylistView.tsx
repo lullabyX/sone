@@ -500,7 +500,7 @@ export default function PlaylistView({
               This playlist is empty
             </p>
             <p className="text-th-text-muted text-sm">
-              Add tracks in Tidal to see them here.
+              Add tracks in TIDAL to see them here.
             </p>
           </div>
         )}
