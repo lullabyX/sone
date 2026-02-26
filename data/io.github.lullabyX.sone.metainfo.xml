@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.lullabyX.sone</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>SONE</name>
+  <summary>Native Linux client for TIDAL — lossless and bit-perfect audio streaming</summary>
+
+  <developer id="io.github.lullabyX">
+    <name>lullabyX</name>
+  </developer>
+
+  <description>
+    <p>Stream your TIDAL library in lossless FLAC and Hi-Res quality up to
+       24-bit/192kHz — with the option to bypass your system mixer entirely
+       for bit-perfect output.</p>
+    <p>A familiar, modern interface inspired by the streaming apps you already use.
+       Exclusive ALSA mode bypasses PulseAudio and PipeWire entirely, sending
+       the unaltered signal directly to your DAC for bit-perfect playback.
+       Or use normal mode for casual listening through your system's default output.</p>
+    <ul>
+      <li>Lossless FLAC and Hi-Res streaming up to 24-bit/192kHz</li>
+      <li>Exclusive ALSA output for bit-perfect streaming to USB DACs</li>
+      <li>Volume normalization (ReplayGain) with automatic album/track switching</li>
+      <li>Synced lyrics display</li>
+      <li>Custom themes with full color picker</li>
+      <li>Queue persistence across restarts</li>
+      <li>MPRIS media controls and system tray</li>
+    </ul>
+    <p>Unofficial client — requires an active TIDAL subscription. SONE is a
+       streaming client only and does not support offline downloads.</p>
+  </description>
+
+  <launchable type="desktop-id">io.github.lullabyX.sone.desktop</launchable>
+
+  <url type="homepage">https://github.com/lullabyX/sone</url>
+  <url type="bugtracker">https://github.com/lullabyX/sone/issues</url>
+  <url type="vcs-browser">https://github.com/lullabyX/sone</url>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#E9D5FF</color>
+    <color type="primary" scheme_preference="dark">#130F1A</color>
+  </branding>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.6.2" date="2025-02-26">
+      <description>
+        <p>Initial Flathub release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
