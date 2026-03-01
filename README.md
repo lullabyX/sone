@@ -185,6 +185,12 @@ Output goes to `dist/<format>/`. Pass `--no-cache` to force a clean Docker build
 3. Click **Get Login Code** and enter the displayed code at [link.tidal.com](https://link.tidal.com)
 4. Your library loads automatically — browse and play
 
+> [!NOTE]
+> **NVIDIA GPU users:** If you see a blank window, rendering glitches, or a Wayland protocol error on launch, start the app with:
+> ```bash
+> WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
+> ```
+
 <details>
 <summary>Troubleshooting</summary>
 
@@ -202,6 +208,15 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 sone
 ```
 
 If you're using X11 or don't have an NVIDIA GPU but still see this error, try updating your WebKitGTK and graphics drivers to the latest versions.
+
+**Blank window or rendering glitches on NVIDIA?**
+If the app launches but shows a blank/white window or has visual artifacts, try disabling WebKit's compositing mode:
+
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
+```
+
+This is a known issue with NVIDIA's proprietary drivers and WebKitGTK hardware acceleration.
 
 </details>
 
