@@ -197,7 +197,11 @@ export default function Login() {
       pollIntervalRef.current = setInterval(async () => {
         if (!deviceCodeRef.current) return;
         try {
-          const tokens = await pollDeviceAuth(deviceCodeRef.current, id, secret);
+          const tokens = await pollDeviceAuth(
+            deviceCodeRef.current,
+            id,
+            secret,
+          );
           if (tokens) {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -728,9 +732,7 @@ export default function Login() {
                   <>
                     <p className="text-[12px] text-th-text-faint mb-2">
                       Get a code, visit{" "}
-                      <span className="text-th-text-faint">
-                        link.tidal.com
-                      </span>
+                      <span className="text-th-text-faint">link.tidal.com</span>
                       , and enter it to log in. No redirect URLs needed.
                     </p>
                     <p className="text-[11px] text-amber-400/70 mb-4">

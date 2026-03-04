@@ -1,6 +1,6 @@
+use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
-use gst::prelude::*;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
@@ -35,7 +35,10 @@ struct PcmFormat {
 /// Commands to the ALSA writer thread
 enum WriterCommand {
     Data(AudioChunk),
-    EndOfTrack { emit_finished: bool, generation: u64 },
+    EndOfTrack {
+        emit_finished: bool,
+        generation: u64,
+    },
     FormatHint(PcmFormat),
     Flush,
     Shutdown,
@@ -125,8 +128,7 @@ fn configure_alsa_hwparams(
     use alsa::pcm::{Access, HwParams};
     use alsa::ValueOr;
 
-    let hwp = HwParams::any(pcm)
-        .map_err(|e| format!("HwParams::any failed: {e}"))?;
+    let hwp = HwParams::any(pcm).map_err(|e| format!("HwParams::any failed: {e}"))?;
     hwp.set_access(Access::RWInterleaved)
         .map_err(|e| format!("set_access: {e}"))?;
     hwp.set_format(gst_format_to_alsa(&fmt.gst_format))
@@ -138,8 +140,7 @@ fn configure_alsa_hwparams(
     hwp.set_rate(fmt.sample_rate, ValueOr::Nearest)
         .map_err(|e| format!("set_rate({}): {e}", fmt.sample_rate))?;
     if bit_perfect {
-        let actual_rate = hwp.get_rate()
-            .map_err(|e| format!("get_rate: {e}"))?;
+        let actual_rate = hwp.get_rate().map_err(|e| format!("get_rate: {e}"))?;
         if actual_rate != fmt.sample_rate {
             return Err(format!(
                 "Bit-perfect: DAC negotiated {}Hz but track requires {}Hz",
@@ -153,8 +154,7 @@ fn configure_alsa_hwparams(
         .map_err(|e| format!("set_buffer_time: {e}"))?;
     hwp.set_period_time_near(50_000, ValueOr::Nearest)
         .map_err(|e| format!("set_period_time: {e}"))?;
-    pcm.hw_params(&hwp)
-        .map_err(|e| format!("hw_params: {e}"))?;
+    pcm.hw_params(&hwp).map_err(|e| format!("hw_params: {e}"))?;
     Ok(())
 }
 
@@ -176,15 +176,14 @@ fn spawn_alsa_writer(
     let (tx, rx) = crossbeam_channel::bounded::<WriterCommand>(256);
 
     // Open device eagerly to detect EBUSY immediately
-    let pcm = alsa::PCM::new(&device, alsa::Direction::Playback, false)
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("busy") || msg.contains("EBUSY") {
-                "device_busy".to_string()
-            } else {
-                format!("Failed to open ALSA device: {e}")
-            }
-        })?;
+    let pcm = alsa::PCM::new(&device, alsa::Direction::Playback, false).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("busy") || msg.contains("EBUSY") {
+            "device_busy".to_string()
+        } else {
+            format!("Failed to open ALSA device: {e}")
+        }
+    })?;
 
     configure_alsa_hwparams(&pcm, &initial_format, bit_perfect)?;
     pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
@@ -516,18 +515,49 @@ fn spawn_alsa_writer(
 // ── Audio command protocol ─────────────────────────────────────────────
 
 enum AudioCommand {
-    PlayUrl { uri: String, reply: Reply<Result<(), String>> },
-    Pause { reply: Reply<Result<(), String>> },
-    Resume { reply: Reply<Result<(), String>> },
-    Stop { reply: Reply<Result<(), String>> },
-    SetVolume { level: f32, reply: Reply<Result<(), String>> },
-    SetNormalizationGain { gain: f64, reply: Reply<Result<(), String>> },
-    Seek { position_secs: f32, reply: Reply<Result<(), String>> },
-    GetPosition { reply: Reply<Result<f32, String>> },
-    IsFinished { reply: Reply<Result<bool, String>> },
-    SetExclusiveMode { enabled: bool, device: Option<String>, reply: Reply<Result<(), String>> },
-    SetBitPerfect { enabled: bool, reply: Reply<Result<(), String>> },
-    ListDevices { reply: Reply<Result<Vec<AudioDevice>, String>> },
+    PlayUrl {
+        uri: String,
+        reply: Reply<Result<(), String>>,
+    },
+    Pause {
+        reply: Reply<Result<(), String>>,
+    },
+    Resume {
+        reply: Reply<Result<(), String>>,
+    },
+    Stop {
+        reply: Reply<Result<(), String>>,
+    },
+    SetVolume {
+        level: f32,
+        reply: Reply<Result<(), String>>,
+    },
+    SetNormalizationGain {
+        gain: f64,
+        reply: Reply<Result<(), String>>,
+    },
+    Seek {
+        position_secs: f32,
+        reply: Reply<Result<(), String>>,
+    },
+    GetPosition {
+        reply: Reply<Result<f32, String>>,
+    },
+    IsFinished {
+        reply: Reply<Result<bool, String>>,
+    },
+    SetExclusiveMode {
+        enabled: bool,
+        device: Option<String>,
+        reply: Reply<Result<(), String>>,
+    },
+    SetBitPerfect {
+        enabled: bool,
+        reply: Reply<Result<(), String>>,
+    },
+    ListDevices {
+        reply: Reply<Result<Vec<AudioDevice>, String>>,
+    },
 }
 
 // ── AudioPlayer (public API unchanged) ─────────────────────────────────
@@ -542,9 +572,7 @@ impl AudioPlayer {
 
         std::thread::spawn(move || {
             // GStreamer plugin path setup
-            if std::env::var("GST_PLUGIN_PATH_1_0").is_ok()
-                || std::env::var("APPDIR").is_ok()
-            {
+            if std::env::var("GST_PLUGIN_PATH_1_0").is_ok() || std::env::var("APPDIR").is_ok() {
                 if let Ok(path) = std::env::var("GST_PLUGIN_PATH_1_0") {
                     std::env::set_var("GST_PLUGIN_PATH", &path);
                 }
@@ -593,12 +621,21 @@ impl AudioPlayer {
                                 tearing_down.store(true, Ordering::SeqCst);
 
                                 match old_backend {
-                                    PlaybackBackend::Normal { pipeline, user_volume_el, .. } => {
+                                    PlaybackBackend::Normal {
+                                        pipeline,
+                                        user_volume_el,
+                                        ..
+                                    } => {
                                         // Normal mode: fade + EOS drain (unchanged)
                                         if let Some(ref vol) = user_volume_el {
                                             for i in (0..=10).rev() {
-                                                vol.set_property("volume", current_volume * (i as f64 / 10.0));
-                                                std::thread::sleep(std::time::Duration::from_millis(10));
+                                                vol.set_property(
+                                                    "volume",
+                                                    current_volume * (i as f64 / 10.0),
+                                                );
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(10),
+                                                );
                                             }
                                         }
                                         if !eos.load(Ordering::SeqCst) {
@@ -607,11 +644,17 @@ impl AudioPlayer {
                                             eos.store(false, Ordering::SeqCst);
                                             let start = std::time::Instant::now();
                                             while !eos.load(Ordering::SeqCst)
-                                                && start.elapsed() < std::time::Duration::from_millis(500)
+                                                && start.elapsed()
+                                                    < std::time::Duration::from_millis(500)
                                             {
-                                                std::thread::sleep(std::time::Duration::from_millis(10));
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(10),
+                                                );
                                             }
-                                            log::debug!("[audio] teardown normal: EOS drain {:?}", start.elapsed());
+                                            log::debug!(
+                                                "[audio] teardown normal: EOS drain {:?}",
+                                                start.elapsed()
+                                            );
                                         } else {
                                             log::debug!("[audio] teardown normal: skipping drain (already EOS)");
                                         }
@@ -657,8 +700,9 @@ impl AudioPlayer {
 
                                 #[cfg(target_os = "linux")]
                                 {
-                                    let dev = device.as_deref()
-                                        .ok_or_else(|| "No audio device selected for exclusive mode".to_string())?;
+                                    let dev = device.as_deref().ok_or_else(|| {
+                                        "No audio device selected for exclusive mode".to_string()
+                                    })?;
 
                                     let default_fmt = PcmFormat {
                                         sample_rate: 48000,
@@ -676,7 +720,8 @@ impl AudioPlayer {
                                     writer_gen.store(track_generation, Ordering::Release);
 
                                     // Reuse writer if alive, otherwise spawn new one
-                                    let writer_alive = writer_thread.as_ref()
+                                    let writer_alive = writer_thread
+                                        .as_ref()
                                         .map(|h| !h.is_finished())
                                         .unwrap_or(false);
 
@@ -732,38 +777,53 @@ impl AudioPlayer {
                                                 match msg.view() {
                                                     gst::MessageView::Eos(..) => {
                                                         eos_flag.store(true, Ordering::SeqCst);
-                                                        writer_tx_bus.send(WriterCommand::EndOfTrack {
-                                                            emit_finished: true,
-                                                            generation: bus_gen.load(Ordering::Acquire),
-                                                        }).ok();
+                                                        writer_tx_bus
+                                                            .send(WriterCommand::EndOfTrack {
+                                                                emit_finished: true,
+                                                                generation: bus_gen
+                                                                    .load(Ordering::Acquire),
+                                                            })
+                                                            .ok();
                                                         break;
                                                     }
                                                     gst::MessageView::Error(err) => {
                                                         let err_msg = err.error().to_string();
-                                                        let debug_str = err.debug()
+                                                        let debug_str = err
+                                                            .debug()
                                                             .map(|s| s.to_string())
                                                             .unwrap_or_default();
                                                         log::error!(
                                                             "GStreamer error: {} (debug: {})",
-                                                            err_msg, debug_str
+                                                            err_msg,
+                                                            debug_str
                                                         );
                                                         eos_flag.store(true, Ordering::SeqCst);
-                                                        if !tearing_down_bus.load(Ordering::SeqCst) {
-                                                            app_handle_clone.emit("audio-error",
-                                                                serde_json::json!({
-                                                                    "kind": "playback_error",
-                                                                    "message": err_msg
-                                                                })
-                                                            ).ok();
+                                                        if !tearing_down_bus.load(Ordering::SeqCst)
+                                                        {
+                                                            app_handle_clone
+                                                                .emit(
+                                                                    "audio-error",
+                                                                    serde_json::json!({
+                                                                        "kind": "playback_error",
+                                                                        "message": err_msg
+                                                                    }),
+                                                                )
+                                                                .ok();
                                                         }
-                                                        writer_tx_bus.send(WriterCommand::EndOfTrack {
-                                                            emit_finished: false,
-                                                            generation: bus_gen.load(Ordering::Acquire),
-                                                        }).ok();
+                                                        writer_tx_bus
+                                                            .send(WriterCommand::EndOfTrack {
+                                                                emit_finished: false,
+                                                                generation: bus_gen
+                                                                    .load(Ordering::Acquire),
+                                                            })
+                                                            .ok();
                                                         break;
                                                     }
                                                     gst::MessageView::Buffering(b) => {
-                                                        log::debug!("[audio] direct-alsa: buffering {}%", b.percent());
+                                                        log::debug!(
+                                                            "[audio] direct-alsa: buffering {}%",
+                                                            b.percent()
+                                                        );
                                                     }
                                                     _ => {}
                                                 }
@@ -789,8 +849,8 @@ impl AudioPlayer {
 
                                 let pipe = gst::Pipeline::new();
                                 let is_dash = uri.starts_with("data:application/dash");
-                                let mut udb = gst::ElementFactory::make("uridecodebin")
-                                    .property("uri", &uri);
+                                let mut udb =
+                                    gst::ElementFactory::make("uridecodebin").property("uri", &uri);
                                 if is_dash {
                                     udb = udb
                                         .property("buffer-duration", 15_000_000_000i64)
@@ -817,19 +877,40 @@ impl AudioPlayer {
                                     .build()
                                     .map_err(|e| format!("Failed to create autoaudiosink: {e}"))?;
 
-                                pipe.add_many([&uridecodebin, &audioconvert, &audioresample, &norm_vol, &user_vol, &sink])
-                                    .map_err(|e| format!("Failed to add elements: {e}"))?;
-                                gst::Element::link_many([&audioconvert, &audioresample, &norm_vol, &user_vol, &sink])
-                                    .map_err(|e| format!("Failed to link chain: {e}"))?;
+                                pipe.add_many([
+                                    &uridecodebin,
+                                    &audioconvert,
+                                    &audioresample,
+                                    &norm_vol,
+                                    &user_vol,
+                                    &sink,
+                                ])
+                                .map_err(|e| format!("Failed to add elements: {e}"))?;
+                                gst::Element::link_many([
+                                    &audioconvert,
+                                    &audioresample,
+                                    &norm_vol,
+                                    &user_vol,
+                                    &sink,
+                                ])
+                                .map_err(|e| format!("Failed to link chain: {e}"))?;
 
                                 let convert_weak = audioconvert.downgrade();
                                 uridecodebin.connect_pad_added(move |_src, src_pad| {
-                                    let Some(convert) = convert_weak.upgrade() else { return };
-                                    let Some(sink_pad) = convert.static_pad("sink") else { return };
-                                    if sink_pad.is_linked() { return; }
+                                    let Some(convert) = convert_weak.upgrade() else {
+                                        return;
+                                    };
+                                    let Some(sink_pad) = convert.static_pad("sink") else {
+                                        return;
+                                    };
+                                    if sink_pad.is_linked() {
+                                        return;
+                                    }
                                     if let Some(caps) = src_pad.current_caps() {
                                         if let Some(s) = caps.structure(0) {
-                                            if !s.name().as_str().starts_with("audio/") { return; }
+                                            if !s.name().as_str().starts_with("audio/") {
+                                                return;
+                                            }
                                         }
                                     }
                                     if let Err(e) = src_pad.link(&sink_pad) {
@@ -851,24 +932,34 @@ impl AudioPlayer {
                                                 gst::MessageView::Eos(..) => {
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
-                                                        app_handle_clone.emit("track-finished", ()).ok();
+                                                        app_handle_clone
+                                                            .emit("track-finished", ())
+                                                            .ok();
                                                     }
                                                     break;
                                                 }
                                                 gst::MessageView::Error(err) => {
                                                     let err_msg = err.error().to_string();
-                                                    let debug_str = err.debug()
+                                                    let debug_str = err
+                                                        .debug()
                                                         .map(|s| s.to_string())
                                                         .unwrap_or_default();
                                                     log::error!(
                                                         "GStreamer error: {} (debug: {})",
-                                                        err_msg, debug_str
+                                                        err_msg,
+                                                        debug_str
                                                     );
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
-                                                        let is_busy = err_msg.contains("busy") || debug_str.contains("busy")
-                                                            || err_msg.contains("EBUSY") || debug_str.contains("EBUSY");
-                                                        let kind = if is_busy { "device_busy" } else { "playback_error" };
+                                                        let is_busy = err_msg.contains("busy")
+                                                            || debug_str.contains("busy")
+                                                            || err_msg.contains("EBUSY")
+                                                            || debug_str.contains("EBUSY");
+                                                        let kind = if is_busy {
+                                                            "device_busy"
+                                                        } else {
+                                                            "playback_error"
+                                                        };
                                                         app_handle_clone.emit("audio-error",
                                                             serde_json::json!({ "kind": kind, "message": err_msg })
                                                         ).ok();
@@ -876,7 +967,10 @@ impl AudioPlayer {
                                                     break;
                                                 }
                                                 gst::MessageView::Buffering(b) => {
-                                                    log::debug!("[audio] normal: buffering {}%", b.percent());
+                                                    log::debug!(
+                                                        "[audio] normal: buffering {}%",
+                                                        b.percent()
+                                                    );
                                                 }
                                                 _ => {}
                                             }
@@ -897,14 +991,14 @@ impl AudioPlayer {
 
                     AudioCommand::Pause { reply } => {
                         let result = match backend.as_ref() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
-                                pipeline.set_state(gst::State::Paused)
-                                    .map(|_| ())
-                                    .map_err(|e| format!("Failed to pause: {e}"))
-                            }
+                            Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
+                                .set_state(gst::State::Paused)
+                                .map(|_| ())
+                                .map_err(|e| format!("Failed to pause: {e}")),
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 paused.store(true, Ordering::Release);
-                                pipeline.set_state(gst::State::Paused)
+                                pipeline
+                                    .set_state(gst::State::Paused)
                                     .map(|_| ())
                                     .map_err(|e| format!("Failed to pause decode: {e}"))
                             }
@@ -915,14 +1009,14 @@ impl AudioPlayer {
 
                     AudioCommand::Resume { reply } => {
                         let result = match backend.as_ref() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
-                                pipeline.set_state(gst::State::Playing)
-                                    .map(|_| ())
-                                    .map_err(|e| format!("Failed to resume: {e}"))
-                            }
+                            Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
+                                .set_state(gst::State::Playing)
+                                .map(|_| ())
+                                .map_err(|e| format!("Failed to resume: {e}")),
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 paused.store(false, Ordering::Release);
-                                pipeline.set_state(gst::State::Playing)
+                                pipeline
+                                    .set_state(gst::State::Playing)
                                     .map(|_| ())
                                     .map_err(|e| format!("Failed to resume decode: {e}"))
                             }
@@ -937,7 +1031,8 @@ impl AudioPlayer {
                                 if let Some(bus) = pipeline.bus() {
                                     bus.set_flushing(true);
                                 }
-                                pipeline.set_state(gst::State::Null)
+                                pipeline
+                                    .set_state(gst::State::Null)
                                     .map(|_| {
                                         eos.store(false, Ordering::SeqCst);
                                         has_uri.store(false, Ordering::SeqCst);
@@ -999,13 +1094,20 @@ impl AudioPlayer {
                         reply.send(Ok(())).ok();
                     }
 
-                    AudioCommand::Seek { position_secs, reply } => {
+                    AudioCommand::Seek {
+                        position_secs,
+                        reply,
+                    } => {
                         let result = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 let pos = gst::ClockTime::from_nseconds(
                                     (position_secs as f64 * 1_000_000_000.0) as u64,
                                 );
-                                pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, pos)
+                                pipeline
+                                    .seek_simple(
+                                        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                                        pos,
+                                    )
                                     .map_err(|e| format!("Seek failed: {e}"))
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
@@ -1020,9 +1122,14 @@ impl AudioPlayer {
                                     (position_secs as f64 * 1_000_000_000.0) as u64,
                                 );
                                 let seek_frames = (position_secs as f64
-                                    * current_sample_rate.load(Ordering::Relaxed) as f64) as u64;
+                                    * current_sample_rate.load(Ordering::Relaxed) as f64)
+                                    as u64;
                                 frames_written.store(seek_frames, Ordering::Relaxed);
-                                let result = pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, pos)
+                                let result = pipeline
+                                    .seek_simple(
+                                        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                                        pos,
+                                    )
                                     .map_err(|e| format!("Seek failed: {e}"));
                                 if was_paused {
                                     paused.store(true, Ordering::Release);
@@ -1036,15 +1143,18 @@ impl AudioPlayer {
 
                     AudioCommand::GetPosition { reply } => {
                         let pos = match backend.as_ref() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
-                                pipeline.query_position::<gst::ClockTime>()
-                                    .map(|pos| pos.nseconds() as f32 / 1_000_000_000.0)
-                                    .unwrap_or(0.0)
-                            }
+                            Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
+                                .query_position::<gst::ClockTime>()
+                                .map(|pos| pos.nseconds() as f32 / 1_000_000_000.0)
+                                .unwrap_or(0.0),
                             Some(PlaybackBackend::DirectAlsa { .. }) => {
                                 let frames = frames_written.load(Ordering::Relaxed);
                                 let rate = current_sample_rate.load(Ordering::Relaxed);
-                                if rate > 0 { frames as f32 / rate as f32 } else { 0.0 }
+                                if rate > 0 {
+                                    frames as f32 / rate as f32
+                                } else {
+                                    0.0
+                                }
                             }
                             None => 0.0,
                         };
@@ -1052,12 +1162,16 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::IsFinished { reply } => {
-                        let finished = eos.load(Ordering::SeqCst)
-                            || !has_uri.load(Ordering::SeqCst);
+                        let finished =
+                            eos.load(Ordering::SeqCst) || !has_uri.load(Ordering::SeqCst);
                         reply.send(Ok(finished)).ok();
                     }
 
-                    AudioCommand::SetExclusiveMode { enabled, device: dev, reply } => {
+                    AudioCommand::SetExclusiveMode {
+                        enabled,
+                        device: dev,
+                        reply,
+                    } => {
                         exclusive = enabled;
                         if let Some(d) = dev {
                             device = Some(d);
@@ -1095,7 +1209,10 @@ impl AudioPlayer {
     }
 
     pub fn play_url(&self, uri: &str) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::PlayUrl { uri: uri.to_string(), reply })
+        self.send_cmd(|reply| AudioCommand::PlayUrl {
+            uri: uri.to_string(),
+            reply,
+        })
     }
     pub fn pause(&self) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::Pause { reply })
@@ -1113,7 +1230,10 @@ impl AudioPlayer {
         self.send_cmd(|reply| AudioCommand::SetNormalizationGain { gain, reply })
     }
     pub fn seek(&self, position_secs: f32) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Seek { position_secs, reply })
+        self.send_cmd(|reply| AudioCommand::Seek {
+            position_secs,
+            reply,
+        })
     }
     pub fn get_position(&self) -> Result<f32, String> {
         self.send_cmd(|reply| AudioCommand::GetPosition { reply })
@@ -1122,7 +1242,11 @@ impl AudioPlayer {
         self.send_cmd(|reply| AudioCommand::IsFinished { reply })
     }
     pub fn set_exclusive_mode(&self, enabled: bool, device: Option<String>) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetExclusiveMode { enabled, device, reply })
+        self.send_cmd(|reply| AudioCommand::SetExclusiveMode {
+            enabled,
+            device,
+            reply,
+        })
     }
     pub fn set_bit_perfect(&self, enabled: bool) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
@@ -1148,8 +1272,7 @@ fn build_appsink_pipeline(
 
     let pipe = gst::Pipeline::new();
     let is_dash = uri.starts_with("data:application/dash");
-    let mut udb = gst::ElementFactory::make("uridecodebin")
-        .property("uri", uri);
+    let mut udb = gst::ElementFactory::make("uridecodebin").property("uri", uri);
     if is_dash {
         udb = udb
             .property("buffer-duration", 15_000_000_000i64)
@@ -1171,12 +1294,16 @@ fn build_appsink_pipeline(
     // No rate/channel constraint — allows mid-stream renegotiation.
     // Capsfilter is omitted for DASH; appsink caps negotiate without blocking renegotiation.
     if is_dash && bit_perfect {
-        appsink.set_caps(Some(&gst::Caps::builder("audio/x-raw")
-            .field("format", gst::List::new(["S16LE", "S32LE"]))
-            .build()));
+        appsink.set_caps(Some(
+            &gst::Caps::builder("audio/x-raw")
+                .field("format", gst::List::new(["S16LE", "S32LE"]))
+                .build(),
+        ));
     }
 
-    log::debug!("[audio] building appsink pipeline: exclusive={exclusive} bit_perfect={bit_perfect}");
+    log::debug!(
+        "[audio] building appsink pipeline: exclusive={exclusive} bit_perfect={bit_perfect}"
+    );
 
     let (u_vol, n_vol) = if bit_perfect {
         audioconvert.set_property_from_str("dithering", "none");
@@ -1195,8 +1322,13 @@ fn build_appsink_pipeline(
             let capsfilter = gst::ElementFactory::make("capsfilter")
                 .build()
                 .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
-            pipe.add_many([&uridecodebin, &audioconvert, &capsfilter, appsink.upcast_ref()])
-                .map_err(|e| format!("Failed to add elements: {e}"))?;
+            pipe.add_many([
+                &uridecodebin,
+                &audioconvert,
+                &capsfilter,
+                appsink.upcast_ref(),
+            ])
+            .map_err(|e| format!("Failed to add elements: {e}"))?;
             gst::Element::link_many([&audioconvert, &capsfilter, appsink.upcast_ref()])
                 .map_err(|e| format!("Failed to link bit-perfect chain: {e}"))?;
         }
@@ -1217,17 +1349,35 @@ fn build_appsink_pipeline(
             .build()
             .map_err(|e| format!("Failed to create user volume: {e}"))?;
         let capsfilter = gst::ElementFactory::make("capsfilter")
-            .property("caps", gst::Caps::builder("audio/x-raw")
-                .field("format", "S32LE")
-                .field("channels", 2i32)
-                .build())
+            .property(
+                "caps",
+                gst::Caps::builder("audio/x-raw")
+                    .field("format", "S32LE")
+                    .field("channels", 2i32)
+                    .build(),
+            )
             .build()
             .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
 
-        pipe.add_many([&uridecodebin, &audioconvert, &audioresample, &norm_vol, &user_vol, &capsfilter, appsink.upcast_ref()])
-            .map_err(|e| format!("Failed to add elements: {e}"))?;
-        gst::Element::link_many([&audioconvert, &audioresample, &norm_vol, &user_vol, &capsfilter, appsink.upcast_ref()])
-            .map_err(|e| format!("Failed to link exclusive chain: {e}"))?;
+        pipe.add_many([
+            &uridecodebin,
+            &audioconvert,
+            &audioresample,
+            &norm_vol,
+            &user_vol,
+            &capsfilter,
+            appsink.upcast_ref(),
+        ])
+        .map_err(|e| format!("Failed to add elements: {e}"))?;
+        gst::Element::link_many([
+            &audioconvert,
+            &audioresample,
+            &norm_vol,
+            &user_vol,
+            &capsfilter,
+            appsink.upcast_ref(),
+        ])
+        .map_err(|e| format!("Failed to link exclusive chain: {e}"))?;
 
         (Some(user_vol), Some(norm_vol))
     };
@@ -1237,7 +1387,8 @@ fn build_appsink_pipeline(
     // which the locked capsfilter rejects (GST_FLOW_ERROR). DASH caps are
     // already constrained to safe formats above.
     let capsfilter_weak: Option<gst::glib::WeakRef<gst::Element>> = if bit_perfect && !is_dash {
-        audioconvert.static_pad("src")
+        audioconvert
+            .static_pad("src")
             .and_then(|p| p.peer())
             .and_then(|p| p.parent_element())
             .map(|el| el.downgrade())
@@ -1248,9 +1399,15 @@ fn build_appsink_pipeline(
     // Connect uridecodebin's dynamic pad to audioconvert
     let convert_weak = audioconvert.downgrade();
     uridecodebin.connect_pad_added(move |_src, src_pad| {
-        let Some(convert) = convert_weak.upgrade() else { return };
-        let Some(sink_pad) = convert.static_pad("sink") else { return };
-        if sink_pad.is_linked() { return; }
+        let Some(convert) = convert_weak.upgrade() else {
+            return;
+        };
+        let Some(sink_pad) = convert.static_pad("sink") else {
+            return;
+        };
+        if sink_pad.is_linked() {
+            return;
+        }
 
         if let Some(caps) = src_pad.current_caps() {
             if let Some(s) = caps.structure(0) {
@@ -1267,11 +1424,14 @@ fn build_appsink_pipeline(
         // Bit-perfect: lock capsfilter to decoded format
         if let Some(ref cf_weak) = capsfilter_weak {
             if let Some(cf) = cf_weak.upgrade() {
-                let caps = src_pad.current_caps()
-                    .or_else(|| {
-                        let query = src_pad.query_caps(None);
-                        if query.is_fixed() { Some(query) } else { None }
-                    });
+                let caps = src_pad.current_caps().or_else(|| {
+                    let query = src_pad.query_caps(None);
+                    if query.is_fixed() {
+                        Some(query)
+                    } else {
+                        None
+                    }
+                });
                 if let Some(caps) = caps {
                     if let Some(s) = caps.structure(0) {
                         if let (Ok(rate), Ok(channels), Ok(format)) = (
@@ -1332,7 +1492,12 @@ fn build_appsink_pipeline(
                 let data = map.as_slice().to_vec();
                 let generation = chunk_gen.load(Ordering::Acquire);
 
-                writer_tx.send(WriterCommand::Data(AudioChunk { data, format, generation }))
+                writer_tx
+                    .send(WriterCommand::Data(AudioChunk {
+                        data,
+                        format,
+                        generation,
+                    }))
                     .map_err(|_| gst::FlowError::Error)?;
 
                 Ok(gst::FlowSuccess::Ok)
@@ -1356,7 +1521,9 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
     let monitor = gst::DeviceMonitor::new();
     let caps = gst::Caps::new_empty_simple("audio/x-raw");
     monitor.add_filter(Some("Audio/Sink"), Some(&caps));
-    monitor.start().map_err(|e| format!("Failed to start device monitor: {e}"))?;
+    monitor
+        .start()
+        .map_err(|e| format!("Failed to start device monitor: {e}"))?;
 
     // GStreamer 1.28+ starts providers async, so devices() may initially be empty.
     // On older versions start() blocks and devices are available immediately.
@@ -1373,23 +1540,27 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
 
     monitor.stop();
 
-    log::debug!("[list_alsa_devices] DeviceMonitor found {} devices", devices.len());
+    log::debug!(
+        "[list_alsa_devices] DeviceMonitor found {} devices",
+        devices.len()
+    );
 
     let mut result = Vec::new();
     for dev in &devices {
-        let Some(props) = dev.properties() else { continue };
+        let Some(props) = dev.properties() else {
+            continue;
+        };
 
         let api = props.get::<String>("device.api").unwrap_or_default();
         if api != "alsa" {
             continue;
         }
 
-        let path = props.get::<String>("api.alsa.path").ok()
-            .or_else(|| {
-                let card = props.get::<String>("alsa.card").ok()?;
-                let dev_num = props.get::<String>("alsa.device").ok()?;
-                Some(format!("hw:{card},{dev_num}"))
-            });
+        let path = props.get::<String>("api.alsa.path").ok().or_else(|| {
+            let card = props.get::<String>("alsa.card").ok()?;
+            let dev_num = props.get::<String>("alsa.device").ok()?;
+            Some(format!("hw:{card},{dev_num}"))
+        });
 
         if let Some(path) = path {
             let name = dev.display_name().to_string();

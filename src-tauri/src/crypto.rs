@@ -1,5 +1,5 @@
 use aes_gcm::aead::{Aead, OsRng};
-use aes_gcm::{Aes256Gcm, AeadCore, KeyInit};
+use aes_gcm::{AeadCore, Aes256Gcm, KeyInit};
 use std::fs;
 use std::path::Path;
 use zeroize::Zeroize;

@@ -1,10 +1,10 @@
-use std::sync::atomic::Ordering;
 use serde::Deserialize;
+use std::sync::atomic::Ordering;
 use tauri::State;
 
+use crate::tidal_api::StreamInfo;
 use crate::AppState;
 use crate::SoneError;
-use crate::tidal_api::StreamInfo;
 
 /// Tidal-correct normalization: 0.8 * min(10^((rg + 4) / 20), 1 / peak)
 pub fn compute_norm_gain(replay_gain: Option<f64>, peak_amplitude: Option<f64>) -> f64 {
@@ -21,7 +21,11 @@ pub fn compute_norm_gain(replay_gain: Option<f64>, peak_amplitude: Option<f64>) 
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn play_tidal_track(state: State<'_, AppState>, track_id: u64, use_track_gain: bool) -> Result<StreamInfo, SoneError> {
+pub async fn play_tidal_track(
+    state: State<'_, AppState>,
+    track_id: u64,
+    use_track_gain: bool,
+) -> Result<StreamInfo, SoneError> {
     // Try quality tiers from highest to lowest.
     // Without client_secret, skip Hi-Res (those credentials typically return
     // encrypted DASH streams that require Widevine). With a secret, the
@@ -38,8 +42,8 @@ pub async fn play_tidal_track(state: State<'_, AppState>, track_id: u64, use_tra
                     Err(_) => match client.get_stream_url(track_id, "LOSSLESS").await {
                         Ok(info) => info,
                         Err(_) => client.get_stream_url(track_id, "HIGH").await?,
-                    }
-                }
+                    },
+                },
             }
         } else {
             match client.get_stream_url(track_id, "LOSSLESS").await {
@@ -67,18 +71,29 @@ pub async fn play_tidal_track(state: State<'_, AppState>, track_id: u64, use_tra
 
     // Select replay gain + peak based on playback context (album vs mixed queue)
     let (selected_rg, selected_peak) = if use_track_gain {
-        (stream_info.track_replay_gain.or(stream_info.album_replay_gain),
-         stream_info.track_peak_amplitude.or(stream_info.album_peak_amplitude))
+        (
+            stream_info
+                .track_replay_gain
+                .or(stream_info.album_replay_gain),
+            stream_info
+                .track_peak_amplitude
+                .or(stream_info.album_peak_amplitude),
+        )
     } else {
-        (stream_info.album_replay_gain.or(stream_info.track_replay_gain),
-         stream_info.album_peak_amplitude.or(stream_info.track_peak_amplitude))
+        (
+            stream_info
+                .album_replay_gain
+                .or(stream_info.track_replay_gain),
+            stream_info
+                .album_peak_amplitude
+                .or(stream_info.track_peak_amplitude),
+        )
     };
 
     // Store selected values for live toggle
-    state.last_replay_gain.store(
-        selected_rg.unwrap_or(f64::NAN).to_bits(),
-        Ordering::Relaxed,
-    );
+    state
+        .last_replay_gain
+        .store(selected_rg.unwrap_or(f64::NAN).to_bits(), Ordering::Relaxed);
     state.last_peak_amplitude.store(
         selected_peak.unwrap_or(f64::NAN).to_bits(),
         Ordering::Relaxed,
@@ -91,10 +106,22 @@ pub async fn play_tidal_track(state: State<'_, AppState>, track_id: u64, use_tra
     } else {
         1.0
     };
-    log::debug!("[play_tidal_track]: normalization gain={:.3} (use_track_gain={}, rg={:?}, peak={:?})", norm_gain, use_track_gain, selected_rg, selected_peak);
-    state.audio_player.set_normalization_gain(norm_gain).map_err(SoneError::Audio)?;
+    log::debug!(
+        "[play_tidal_track]: normalization gain={:.3} (use_track_gain={}, rg={:?}, peak={:?})",
+        norm_gain,
+        use_track_gain,
+        selected_rg,
+        selected_peak
+    );
+    state
+        .audio_player
+        .set_normalization_gain(norm_gain)
+        .map_err(SoneError::Audio)?;
 
-    state.audio_player.play_url(&uri).map_err(SoneError::Audio)?;
+    state
+        .audio_player
+        .play_url(&uri)
+        .map_err(SoneError::Audio)?;
 
     // Save last played track
     if let Some(mut settings) = state.load_settings() {
@@ -128,7 +155,10 @@ pub fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 
 #[tauri::command]
 pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
-    state.audio_player.set_volume(level).map_err(SoneError::Audio)?;
+    state
+        .audio_player
+        .set_volume(level)
+        .map_err(SoneError::Audio)?;
 
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::SetVolume {
@@ -152,7 +182,10 @@ pub fn get_playback_position(state: State<'_, AppState>) -> Result<f32, SoneErro
 #[tauri::command(rename_all = "camelCase")]
 pub fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Result<(), SoneError> {
     log::debug!("[seek_track]: position_secs={:.1}", position_secs);
-    let result = state.audio_player.seek(position_secs).map_err(SoneError::Audio);
+    let result = state
+        .audio_player
+        .seek(position_secs)
+        .map_err(SoneError::Audio);
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::Seeked {
         position_secs: position_secs as f64,
@@ -166,7 +199,10 @@ pub fn is_track_finished(state: State<'_, AppState>) -> Result<bool, SoneError> 
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn save_playback_queue(state: State<'_, AppState>, snapshot_json: String) -> Result<(), SoneError> {
+pub fn save_playback_queue(
+    state: State<'_, AppState>,
+    snapshot_json: String,
+) -> Result<(), SoneError> {
     state.write_state_file("queue.json", &snapshot_json)?;
     Ok(())
 }
@@ -190,7 +226,10 @@ pub struct MprisMetadata {
 
 #[tauri::command(rename_all = "camelCase")]
 #[allow(unused_variables)]
-pub fn update_mpris_metadata(state: State<'_, AppState>, metadata: MprisMetadata) -> Result<(), SoneError> {
+pub fn update_mpris_metadata(
+    state: State<'_, AppState>,
+    metadata: MprisMetadata,
+) -> Result<(), SoneError> {
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::SetMetadata {
         title: metadata.title,
@@ -204,8 +243,13 @@ pub fn update_mpris_metadata(state: State<'_, AppState>, metadata: MprisMetadata
 
 #[tauri::command(rename_all = "camelCase")]
 #[allow(unused_variables)]
-pub fn update_mpris_playback_status(state: State<'_, AppState>, is_playing: bool) -> Result<(), SoneError> {
+pub fn update_mpris_playback_status(
+    state: State<'_, AppState>,
+    is_playing: bool,
+) -> Result<(), SoneError> {
     #[cfg(target_os = "linux")]
-    state.mpris.send(crate::mpris::MprisCommand::SetPlaybackStatus { is_playing });
+    state
+        .mpris
+        .send(crate::mpris::MprisCommand::SetPlaybackStatus { is_playing });
     Ok(())
 }

@@ -105,6 +105,7 @@ export function getItemId(item: any): string {
   );
 }
 
+/** @public */
 export function getItemType(item: any): string {
   return item._itemType || item.type || "";
 }

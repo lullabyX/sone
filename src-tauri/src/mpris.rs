@@ -58,7 +58,10 @@ impl MprisHandle {
 
                 // Identity + desktop entry so KDE/GNOME can associate with the window
                 player.set_identity("SONE").await.ok();
-                player.set_desktop_entry("io.github.lullabyX.sone").await.ok();
+                player
+                    .set_desktop_entry("io.github.lullabyX.sone")
+                    .await
+                    .ok();
 
                 // Wire control callbacks — reuse existing tray event system
                 let app = app_handle.clone();
@@ -136,9 +139,7 @@ impl MprisHandle {
                             player.set_volume(volume).await.ok();
                         }
                         MprisCommand::Seeked { position_secs } => {
-                            let time = Time::from_micros(
-                                (position_secs * 1_000_000.0) as i64,
-                            );
+                            let time = Time::from_micros((position_secs * 1_000_000.0) as i64);
                             player.seeked(time).await.ok();
                         }
                         MprisCommand::Stop => {

@@ -291,7 +291,9 @@ export default function HomeSection({ section }: HomeSectionProps) {
               key={getItemId(item)}
               item={item}
               onClick={() => handleItemClick(item)}
-              onContextMenu={myTracks ? undefined : (e) => handleContextMenu(e, item)}
+              onContextMenu={
+                myTracks ? undefined : (e) => handleContextMenu(e, item)
+              }
               onPlay={
                 mediaItem
                   ? (e) => {
@@ -582,7 +584,9 @@ function CompactGridSection({
             <div
               key={getItemId(item)}
               onClick={() => onItemClick(item)}
-              onContextMenu={myTracks ? undefined : (e) => openMenu(e, item, idx)}
+              onContextMenu={
+                myTracks ? undefined : (e) => openMenu(e, item, idx)
+              }
               className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
             >
               <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
@@ -603,14 +607,20 @@ function CompactGridSection({
                   </div>
                 )}
                 {!myTracks && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Play size={14} fill="white" className="text-white ml-0.5" />
-                </div>
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Play
+                      size={14}
+                      fill="white"
+                      className="text-white ml-0.5"
+                    />
+                  </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[14px] text-white truncate font-medium">
-                  {myTracks ? "Loved Tracks" : isTrack && item.album ? (
+                  {myTracks ? (
+                    "Loved Tracks"
+                  ) : isTrack && item.album ? (
                     <span
                       className="hover:underline"
                       onClick={(e) => {
@@ -628,7 +638,9 @@ function CompactGridSection({
                   )}
                 </p>
                 <p className="text-[12px] text-th-text-muted truncate">
-                  {myTracks ? "Collection" : isTrack && (item.artist || item.artists?.[0]) ? (
+                  {myTracks ? (
+                    "Collection"
+                  ) : isTrack && (item.artist || item.artists?.[0]) ? (
                     <span
                       className="hover:underline cursor-pointer"
                       onClick={(e) => {
@@ -651,12 +663,12 @@ function CompactGridSection({
               </div>
               {/* Three-dots on hover */}
               {!myTracks && (
-              <button
-                onClick={(e) => openMenu(e, item, idx)}
-                className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
-              >
-                <MoreHorizontal size={16} />
-              </button>
+                <button
+                  onClick={(e) => openMenu(e, item, idx)}
+                  className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
+                >
+                  <MoreHorizontal size={16} />
+                </button>
               )}
             </div>
           );

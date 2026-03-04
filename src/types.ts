@@ -278,11 +278,13 @@ export interface StreamInfo {
 
 // ==================== v2 Home Feed MIX types ====================
 
+/** @public */
 export interface MixTextInfo {
   color?: string | null;
   text: string;
 }
 
+/** @public */
 export interface MixImage {
   size?: string;
   width?: number;
@@ -290,17 +292,20 @@ export interface MixImage {
   url: string;
 }
 
+/** @public */
 export interface MixImageRef {
   imageUuid?: string;
   vibrantColor?: string;
 }
 
+/** @public */
 export interface MixArtistRef {
   artistId?: number;
   artistName?: string;
   artistImage?: MixImageRef;
 }
 
+/** @public */
 export interface MixTrackRef {
   trackId?: number;
   trackTitle?: string;
@@ -330,6 +335,7 @@ export interface HomeFeedMix {
 }
 
 /** Union of all item types that can appear in a v2 home feed section. */
+/** @public */
 export type HomeFeedItem =
   | (Track & { _itemType?: "TRACK" })
   | (AlbumDetail & { _itemType?: "ALBUM" })
@@ -436,6 +442,7 @@ export interface PlaybackSnapshot {
   history: Track[];
 }
 
+/** @public */
 export interface AllFavoriteIds {
   tracks: number[];
   albums: number[];

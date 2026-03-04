@@ -8,6 +8,7 @@ export interface Theme {
   bgBase: string; // hex, e.g. "#130F1A"
 }
 
+/** @public */
 export interface DerivedTheme {
   // Backgrounds
   bgBase: string;

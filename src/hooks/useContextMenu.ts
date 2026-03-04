@@ -1,4 +1,10 @@
-import { useRef, useState, useEffect, type RefObject, type CSSProperties } from "react";
+import {
+  useRef,
+  useState,
+  useEffect,
+  type RefObject,
+  type CSSProperties,
+} from "react";
 
 interface UseContextMenuOptions {
   cursorPosition?: { x: number; y: number };

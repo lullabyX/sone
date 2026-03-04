@@ -340,7 +340,10 @@ impl DiskCache {
         }
 
         // Read data from disk (outside lock) and decrypt.
-        let dat_path = self.base_dir.join(tier.subdir()).join(format!("{}.dat", hash));
+        let dat_path = self
+            .base_dir
+            .join(tier.subdir())
+            .join(format!("{}.dat", hash));
         let data = match fs::read(&dat_path) {
             Ok(raw) => match self.crypto.decrypt(&raw) {
                 Ok(plain) => plain,
@@ -376,13 +379,28 @@ impl DiskCache {
         let grace = tier.swr_grace().as_secs();
 
         if age < ttl {
-            log::debug!("[DiskCache] HIT (fresh): {} (tier={:?}, age={}s)", key, tier, age);
+            log::debug!(
+                "[DiskCache] HIT (fresh): {} (tier={:?}, age={}s)",
+                key,
+                tier,
+                age
+            );
             CacheResult::Fresh(data)
         } else if age < ttl + grace {
-            log::debug!("[DiskCache] HIT (stale): {} (tier={:?}, age={}s, refresh needed)", key, tier, age);
+            log::debug!(
+                "[DiskCache] HIT (stale): {} (tier={:?}, age={}s, refresh needed)",
+                key,
+                tier,
+                age
+            );
             CacheResult::Stale(data)
         } else {
-            log::debug!("[DiskCache] MISS (expired): {} (tier={:?}, age={}s)", key, tier, age);
+            log::debug!(
+                "[DiskCache] MISS (expired): {} (tier={:?}, age={}s)",
+                key,
+                tier,
+                age
+            );
             // Beyond grace — treat as miss and clean up.
             self.remove_files(&hash, tier);
             let mut inner = self.inner.write().await;
@@ -459,11 +477,7 @@ impl DiskCache {
     pub async fn invalidate_tag(&self, tag: &str) {
         let hashes: Vec<String> = {
             let inner = self.inner.read().await;
-            inner
-                .tag_index
-                .get(tag)
-                .cloned()
-                .unwrap_or_default()
+            inner.tag_index.get(tag).cloned().unwrap_or_default()
         };
 
         if hashes.is_empty() {
@@ -559,7 +573,7 @@ impl DiskCache {
         let inner = self.inner.read().await;
 
         let mut by_tier: HashMap<String, TierStats> = HashMap::new();
-        for (_, entry) in &inner.index {
+        for entry in inner.index.values() {
             let tier_name = format!("{:?}", entry.tier);
             let stats = by_tier.entry(tier_name).or_insert(TierStats {
                 count: 0,

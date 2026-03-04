@@ -341,6 +341,7 @@ export async function getPageSection(
 
 // ==================== Album ====================
 
+/** @public */
 export async function getAlbumDetail(albumId: number): Promise<AlbumDetail> {
   return cached(
     `album:${albumId}`,
@@ -366,6 +367,7 @@ export async function getAlbumPage(albumId: number): Promise<AlbumPageCached> {
   );
 }
 
+/** @public */
 export async function getAlbumTracks(
   albumId: number,
   offset: number = 0,
@@ -392,6 +394,7 @@ export async function getAlbumTracks(
 
 // ==================== Artist ====================
 
+/** @public */
 export async function getArtistDetail(artistId: number): Promise<ArtistDetail> {
   return cached(
     `artist:${artistId}`,
@@ -401,6 +404,7 @@ export async function getArtistDetail(artistId: number): Promise<ArtistDetail> {
   );
 }
 
+/** @public */
 export async function getArtistTopTracks(
   artistId: number,
   limit: number = 20,
@@ -413,6 +417,7 @@ export async function getArtistTopTracks(
   );
 }
 
+/** @public */
 export async function getArtistAlbums(
   artistId: number,
   limit: number = 20,
@@ -614,6 +619,7 @@ export async function getArtistTopTracksAll(
 
 // ==================== Playlist / Mix ====================
 
+/** @public */
 export async function getPlaylistTracks(playlistId: string): Promise<Track[]> {
   return cached(
     `playlist:${playlistId}`,
@@ -853,6 +859,7 @@ export async function getFavoritePlaylists(
 
 // ==================== Unified favorite IDs (one-shot init) ====================
 
+/** @public */
 export interface AllFavoriteIds {
   tracks: number[];
   albums: number[];

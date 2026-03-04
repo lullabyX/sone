@@ -1,11 +1,11 @@
 use std::sync::atomic::Ordering;
 use tauri::State;
 
-use crate::AppState;
-use crate::SoneError;
+use super::playback::compute_norm_gain;
 use crate::audio::AudioDevice;
 use crate::cache::{CacheResult, CacheTier};
-use super::playback::compute_norm_gain;
+use crate::AppState;
+use crate::SoneError;
 
 #[tauri::command]
 pub fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String, SoneError> {
@@ -20,7 +20,10 @@ pub fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String
 }
 
 #[tauri::command]
-pub async fn get_image_bytes(state: State<'_, AppState>, url: String) -> Result<Vec<u8>, SoneError> {
+pub async fn get_image_bytes(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<Vec<u8>, SoneError> {
     log::debug!("[get_image_bytes]: url={}", url);
 
     match state.disk_cache.get(&url, CacheTier::Image).await {
@@ -32,11 +35,15 @@ pub async fn get_image_bytes(state: State<'_, AppState>, url: String) -> Result<
             let res = reqwest::get(&url).await?;
             let bytes = res.bytes().await?.to_vec();
 
-            state.disk_cache
+            state
+                .disk_cache
                 .put(&url, &bytes, CacheTier::Image, &["image"])
                 .await
                 .ok();
-            log::debug!("[get_image_bytes]: fetched and cached {} bytes", bytes.len());
+            log::debug!(
+                "[get_image_bytes]: fetched and cached {} bytes",
+                bytes.len()
+            );
 
             Ok(bytes)
         }
@@ -44,7 +51,9 @@ pub async fn get_image_bytes(state: State<'_, AppState>, url: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn get_cache_stats(state: State<'_, AppState>) -> Result<crate::cache::CacheStats, SoneError> {
+pub async fn get_cache_stats(
+    state: State<'_, AppState>,
+) -> Result<crate::cache::CacheStats, SoneError> {
     Ok(state.disk_cache.stats().await)
 }
 
@@ -86,7 +95,10 @@ pub fn get_volume_normalization(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_volume_normalization(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+pub fn set_volume_normalization(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), SoneError> {
     state.volume_normalization.store(enabled, Ordering::Relaxed);
 
     // Immediately apply/reset normalization on the current track
@@ -99,7 +111,10 @@ pub fn set_volume_normalization(state: State<'_, AppState>, enabled: bool) -> Re
     } else {
         1.0
     };
-    state.audio_player.set_normalization_gain(norm_gain).map_err(SoneError::Audio)?;
+    state
+        .audio_player
+        .set_normalization_gain(norm_gain)
+        .map_err(SoneError::Audio)?;
 
     let mut settings = state.load_settings().unwrap_or(crate::Settings {
         auth_tokens: None,
@@ -129,11 +144,17 @@ pub fn set_exclusive_mode(state: State<'_, AppState>, enabled: bool) -> Result<(
 
     if !enabled {
         state.bit_perfect.store(false, Ordering::Relaxed);
-        state.audio_player.set_bit_perfect(false).map_err(SoneError::Audio)?;
+        state
+            .audio_player
+            .set_bit_perfect(false)
+            .map_err(SoneError::Audio)?;
     }
 
     let device = state.exclusive_device.lock().unwrap().clone();
-    state.audio_player.set_exclusive_mode(enabled, device).map_err(SoneError::Audio)?;
+    state
+        .audio_player
+        .set_exclusive_mode(enabled, device)
+        .map_err(SoneError::Audio)?;
 
     let mut settings = state.load_settings().unwrap_or(crate::Settings {
         auth_tokens: None,
@@ -167,10 +188,16 @@ pub fn set_bit_perfect(state: State<'_, AppState>, enabled: bool) -> Result<(), 
     if enabled && !state.exclusive_mode.load(Ordering::Relaxed) {
         state.exclusive_mode.store(true, Ordering::Relaxed);
         let device = state.exclusive_device.lock().unwrap().clone();
-        state.audio_player.set_exclusive_mode(true, device).map_err(SoneError::Audio)?;
+        state
+            .audio_player
+            .set_exclusive_mode(true, device)
+            .map_err(SoneError::Audio)?;
     }
 
-    state.audio_player.set_bit_perfect(enabled).map_err(SoneError::Audio)?;
+    state
+        .audio_player
+        .set_bit_perfect(enabled)
+        .map_err(SoneError::Audio)?;
 
     let mut settings = state.load_settings().unwrap_or(crate::Settings {
         auth_tokens: None,
@@ -202,7 +229,10 @@ pub fn set_exclusive_device(state: State<'_, AppState>, device: String) -> Resul
     *state.exclusive_device.lock().unwrap() = Some(device.clone());
 
     let enabled = state.exclusive_mode.load(Ordering::Relaxed);
-    state.audio_player.set_exclusive_mode(enabled, Some(device.clone())).map_err(SoneError::Audio)?;
+    state
+        .audio_player
+        .set_exclusive_mode(enabled, Some(device.clone()))
+        .map_err(SoneError::Audio)?;
 
     let mut settings = state.load_settings().unwrap_or(crate::Settings {
         auth_tokens: None,

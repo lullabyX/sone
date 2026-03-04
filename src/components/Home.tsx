@@ -37,7 +37,12 @@ export default function Home() {
   );
   // If we have cached data, don't show loading skeleton
   const [loading, setLoading] = useState(!cachedHomeData);
-  const [greeting, setGreeting] = useState("Good evening");
+  const [greeting] = useState(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+  });
   const hasLoadedRef = useRef(false);
   const [cursor, setCursor] = useState<string | null>(
     cachedHomeData?.cursor ?? null,
@@ -147,15 +152,14 @@ export default function Home() {
         });
       }
     },
-    [navigateToFavorites, navigateToPlaylist, navigateToAlbum, navigateToArtist, navigateToMix],
+    [
+      navigateToFavorites,
+      navigateToPlaylist,
+      navigateToAlbum,
+      navigateToArtist,
+      navigateToMix,
+    ],
   );
-
-  useEffect(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) setGreeting("Good morning");
-    else if (hour < 18) setGreeting("Good afternoon");
-    else setGreeting("Good evening");
-  }, []);
 
   useEffect(() => {
     if (hasLoadedRef.current) return;

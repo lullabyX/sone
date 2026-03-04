@@ -237,9 +237,7 @@ export function AppInitializer() {
         setFollowedArtistIds(new Set(ids.artists));
         setFavoritePlaylistUuids(new Set(ids.playlists));
       })
-      .catch((error) =>
-        console.error("Failed to load favorite IDs:", error),
-      );
+      .catch((error) => console.error("Failed to load favorite IDs:", error));
 
     // Mix IDs still separate (v2 endpoint, not in unified response)
     invoke<string[]>("get_favorite_mix_ids")
@@ -447,7 +445,11 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     const unlistenToggle = listen("tray:toggle-play", () => {
-      store.get(isPlayingAtom) ? pauseTrack() : resumeTrack();
+      if (store.get(isPlayingAtom)) {
+        pauseTrack();
+      } else {
+        resumeTrack();
+      }
     });
     const unlistenNext = listen("tray:next-track", () => {
       playNext();

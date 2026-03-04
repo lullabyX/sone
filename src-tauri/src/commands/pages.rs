@@ -2,10 +2,13 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{Manager, State};
 
+use crate::cache::{CacheResult, CacheTier};
+use crate::tidal_api::{
+    AlbumPageResponse, HomePageResponse, PaginatedTracks, TidalAlbumDetail, TidalArtistDetail,
+    TidalTrack,
+};
 use crate::AppState;
 use crate::SoneError;
-use crate::cache::{CacheResult, CacheTier};
-use crate::tidal_api::{AlbumPageResponse, HomePageResponse, PaginatedTracks, TidalAlbumDetail, TidalArtistDetail, TidalTrack};
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -15,11 +18,18 @@ pub struct HomePageCached {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_album_detail(state: State<'_, AppState>, album_id: u64) -> Result<TidalAlbumDetail, SoneError> {
+pub async fn get_album_detail(
+    state: State<'_, AppState>,
+    album_id: u64,
+) -> Result<TidalAlbumDetail, SoneError> {
     log::debug!("[get_album_detail]: album_id={}", album_id);
 
     let cache_key = format!("album:{}", album_id);
-    match state.disk_cache.get(&cache_key, CacheTier::StaticMeta).await {
+    match state
+        .disk_cache
+        .get(&cache_key, CacheTier::StaticMeta)
+        .await
+    {
         CacheResult::Fresh(bytes) => {
             if let Ok(detail) = serde_json::from_slice(&bytes) {
                 return Ok(detail);
@@ -39,8 +49,14 @@ pub async fn get_album_detail(state: State<'_, AppState>, album_id: u64) -> Resu
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&detail) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::StaticMeta, &["album", &format!("album:{}", album_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::StaticMeta,
+                &["album", &format!("album:{}", album_id)],
+            )
             .await
             .ok();
     }
@@ -66,7 +82,10 @@ pub async fn get_album_page(
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
         CacheResult::Fresh(bytes) => {
             if let Ok(page) = serde_json::from_slice(&bytes) {
-                return Ok(AlbumPageCached { page, is_stale: false });
+                return Ok(AlbumPageCached {
+                    page,
+                    is_stale: false,
+                });
             }
         }
         CacheResult::Stale(bytes) => {
@@ -85,7 +104,12 @@ pub async fn get_album_page(
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(&key, &json, CacheTier::Dynamic, &["album", &format!("album:{}", album_id)])
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::Dynamic,
+                                            &["album", &format!("album:{}", album_id)],
+                                        )
                                         .await
                                         .ok();
                                 }
@@ -96,7 +120,10 @@ pub async fn get_album_page(
                         state.disk_cache.clear_in_flight(&cache_key).await;
                     }
                 }
-                return Ok(AlbumPageCached { page, is_stale: true });
+                return Ok(AlbumPageCached {
+                    page,
+                    is_stale: true,
+                });
             }
         }
         CacheResult::Miss => {}
@@ -107,12 +134,21 @@ pub async fn get_album_page(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&page) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["album", &format!("album:{}", album_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::Dynamic,
+                &["album", &format!("album:{}", album_id)],
+            )
             .await
             .ok();
     }
-    Ok(AlbumPageCached { page, is_stale: false })
+    Ok(AlbumPageCached {
+        page,
+        is_stale: false,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -122,10 +158,19 @@ pub async fn get_album_tracks(
     offset: u32,
     limit: u32,
 ) -> Result<PaginatedTracks, SoneError> {
-    log::debug!("[get_album_tracks]: album_id={}, offset={}, limit={}", album_id, offset, limit);
+    log::debug!(
+        "[get_album_tracks]: album_id={}, offset={}, limit={}",
+        album_id,
+        offset,
+        limit
+    );
 
     let cache_key = format!("album-tracks:{}:{}:{}", album_id, offset, limit);
-    match state.disk_cache.get(&cache_key, CacheTier::StaticMeta).await {
+    match state
+        .disk_cache
+        .get(&cache_key, CacheTier::StaticMeta)
+        .await
+    {
         CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
             if let Ok(tracks) = serde_json::from_slice(&bytes) {
                 return Ok(tracks);
@@ -139,8 +184,14 @@ pub async fn get_album_tracks(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&tracks) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::StaticMeta, &["album-tracks", &format!("album:{}", album_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::StaticMeta,
+                &["album-tracks", &format!("album:{}", album_id)],
+            )
             .await
             .ok();
     }
@@ -158,7 +209,10 @@ pub async fn get_home_page(
     match state.disk_cache.get(cache_key, CacheTier::Dynamic).await {
         CacheResult::Fresh(bytes) => {
             if let Ok(home) = serde_json::from_slice(&bytes) {
-                return Ok(HomePageCached { home, is_stale: false });
+                return Ok(HomePageCached {
+                    home,
+                    is_stale: false,
+                });
             }
         }
         CacheResult::Stale(bytes) => {
@@ -189,7 +243,10 @@ pub async fn get_home_page(
                         state.disk_cache.clear_in_flight(cache_key).await;
                     }
                 }
-                return Ok(HomePageCached { home, is_stale: true });
+                return Ok(HomePageCached {
+                    home,
+                    is_stale: true,
+                });
             }
         }
         CacheResult::Miss => {}
@@ -200,12 +257,16 @@ pub async fn get_home_page(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&home) {
-        state.disk_cache
+        state
+            .disk_cache
             .put(cache_key, &json, CacheTier::Dynamic, &["home-page"])
             .await
             .ok();
     }
-    Ok(HomePageCached { home, is_stale: false })
+    Ok(HomePageCached {
+        home,
+        is_stale: false,
+    })
 }
 
 #[tauri::command]
@@ -216,7 +277,8 @@ pub async fn refresh_home_page(state: State<'_, AppState>) -> Result<HomePageRes
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&home) {
-        state.disk_cache
+        state
+            .disk_cache
             .put("home_page", &json, CacheTier::Dynamic, &["home-page"])
             .await
             .ok();
@@ -229,7 +291,10 @@ pub async fn get_home_page_more(
     state: State<'_, AppState>,
     cursor: String,
 ) -> Result<HomePageResponse, SoneError> {
-    log::debug!("[get_home_page_more]: cursor={}", &cursor[..cursor.len().min(32)]);
+    log::debug!(
+        "[get_home_page_more]: cursor={}",
+        &cursor[..cursor.len().min(32)]
+    );
     let mut client = state.tidal_client.lock().await;
     let (mut sections, next_cursor) = client.fetch_v2_home_feed(Some(&cursor)).await;
     drop(client);
@@ -241,8 +306,15 @@ pub async fn get_home_page_more(
             && s.section_type != "SHORTCUT_LIST"
     });
 
-    log::debug!("[get_home_page_more]: got {} sections, next_cursor={:?}", sections.len(), next_cursor.is_some());
-    Ok(HomePageResponse { sections, cursor: next_cursor })
+    log::debug!(
+        "[get_home_page_more]: got {} sections, next_cursor={:?}",
+        sections.len(),
+        next_cursor.is_some()
+    );
+    Ok(HomePageResponse {
+        sections,
+        cursor: next_cursor,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -300,7 +372,8 @@ pub async fn get_page_section(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&page) {
-        state.disk_cache
+        state
+            .disk_cache
             .put(&cache_key, &json, CacheTier::Dynamic, &["section"])
             .await
             .ok();
@@ -309,7 +382,10 @@ pub async fn get_page_section(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_mix_items(state: State<'_, AppState>, mix_id: String) -> Result<Vec<TidalTrack>, SoneError> {
+pub async fn get_mix_items(
+    state: State<'_, AppState>,
+    mix_id: String,
+) -> Result<Vec<TidalTrack>, SoneError> {
     log::debug!("[get_mix_items]: mix_id={}", mix_id);
 
     let cache_key = format!("mix:{}", mix_id);
@@ -327,7 +403,8 @@ pub async fn get_mix_items(state: State<'_, AppState>, mix_id: String) -> Result
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&items) {
-        state.disk_cache
+        state
+            .disk_cache
             .put(&cache_key, &json, CacheTier::Dynamic, &["mix"])
             .await
             .ok();
@@ -336,11 +413,18 @@ pub async fn get_mix_items(state: State<'_, AppState>, mix_id: String) -> Result
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_artist_detail(state: State<'_, AppState>, artist_id: u64) -> Result<TidalArtistDetail, SoneError> {
+pub async fn get_artist_detail(
+    state: State<'_, AppState>,
+    artist_id: u64,
+) -> Result<TidalArtistDetail, SoneError> {
     log::debug!("[get_artist_detail]: artist_id={}", artist_id);
 
     let cache_key = format!("artist:{}", artist_id);
-    match state.disk_cache.get(&cache_key, CacheTier::StaticMeta).await {
+    match state
+        .disk_cache
+        .get(&cache_key, CacheTier::StaticMeta)
+        .await
+    {
         CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
             if let Ok(detail) = serde_json::from_slice(&bytes) {
                 return Ok(detail);
@@ -354,8 +438,14 @@ pub async fn get_artist_detail(state: State<'_, AppState>, artist_id: u64) -> Re
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&detail) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::StaticMeta, &["artist", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::StaticMeta,
+                &["artist", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -369,7 +459,11 @@ pub async fn get_artist_top_tracks(
     artist_id: u64,
     limit: u32,
 ) -> Result<Vec<TidalTrack>, SoneError> {
-    log::debug!("[get_artist_top_tracks]: artist_id={}, limit={}", artist_id, limit);
+    log::debug!(
+        "[get_artist_top_tracks]: artist_id={}, limit={}",
+        artist_id,
+        limit
+    );
 
     let cache_key = format!("artist-tracks:{}:{}", artist_id, limit);
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
@@ -395,7 +489,12 @@ pub async fn get_artist_top_tracks(
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(&key, &json, CacheTier::Dynamic, &["artist-tracks", &format!("artist:{}", artist_id)])
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::Dynamic,
+                                            &["artist-tracks", &format!("artist:{}", artist_id)],
+                                        )
                                         .await
                                         .ok();
                                 }
@@ -417,8 +516,14 @@ pub async fn get_artist_top_tracks(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&tracks) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["artist-tracks", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::Dynamic,
+                &["artist-tracks", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -426,11 +531,23 @@ pub async fn get_artist_top_tracks(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_artist_albums(state: State<'_, AppState>, artist_id: u64, limit: u32) -> Result<Vec<TidalAlbumDetail>, SoneError> {
-    log::debug!("[get_artist_albums]: artist_id={}, limit={}", artist_id, limit);
+pub async fn get_artist_albums(
+    state: State<'_, AppState>,
+    artist_id: u64,
+    limit: u32,
+) -> Result<Vec<TidalAlbumDetail>, SoneError> {
+    log::debug!(
+        "[get_artist_albums]: artist_id={}, limit={}",
+        artist_id,
+        limit
+    );
 
     let cache_key = format!("artist-albums:{}:{}", artist_id, limit);
-    match state.disk_cache.get(&cache_key, CacheTier::StaticMeta).await {
+    match state
+        .disk_cache
+        .get(&cache_key, CacheTier::StaticMeta)
+        .await
+    {
         CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
             if let Ok(albums) = serde_json::from_slice(&bytes) {
                 return Ok(albums);
@@ -444,8 +561,14 @@ pub async fn get_artist_albums(state: State<'_, AppState>, artist_id: u64, limit
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&albums) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::StaticMeta, &["artist-albums", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::StaticMeta,
+                &["artist-albums", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -484,7 +607,12 @@ pub async fn get_artist_bio(
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(&key, &json, CacheTier::Dynamic, &["artist-bio", &format!("artist:{}", artist_id)])
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::Dynamic,
+                                            &["artist-bio", &format!("artist:{}", artist_id)],
+                                        )
                                         .await
                                         .ok();
                                 }
@@ -506,8 +634,14 @@ pub async fn get_artist_bio(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&bio) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["artist-bio", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::Dynamic,
+                &["artist-bio", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -545,7 +679,12 @@ pub async fn get_artist_page(
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(&key, &json, CacheTier::Dynamic, &["artist", &format!("artist:{}", artist_id)])
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::Dynamic,
+                                            &["artist", &format!("artist:{}", artist_id)],
+                                        )
                                         .await
                                         .ok();
                                 }
@@ -567,8 +706,14 @@ pub async fn get_artist_page(
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&page) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["artist", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::Dynamic,
+                &["artist", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -583,7 +728,12 @@ pub async fn get_artist_top_tracks_all(
     offset: u32,
     limit: u32,
 ) -> Result<Value, SoneError> {
-    log::debug!("[get_artist_top_tracks_all]: artist_id={} offset={} limit={}", artist_id, offset, limit);
+    log::debug!(
+        "[get_artist_top_tracks_all]: artist_id={} offset={} limit={}",
+        artist_id,
+        offset,
+        limit
+    );
 
     let cache_key = format!("artist-top-tracks-all:{}:{}:{}", artist_id, offset, limit);
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
@@ -603,12 +753,19 @@ pub async fn get_artist_top_tracks_all(
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_artist_top_tracks_all(artist_id, offset, limit).await
+                                client
+                                    .get_artist_top_tracks_all(artist_id, offset, limit)
+                                    .await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(&key, &json, CacheTier::Dynamic, &["artist", &format!("artist:{}", artist_id)])
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::Dynamic,
+                                            &["artist", &format!("artist:{}", artist_id)],
+                                        )
                                         .await
                                         .ok();
                                 }
@@ -626,12 +783,20 @@ pub async fn get_artist_top_tracks_all(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let data = client.get_artist_top_tracks_all(artist_id, offset, limit).await?;
+    let data = client
+        .get_artist_top_tracks_all(artist_id, offset, limit)
+        .await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&data) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["artist", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::Dynamic,
+                &["artist", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -645,7 +810,11 @@ pub async fn get_artist_view_all(
     artist_id: u64,
     view_all_path: String,
 ) -> Result<Value, SoneError> {
-    log::debug!("[get_artist_view_all]: artist_id={}, path={}", artist_id, view_all_path);
+    log::debug!(
+        "[get_artist_view_all]: artist_id={}, path={}",
+        artist_id,
+        view_all_path
+    );
 
     let cache_key = format!("artist-view-all:{}:{}", artist_id, view_all_path);
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
@@ -671,7 +840,12 @@ pub async fn get_artist_view_all(
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(&key, &json, CacheTier::Dynamic, &["artist", &format!("artist:{}", artist_id)])
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::Dynamic,
+                                            &["artist", &format!("artist:{}", artist_id)],
+                                        )
                                         .await
                                         .ok();
                                 }
@@ -689,12 +863,20 @@ pub async fn get_artist_view_all(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let data = client.get_artist_view_all(artist_id, &view_all_path).await?;
+    let data = client
+        .get_artist_view_all(artist_id, &view_all_path)
+        .await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&data) {
-        state.disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["artist", &format!("artist:{}", artist_id)])
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::Dynamic,
+                &["artist", &format!("artist:{}", artist_id)],
+            )
             .await
             .ok();
     }
@@ -730,7 +912,11 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
         let response = http
             .get(format!("https://api.tidal.com/v1/{}", endpoint))
             .header("Authorization", format!("Bearer {}", access_token))
-            .query(&[("countryCode", "US"), ("deviceType", "BROWSER"), ("locale", "en_US")])
+            .query(&[
+                ("countryCode", "US"),
+                ("deviceType", "BROWSER"),
+                ("locale", "en_US"),
+            ])
             .send()
             .await;
 
@@ -744,11 +930,18 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
                 let body = resp.text().await.unwrap_or_default();
                 let json: serde_json::Value = match serde_json::from_str(&body) {
                     Ok(j) => j,
-                    Err(e) => { summary.push_str(&format!("  PARSE ERROR: {}\n\n", e)); continue; }
+                    Err(e) => {
+                        summary.push_str(&format!("  PARSE ERROR: {}\n\n", e));
+                        continue;
+                    }
                 };
 
-                summary.push_str(&format!("  Top-level keys: {:?}\n",
-                    json.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()));
+                summary.push_str(&format!(
+                    "  Top-level keys: {:?}\n",
+                    json.as_object()
+                        .map(|o| o.keys().collect::<Vec<_>>())
+                        .unwrap_or_default()
+                ));
 
                 // V1
                 if let Some(rows) = json.get("rows").and_then(|r| r.as_array()) {
@@ -756,17 +949,29 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
                     for (i, row) in rows.iter().enumerate() {
                         if let Some(modules) = row.get("modules").and_then(|m| m.as_array()) {
                             for module in modules {
-                                let mtype = module.get("type").and_then(|t| t.as_str()).unwrap_or("?");
-                                let title = module.get("title").and_then(|t| t.as_str()).unwrap_or("(no title)");
-                                let item_count = module.get("pagedList")
+                                let mtype =
+                                    module.get("type").and_then(|t| t.as_str()).unwrap_or("?");
+                                let title = module
+                                    .get("title")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("(no title)");
+                                let item_count = module
+                                    .get("pagedList")
                                     .and_then(|pl| pl.get("items"))
                                     .and_then(|i| i.as_array())
                                     .map(|a| a.len())
-                                    .or_else(|| module.get("highlights").and_then(|h| h.as_array()).map(|a| a.len()))
+                                    .or_else(|| {
+                                        module
+                                            .get("highlights")
+                                            .and_then(|h| h.as_array())
+                                            .map(|a| a.len())
+                                    })
                                     .unwrap_or(0);
                                 let has_more = module.get("showMore").is_some();
-                                summary.push_str(&format!("    Row {}: type={:<30} title=\"{}\" items={} more={}\n",
-                                    i, mtype, title, item_count, has_more));
+                                summary.push_str(&format!(
+                                    "    Row {}: type={:<30} title=\"{}\" items={} more={}\n",
+                                    i, mtype, title, item_count, has_more
+                                ));
                             }
                         }
                     }
@@ -777,16 +982,33 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
                     summary.push_str(&format!("  FORMAT: V2 (items), {} sections\n", items.len()));
                     for (i, item) in items.iter().enumerate() {
                         let stype = item.get("type").and_then(|t| t.as_str()).unwrap_or("?");
-                        let title = item.get("title")
+                        let title = item
+                            .get("title")
                             .and_then(|t| t.as_str())
-                            .or_else(|| item.get("titleTextInfo").and_then(|ti| ti.get("text")).and_then(|t| t.as_str()))
+                            .or_else(|| {
+                                item.get("titleTextInfo")
+                                    .and_then(|ti| ti.get("text"))
+                                    .and_then(|t| t.as_str())
+                            })
                             .unwrap_or("(no title)");
-                        let item_count = item.get("items").and_then(|i| i.as_array()).map(|a| a.len()).unwrap_or(0);
-                        let has_view_all = item.get("viewAll").is_some() || item.get("showMore").is_some();
-                        let first_type = item.get("items").and_then(|i| i.as_array())
-                            .and_then(|a| a.first()).and_then(|f| f.get("type")).and_then(|t| t.as_str()).unwrap_or("?");
-                        summary.push_str(&format!("    Sec {}: type={:<35} title=\"{}\" items={} first={} more={}\n",
-                            i, stype, title, item_count, first_type, has_view_all));
+                        let item_count = item
+                            .get("items")
+                            .and_then(|i| i.as_array())
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                        let has_view_all =
+                            item.get("viewAll").is_some() || item.get("showMore").is_some();
+                        let first_type = item
+                            .get("items")
+                            .and_then(|i| i.as_array())
+                            .and_then(|a| a.first())
+                            .and_then(|f| f.get("type"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("?");
+                        summary.push_str(&format!(
+                            "    Sec {}: type={:<35} title=\"{}\" items={} first={} more={}\n",
+                            i, stype, title, item_count, first_type, has_view_all
+                        ));
                     }
                 }
             }
@@ -799,4 +1021,3 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
 
     Ok(summary)
 }
-

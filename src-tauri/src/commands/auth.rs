@@ -1,14 +1,14 @@
 use base64::Engine;
 use rand::RngExt;
 use serde::Serialize;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::fs;
 use tauri::State;
 
+use crate::tidal_api::{AuthTokens, DeviceAuthResponse};
 use crate::AppState;
 use crate::Settings;
 use crate::SoneError;
-use crate::tidal_api::{AuthTokens, DeviceAuthResponse};
 
 /// Check if the given credentials match the embedded defaults.
 fn are_embedded_defaults(id: &str, secret: &str) -> bool {
@@ -41,7 +41,11 @@ fn extract_form_value(text: &str, key: &str) -> Option<String> {
         .find(|c: char| c == '&' || c == '"' || c == '\'' || c.is_whitespace())
         .unwrap_or(rest.len());
     let value = &rest[..end];
-    if value.is_empty() { None } else { Some(value.to_string()) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 /// Extract a value for `"key": "value"` from JSON-like text.
@@ -51,10 +55,11 @@ fn extract_json_value(text: &str, key: &str) -> Option<String> {
         if let Some(key_pos) = text.find(pat.as_str()) {
             let after_key = &text[key_pos + pat.len()..];
             let trimmed = after_key.trim_start();
-            let trimmed = if trimmed.starts_with(':') {
-                trimmed[1..].trim_start()
-            } else if trimmed.starts_with('=') {
-                trimmed[1..].trim_start()
+            let trimmed = if let Some(rest) = trimmed
+                .strip_prefix(':')
+                .or_else(|| trimmed.strip_prefix('='))
+            {
+                rest.trim_start()
             } else {
                 continue;
             };
@@ -101,7 +106,11 @@ pub fn greet(name: &str) -> String {
 pub async fn load_saved_auth(state: State<'_, AppState>) -> Result<Option<AuthTokens>, SoneError> {
     log::debug!("[load_saved_auth]: path={:?}", state.settings_path);
     if let Some(settings) = state.load_settings() {
-        log::debug!("[load_saved_auth]: auth_tokens present: {}, has_credentials: {}", settings.auth_tokens.is_some(), !settings.client_id.is_empty());
+        log::debug!(
+            "[load_saved_auth]: auth_tokens present: {}, has_credentials: {}",
+            settings.auth_tokens.is_some(),
+            !settings.client_id.is_empty()
+        );
         if let Some(ref tokens) = settings.auth_tokens {
             let (id, secret) = resolve_credentials(&settings);
             let mut client = state.tidal_client.lock().await;
@@ -164,9 +173,16 @@ pub fn parse_token_data(raw_text: String) -> Result<ParsedTokens, SoneError> {
     let access_token = json_access;
 
     if client_id.is_none() && refresh_token.is_none() && access_token.is_none() {
-        return Err(SoneError::Parse("Could not find any credentials or tokens in the pasted text.".into()));
+        return Err(SoneError::Parse(
+            "Could not find any credentials or tokens in the pasted text.".into(),
+        ));
     }
-    Ok(ParsedTokens { client_id, client_secret, refresh_token, access_token })
+    Ok(ParsedTokens {
+        client_id,
+        client_secret,
+        refresh_token,
+        access_token,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -177,9 +193,14 @@ pub async fn import_session(
     refresh_token: String,
     access_token: Option<String>,
 ) -> Result<AuthTokens, SoneError> {
-    log::debug!("[import_session]: client_id={}", &client_id[..client_id.len().min(8)]);
+    log::debug!(
+        "[import_session]: client_id={}",
+        &client_id[..client_id.len().min(8)]
+    );
     if client_id.is_empty() || refresh_token.is_empty() {
-        return Err(SoneError::NotConfigured("Client ID and refresh token are required".into()));
+        return Err(SoneError::NotConfigured(
+            "Client ID and refresh token are required".into(),
+        ));
     }
     let mut client = state.tidal_client.lock().await;
     client.set_credentials(&client_id, &client_secret);
@@ -317,13 +338,11 @@ pub fn start_pkce_auth(client_id: String) -> Result<PkceAuthParams, SoneError> {
     // Generate PKCE values
     let mut rng = rand::rng();
     let random_bytes: [u8; 32] = rng.random();
-    let code_verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(random_bytes);
+    let code_verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random_bytes);
 
     let mut hasher = Sha256::new();
     hasher.update(code_verifier.as_bytes());
-    let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(hasher.finalize());
+    let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize());
 
     let client_unique_key = format!("{:016x}", rng.random::<u64>());
 
@@ -354,7 +373,9 @@ pub async fn complete_pkce_auth(
     log::debug!("[complete_pkce_auth]");
     let mut client = state.tidal_client.lock().await;
     client.set_credentials(&client_id, &client_secret);
-    let tokens = client.exchange_pkce_code(&code, &code_verifier, PKCE_REDIRECT_URI, &client_unique_key).await?;
+    let tokens = client
+        .exchange_pkce_code(&code, &code_verifier, PKCE_REDIRECT_URI, &client_unique_key)
+        .await?;
 
     // Save tokens and credentials
     let mut settings = state.load_settings().unwrap_or(Settings {
@@ -410,7 +431,10 @@ pub async fn get_session_user_id(state: State<'_, AppState>) -> Result<u64, Sone
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_user_profile(state: State<'_, AppState>, user_id: u64) -> Result<(String, Option<String>), SoneError> {
+pub async fn get_user_profile(
+    state: State<'_, AppState>,
+    user_id: u64,
+) -> Result<(String, Option<String>), SoneError> {
     log::debug!("[get_user_profile]: user_id={}", user_id);
     let mut client = state.tidal_client.lock().await;
     client.get_user_profile(user_id).await

@@ -18,14 +18,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tauri::{Emitter, Manager};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 use tidal_api::{AuthTokens, TidalClient};
-
+use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -127,7 +126,10 @@ impl AppState {
         }
 
         let minimize_to_tray = saved.as_ref().map(|s| s.minimize_to_tray).unwrap_or(false);
-        let volume_normalization = saved.as_ref().map(|s| s.volume_normalization).unwrap_or(false);
+        let volume_normalization = saved
+            .as_ref()
+            .map(|s| s.volume_normalization)
+            .unwrap_or(false);
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
@@ -214,7 +216,9 @@ pub fn run() {
             // Apply saved audio mode to audio thread
             {
                 let state = app.state::<AppState>();
-                let excl = state.exclusive_mode.load(std::sync::atomic::Ordering::Relaxed);
+                let excl = state
+                    .exclusive_mode
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 let bp = state.bit_perfect.load(std::sync::atomic::Ordering::Relaxed);
                 let dev = state.exclusive_device.lock().unwrap().clone();
                 if excl || bp {
@@ -249,19 +253,21 @@ pub fn run() {
                 // WebKitGTK rendering settings for Linux
                 #[cfg(target_os = "linux")]
                 {
-                    use webkit2gtk::{WebViewExt, SettingsExt};
-                    window.with_webview(|webview| {
-                        let wv = webview.inner();
-                        if let Some(settings) = wv.settings() {
-                            // Use OnDemand (default) — Always can cause severe lag
-                            // on dual-GPU systems (NVIDIA + iGPU) with WebKitGTK
-                            settings.set_hardware_acceleration_policy(
-                                webkit2gtk::HardwareAccelerationPolicy::OnDemand
-                            );
-                            settings.set_enable_webgl(true);
-                            settings.set_enable_smooth_scrolling(true);
-                        }
-                    }).ok();
+                    use webkit2gtk::{SettingsExt, WebViewExt};
+                    window
+                        .with_webview(|webview| {
+                            let wv = webview.inner();
+                            if let Some(settings) = wv.settings() {
+                                // Use OnDemand (default) — Always can cause severe lag
+                                // on dual-GPU systems (NVIDIA + iGPU) with WebKitGTK
+                                settings.set_hardware_acceleration_policy(
+                                    webkit2gtk::HardwareAccelerationPolicy::OnDemand,
+                                );
+                                settings.set_enable_webgl(true);
+                                settings.set_enable_smooth_scrolling(true);
+                            }
+                        })
+                        .ok();
                 }
             }
 
@@ -313,9 +319,15 @@ pub fn run() {
                                 let _ = window.set_focus();
                             }
                         }
-                        "play-pause" => { app.emit("tray:toggle-play", ()).ok(); }
-                        "next-track" => { app.emit("tray:next-track", ()).ok(); }
-                        "prev-track" => { app.emit("tray:prev-track", ()).ok(); }
+                        "play-pause" => {
+                            app.emit("tray:toggle-play", ()).ok();
+                        }
+                        "next-track" => {
+                            app.emit("tray:next-track", ()).ok();
+                        }
+                        "prev-track" => {
+                            app.emit("tray:prev-track", ()).ok();
+                        }
                         "quit" => {
                             app.exit(0);
                         }
@@ -335,15 +347,23 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |app, shortcut, event| {
-                        if event.state() != ShortcutState::Pressed { return; }
+                        if event.state() != ShortcutState::Pressed {
+                            return;
+                        }
                         match shortcut.key {
-                            Code::MediaPlayPause => { app.emit("tray:toggle-play", ()).ok(); }
-                            Code::MediaTrackNext => { app.emit("tray:next-track", ()).ok(); }
-                            Code::MediaTrackPrevious => { app.emit("tray:prev-track", ()).ok(); }
+                            Code::MediaPlayPause => {
+                                app.emit("tray:toggle-play", ()).ok();
+                            }
+                            Code::MediaTrackNext => {
+                                app.emit("tray:next-track", ()).ok();
+                            }
+                            Code::MediaTrackPrevious => {
+                                app.emit("tray:prev-track", ()).ok();
+                            }
                             _ => {}
                         };
                     })
-                    .build()
+                    .build(),
             )?;
             let shortcuts = [
                 ("MediaPlayPause", Code::MediaPlayPause),
