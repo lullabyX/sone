@@ -174,7 +174,7 @@ yay -S sone-bin
 paru -S sone-bin
 ```
 
-### Manual Install
+#### Manual Install
 
 ```bash
 sudo pacman -S --needed \
