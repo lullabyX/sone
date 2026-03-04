@@ -100,17 +100,31 @@ impl ListenBrainzProvider {
     }
 
     fn build_track_metadata(track: &ScrobbleTrack) -> Value {
+        const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
         let mut additional_info = json!({
             "media_player": "SONE",
+            "media_player_version": APP_VERSION,
             "submission_client": "SONE",
+            "submission_client_version": APP_VERSION,
             "music_service": "tidal.com",
         });
 
         if track.duration_secs > 0 {
-            additional_info["duration_ms"] = json!(track.duration_secs as u64 * 1000);
+            additional_info["duration"] = json!(track.duration_secs);
         }
         if let Some(track_number) = track.track_number {
-            additional_info["tracknumber"] = json!(track_number);
+            additional_info["tracknumber"] = json!(track_number.to_string());
+        }
+        if let Some(ref isrc) = track.isrc {
+            additional_info["isrc"] = json!(isrc);
+        }
+        if let Some(ref mbid) = track.recording_mbid {
+            additional_info["recording_mbid"] = json!(mbid);
+        }
+        if let Some(track_id) = track.track_id {
+            additional_info["origin_url"] =
+                json!(format!("https://listen.tidal.com/track/{track_id}"));
         }
 
         let mut metadata = json!({
@@ -172,6 +186,11 @@ impl ScrobbleProvider for ListenBrainzProvider {
 
     fn max_batch_size(&self) -> usize {
         1000
+    }
+
+    async fn username(&self) -> Option<String> {
+        let data = self.token.read().await;
+        data.as_ref().map(|d| d.username.clone())
     }
 
     async fn now_playing(&self, track: &ScrobbleTrack) -> ScrobbleResult {

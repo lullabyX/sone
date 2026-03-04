@@ -2,6 +2,7 @@ pub mod queue;
 pub mod lastfm;
 pub mod listenbrainz;
 pub mod librefm;
+pub mod musicbrainz;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -22,12 +23,21 @@ use crate::crypto::Crypto;
 pub struct ScrobbleTrack {
     pub artist: String,
     pub track: String,
+    #[serde(default)]
     pub album: Option<String>,
+    #[serde(default)]
     pub album_artist: Option<String>,
     pub duration_secs: u32,
+    #[serde(default)]
     pub track_number: Option<u32>,
     pub timestamp: i64,
     pub chosen_by_user: bool,
+    #[serde(default)]
+    pub isrc: Option<String>,
+    #[serde(default)]
+    pub track_id: Option<u64>,
+    #[serde(default)]
+    pub recording_mbid: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -52,6 +62,7 @@ pub trait ScrobbleProvider: Send + Sync {
     fn name(&self) -> &str;
     fn is_authenticated(&self) -> bool;
     fn max_batch_size(&self) -> usize;
+    async fn username(&self) -> Option<String>;
     async fn now_playing(&self, track: &ScrobbleTrack) -> ScrobbleResult;
     async fn scrobble(&self, tracks: &[ScrobbleTrack]) -> ScrobbleResult;
 }
@@ -127,8 +138,9 @@ impl TrackPlayback {
 pub struct ScrobbleManager {
     providers: RwLock<Vec<Box<dyn ScrobbleProvider>>>,
     queue: queue::ScrobbleQueue,
-    current_track: Mutex<Option<TrackPlayback>>,
+    current_track: Arc<Mutex<Option<TrackPlayback>>>,
     app_handle: tauri::AppHandle,
+    mb_lookup: Arc<musicbrainz::MusicBrainzLookup>,
 }
 
 impl ScrobbleManager {
@@ -137,8 +149,9 @@ impl ScrobbleManager {
         Self {
             providers: RwLock::new(Vec::new()),
             queue: queue::ScrobbleQueue::new(&queue_path, crypto),
-            current_track: Mutex::new(None),
+            current_track: Arc::new(Mutex::new(None)),
             app_handle,
+            mb_lookup: Arc::new(musicbrainz::MusicBrainzLookup::new(config_dir)),
         }
     }
 
@@ -159,14 +172,13 @@ impl ScrobbleManager {
         let providers = self.providers.read().await;
         let mut statuses = Vec::new();
 
-        // Always report all three well-known providers
         let known = ["lastfm", "listenbrainz", "librefm"];
         for &name in &known {
             if let Some(p) = providers.iter().find(|p| p.name() == name) {
                 statuses.push(ProviderStatus {
                     name: name.to_string(),
                     connected: p.is_authenticated(),
-                    username: None, // filled in by provider-specific logic later
+                    username: p.username().await,
                 });
             } else {
                 statuses.push(ProviderStatus {
@@ -199,8 +211,30 @@ impl ScrobbleManager {
         self.fire_now_playing(&track).await;
 
         // Set new current track
+        let isrc = track.isrc.clone();
+        let track_name = track.track.clone();
+        let artist_name = track.artist.clone();
+        let expected_id = track.track_id;
+
         let mut current = self.current_track.lock().await;
         *current = Some(TrackPlayback::new(track));
+        drop(current);
+
+        // Spawn fire-and-forget MBID lookup (only if we have ISRC + track_id for guard)
+        if let (Some(isrc), Some(expected_id)) = (isrc, expected_id) {
+            let mb = Arc::clone(&self.mb_lookup);
+            let ct = Arc::clone(&self.current_track);
+            tokio::spawn(async move {
+                if let Some(mbid) = mb.lookup_isrc(&isrc, &track_name, &artist_name).await {
+                    let mut current = ct.lock().await;
+                    if let Some(ref mut playback) = *current {
+                        if playback.track.track_id == Some(expected_id) {
+                            playback.track.recording_mbid = Some(mbid);
+                        }
+                    }
+                }
+            });
+        }
     }
 
     pub async fn on_pause(&self) {
@@ -263,6 +297,7 @@ impl ScrobbleManager {
         }
 
         self.queue.flush().await;
+        self.mb_lookup.persist().await;
     }
 
     /// Send a scrobbled track to all connected providers.

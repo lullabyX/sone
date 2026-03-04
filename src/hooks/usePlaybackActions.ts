@@ -118,6 +118,8 @@ export function usePlaybackActions() {
             durationSecs: normalized.duration || 0,
             trackNumber: normalized.trackNumber || null,
             chosenByUser: true,
+            isrc: normalized.isrc || null,
+            trackId: normalized.id || null,
           },
         }).catch(() => {});
       } catch (error: any) {
@@ -299,6 +301,21 @@ export function usePlaybackActions() {
         store.set(streamInfoAtom, info);
         store.set(currentTrackAtom, prevTrack);
         store.set(isPlayingAtom, true);
+
+        // Notify backend for scrobbling
+        invoke("notify_track_started", {
+          payload: {
+            artist: prevTrack.artist?.name || "Unknown",
+            title: prevTrack.title,
+            album: prevTrack.album?.title || null,
+            albumArtist: null,
+            durationSecs: prevTrack.duration || 0,
+            trackNumber: prevTrack.trackNumber || null,
+            chosenByUser: true,
+            isrc: prevTrack.isrc || null,
+            trackId: prevTrack.id || null,
+          },
+        }).catch(() => {});
       } catch (error: any) {
         console.error("Failed to play previous track:", error);
         store.set(isPlayingAtom, false);
