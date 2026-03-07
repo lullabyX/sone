@@ -71,10 +71,11 @@
     <release version="0.6.10" date="2026-03-03">
       <description>
         <ul>
-          <li>Simplified login — one-click device code flow with QR code</li>
-          <li>Improved session handling and login screen UI</li>
-          <li>Fixed empty state when no suggested tracks available</li>
-          <li>Fixed play queue scroll gap and drag ghost in now-playing drawer</li>
+          <li>Scrobble your listening history to Last.fm, Libre.fm, and ListenBrainz — complete with ISRC and MusicBrainz metadata</li>
+          <li>Toggle window decorations to switch between native and custom title bar</li>
+          <li>Repeat and shuffle now work correctly — wrap-around, repeat-one, and shuffle-aware playback all fixed</li>
+          <li>Fixed rapid track skipping causing the UI to freeze</li>
+          <li>User menu reorganized into clean, grouped sections</li>
         </ul>
       </description>
     </release>
