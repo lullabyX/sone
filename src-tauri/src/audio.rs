@@ -1331,6 +1331,7 @@ impl AudioPlayer {
                         paused.store(false, Ordering::Release);
                         track_generation += 1;
                         writer_gen.store(track_generation, Ordering::Release);
+
                         std::thread::spawn(move || {
                             match old_backend {
                                 Some(PlaybackBackend::Normal { pipeline, .. }) => {
@@ -1352,12 +1353,12 @@ impl AudioPlayer {
                                     pipeline.set_state(gst::State::Null).ok();
                                     let _ = pipeline.state(gst::ClockTime::from_mseconds(500));
                                     drop(pipeline);
-
                                     if let Some(h) = old_writer_thread {
                                         h.join().ok();
                                     }
                                 }
                                 None => {
+                                    // Clean up orphaned writer (e.g. pipeline build failed after spawn)
                                     if let Some(tx) = old_writer_tx {
                                         let _ = tx.send(WriterCommand::Shutdown);
                                     }
@@ -1365,11 +1366,10 @@ impl AudioPlayer {
                                         h.join().ok();
                                     }
                                 }
-                            };
+                            }
                         });
                         reply.send(Ok(())).ok();
                     }
-
                     AudioCommand::SetVolume { level, reply } => {
                         current_volume = level as f64;
                         if let Some(vol) = backend.as_ref().and_then(|b| b.user_volume_el()) {
