@@ -45,6 +45,7 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 - **Lossless FLAC and MQA streaming** up to Hi-Res (24-bit/192kHz) with automatic quality fallback
 - **Bit-perfect output** — no resampling, no dithering. Your DAC receives the unaltered decoded signal
 - **Exclusive ALSA** — bypasses PipeWire/PulseAudio entirely for direct hardware access
+- **Smart DAC matching** — automatically detects your hardware's supported formats and sample rates, picking the best fit
 - **Volume normalization** (ReplayGain) with automatic context switching between album and track gain
 - **Autoplay** — discovers and plays similar tracks when your queue ends
 
@@ -55,6 +56,7 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, desktop taskbar widgets, and system media controls
 - **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
+- **Proxy support** — route traffic through HTTP, HTTPS, or SOCKS5 proxies
 - **System tray** with playback controls and minimize-to-tray
 - **Keyboard shortcuts** for all common actions with a built-in shortcut overlay
 
@@ -235,7 +237,7 @@ Output goes to `dist/<format>/`. Pass `--no-cache` to force a clean Docker build
 Make sure GStreamer plugins are installed — you need at minimum `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, and `gstreamer1.0-libav` (or your distro's equivalents).
 
 **Playback errors in exclusive/bit-perfect mode?**
-Your DAC must natively support the source sample rate. If the hardware doesn't support 192kHz, exclusive mode will fail for Hi-Res streams. Try a lower quality tier or switch to normal output mode.
+SONE automatically detects your DAC's supported formats and sample rates, but if playback still fails, your hardware may not support the source format at all. Try a lower quality tier or switch to normal output mode.
 
 **"Error 71 (Protocol error) dispatching to Wayland display" on launch?**
 This is a known WebKitGTK/Wayland issue affecting Tauri apps on systems with NVIDIA GPUs ([tauri-apps/tauri#10702](https://github.com/tauri-apps/tauri/issues/10702)). As a workaround, launch SONE with the DMA-BUF renderer disabled:
