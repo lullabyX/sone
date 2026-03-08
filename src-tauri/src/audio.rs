@@ -933,13 +933,8 @@ impl AudioPlayer {
                                             // Fade out
                                             if let Some(ref vol) = user_volume_el {
                                                 for i in (0..=10).rev() {
-                                                    vol.set_property(
-                                                        "volume",
-                                                        current_volume * (i as f64 / 10.0),
-                                                    );
-                                                    std::thread::sleep(
-                                                        std::time::Duration::from_millis(10),
-                                                    );
+                                                    vol.set_property("volume", current_volume * (i as f64 / 10.0));
+                                                    std::thread::sleep(std::time::Duration::from_millis(10));
                                                 }
                                             }
                                             old_pipe.set_state(gst::State::Null).ok();
@@ -1331,7 +1326,6 @@ impl AudioPlayer {
                         paused.store(false, Ordering::Release);
                         track_generation += 1;
                         writer_gen.store(track_generation, Ordering::Release);
-
                         std::thread::spawn(move || {
                             match old_backend {
                                 Some(PlaybackBackend::Normal { pipeline, .. }) => {
@@ -1366,10 +1360,11 @@ impl AudioPlayer {
                                         h.join().ok();
                                     }
                                 }
-                            }
+                            };
                         });
                         reply.send(Ok(())).ok();
                     }
+
                     AudioCommand::SetVolume { level, reply } => {
                         current_volume = level as f64;
                         if let Some(vol) = backend.as_ref().and_then(|b| b.user_volume_el()) {
