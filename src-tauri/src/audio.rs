@@ -256,13 +256,27 @@ fn configure_alsa_hwparams(
             .map_err(|e| format!("set_rate_resample: {e}"))?;
     }
     hwp.set_rate(fmt.sample_rate, ValueOr::Nearest)
-        .map_err(|e| format!("set_rate({}): {e}", fmt.sample_rate))?;
+        .map_err(|e| {
+            if bit_perfect {
+                log::warn!("[audio] bit-perfect set_rate({}) failed: {e}", fmt.sample_rate);
+                format!(
+                    "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
+                    fmt.sample_rate / 1000
+                )
+            } else {
+                format!("set_rate({}): {e}", fmt.sample_rate)
+            }
+        })?;
     if bit_perfect {
         let actual_rate = hwp.get_rate().map_err(|e| format!("get_rate: {e}"))?;
         if actual_rate != fmt.sample_rate {
-            return Err(format!(
-                "Bit-perfect: DAC negotiated {}Hz but track requires {}Hz",
+            log::warn!(
+                "[audio] bit-perfect rate mismatch: DAC negotiated {}Hz, track requires {}Hz",
                 actual_rate, fmt.sample_rate
+            );
+            return Err(format!(
+                "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
+                fmt.sample_rate / 1000
             ));
         }
     }
