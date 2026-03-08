@@ -77,6 +77,8 @@ pub struct Settings {
     pub bit_perfect: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
+    #[serde(default)]
+    pub proxy_url: Option<String>,
 }
 
 impl Default for Settings {
@@ -94,6 +96,7 @@ impl Default for Settings {
             exclusive_device: None,
             bit_perfect: false,
             scrobble: Default::default(),
+            proxy_url: None,
         }
     }
 }
@@ -112,6 +115,8 @@ pub struct AppState {
     pub bit_perfect: AtomicBool,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
+    /// General-purpose HTTP client (proxy-aware). Used for image downloads etc.
+    pub http_client: std::sync::Mutex<reqwest::Client>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
     /// Album or track gain depending on playback context.
     pub last_replay_gain: AtomicU64,
@@ -187,13 +192,18 @@ impl AppState {
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
+        let proxy_url = saved.as_ref().and_then(|s| s.proxy_url.clone());
 
         let scrobble_manager =
             scrobble::ScrobbleManager::new(app_handle.clone(), crypto.clone(), &config_dir);
 
+        let http_client = tidal_api::build_http_client(proxy_url.as_deref());
+        let mut tidal_client = TidalClient::new();
+        tidal_client.set_proxy(proxy_url.as_deref());
+
         Self {
             audio_player: AudioPlayer::new(app_handle.clone()),
-            tidal_client: Mutex::new(TidalClient::new()),
+            tidal_client: Mutex::new(tidal_client),
             settings_path,
             cache_dir,
             disk_cache,
@@ -205,6 +215,7 @@ impl AppState {
             bit_perfect: AtomicBool::new(bit_perfect),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
+            http_client: std::sync::Mutex::new(http_client),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
             last_peak_amplitude: AtomicU64::new(f64::NAN.to_bits()),
             #[cfg(target_os = "linux")]
@@ -675,6 +686,8 @@ pub fn run() {
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
+            commands::utility::get_proxy_url,
+            commands::utility::set_proxy_url,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
