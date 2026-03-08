@@ -346,6 +346,10 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<AppState>();
                     if let Some(settings) = state.load_settings() {
+                        let http_client = crate::tidal_api::build_http_client(
+                            &settings.proxy
+                        ).unwrap_or_else(|_| reqwest::Client::new());
+
                         // Last.fm
                         if let Some(ref creds) = settings.scrobble.lastfm {
                             if crate::embedded_lastfm::has_stream_keys() {
@@ -355,6 +359,7 @@ pub fn run() {
                                     "https://www.last.fm/api/auth/",
                                     crate::embedded_lastfm::stream_key_a(),
                                     crate::embedded_lastfm::stream_key_b(),
+                                    http_client.clone(),
                                 );
                                 provider
                                     .set_session(creds.session_key.clone(), creds.username.clone())
@@ -376,6 +381,7 @@ pub fn run() {
                                     "https://libre.fm/api/auth/",
                                     crate::embedded_librefm::stream_key_a(),
                                     crate::embedded_librefm::stream_key_b(),
+                                    http_client.clone(),
                                 );
                                 provider
                                     .set_session(creds.session_key.clone(), creds.username.clone())
@@ -391,7 +397,7 @@ pub fn run() {
                         // ListenBrainz
                         if let Some(ref creds) = settings.scrobble.listenbrainz {
                             let provider =
-                                crate::scrobble::listenbrainz::ListenBrainzProvider::new();
+                                crate::scrobble::listenbrainz::ListenBrainzProvider::new(http_client.clone());
                             provider
                                 .set_token(creds.token.clone(), creds.username.clone())
                                 .await;

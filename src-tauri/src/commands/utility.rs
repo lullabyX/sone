@@ -32,7 +32,9 @@ pub async fn get_image_bytes(
             Ok(bytes)
         }
         CacheResult::Miss => {
-            let res = reqwest::get(&url).await?;
+            let client = state.tidal_client.lock().await;
+            let res = client.raw_get(&url).await?;
+            drop(client);
             let bytes = res.bytes().await?.to_vec();
 
             state

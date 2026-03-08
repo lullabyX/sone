@@ -40,6 +40,7 @@ impl AudioscrobblerProvider {
         auth_base_url: &'static str,
         api_key: String,
         api_secret: String,
+        client: reqwest::Client,
     ) -> Self {
         Self {
             name,
@@ -48,7 +49,7 @@ impl AudioscrobblerProvider {
             api_key,
             api_secret,
             session: RwLock::new(None),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 

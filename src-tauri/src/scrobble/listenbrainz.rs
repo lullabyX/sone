@@ -31,10 +31,10 @@ pub struct ListenBrainzProvider {
 }
 
 impl ListenBrainzProvider {
-    pub fn new() -> Self {
+    pub fn new(client: reqwest::Client) -> Self {
         Self {
             token: RwLock::new(None),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 
@@ -44,8 +44,7 @@ impl ListenBrainzProvider {
     }
 
     /// Validate a ListenBrainz user token. Returns the username on success.
-    pub async fn validate_token(token: &str) -> Result<String, SoneError> {
-        let client = reqwest::Client::new();
+    pub async fn validate_token(client: &reqwest::Client, token: &str) -> Result<String, SoneError> {
         let resp = client
             .get(format!("{API_BASE}/1/validate-token"))
             .header("Authorization", format!("Token {token}"))

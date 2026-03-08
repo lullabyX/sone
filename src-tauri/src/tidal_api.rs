@@ -865,6 +865,17 @@ impl TidalClient {
         }
     }
 
+    /// Make a plain GET request using the proxy-aware inner client.
+    pub async fn raw_get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
+        self.client.get(url).send().await
+    }
+
+    /// Return a reference to the inner proxy-aware `reqwest::Client`.
+    /// `reqwest::Client` is cheaply cloneable (Arc internally).
+    pub fn raw_client(&self) -> &Client {
+        &self.client
+    }
+
     pub async fn refresh_token(&mut self) -> Result<AuthTokens, SoneError> {
         if self.client_id.is_empty() {
             return Err(SoneError::NotConfigured("Client ID".into()));
