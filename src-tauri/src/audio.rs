@@ -1494,7 +1494,7 @@ fn build_appsink_pipeline(
     writer_gen: Arc<AtomicU64>,
     negotiated_fmt: &PcmFormat,
     supported_gst_formats: &[&str],
-    _supported_rates: &[u32],
+    supported_rates: &[u32],
 ) -> Result<(gst::Pipeline, Option<gst::Element>, Option<gst::Element>), String> {
     use gst_app::prelude::*;
 
@@ -1564,16 +1564,18 @@ fn build_appsink_pipeline(
         (None, None)
     } else {
         // Exclusive (non-bit-perfect): volume applied in ALSA writer thread.
-        // Rate is unconstrained — source's native sample rate passes through.
+        // Rate constrained to DAC-supported rates — audioresample converts unsupported rates.
         let audioresample = gst::ElementFactory::make("audioresample")
             .build()
             .map_err(|e| format!("Failed to create audioresample: {e}"))?;
+        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
         let capsfilter = gst::ElementFactory::make("capsfilter")
             .property(
                 "caps",
                 gst::Caps::builder("audio/x-raw")
                     .field("format", negotiated_fmt.gst_format.as_str())
                     .field("channels", negotiated_fmt.channels as i32)
+                    .field("rate", gst::List::new(rate_list))
                     .build(),
             )
             .build()
