@@ -1439,7 +1439,7 @@ fn build_appsink_pipeline(
     writer_tx: crossbeam_channel::Sender<WriterCommand>,
     writer_gen: Arc<AtomicU64>,
     negotiated_fmt: &PcmFormat,
-    _supported_gst_formats: &[&str],
+    supported_gst_formats: &[&str],
 ) -> Result<(gst::Pipeline, Option<gst::Element>, Option<gst::Element>), String> {
     use gst_app::prelude::*;
 
@@ -1469,9 +1469,10 @@ fn build_appsink_pipeline(
     if is_dash && bit_perfect {
         appsink.set_caps(Some(
             &gst::Caps::builder("audio/x-raw")
-                .field("format", gst::List::new(["S16LE", "S32LE"]))
+                .field("format", gst::List::new(supported_gst_formats.iter().copied()))
                 .build(),
         ));
+        log::debug!("[audio] bit-perfect DASH: appsink caps = {:?}", supported_gst_formats);
     }
 
     log::debug!(
@@ -1489,7 +1490,6 @@ fn build_appsink_pipeline(
                 .map_err(|e| format!("Failed to add elements: {e}"))?;
             gst::Element::link_many([&audioconvert, appsink.upcast_ref()])
                 .map_err(|e| format!("Failed to link bit-perfect DASH chain: {e}"))?;
-            log::debug!("[audio] bit-perfect DASH: no capsfilter, appsink caps = S16LE/S32LE");
         } else {
             // BTS: capsfilter for dynamic locking (preserves exact decoded format)
             let capsfilter = gst::ElementFactory::make("capsfilter")
