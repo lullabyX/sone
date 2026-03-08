@@ -4,7 +4,7 @@ version: '0.6.10'
 summary: Native Linux client for TIDAL
 description: |
   Native Linux client for TIDAL — lossless and bit-perfect audio streaming.
-  Supports HiRes FLAC, exclusive ALSA output, MPRIS integration, and more.
+  Supports HiRes FLAC, exclusive ALSA output, Scrobbling integration, MPRIS integration, and more.
 
 grade: stable
 confinement: strict
@@ -83,23 +83,9 @@ parts:
     source: .
     override-build: |
       set -eu
-
-      # Set up Rust
       rustup default stable
-
-      # Install frontend deps and build
       npm ci
       npm run tauri build -- --bundles deb
-
-      # Extract the deb into the snap install dir
-      dpkg -x src-tauri/target/release/bundle/deb/SONE_*.deb $SNAPCRAFT_PART_INSTALL/
-
-      # Fix desktop file: use snap-relative icon path
-      sed -i \
-        -e "s|Exec=.*|Exec=sone|g" \
-        -e "s|Icon=.*|Icon=/usr/share/icons/hicolor/512x512/apps/sone.png|g" \
-        $SNAPCRAFT_PART_INSTALL/usr/share/applications/sone.desktop
-
-      # Install 512x512 icon
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/
-      cp src-tauri/icons/icon.png $SNAPCRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/sone.png
+      dpkg -x src-tauri/target/release/bundle/deb/*.deb $SNAPCRAFT_PART_INSTALL/
+      sed -i -e "s|Icon=sone|Icon=/usr/share/icons/hicolor/32x32/apps/sone.png|g" $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop
+      cp $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop $SNAPCRAFT_PART_INSTALL/usr/share/applications/sone.desktop
