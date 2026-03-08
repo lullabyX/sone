@@ -26,7 +26,7 @@ import {
   shuffleAtom,
   repeatAtom,
 } from "../atoms/playback";
-import { getTrackRadio } from "../api/tidal";
+import { getTrackRadio, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import type { Track, StreamInfo } from "../types";
@@ -59,6 +59,16 @@ function extractPlaybackError(error: unknown): string {
 /** Check if an error is a device_busy error from exclusive ALSA mode. */
 function isDeviceBusy(error: unknown): boolean {
   return extractPlaybackError(error) === "device_busy";
+}
+
+/** Check if an error is a network error (SoneError::Network). */
+function isNetworkError(error: unknown): boolean {
+  try {
+    const parsed = typeof error === "string" ? JSON.parse(error) : error;
+    return parsed?.kind === "Network";
+  } catch {
+    return false;
+  }
 }
 
 function fisherYatesShuffle<T>(arr: T[]): T[] {
@@ -150,11 +160,15 @@ export function usePlaybackActions() {
         if (generation !== playGenerationRef.current) return;
         console.error("Failed to play track:", error);
         store.set(isPlayingAtom, false);
-        window.dispatchEvent(
-          new CustomEvent("playback-error", {
-            detail: extractPlaybackError(error),
-          }),
-        );
+        if (isNetworkError(error)) {
+          checkNetworkError(error);
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("playback-error", {
+              detail: extractPlaybackError(error),
+            }),
+          );
+        }
       }
     },
     [store, showToast],
@@ -207,11 +221,15 @@ export function usePlaybackActions() {
     } catch (error) {
       console.error("Failed to resume track:", error);
       store.set(isPlayingAtom, false);
-      window.dispatchEvent(
-        new CustomEvent("playback-error", {
-          detail: extractPlaybackError(error),
-        }),
-      );
+      if (isNetworkError(error)) {
+        checkNetworkError(error);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("playback-error", {
+            detail: extractPlaybackError(error),
+          }),
+        );
+      }
     }
   }, [store, showToast]);
 
@@ -370,6 +388,9 @@ export function usePlaybackActions() {
           } catch (error: any) {
             console.error("Failed to repeat track:", error);
             store.set(isPlayingAtom, false);
+            if (isNetworkError(error)) {
+              checkNetworkError(error);
+            }
           }
           return;
         }
@@ -447,7 +468,10 @@ export function usePlaybackActions() {
               await playTrack(next, { chosenByUser: false });
               return;
             }
-          } catch {
+          } catch (error: unknown) {
+            if (isNetworkError(error)) {
+              checkNetworkError(error);
+            }
             /* fall through to stop */
           }
         }
@@ -538,11 +562,15 @@ export function usePlaybackActions() {
       } catch (error: any) {
         console.error("Failed to play previous track:", error);
         store.set(isPlayingAtom, false);
-        window.dispatchEvent(
-          new CustomEvent("playback-error", {
-            detail: extractPlaybackError(error),
-          }),
-        );
+        if (isNetworkError(error)) {
+          checkNetworkError(error);
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("playback-error", {
+              detail: extractPlaybackError(error),
+            }),
+          );
+        }
       }
     } else {
       // Bug 1 fix: try source fallback when history is empty

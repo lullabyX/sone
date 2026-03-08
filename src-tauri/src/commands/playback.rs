@@ -37,10 +37,13 @@ pub async fn play_tidal_track(
         if has_secret {
             match client.get_stream_url(track_id, "HI_RES_LOSSLESS").await {
                 Ok(info) => info,
+                Err(e) if e.is_network() => return Err(e),
                 Err(_) => match client.get_stream_url(track_id, "HI_RES").await {
                     Ok(info) => info,
+                    Err(e) if e.is_network() => return Err(e),
                     Err(_) => match client.get_stream_url(track_id, "LOSSLESS").await {
                         Ok(info) => info,
+                        Err(e) if e.is_network() => return Err(e),
                         Err(_) => client.get_stream_url(track_id, "HIGH").await?,
                     },
                 },
@@ -48,6 +51,7 @@ pub async fn play_tidal_track(
         } else {
             match client.get_stream_url(track_id, "LOSSLESS").await {
                 Ok(info) => info,
+                Err(e) if e.is_network() => return Err(e),
                 Err(_) => client.get_stream_url(track_id, "HIGH").await?,
             }
         }
