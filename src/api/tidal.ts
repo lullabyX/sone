@@ -88,6 +88,27 @@ function evictIfNeeded(requiredBytes: number): void {
   }
 }
 
+// ==================== Network error detection ====================
+
+let lastNetworkErrorAt = 0;
+const NETWORK_ERROR_COOLDOWN = 30_000; // 30s between toasts
+
+/** Check if an error is a network error and emit a global event (rate-limited). */
+export function checkNetworkError(err: unknown): void {
+  try {
+    const parsed = typeof err === "string" ? JSON.parse(err) : err;
+    if (parsed?.kind === "Network") {
+      const now = Date.now();
+      if (now - lastNetworkErrorAt > NETWORK_ERROR_COOLDOWN) {
+        lastNetworkErrorAt = now;
+        window.dispatchEvent(new Event("network-error"));
+      }
+    }
+  } catch {
+    // not a parseable error, ignore
+  }
+}
+
 function cached<T>(
   key: string,
   tags: string[],
@@ -100,7 +121,10 @@ function cached<T>(
     entry.accessOrder = ++accessCounter;
     return Promise.resolve(entry.data as T);
   }
-  return fetcher().then((data) => {
+  return fetcher().catch((err) => {
+    checkNetworkError(err);
+    throw err;
+  }).then((data) => {
     // Remove stale entry if present
     if (store.has(hk)) removeEntry(hk);
     const size = estimateSize(data);

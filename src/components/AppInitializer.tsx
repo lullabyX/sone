@@ -55,6 +55,7 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { useToast } from "../contexts/ToastContext";
 import {
+  checkNetworkError,
   clearCache,
   savePlaybackQueue,
   loadPlaybackQueue,
@@ -186,6 +187,7 @@ export function AppInitializer() {
             .catch(() => setFavoritePlaylists([]));
         } catch (playlistErr: any) {
           console.error("Failed to load playlists:", playlistErr);
+          checkNetworkError(playlistErr);
 
           const isAuthError = (err: unknown): boolean => {
             try {
@@ -236,6 +238,24 @@ export function AppInitializer() {
     };
 
     loadAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ================================================================
+  //  NETWORK ERROR TOAST
+  // ================================================================
+  useEffect(() => {
+    const handler = () => {
+      const proxyEnabled = store.get(proxySettingsAtom).enabled;
+      showToast(
+        proxyEnabled
+          ? "Network error \u2014 check your proxy settings"
+          : "Network error \u2014 check your internet connection",
+        "error",
+      );
+    };
+    window.addEventListener("network-error", handler);
+    return () => window.removeEventListener("network-error", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
