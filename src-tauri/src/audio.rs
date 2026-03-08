@@ -117,6 +117,49 @@ fn gst_format_to_alsa(gst_format: &str) -> alsa::pcm::Format {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn alsa_format_to_gst(alsa_fmt: alsa::pcm::Format) -> (&'static str, u32) {
+    // Inverse of gst_format_to_alsa. The ALSA/GStreamer 24-bit naming is swapped:
+    //   ALSA S24LE  = 24-in-32 container = GStreamer S24_32LE (4 bytes/sample)
+    //   ALSA S243LE = packed 24-bit       = GStreamer S24LE   (3 bytes/sample)
+    match alsa_fmt {
+        alsa::pcm::Format::S32LE => ("S32LE", 4),
+        alsa::pcm::Format::S24LE => ("S24_32LE", 4),
+        alsa::pcm::Format::S243LE => ("S24LE", 3),
+        alsa::pcm::Format::S16LE => ("S16LE", 2),
+        alsa::pcm::Format::FloatLE => ("F32LE", 4),
+        _ => ("S32LE", 4),
+    }
+}
+
+/// Probe which GStreamer format strings an ALSA device supports.
+/// Returns a list like `["S32LE", "S24_32LE", "S16LE"]`.
+#[cfg(target_os = "linux")]
+fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
+    use alsa::pcm::{Format, HwParams};
+
+    let Ok(hwp) = HwParams::any(pcm) else {
+        return vec!["S32LE"]; // safe fallback
+    };
+    let probe: &[(Format, &str)] = &[
+        (Format::S32LE, "S32LE"),
+        (Format::S24LE, "S24_32LE"),  // ALSA S24LE = GStreamer S24_32LE
+        (Format::S243LE, "S24LE"),    // ALSA S243LE = GStreamer S24LE
+        (Format::FloatLE, "F32LE"),
+        (Format::S16LE, "S16LE"),
+    ];
+    let supported: Vec<&str> = probe
+        .iter()
+        .filter(|(f, _)| hwp.test_format(*f).is_ok())
+        .map(|(_, name)| *name)
+        .collect();
+    if supported.is_empty() {
+        vec!["S32LE"] // safe fallback
+    } else {
+        supported
+    }
+}
+
 // ── ALSA writer thread ─────────────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
@@ -124,15 +167,65 @@ fn configure_alsa_hwparams(
     pcm: &alsa::PCM,
     fmt: &PcmFormat,
     bit_perfect: bool,
-) -> Result<(), String> {
-    use alsa::pcm::{Access, HwParams};
+) -> Result<PcmFormat, String> {
+    use alsa::pcm::{Access, Format, HwParams};
     use alsa::ValueOr;
 
     let hwp = HwParams::any(pcm).map_err(|e| format!("HwParams::any failed: {e}"))?;
     hwp.set_access(Access::RWInterleaved)
         .map_err(|e| format!("set_access: {e}"))?;
-    hwp.set_format(gst_format_to_alsa(&fmt.gst_format))
-        .map_err(|e| format!("set_format({}): {e}", fmt.gst_format))?;
+
+    // Probe and log all supported formats
+    let probe_formats: &[(Format, &str)] = &[
+        (Format::S32LE, "S32LE (32-bit)"),
+        (Format::S24LE, "S24LE (24-in-32)"),
+        (Format::S243LE, "S24_3LE (24-bit packed)"),
+        (Format::FloatLE, "F32LE (float)"),
+        (Format::S16LE, "S16LE (16-bit)"),
+    ];
+    let supported: Vec<&str> = probe_formats
+        .iter()
+        .filter(|(f, _)| hwp.test_format(*f).is_ok())
+        .map(|(_, name)| *name)
+        .collect();
+    log::debug!("[audio] DAC supported formats: [{}]", supported.join(", "));
+
+    let requested = gst_format_to_alsa(&fmt.gst_format);
+
+    let alsa_fmt = if bit_perfect {
+        hwp.set_format(requested)
+            .map_err(|e| format!("set_format({}): {e}", fmt.gst_format))?;
+        requested
+    } else {
+        // Ranked fallback: requested first, then descending quality
+        let fallbacks: &[Format] = &[
+            Format::S32LE,
+            Format::S24LE,   // 24-in-32 container
+            Format::S243LE,  // 24-bit packed
+            Format::FloatLE,
+            Format::S16LE,
+        ];
+        let mut candidates: Vec<Format> = Vec::with_capacity(6);
+        candidates.push(requested);
+        for &f in fallbacks {
+            if f != requested {
+                candidates.push(f);
+            }
+        }
+        let mut chosen = None;
+        for &candidate in &candidates {
+            if hwp.test_format(candidate).is_ok() {
+                hwp.set_format(candidate)
+                    .map_err(|e| format!("set_format after test: {e}"))?;
+                chosen = Some(candidate);
+                break;
+            }
+        }
+        chosen.ok_or_else(|| {
+            "Audio device does not support any compatible sample format".to_string()
+        })?
+    };
+
     if bit_perfect {
         hwp.set_rate_resample(false)
             .map_err(|e| format!("set_rate_resample: {e}"))?;
@@ -155,7 +248,35 @@ fn configure_alsa_hwparams(
     hwp.set_period_time_near(50_000, ValueOr::Nearest)
         .map_err(|e| format!("set_period_time: {e}"))?;
     pcm.hw_params(&hwp).map_err(|e| format!("hw_params: {e}"))?;
-    Ok(())
+
+    // Log final negotiated hw_params
+    if let Ok(active) = pcm.hw_params_current() {
+        let rate = active.get_rate().unwrap_or(0);
+        let channels = active.get_channels().unwrap_or(0);
+        let buffer_frames = active.get_buffer_size().unwrap_or(0);
+        let period_frames = active.get_period_size().unwrap_or(0);
+        log::debug!(
+            "[audio] hw_params committed: rate={}Hz, channels={}, buffer={} frames, period={} frames",
+            rate, channels, buffer_frames, period_frames
+        );
+    }
+
+    let (gst_fmt_str, bps) = alsa_format_to_gst(alsa_fmt);
+    if alsa_fmt != requested {
+        log::info!(
+            "[audio] format fallback: {} -> {} (DAC doesn't support {})",
+            fmt.gst_format, gst_fmt_str, fmt.gst_format
+        );
+    }
+    let actual_rate = pcm.hw_params_current()
+        .and_then(|p| p.get_rate())
+        .unwrap_or(fmt.sample_rate);
+    Ok(PcmFormat {
+        sample_rate: actual_rate,
+        channels: fmt.channels,
+        gst_format: gst_fmt_str.to_string(),
+        bytes_per_sample: bps,
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -170,7 +291,8 @@ fn spawn_alsa_writer(
     writer_gen: Arc<AtomicU64>,
     paused: Arc<AtomicBool>,
     bit_perfect: bool,
-) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>), String> {
+    combined_vol: Arc<AtomicU32>,
+) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>, PcmFormat, Vec<&'static str>), String> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
     let (tx, rx) = crossbeam_channel::bounded::<WriterCommand>(256);
@@ -185,9 +307,13 @@ fn spawn_alsa_writer(
         }
     })?;
 
-    configure_alsa_hwparams(&pcm, &initial_format, bit_perfect)?;
+    let supported_gst_formats = probe_supported_gst_formats(&pcm);
+    log::debug!("[alsa-writer] DAC supported GStreamer formats: {:?}", supported_gst_formats);
+
+    let initial_format = configure_alsa_hwparams(&pcm, &initial_format, bit_perfect)?;
     pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
     current_sample_rate.store(initial_format.sample_rate, Ordering::Relaxed);
+    let negotiated_fmt = initial_format.clone();
 
     let handle = std::thread::Builder::new()
         .name("alsa-writer".into())
@@ -278,6 +404,56 @@ fn spawn_alsa_writer(
                 true
             }
 
+            /// Scale raw PCM samples in-place by a volume multiplier.
+            fn apply_volume(data: &mut [u8], fmt: &PcmFormat, vol: f32) {
+                if (vol - 1.0).abs() < f32::EPSILON {
+                    return; // unity gain — no-op
+                }
+                match fmt.gst_format.as_str() {
+                    "S16LE" => {
+                        for chunk in data.chunks_exact_mut(2) {
+                            let s = i16::from_le_bytes([chunk[0], chunk[1]]);
+                            let v = (s as f32 * vol).round() as i32;
+                            let clamped = v.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                            chunk.copy_from_slice(&clamped.to_le_bytes());
+                        }
+                    }
+                    "S32LE" => {
+                        for chunk in data.chunks_exact_mut(4) {
+                            let s = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                            let v = (s as f64 * vol as f64).round() as i64;
+                            let clamped = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                            chunk.copy_from_slice(&clamped.to_le_bytes());
+                        }
+                    }
+                    "S24_32LE" => {
+                        for chunk in data.chunks_exact_mut(4) {
+                            let s = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                            let v = (s as f64 * vol as f64).round() as i64;
+                            let clamped = v.clamp(-8_388_608, 8_388_607) as i32;
+                            chunk.copy_from_slice(&clamped.to_le_bytes());
+                        }
+                    }
+                    "S24LE" => {
+                        for chunk in data.chunks_exact_mut(3) {
+                            let raw = chunk[0] as i32 | (chunk[1] as i32) << 8 | (chunk[2] as i8 as i32) << 16;
+                            let v = (raw as f64 * vol as f64).round() as i64;
+                            let clamped = v.clamp(-8_388_608, 8_388_607) as i32;
+                            chunk[0] = clamped as u8;
+                            chunk[1] = (clamped >> 8) as u8;
+                            chunk[2] = (clamped >> 16) as u8;
+                        }
+                    }
+                    "F32LE" => {
+                        for chunk in data.chunks_exact_mut(4) {
+                            let s = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                            chunk.copy_from_slice(&(s * vol).clamp(-1.0, 1.0).to_le_bytes());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             /// Close and reopen ALSA device with new format.
             /// Some hardware (e.g. XMOS USB controllers) can't reconfigure
             /// HW params in-place after snd_pcm_drop() — need full close+reopen.
@@ -287,16 +463,15 @@ fn spawn_alsa_writer(
                 sr: &AtomicU32,
                 sbuf: &mut Vec<u8>,
                 bit_perfect: bool,
-            ) -> Result<alsa::PCM, String> {
-                // Old PCM is dropped by caller before this (or passed by value)
+            ) -> Result<(alsa::PCM, PcmFormat), String> {
                 let pcm = alsa::PCM::new(device, alsa::Direction::Playback, false)
                     .map_err(|e| format!("Failed to reopen ALSA device: {e}"))?;
-                configure_alsa_hwparams(&pcm, fmt, bit_perfect)?;
+                let negotiated = configure_alsa_hwparams(&pcm, fmt, bit_perfect)?;
                 pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
-                sr.store(fmt.sample_rate, Ordering::Relaxed);
-                let silence_frames = (fmt.sample_rate as usize * 50) / 1000;
-                *sbuf = vec![0u8; silence_frames * fmt.channels as usize * fmt.bytes_per_sample as usize];
-                Ok(pcm)
+                sr.store(negotiated.sample_rate, Ordering::Relaxed);
+                let silence_frames = (negotiated.sample_rate as usize * 50) / 1000;
+                *sbuf = vec![0u8; silence_frames * negotiated.channels as usize * negotiated.bytes_per_sample as usize];
+                Ok((pcm, negotiated))
             }
 
             fn drain_writer_rx(rx: &crossbeam_channel::Receiver<WriterCommand>) -> bool {
@@ -306,11 +481,14 @@ fn spawn_alsa_writer(
                 false
             }
 
-            log::info!("[alsa-writer] started, device={device}, format={current_fmt:?}");
+            log::info!(
+                "[alsa-writer] started, device={device}, format={}, rate={}Hz, channels={}, bps={}",
+                current_fmt.gst_format, current_fmt.sample_rate, current_fmt.channels, current_fmt.bytes_per_sample
+            );
 
             'main: loop {
                 match rx.recv_timeout(period_duration) {
-                    Ok(WriterCommand::Data(chunk)) => {
+                    Ok(WriterCommand::Data(mut chunk)) => {
                         if chunk.generation < writer_gen.load(Ordering::Acquire) {
                             continue; // discard stale data from old pipeline
                         }
@@ -354,18 +532,30 @@ fn spawn_alsa_writer(
                             log::info!("[alsa-writer] format change: {current_fmt:?} -> {:?}", chunk.format);
                             drop(pcm);
                             match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
-                                Ok(new_pcm) => {
+                                Ok((new_pcm, negotiated)) => {
                                     pcm = new_pcm;
-                                    current_fmt = chunk.format;
+                                    if negotiated.gst_format != chunk.format.gst_format {
+                                        log::error!(
+                                            "[alsa-writer] format mismatch after reopen: chunk={}, ALSA={}",
+                                            chunk.format.gst_format, negotiated.gst_format
+                                        );
+                                        app_handle.emit("audio-error",
+                                            serde_json::json!({ "kind": "device_changed" })).ok();
+                                        tearing_down.store(true, Ordering::SeqCst);
+                                        return;
+                                    }
+                                    current_fmt = negotiated;
                                 }
                                 Err(e) => {
                                     log::error!("[alsa-writer] reopen failed: {e}");
-                                    app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed" })).ok();
+                                    app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed", "message": e })).ok();
                                     tearing_down.store(true, Ordering::SeqCst);
                                     return; // pcm already dropped, just exit thread
                                 }
                             }
                         }
+                        let vol = f32::from_bits(combined_vol.load(Ordering::Relaxed));
+                        apply_volume(&mut chunk.data, &current_fmt, vol);
                         if let Err(kind) = write_bytes(&pcm, &chunk.data, &current_fmt, &frames_written, &silence_buf) {
                             app_handle.emit("audio-error", serde_json::json!({ "kind": kind })).ok();
                             tearing_down.store(true, Ordering::SeqCst);
@@ -378,13 +568,13 @@ fn spawn_alsa_writer(
                             log::info!("[alsa-writer] format hint: {current_fmt:?} -> {new_fmt:?}");
                             drop(pcm);
                             match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
-                                Ok(new_pcm) => {
+                                Ok((new_pcm, negotiated)) => {
                                     pcm = new_pcm;
-                                    current_fmt = new_fmt;
+                                    current_fmt = negotiated;
                                 }
                                 Err(e) => {
                                     log::error!("[alsa-writer] reopen for format hint failed: {e}");
-                                    app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed" })).ok();
+                                    app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed", "message": e })).ok();
                                     tearing_down.store(true, Ordering::SeqCst);
                                     return;
                                 }
@@ -421,7 +611,7 @@ fn spawn_alsa_writer(
                                 break 'main;
                             }
                             match rx.try_recv() {
-                                Ok(WriterCommand::Data(chunk)) => {
+                                Ok(WriterCommand::Data(mut chunk)) => {
                                     if chunk.generation < writer_gen.load(Ordering::Acquire) {
                                         continue; // discard stale data, stay in idle
                                     }
@@ -429,13 +619,23 @@ fn spawn_alsa_writer(
                                         // reopen_alsa drops old PCM — buffer cleared implicitly
                                         drop(pcm);
                                         match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
-                                            Ok(new_pcm) => {
+                                            Ok((new_pcm, negotiated)) => {
                                                 pcm = new_pcm;
-                                                current_fmt = chunk.format;
+                                                if negotiated.gst_format != chunk.format.gst_format {
+                                                    log::error!(
+                                                        "[alsa-writer] format mismatch after reopen (idle): chunk={}, ALSA={}",
+                                                        chunk.format.gst_format, negotiated.gst_format
+                                                    );
+                                                    app_handle.emit("audio-error",
+                                                        serde_json::json!({ "kind": "device_changed" })).ok();
+                                                    tearing_down.store(true, Ordering::SeqCst);
+                                                    return;
+                                                }
+                                                current_fmt = negotiated;
                                             }
                                             Err(e) => {
                                                 log::error!("[alsa-writer] reopen failed in idle: {e}");
-                                                app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed" })).ok();
+                                                app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed", "message": e })).ok();
                                                 return;
                                             }
                                         }
@@ -444,6 +644,8 @@ fn spawn_alsa_writer(
                                         pcm.drop().ok();
                                         pcm.prepare().ok();
                                     }
+                                    let vol = f32::from_bits(combined_vol.load(Ordering::Relaxed));
+                                    apply_volume(&mut chunk.data, &current_fmt, vol);
                                     if let Err(kind) = write_bytes(&pcm, &chunk.data, &current_fmt, &frames_written, &silence_buf) {
                                         app_handle.emit("audio-error", serde_json::json!({ "kind": kind })).ok();
                                         break 'main;
@@ -457,13 +659,13 @@ fn spawn_alsa_writer(
                                         log::info!("[alsa-writer] format hint (idle): {current_fmt:?} -> {new_fmt:?}");
                                         drop(pcm);
                                         match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
-                                            Ok(new_pcm) => {
+                                            Ok((new_pcm, negotiated)) => {
                                                 pcm = new_pcm;
-                                                current_fmt = new_fmt;
+                                                current_fmt = negotiated;
                                             }
                                             Err(e) => {
                                                 log::error!("[alsa-writer] reopen for format hint failed (idle): {e}");
-                                                app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed" })).ok();
+                                                app_handle.emit("audio-error", serde_json::json!({ "kind": "format_change_failed", "message": e })).ok();
                                                 return;
                                             }
                                         }
@@ -509,7 +711,7 @@ fn spawn_alsa_writer(
         })
         .map_err(|e| format!("Failed to spawn ALSA writer thread: {e}"))?;
 
-    Ok((tx, handle))
+    Ok((tx, handle, negotiated_fmt, supported_gst_formats))
 }
 
 // ── Audio command protocol ─────────────────────────────────────────────
@@ -596,10 +798,13 @@ impl AudioPlayer {
             // ALSA writer state — lives outside PlaybackBackend so it persists across track changes
             let mut writer_tx: Option<crossbeam_channel::Sender<WriterCommand>> = None;
             let mut writer_thread: Option<JoinHandle<()>> = None;
+            let mut writer_fmt: Option<PcmFormat> = None;
+            let mut writer_supported_fmts: Option<Vec<&'static str>> = None;
             let frames_written = Arc::new(AtomicU64::new(0));
             let current_sample_rate = Arc::new(AtomicU32::new(48000));
             let writer_gen = Arc::new(AtomicU64::new(0));
             let paused = Arc::new(AtomicBool::new(false));
+            let combined_vol = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
 
             let eos = Arc::new(AtomicBool::new(false));
             let tearing_down = Arc::new(AtomicBool::new(false));
@@ -711,7 +916,7 @@ impl AudioPlayer {
                                         if let Some(h) = writer_thread.take() {
                                             h.join().ok();
                                         }
-                                        let (tx, handle) = spawn_alsa_writer(
+                                        let (tx, handle, negotiated_fmt, supported_gst_fmts) = spawn_alsa_writer(
                                             dev,
                                             &default_fmt,
                                             app_handle.clone(),
@@ -721,22 +926,27 @@ impl AudioPlayer {
                                             Arc::clone(&writer_gen),
                                             Arc::clone(&paused),
                                             bit_perfect,
+                                            Arc::clone(&combined_vol),
                                         )?;
                                         writer_tx = Some(tx);
                                         writer_thread = Some(handle);
+                                        writer_fmt = Some(negotiated_fmt);
+                                        writer_supported_fmts = Some(supported_gst_fmts);
                                     }
 
                                     let wtx = writer_tx.as_ref().unwrap().clone();
 
                                     // Build appsink pipeline
+                                    let fmt_for_pipeline = writer_fmt.as_ref().unwrap_or(&default_fmt);
+                                    let supported_fmts_for_pipeline = writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
                                     let (pipe, u_vol, n_vol) = build_appsink_pipeline(
                                         &uri,
                                         exclusive,
                                         bit_perfect,
-                                        current_volume,
-                                        current_norm_gain,
                                         wtx.clone(),
                                         Arc::clone(&writer_gen),
+                                        fmt_for_pipeline,
+                                        supported_fmts_for_pipeline,
                                     )?;
 
                                     // Start pipeline directly — errors come via bus watcher
@@ -1061,6 +1271,10 @@ impl AudioPlayer {
                         if let Some(vol) = backend.as_ref().and_then(|b| b.user_volume_el()) {
                             vol.set_property("volume", current_volume);
                         }
+                        combined_vol.store(
+                            ((current_volume * current_norm_gain) as f32).to_bits(),
+                            Ordering::Relaxed,
+                        );
                         reply.send(Ok(())).ok();
                     }
 
@@ -1069,6 +1283,10 @@ impl AudioPlayer {
                         if let Some(vol) = backend.as_ref().and_then(|b| b.norm_volume_el()) {
                             vol.set_property("volume", gain);
                         }
+                        combined_vol.store(
+                            ((current_volume * current_norm_gain) as f32).to_bits(),
+                            Ordering::Relaxed,
+                        );
                         reply.send(Ok(())).ok();
                     }
 
@@ -1241,10 +1459,10 @@ fn build_appsink_pipeline(
     uri: &str,
     exclusive: bool,
     bit_perfect: bool,
-    current_volume: f64,
-    current_norm_gain: f64,
     writer_tx: crossbeam_channel::Sender<WriterCommand>,
     writer_gen: Arc<AtomicU64>,
+    negotiated_fmt: &PcmFormat,
+    supported_gst_formats: &[&str],
 ) -> Result<(gst::Pipeline, Option<gst::Element>, Option<gst::Element>), String> {
     use gst_app::prelude::*;
 
@@ -1274,9 +1492,10 @@ fn build_appsink_pipeline(
     if is_dash && bit_perfect {
         appsink.set_caps(Some(
             &gst::Caps::builder("audio/x-raw")
-                .field("format", gst::List::new(["S16LE", "S32LE"]))
+                .field("format", gst::List::new(supported_gst_formats.iter().copied()))
                 .build(),
         ));
+        log::debug!("[audio] bit-perfect DASH: appsink caps = {:?}", supported_gst_formats);
     }
 
     log::debug!(
@@ -1294,7 +1513,6 @@ fn build_appsink_pipeline(
                 .map_err(|e| format!("Failed to add elements: {e}"))?;
             gst::Element::link_many([&audioconvert, appsink.upcast_ref()])
                 .map_err(|e| format!("Failed to link bit-perfect DASH chain: {e}"))?;
-            log::debug!("[audio] bit-perfect DASH: no capsfilter, appsink caps = S16LE/S32LE");
         } else {
             // BTS: capsfilter for dynamic locking (preserves exact decoded format)
             let capsfilter = gst::ElementFactory::make("capsfilter")
@@ -1313,25 +1531,17 @@ fn build_appsink_pipeline(
 
         (None, None)
     } else {
-        // Exclusive (non-bit-perfect): volume elements in GStreamer, format+channels locked.
-        // Rate is unconstrained — source's native sample rate passes through (audioresample is passthrough).
+        // Exclusive (non-bit-perfect): volume applied in ALSA writer thread.
+        // Rate is unconstrained — source's native sample rate passes through.
         let audioresample = gst::ElementFactory::make("audioresample")
             .build()
             .map_err(|e| format!("Failed to create audioresample: {e}"))?;
-        let norm_vol = gst::ElementFactory::make("volume")
-            .property("volume", current_norm_gain)
-            .build()
-            .map_err(|e| format!("Failed to create norm volume: {e}"))?;
-        let user_vol = gst::ElementFactory::make("volume")
-            .property("volume", current_volume)
-            .build()
-            .map_err(|e| format!("Failed to create user volume: {e}"))?;
         let capsfilter = gst::ElementFactory::make("capsfilter")
             .property(
                 "caps",
                 gst::Caps::builder("audio/x-raw")
-                    .field("format", "S32LE")
-                    .field("channels", 2i32)
+                    .field("format", negotiated_fmt.gst_format.as_str())
+                    .field("channels", negotiated_fmt.channels as i32)
                     .build(),
             )
             .build()
@@ -1341,8 +1551,6 @@ fn build_appsink_pipeline(
             &uridecodebin,
             &audioconvert,
             &audioresample,
-            &norm_vol,
-            &user_vol,
             &capsfilter,
             appsink.upcast_ref(),
         ])
@@ -1350,14 +1558,12 @@ fn build_appsink_pipeline(
         gst::Element::link_many([
             &audioconvert,
             &audioresample,
-            &norm_vol,
-            &user_vol,
             &capsfilter,
             appsink.upcast_ref(),
         ])
         .map_err(|e| format!("Failed to link exclusive chain: {e}"))?;
 
-        (Some(user_vol), Some(norm_vol))
+        (None, None)
     };
 
     // Grab capsfilter weak ref for bit-perfect cap locking.
@@ -1376,6 +1582,7 @@ fn build_appsink_pipeline(
 
     // Connect uridecodebin's dynamic pad to audioconvert
     let convert_weak = audioconvert.downgrade();
+    let supported_fmts_for_closure: Vec<String> = supported_gst_formats.iter().map(|s| s.to_string()).collect();
     uridecodebin.connect_pad_added(move |_src, src_pad| {
         let Some(convert) = convert_weak.upgrade() else {
             return;
@@ -1418,8 +1625,19 @@ fn build_appsink_pipeline(
                             s.get::<&str>("format"),
                         ) {
                             let locked = if format.starts_with("S24") {
+                                // Filter to S24/S32 formats the DAC actually supports
+                                let s24_candidates: Vec<&str> = supported_fmts_for_closure
+                                    .iter()
+                                    .map(|s| s.as_str())
+                                    .filter(|f| *f == "S24LE" || *f == "S24_32LE" || *f == "S32LE")
+                                    .collect();
+                                let fmts = if s24_candidates.is_empty() {
+                                    vec!["S32LE"] // safe fallback
+                                } else {
+                                    s24_candidates
+                                };
                                 gst::Caps::builder("audio/x-raw")
-                                    .field("format", gst::List::new(["S24LE", "S32LE"]))
+                                    .field("format", gst::List::new(fmts.iter().copied()))
                                     .field("rate", rate)
                                     .field("channels", channels)
                                     .build()
