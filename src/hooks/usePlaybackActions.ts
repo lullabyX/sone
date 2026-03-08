@@ -26,7 +26,7 @@ import {
   shuffleAtom,
   repeatAtom,
 } from "../atoms/playback";
-import { getTrackRadio } from "../api/tidal";
+import { getTrackRadio, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import type { Track, StreamInfo } from "../types";
@@ -59,6 +59,16 @@ function extractPlaybackError(error: unknown): string {
 /** Check if an error is a device_busy error from exclusive ALSA mode. */
 function isDeviceBusy(error: unknown): boolean {
   return extractPlaybackError(error) === "device_busy";
+}
+
+/** Check if an error is a network error (SoneError::Network). */
+function isNetworkError(error: unknown): boolean {
+  try {
+    const parsed = typeof error === "string" ? JSON.parse(error) : error;
+    return parsed?.kind === "Network";
+  } catch {
+    return false;
+  }
 }
 
 function fisherYatesShuffle<T>(arr: T[]): T[] {
@@ -105,12 +115,13 @@ export function usePlaybackActions() {
 
   const playGenerationRef = useRef(0);
   const autoplayIdsRef = useRef(new Set<number>());
+  const playNextLockRef = useRef(false);
 
   const playTrack = useCallback(
     async (
       track: Track,
       opts?: { chosenByUser?: boolean; skipHistoryPush?: boolean },
-    ) => {
+    ): Promise<boolean> => {
       const generation = ++playGenerationRef.current;
       try {
         const stamped = ensureQid(normalizeTrack(track));
@@ -123,7 +134,7 @@ export function usePlaybackActions() {
           },
         );
 
-        if (generation !== playGenerationRef.current) return;
+        if (generation !== playGenerationRef.current) return false;
         const current = store.get(currentTrackAtom);
         if (current && !opts?.skipHistoryPush) {
           store.set(historyAtom, [...store.get(historyAtom), current]);
@@ -146,15 +157,21 @@ export function usePlaybackActions() {
             trackId: stamped.id || null,
           },
         }).catch(() => {});
+        return true;
       } catch (error: any) {
-        if (generation !== playGenerationRef.current) return;
+        if (generation !== playGenerationRef.current) return false;
         console.error("Failed to play track:", error);
         store.set(isPlayingAtom, false);
-        window.dispatchEvent(
-          new CustomEvent("playback-error", {
-            detail: extractPlaybackError(error),
-          }),
-        );
+        if (isNetworkError(error)) {
+          checkNetworkError(error);
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("playback-error", {
+              detail: extractPlaybackError(error),
+            }),
+          );
+        }
+        return false;
       }
     },
     [store, showToast],
@@ -207,11 +224,15 @@ export function usePlaybackActions() {
     } catch (error) {
       console.error("Failed to resume track:", error);
       store.set(isPlayingAtom, false);
-      window.dispatchEvent(
-        new CustomEvent("playback-error", {
-          detail: extractPlaybackError(error),
-        }),
-      );
+      if (isNetworkError(error)) {
+        checkNetworkError(error);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("playback-error", {
+            detail: extractPlaybackError(error),
+          }),
+        );
+      }
     }
   }, [store, showToast]);
 
@@ -337,7 +358,10 @@ export function usePlaybackActions() {
 
   const playNext = useCallback(
     async (options?: { explicit?: boolean }) => {
-      const repeatMode = store.get(repeatAtom);
+      if (playNextLockRef.current) return;
+      playNextLockRef.current = true;
+      try {
+        const repeatMode = store.get(repeatAtom);
 
       // Repeat-one: replay current track unless explicit skip
       if (repeatMode === 2 && !options?.explicit) {
@@ -370,17 +394,26 @@ export function usePlaybackActions() {
           } catch (error: any) {
             console.error("Failed to repeat track:", error);
             store.set(isPlayingAtom, false);
+            if (isNetworkError(error)) {
+              checkNetworkError(error);
+            }
           }
           return;
         }
       }
+
+      // Stop old pipeline to prevent stale track-finished events
+      await invoke("stop_track").catch(() => {});
 
       // Drain manual queue first
       const manual = store.get(manualQueueAtom);
       if (manual.length > 0) {
         const [nextTrack, ...rest] = manual;
         store.set(manualQueueAtom, rest);
-        await playTrack(nextTrack, { chosenByUser: !!options?.explicit });
+        const ok = await playTrack(nextTrack, { chosenByUser: !!options?.explicit });
+        if (!ok) {
+          store.set(manualQueueAtom, [nextTrack, ...store.get(manualQueueAtom)]);
+        }
         return;
       }
 
@@ -398,7 +431,13 @@ export function usePlaybackActions() {
             orig.filter((t) => t._qid !== nextTrack._qid),
           );
         }
-        await playTrack(nextTrack, { chosenByUser: !isAutoplay });
+        const ok = await playTrack(nextTrack, { chosenByUser: !isAutoplay });
+        if (!ok) {
+          store.set(queueAtom, [nextTrack, ...store.get(queueAtom)]);
+          if (orig) {
+            store.set(originalQueueAtom, orig);
+          }
+        }
       } else if (repeatMode === 1) {
         // Repeat-all: rebuild from source (Bug 2) or history+current fallback
         const source = store.get(playbackSourceAtom);
@@ -447,7 +486,10 @@ export function usePlaybackActions() {
               await playTrack(next, { chosenByUser: false });
               return;
             }
-          } catch {
+          } catch (error: unknown) {
+            if (isNetworkError(error)) {
+              checkNetworkError(error);
+            }
             /* fall through to stop */
           }
         }
@@ -455,11 +497,17 @@ export function usePlaybackActions() {
       } else {
         store.set(isPlayingAtom, false);
       }
+      } finally {
+        playNextLockRef.current = false;
+      }
     },
     [store, playTrack],
   );
 
   const playPrevious = useCallback(async () => {
+    if (playNextLockRef.current) return;
+    playNextLockRef.current = true;
+    try {
     try {
       const pos = await getPlaybackPosition();
       if (pos > 3) {
@@ -469,6 +517,9 @@ export function usePlaybackActions() {
     } catch {
       // ignore position errors
     }
+
+    // Stop old pipeline to prevent stale track-finished events
+    await invoke("stop_track").catch(() => {});
 
     const history = store.get(historyAtom);
     if (history.length > 0) {
@@ -538,11 +589,15 @@ export function usePlaybackActions() {
       } catch (error: any) {
         console.error("Failed to play previous track:", error);
         store.set(isPlayingAtom, false);
-        window.dispatchEvent(
-          new CustomEvent("playback-error", {
-            detail: extractPlaybackError(error),
-          }),
-        );
+        if (isNetworkError(error)) {
+          checkNetworkError(error);
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("playback-error", {
+              detail: extractPlaybackError(error),
+            }),
+          );
+        }
       }
     } else {
       // Bug 1 fix: try source fallback when history is empty
@@ -607,11 +662,15 @@ export function usePlaybackActions() {
           } catch (error: any) {
             console.error("Failed to play previous track:", error);
             store.set(isPlayingAtom, false);
-            window.dispatchEvent(
-              new CustomEvent("playback-error", {
-                detail: extractPlaybackError(error),
-              }),
-            );
+            if (isNetworkError(error)) {
+              checkNetworkError(error);
+            } else {
+              window.dispatchEvent(
+                new CustomEvent("playback-error", {
+                  detail: extractPlaybackError(error),
+                }),
+              );
+            }
           }
         } else if (current) {
           await seekTo(0);
@@ -619,6 +678,9 @@ export function usePlaybackActions() {
       } else if (current) {
         await seekTo(0);
       }
+    }
+    } finally {
+      playNextLockRef.current = false;
     }
   }, [store, showToast, getPlaybackPosition, seekTo]);
 

@@ -53,6 +53,35 @@ pub struct ScrobbleSettings {
     pub listenbrainz: Option<ListenBrainzCredentials>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyType {
+    Http,
+    Socks5,
+}
+
+impl Default for ProxyType {
+    fn default() -> Self {
+        Self::Http
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ProxySettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub proxy_type: ProxyType,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default)]
+    pub port: u16,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
     pub auth_tokens: Option<AuthTokens>,
@@ -77,6 +106,8 @@ pub struct Settings {
     pub bit_perfect: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
+    #[serde(default)]
+    pub proxy: ProxySettings,
 }
 
 impl Default for Settings {
@@ -94,6 +125,7 @@ impl Default for Settings {
             exclusive_device: None,
             bit_perfect: false,
             scrobble: Default::default(),
+            proxy: Default::default(),
         }
     }
 }
@@ -188,12 +220,24 @@ impl AppState {
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
-        let scrobble_manager =
-            scrobble::ScrobbleManager::new(app_handle.clone(), crypto.clone(), &config_dir);
+        let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
+        let scrobble_http_client = crate::tidal_api::build_http_client(&proxy_settings)
+            .unwrap_or_else(|_| {
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()
+                    .unwrap()
+            });
+        let scrobble_manager = scrobble::ScrobbleManager::new(
+            app_handle.clone(),
+            crypto.clone(),
+            &config_dir,
+            scrobble_http_client,
+        );
 
         Self {
             audio_player: AudioPlayer::new(app_handle.clone()),
-            tidal_client: Mutex::new(TidalClient::new()),
+            tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
             settings_path,
             cache_dir,
             disk_cache,
@@ -312,6 +356,15 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<AppState>();
                     if let Some(settings) = state.load_settings() {
+                        let http_client = crate::tidal_api::build_http_client(
+                            &settings.proxy
+                        ).unwrap_or_else(|_| {
+                            reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(30))
+                                .build()
+                                .unwrap()
+                        });
+
                         // Last.fm
                         if let Some(ref creds) = settings.scrobble.lastfm {
                             if crate::embedded_lastfm::has_stream_keys() {
@@ -321,6 +374,7 @@ pub fn run() {
                                     "https://www.last.fm/api/auth/",
                                     crate::embedded_lastfm::stream_key_a(),
                                     crate::embedded_lastfm::stream_key_b(),
+                                    http_client.clone(),
                                 );
                                 provider
                                     .set_session(creds.session_key.clone(), creds.username.clone())
@@ -342,6 +396,7 @@ pub fn run() {
                                     "https://libre.fm/api/auth/",
                                     crate::embedded_librefm::stream_key_a(),
                                     crate::embedded_librefm::stream_key_b(),
+                                    http_client.clone(),
                                 );
                                 provider
                                     .set_session(creds.session_key.clone(), creds.username.clone())
@@ -357,7 +412,7 @@ pub fn run() {
                         // ListenBrainz
                         if let Some(ref creds) = settings.scrobble.listenbrainz {
                             let provider =
-                                crate::scrobble::listenbrainz::ListenBrainzProvider::new();
+                                crate::scrobble::listenbrainz::ListenBrainzProvider::new(http_client.clone());
                             provider
                                 .set_token(creds.token.clone(), creds.username.clone())
                                 .await;
@@ -675,6 +730,9 @@ pub fn run() {
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
+            commands::utility::get_proxy_settings,
+            commands::utility::set_proxy_settings,
+            commands::utility::test_proxy_connection,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

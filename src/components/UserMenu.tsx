@@ -13,6 +13,7 @@ import {
   Shield,
   ChevronDown,
   Radio,
+  Globe,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,6 +26,7 @@ import {
   bitPerfectAtom,
   exclusiveDeviceAtom,
 } from "../atoms/playback";
+import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import { useToast } from "../contexts/ToastContext";
 import ThemeEditor from "./ThemeEditor";
 import ScrobbleModal from "./ScrobbleModal";
@@ -63,8 +65,38 @@ export default function UserMenu() {
   >([]);
   const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
+  const [proxySettings, setProxySettings] = useAtom(proxySettingsAtom);
+  const [proxyTestStatus, setProxyTestStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
+  const [proxyTestMessage, setProxyTestMessage] = useState("");
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
+  const proxySaveTimer = useRef<number | undefined>(undefined);
+
+  const updateProxy = (patch: Partial<ProxySettings>) => {
+    const next = { ...proxySettings, ...patch };
+    setProxySettings(next);
+    setProxyTestStatus("idle");
+    clearTimeout(proxySaveTimer.current);
+    proxySaveTimer.current = window.setTimeout(() => {
+      invoke("set_proxy_settings", { settings: next }).catch(() => {});
+    }, 500);
+  };
+
+  const testProxy = async () => {
+    setProxyTestStatus("testing");
+    try {
+      const msg = await invoke<string>("test_proxy_connection", {
+        settings: proxySettings,
+      });
+      setProxyTestStatus("success");
+      setProxyTestMessage(msg);
+    } catch (e: any) {
+      setProxyTestStatus("error");
+      setProxyTestMessage(typeof e === "string" ? e : e.message || "Failed");
+    }
+  };
 
   // Load preferences (exclusive/bitPerfect/device are from Jotai atoms, hydrated by AppInitializer)
   useEffect(() => {
@@ -381,6 +413,126 @@ export default function UserMenu() {
               />
             </div>
           </button>
+
+          {/* ── Network ── */}
+          <div className="border-t border-th-border-subtle my-1" />
+
+          {/* Proxy toggle */}
+          <button
+            onClick={() => updateProxy({ enabled: !proxySettings.enabled })}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+          >
+            <Globe size={16} />
+            <span className="flex-1 text-left">Proxy</span>
+            <div
+              className={`w-8 h-[18px] rounded-full transition-colors ${
+                proxySettings.enabled ? "bg-th-accent" : "bg-th-border-subtle"
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
+                  proxySettings.enabled
+                    ? "translate-x-[16px]"
+                    : "translate-x-[2px]"
+                }`}
+              />
+            </div>
+          </button>
+
+          {/* Proxy config (visible when enabled) */}
+          {proxySettings.enabled && (
+            <div className="px-4 py-2 space-y-2">
+              <div className="ml-7 space-y-2">
+                {/* Type selector */}
+                <div className="flex gap-2">
+                  {(["http", "socks5"] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => updateProxy({ proxy_type: t })}
+                      className={`flex-1 text-[12px] py-1.5 rounded-md border transition-colors ${
+                        proxySettings.proxy_type === t
+                          ? "border-th-accent text-th-accent bg-th-accent/10"
+                          : "border-th-border-subtle text-th-text-muted hover:border-th-accent/50"
+                      }`}
+                    >
+                      {t.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Host + Port */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Host"
+                    value={proxySettings.host}
+                    onChange={(e) => updateProxy({ host: e.target.value })}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Port"
+                    value={proxySettings.port || ""}
+                    onChange={(e) =>
+                      updateProxy({ port: parseInt(e.target.value) || 0 })
+                    }
+                    className="w-20 px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
+                  />
+                </div>
+
+                {/* Username + Password */}
+                <input
+                  type="text"
+                  placeholder="Username (optional)"
+                  value={proxySettings.username || ""}
+                  onChange={(e) =>
+                    updateProxy({
+                      username: e.target.value || null,
+                    })
+                  }
+                  className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
+                />
+                <input
+                  type="password"
+                  placeholder="Password (optional)"
+                  value={proxySettings.password || ""}
+                  onChange={(e) =>
+                    updateProxy({
+                      password: e.target.value || null,
+                    })
+                  }
+                  className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
+                />
+
+                {/* Test button */}
+                <button
+                  onClick={testProxy}
+                  disabled={
+                    proxyTestStatus === "testing" ||
+                    !proxySettings.host ||
+                    !proxySettings.port
+                  }
+                  className="w-full py-1.5 rounded-md text-[12px] font-medium border border-th-border-subtle text-th-text-secondary hover:text-white hover:border-th-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {proxyTestStatus === "testing"
+                    ? "Testing..."
+                    : "Test Connection"}
+                </button>
+
+                {/* Test result */}
+                {proxyTestStatus === "success" && (
+                  <p className="text-[11px] text-green-400">
+                    {proxyTestMessage}
+                  </p>
+                )}
+                {proxyTestStatus === "error" && (
+                  <p className="text-[11px] text-red-400">
+                    {proxyTestMessage}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ── Utilities ── */}
           <div className="border-t border-th-border-subtle my-1" />

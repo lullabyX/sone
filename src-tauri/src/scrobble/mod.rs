@@ -62,6 +62,7 @@ pub trait ScrobbleProvider: Send + Sync {
     fn name(&self) -> &str;
     fn is_authenticated(&self) -> bool;
     fn max_batch_size(&self) -> usize;
+    fn set_http_client(&self, client: reqwest::Client);
     async fn username(&self) -> Option<String>;
     async fn now_playing(&self, track: &ScrobbleTrack) -> ScrobbleResult;
     async fn scrobble(&self, tracks: &[ScrobbleTrack]) -> ScrobbleResult;
@@ -144,15 +145,31 @@ pub struct ScrobbleManager {
 }
 
 impl ScrobbleManager {
-    pub fn new(app_handle: tauri::AppHandle, crypto: Arc<Crypto>, config_dir: &Path) -> Self {
+    pub fn new(
+        app_handle: tauri::AppHandle,
+        crypto: Arc<Crypto>,
+        config_dir: &Path,
+        http_client: reqwest::Client,
+    ) -> Self {
         let queue_path = config_dir.join("scrobble_queue.bin");
         Self {
             providers: RwLock::new(Vec::new()),
             queue: queue::ScrobbleQueue::new(&queue_path, crypto),
             current_track: Arc::new(Mutex::new(None)),
             app_handle,
-            mb_lookup: Arc::new(musicbrainz::MusicBrainzLookup::new(config_dir)),
+            mb_lookup: Arc::new(musicbrainz::MusicBrainzLookup::new(config_dir, http_client)),
         }
+    }
+
+    /// Update the HTTP client used by all active scrobble providers and the
+    /// MusicBrainz lookup. Called when proxy settings change.
+    pub async fn update_http_client(&self, client: reqwest::Client) {
+        let providers = self.providers.read().await;
+        for provider in providers.iter() {
+            provider.set_http_client(client.clone());
+        }
+        drop(providers);
+        self.mb_lookup.set_http_client(client);
     }
 
     pub async fn add_provider(&self, provider: Box<dyn ScrobbleProvider>) {

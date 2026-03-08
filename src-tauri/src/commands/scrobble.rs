@@ -96,10 +96,14 @@ pub async fn connect_listenbrainz(
     state: State<'_, AppState>,
     token: String,
 ) -> Result<String, SoneError> {
-    let username = ListenBrainzProvider::validate_token(&token).await?;
+    let http_client = {
+        let client = state.tidal_client.lock().await;
+        client.raw_client().clone()
+    };
+    let username = ListenBrainzProvider::validate_token(&http_client, &token).await?;
 
     // Create and register the provider
-    let provider = ListenBrainzProvider::new();
+    let provider = ListenBrainzProvider::new(http_client);
     provider.set_token(token.clone(), username.clone()).await;
     state
         .scrobble_manager
@@ -142,16 +146,21 @@ pub async fn disconnect_provider(
 
 /// Fetch a request token and return the auth URL + token for Last.fm desktop auth.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn connect_lastfm() -> Result<AuthStartResponse, SoneError> {
+pub async fn connect_lastfm(state: State<'_, AppState>) -> Result<AuthStartResponse, SoneError> {
     if !crate::embedded_lastfm::has_stream_keys() {
         return Err(SoneError::Scrobble("Last.fm not configured".into()));
     }
+    let http_client = {
+        let client = state.tidal_client.lock().await;
+        client.raw_client().clone()
+    };
     let provider = crate::scrobble::lastfm::AudioscrobblerProvider::new(
         "lastfm",
         "https://ws.audioscrobbler.com/2.0/",
         "https://www.last.fm/api/auth/",
         crate::embedded_lastfm::stream_key_a(),
         crate::embedded_lastfm::stream_key_b(),
+        http_client,
     );
     let token = provider.get_token().await?;
     let url = provider.auth_url_with_token(&token);
@@ -160,16 +169,21 @@ pub async fn connect_lastfm() -> Result<AuthStartResponse, SoneError> {
 
 /// Fetch a request token and return the auth URL + token for Libre.fm desktop auth.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn connect_librefm() -> Result<AuthStartResponse, SoneError> {
+pub async fn connect_librefm(state: State<'_, AppState>) -> Result<AuthStartResponse, SoneError> {
     if !crate::embedded_librefm::has_stream_keys() {
         return Err(SoneError::Scrobble("Libre.fm not configured".into()));
     }
+    let http_client = {
+        let client = state.tidal_client.lock().await;
+        client.raw_client().clone()
+    };
     let provider = crate::scrobble::lastfm::AudioscrobblerProvider::new(
         "librefm",
         crate::scrobble::librefm::LIBREFM_API_URL,
         "https://libre.fm/api/auth/",
         crate::embedded_librefm::stream_key_a(),
         crate::embedded_librefm::stream_key_b(),
+        http_client,
     );
     let token = provider.get_token().await?;
     let url = provider.auth_url_with_token(&token);
@@ -215,6 +229,10 @@ pub async fn complete_audioscrobbler_auth(
         }
     };
 
+    let http_client = {
+        let client = state.tidal_client.lock().await;
+        client.raw_client().clone()
+    };
     let provider = crate::scrobble::lastfm::AudioscrobblerProvider::new(
         if provider_name == "lastfm" {
             "lastfm"
@@ -225,6 +243,7 @@ pub async fn complete_audioscrobbler_auth(
         auth_base_url,
         api_key,
         api_secret,
+        http_client,
     );
 
     let (session_key, username) = provider.get_session(&token).await?;

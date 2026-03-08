@@ -892,7 +892,10 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
         tokens.access_token.clone()
     };
 
-    let http = reqwest::Client::new();
+    let http = {
+        let client = state.tidal_client.lock().await;
+        client.raw_client().clone()
+    };
     let mut summary = String::new();
 
     let endpoints = [

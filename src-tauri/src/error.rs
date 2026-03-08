@@ -42,6 +42,13 @@ pub enum SoneError {
     Scrobble(String),
 }
 
+impl SoneError {
+    /// Returns true if this is a network/transport error.
+    pub fn is_network(&self) -> bool {
+        matches!(self, SoneError::Network(_))
+    }
+}
+
 impl From<std::io::Error> for SoneError {
     fn from(e: std::io::Error) -> Self {
         SoneError::Io(e.to_string())
