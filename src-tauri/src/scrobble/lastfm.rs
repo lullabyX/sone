@@ -30,7 +30,7 @@ pub struct AudioscrobblerProvider {
     api_key: String,
     api_secret: String,
     session: RwLock<Option<SessionData>>,
-    client: reqwest::Client,
+    client: std::sync::Mutex<reqwest::Client>,
 }
 
 impl AudioscrobblerProvider {
@@ -49,7 +49,7 @@ impl AudioscrobblerProvider {
             api_key,
             api_secret,
             session: RwLock::new(None),
-            client,
+            client: std::sync::Mutex::new(client),
         }
     }
 
@@ -71,8 +71,8 @@ impl AudioscrobblerProvider {
         params.insert("api_sig", sig);
         params.insert("format", "json".to_string());
 
-        let resp = self
-            .client
+        let client = self.client.lock().unwrap().clone();
+        let resp = client
             .get(self.api_url)
             .query(&params)
             .timeout(Duration::from_secs(10))
@@ -121,8 +121,8 @@ impl AudioscrobblerProvider {
         params.insert("api_sig", sig);
         params.insert("format", "json".to_string());
 
-        let resp = self
-            .client
+        let client = self.client.lock().unwrap().clone();
+        let resp = client
             .post(self.api_url)
             .form(&params)
             .timeout(Duration::from_secs(10))
@@ -236,6 +236,10 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         50
     }
 
+    fn set_http_client(&self, client: reqwest::Client) {
+        *self.client.lock().unwrap() = client;
+    }
+
     async fn username(&self) -> Option<String> {
         let session = self.session.read().await;
         session.as_ref().map(|s| s.username.clone())
@@ -269,8 +273,8 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         params.insert("api_sig", sig);
         params.insert("format", "json".to_string());
 
-        let result = self
-            .client
+        let client = self.client.lock().unwrap().clone();
+        let result = client
             .post(self.api_url)
             .form(&params)
             .timeout(Duration::from_secs(5))
@@ -344,8 +348,8 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         params.push(("api_sig".to_string(), sig));
         params.push(("format".to_string(), "json".to_string()));
 
-        let result = self
-            .client
+        let client = self.client.lock().unwrap().clone();
+        let result = client
             .post(self.api_url)
             .form(&params)
             .timeout(Duration::from_secs(5))

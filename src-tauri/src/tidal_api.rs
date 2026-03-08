@@ -11,6 +11,11 @@ pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error
     let mut builder = Client::builder().timeout(Duration::from_secs(30));
 
     if proxy.enabled && !proxy.host.is_empty() && proxy.port > 0 {
+        // Reject hosts with characters that could break URL parsing
+        if proxy.host.contains(|c: char| matches!(c, '@' | '/' | '?' | '#') || c.is_whitespace()) {
+            return builder.build(); // return client without proxy if host is invalid
+        }
+
         let scheme = match proxy.proxy_type {
             ProxyType::Http => "http",
             ProxyType::Socks5 => "socks5",

@@ -27,14 +27,14 @@ pub struct TokenData {
 
 pub struct ListenBrainzProvider {
     token: RwLock<Option<TokenData>>,
-    client: reqwest::Client,
+    client: std::sync::Mutex<reqwest::Client>,
 }
 
 impl ListenBrainzProvider {
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             token: RwLock::new(None),
-            client,
+            client: std::sync::Mutex::new(client),
         }
     }
 
@@ -139,8 +139,8 @@ impl ListenBrainzProvider {
             "payload": payload,
         });
 
-        let resp = self
-            .client
+        let client = self.client.lock().unwrap().clone();
+        let resp = client
             .post(format!("{API_BASE}/1/submit-listens"))
             .header("Authorization", format!("Token {token}"))
             .header("Content-Type", "application/json")
@@ -170,6 +170,10 @@ impl ScrobbleProvider for ListenBrainzProvider {
 
     fn max_batch_size(&self) -> usize {
         1000
+    }
+
+    fn set_http_client(&self, client: reqwest::Client) {
+        *self.client.lock().unwrap() = client;
     }
 
     async fn username(&self) -> Option<String> {

@@ -248,6 +248,13 @@ pub async fn set_proxy_settings(
         client.rebuild_client(&settings);
     }
 
+    // Also rebuild scrobble provider HTTP clients
+    let new_client = {
+        let client = state.tidal_client.lock().await;
+        client.raw_client().clone()
+    };
+    state.scrobble_manager.update_http_client(new_client).await;
+
     // Save to disk
     let mut app_settings = state.load_settings().unwrap_or_default();
     app_settings.proxy = settings;

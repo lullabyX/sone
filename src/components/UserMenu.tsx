@@ -72,12 +72,16 @@ export default function UserMenu() {
   const [proxyTestMessage, setProxyTestMessage] = useState("");
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
+  const proxySaveTimer = useRef<number | undefined>(undefined);
 
   const updateProxy = (patch: Partial<ProxySettings>) => {
     const next = { ...proxySettings, ...patch };
     setProxySettings(next);
-    invoke("set_proxy_settings", { settings: next }).catch(() => {});
     setProxyTestStatus("idle");
+    clearTimeout(proxySaveTimer.current);
+    proxySaveTimer.current = window.setTimeout(() => {
+      invoke("set_proxy_settings", { settings: next }).catch(() => {});
+    }, 500);
   };
 
   const testProxy = async () => {

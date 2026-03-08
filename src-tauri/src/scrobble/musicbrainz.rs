@@ -10,7 +10,7 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1100);
 
 pub struct MusicBrainzLookup {
-    client: reqwest::Client,
+    client: std::sync::Mutex<reqwest::Client>,
     cache: Mutex<HashMap<String, Option<String>>>,
     cache_path: PathBuf,
     last_request: Mutex<Instant>,
@@ -18,22 +18,22 @@ pub struct MusicBrainzLookup {
 }
 
 impl MusicBrainzLookup {
-    pub fn new(config_dir: &std::path::Path) -> Self {
+    pub fn new(config_dir: &std::path::Path, http_client: reqwest::Client) -> Self {
         let cache_path = config_dir.join("mbid_cache.json");
         let cache = Self::load_cache(&cache_path);
 
         Self {
-            client: reqwest::Client::builder()
-                .user_agent(format!(
-                    "SONE/{APP_VERSION} (https://github.com/lullabyX/sone)"
-                ))
-                .build()
-                .unwrap_or_default(),
+            client: std::sync::Mutex::new(http_client),
             cache: Mutex::new(cache),
             cache_path,
             last_request: Mutex::new(Instant::now() - MIN_REQUEST_INTERVAL),
             dirty: AtomicBool::new(false),
         }
+    }
+
+    /// Replace the internal HTTP client (e.g. when proxy settings change).
+    pub fn set_http_client(&self, client: reqwest::Client) {
+        *self.client.lock().unwrap() = client;
     }
 
     /// Look up a recording MBID from an ISRC code.
@@ -126,9 +126,11 @@ impl MusicBrainzLookup {
     ) -> Result<Option<String>, String> {
         let url = format!("{MB_API_BASE}/isrc/{isrc}?fmt=json");
 
-        let resp = self
-            .client
+        let user_agent = format!("SONE/{APP_VERSION} (https://github.com/lullabyX/sone)");
+        let client = self.client.lock().unwrap().clone();
+        let resp = client
             .get(&url)
+            .header(reqwest::header::USER_AGENT, &user_agent)
             .timeout(Duration::from_secs(10))
             .send()
             .await

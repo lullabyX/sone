@@ -220,14 +220,24 @@ impl AppState {
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
-        let scrobble_manager =
-            scrobble::ScrobbleManager::new(app_handle.clone(), crypto.clone(), &config_dir);
+        let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
+        let scrobble_http_client = crate::tidal_api::build_http_client(&proxy_settings)
+            .unwrap_or_else(|_| {
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()
+                    .unwrap()
+            });
+        let scrobble_manager = scrobble::ScrobbleManager::new(
+            app_handle.clone(),
+            crypto.clone(),
+            &config_dir,
+            scrobble_http_client,
+        );
 
         Self {
             audio_player: AudioPlayer::new(app_handle.clone()),
-            tidal_client: Mutex::new(TidalClient::new(
-                &saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default(),
-            )),
+            tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
             settings_path,
             cache_dir,
             disk_cache,
@@ -348,7 +358,12 @@ pub fn run() {
                     if let Some(settings) = state.load_settings() {
                         let http_client = crate::tidal_api::build_http_client(
                             &settings.proxy
-                        ).unwrap_or_else(|_| reqwest::Client::new());
+                        ).unwrap_or_else(|_| {
+                            reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(30))
+                                .build()
+                                .unwrap()
+                        });
 
                         // Last.fm
                         if let Some(ref creds) = settings.scrobble.lastfm {
