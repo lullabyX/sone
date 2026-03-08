@@ -4,6 +4,25 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
+/// Build a reqwest `Client` with an optional proxy URL.
+/// `proxy_url` should be in one of the forms accepted by reqwest:
+/// `socks5://host:port`, `socks5h://host:port`, or `http://host:port`.
+pub fn build_http_client(proxy_url: Option<&str>) -> Client {
+    let mut builder = Client::builder().timeout(Duration::from_secs(30));
+    if let Some(url) = proxy_url.filter(|u| !u.is_empty()) {
+        match reqwest::Proxy::all(url) {
+            Ok(proxy) => {
+                builder = builder.proxy(proxy);
+                log::info!("[build_http_client]: using proxy {url}");
+            }
+            Err(e) => {
+                log::warn!("[build_http_client]: invalid proxy URL '{url}': {e}");
+            }
+        }
+    }
+    builder.build().unwrap_or_else(|_| Client::new())
+}
+
 const TIDAL_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2";
 const TIDAL_API_URL: &str = "https://api.tidal.com/v1";
 const TIDAL_API_V2_URL: &str = "https://api.tidal.com/v2";
@@ -815,15 +834,18 @@ pub struct TidalClient {
 impl TidalClient {
     pub fn new() -> Self {
         Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap(),
+            client: build_http_client(None),
             tokens: None,
             client_id: String::new(),
             client_secret: String::new(),
             country_code: "US".to_string(),
         }
+    }
+
+    /// Rebuild the internal HTTP client to route traffic through `proxy_url`.
+    /// Pass `None` or an empty string to clear the proxy.
+    pub fn set_proxy(&mut self, proxy_url: Option<&str>) {
+        self.client = build_http_client(proxy_url);
     }
 
     pub fn set_credentials(&mut self, client_id: &str, client_secret: &str) {

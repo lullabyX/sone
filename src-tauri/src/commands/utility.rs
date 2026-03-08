@@ -32,7 +32,8 @@ pub async fn get_image_bytes(
             Ok(bytes)
         }
         CacheResult::Miss => {
-            let res = reqwest::get(&url).await?;
+            let client = state.http_client.lock().unwrap().clone();
+            let res = client.get(&url).send().await?;
             let bytes = res.bytes().await?.to_vec();
 
             state
@@ -225,4 +226,36 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
     let devices = crate::audio::list_alsa_devices().map_err(SoneError::Audio)?;
     *state.cached_audio_devices.lock().unwrap() = Some(devices.clone());
     Ok(devices)
+}
+
+#[tauri::command]
+pub fn get_proxy_url(state: State<'_, AppState>) -> Option<String> {
+    state.load_settings().and_then(|s| s.proxy_url)
+}
+
+#[tauri::command]
+pub async fn set_proxy_url(
+    state: State<'_, AppState>,
+    proxy_url: Option<String>,
+) -> Result<(), SoneError> {
+    let url_ref = proxy_url.as_deref().filter(|u| !u.is_empty());
+
+    // Validate the proxy URL before saving (skip validation for None/empty)
+    if let Some(url) = url_ref {
+        reqwest::Proxy::all(url).map_err(|e| {
+            SoneError::Parse(format!("Invalid proxy URL: {e}"))
+        })?;
+    }
+
+    // Rebuild HTTP clients with the new proxy setting
+    *state.http_client.lock().unwrap() = crate::tidal_api::build_http_client(url_ref);
+    let mut client = state.tidal_client.lock().await;
+    client.set_proxy(url_ref);
+    drop(client);
+
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.proxy_url = proxy_url.filter(|u| !u.is_empty());
+    state.save_settings(&settings)?;
+    log::info!("[set_proxy_url]: proxy set to {:?}", settings.proxy_url);
+    Ok(())
 }
