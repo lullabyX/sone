@@ -135,7 +135,7 @@ const MaxProgressScrubber = memo(function MaxProgressScrubber({
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     },
-    [currentTrack, getTimeFromClientX, seekTo],
+    [currentTrack, getTimeFromClientX, seekTo, isDraggingRef, resetHideTimer],
   );
 
   return (
