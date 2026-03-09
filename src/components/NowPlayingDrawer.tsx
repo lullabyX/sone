@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   ListPlus,
   GripVertical,
+  Maximize2,
 } from "lucide-react";
 import {
   useState,
@@ -20,7 +21,7 @@ import {
   memo,
   useMemo,
 } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   isPlayingAtom,
@@ -1537,6 +1538,7 @@ export default function NowPlayingDrawer() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
   const maximized = useAtomValue(maximizedPlayerAtom);
+  const setMaximized = useSetAtom(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
 
@@ -1640,12 +1642,21 @@ export default function NowPlayingDrawer() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setDrawerOpen(false)}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors duration-150 shrink-0 ml-2"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              <button
+                onClick={() => setMaximized(true)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors duration-150"
+                title="Fullscreen player"
+              >
+                <Maximize2 size={18} />
+              </button>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors duration-150"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Tab content — only active tab mounted (Vaul pattern: always mounted, CSS-controlled visibility) */}
