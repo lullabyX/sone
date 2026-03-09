@@ -5,9 +5,6 @@ import {
   SkipForward,
   Repeat,
   Shuffle,
-  Volume2,
-  VolumeX,
-  Volume1,
   Heart,
   ListMusic,
   Mic2,
@@ -15,25 +12,26 @@ import {
   Maximize2,
 } from "lucide-react";
 import { getTidalImageUrl } from "../types";
+import { formatTime } from "../lib/format";
 import TidalImage from "./TidalImage";
-import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useCallback, memo } from "react";
 import { useAtomValue, useAtom, useSetAtom } from "jotai";
 import {
   currentTrackAtom,
   isPlayingAtom,
-  volumeAtom,
-  streamInfoAtom,
   autoplayAtom,
-  bitPerfectAtom,
   repeatAtom,
   shuffleAtom,
 } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { maximizedPlayerAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useProgressScrub } from "../hooks/useProgressScrub";
 import { useFavorites } from "../hooks/useFavorites";
 import { useDrawer } from "../hooks/useDrawer";
 import { useNavigation } from "../hooks/useNavigation";
+import QualityBadge from "./QualityBadge";
+import VolumeSlider from "./VolumeSlider";
 
 // ─── TrackInfoSection ──────────────────────────────────────────────────────
 
@@ -122,106 +120,20 @@ const FavoriteButton = memo(function FavoriteButton() {
   );
 });
 
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 // ─── ProgressScrubber ──────────────────────────────────────────────────────
 
 const ProgressScrubber = memo(function ProgressScrubber() {
-  const currentTrack = useAtomValue(currentTrackAtom);
-  const isPlaying = useAtomValue(isPlayingAtom);
-  const { getPlaybackPosition, seekTo } = usePlaybackActions();
-
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragTime, setDragTime] = useState(0);
-  const [isHoveringProgress, setIsHoveringProgress] = useState(false);
-  const progressRef = useRef<HTMLDivElement>(null);
-  // Prevent sync from overwriting currentTime right after a seek
-  const seekGuardUntil = useRef(0);
-
-  // Sync progress with backend playback position
-  useEffect(() => {
-    if (!isPlaying || !currentTrack || isDragging) return;
-
-    const syncPosition = async () => {
-      if (Date.now() < seekGuardUntil.current) return;
-      const pos = await getPlaybackPosition();
-      setCurrentTime(pos);
-    };
-
-    syncPosition();
-    const interval = setInterval(syncPosition, 500);
-    return () => clearInterval(interval);
-  }, [isPlaying, currentTrack, isDragging, getPlaybackPosition]);
-
-  // Reset on track change
-  useEffect(() => {
-    setCurrentTime(0);
-  }, [currentTrack?.id]);
-
-  const duration = currentTrack?.duration ?? 0;
-  const displayTime = isDragging ? dragTime : currentTime;
-  const progress = duration > 0 ? (displayTime / duration) * 100 : 0;
-  const clampedProgress = Math.min(100, Math.max(0, progress));
-
-  const getTimeFromClientX = useCallback(
-    (clientX: number) => {
-      if (!progressRef.current || !currentTrack) return 0;
-      const el = progressRef.current;
-      const rect = el.getBoundingClientRect();
-
-      let adjustedX = clientX;
-      const cssWidth = el.offsetWidth;
-      if (cssWidth > 0 && Math.abs(rect.width / cssWidth - 1) < 0.01) {
-        const zoom = parseFloat(document.documentElement.style.zoom || "1");
-        if (zoom !== 1) {
-          adjustedX = clientX / zoom;
-        }
-      }
-
-      const pct = Math.max(
-        0,
-        Math.min(1, (adjustedX - rect.left) / rect.width),
-      );
-      return pct * currentTrack.duration;
-    },
-    [currentTrack],
-  );
-
-  const handleProgressMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (!currentTrack) return;
-      e.preventDefault();
-      const startTime = getTimeFromClientX(e.clientX);
-      setIsDragging(true);
-      setDragTime(startTime);
-
-      const onMove = (ev: MouseEvent) => {
-        setDragTime(getTimeFromClientX(ev.clientX));
-      };
-
-      const onUp = async (ev: MouseEvent) => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        const finalTime = getTimeFromClientX(ev.clientX);
-        // Set currentTime before clearing isDragging so there's no flicker
-        setCurrentTime(finalTime);
-        setIsDragging(false);
-        // Don't reset isHoveringProgress — let onMouseLeave handle it
-        // Guard against sync overwriting with stale backend position
-        seekGuardUntil.current = Date.now() + 600;
-        await seekTo(finalTime);
-      };
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [currentTrack, getTimeFromClientX, seekTo],
-  );
+  const {
+    progressRef,
+    currentTrack,
+    displayTime,
+    duration,
+    clampedProgress,
+    isDragging,
+    isHoveringProgress,
+    setIsHoveringProgress,
+    handleProgressMouseDown,
+  } = useProgressScrub();
 
   return (
     <div className="w-full flex items-center gap-2 text-th-text-muted">
@@ -237,11 +149,8 @@ const ProgressScrubber = memo(function ProgressScrubber() {
         }}
         className="scrubber flex-1 relative cursor-pointer h-[17px] flex items-center"
       >
-        {/* Track background — fixed height container prevents layout shift */}
         <div className="relative w-full h-[5px] rounded-full">
-          {/* Unfilled track */}
           <div className="absolute inset-0 bg-white/[0.12] rounded-full" />
-          {/* Filled track — thinner when not hovered, centered vertically */}
           <div
             className={`absolute left-0 rounded-full transition-[height,top,background-color] duration-100 ${
               isHoveringProgress || isDragging
@@ -250,7 +159,6 @@ const ProgressScrubber = memo(function ProgressScrubber() {
             }`}
             style={{ width: `${clampedProgress}%` }}
           />
-          {/* Unfilled track overlay — thinner when not hovered */}
           {!(isHoveringProgress || isDragging) && (
             <div className="absolute inset-0 rounded-full">
               <div className="absolute left-0 right-0 top-0 h-[1px] bg-th-elevated" />
@@ -258,7 +166,6 @@ const ProgressScrubber = memo(function ProgressScrubber() {
             </div>
           )}
         </div>
-        {/* Scrub handle */}
         <div
           className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md shadow-black/50 pointer-events-none transition-opacity duration-100 ${
             isHoveringProgress || isDragging ? "opacity-100" : "opacity-0"
@@ -346,7 +253,7 @@ const TransportControls = memo(function TransportControls() {
           <SkipForward size={18} fill="currentColor" />
         </button>
         <button
-          onClick={() => setRepeatMode(((repeatMode as number) + 1) % 3)}
+          onClick={() => setRepeatMode((repeatMode + 1) % 3)}
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
             repeatMode > 0
               ? "text-th-accent"
@@ -368,119 +275,6 @@ const TransportControls = memo(function TransportControls() {
 
       {/* Progress bar */}
       <ProgressScrubber />
-    </div>
-  );
-});
-
-// ─── QualityBadge ──────────────────────────────────────────────────────────
-
-const QualityBadge = memo(function QualityBadge() {
-  const currentTrack = useAtomValue(currentTrackAtom);
-  const streamInfo = useAtomValue(streamInfoAtom);
-
-  const quality = streamInfo?.audioQuality || currentTrack?.audioQuality;
-  if (!quality) return null;
-
-  const isMax = quality === "HI_RES_LOSSLESS" || quality === "HI_RES";
-  const isHiFi = quality === "LOSSLESS";
-
-  const parts: string[] = [];
-  if (streamInfo?.bitDepth) parts.push(`${streamInfo.bitDepth}-BIT`);
-  if (streamInfo?.sampleRate) {
-    const sr = streamInfo.sampleRate;
-    parts.push(
-      sr >= 1000
-        ? `${(sr / 1000).toFixed(sr % 1000 === 0 ? 0 : 1)}kHz`
-        : `${sr}Hz`,
-    );
-  }
-  if (streamInfo?.codec) parts.push(streamInfo.codec);
-  const detail = parts.join(" ");
-
-  const label = isMax ? "HI-RES LOSSLESS" : isHiFi ? "LOSSLESS" : "HIGH";
-
-  return (
-    <div className="flex flex-col items-end gap-0.5">
-      {detail && (
-        <span className="text-[9px] text-th-text-faint font-medium tracking-wide inline">
-          {detail}
-        </span>
-      )}
-      <span
-        className={`px-2 py-0.5 text-[9px] font-black rounded tracking-wider leading-none ${
-          isMax
-            ? "bg-th-accent text-black"
-            : isHiFi
-              ? "bg-th-accent/70 text-black"
-              : "bg-th-button-hover text-white"
-        }`}
-      >
-        {label}
-      </span>
-    </div>
-  );
-});
-
-// ─── VolumeSlider ──────────────────────────────────────────────────────────
-
-const VolumeSlider = memo(function VolumeSlider() {
-  const volume = useAtomValue(volumeAtom);
-  const bitPerfect = useAtomValue(bitPerfectAtom);
-  const { setVolume } = usePlaybackActions();
-
-  const displayVolume = bitPerfect ? 1 : volume;
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (bitPerfect) return;
-    setVolume(parseFloat(e.target.value));
-  };
-
-  const VolumeIcon =
-    displayVolume === 0 ? VolumeX : displayVolume < 0.5 ? Volume1 : Volume2;
-
-  return (
-    <div
-      className={`flex items-center gap-2 group/vol w-[120px] ${bitPerfect ? "opacity-40 cursor-not-allowed" : ""}`}
-    >
-      <button
-        onClick={() => {
-          if (bitPerfect) return;
-          setVolume(volume > 0 ? 0 : 1);
-        }}
-        className={`flex-shrink-0 transition-colors duration-150 ${
-          bitPerfect
-            ? "text-th-text-faint cursor-not-allowed"
-            : "text-th-text-secondary hover:text-white"
-        }`}
-        disabled={bitPerfect}
-      >
-        <VolumeIcon size={16} strokeWidth={2} />
-      </button>
-      <div
-        className={`flex-1 relative rounded-full ${bitPerfect ? "cursor-not-allowed" : "cursor-pointer"}`}
-      >
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={displayVolume}
-          onChange={handleVolumeChange}
-          disabled={bitPerfect}
-          className={`absolute inset-0 w-full h-full opacity-0 z-10 ${bitPerfect ? "cursor-not-allowed" : "cursor-pointer"}`}
-        />
-        <div className="relative h-[3px] group-hover/vol:h-[4px] transition-[height] duration-100 rounded-full">
-          <div className="absolute inset-0 bg-white/[0.12] rounded-full" />
-          <div
-            className="absolute h-full bg-white/70 group-hover/vol:bg-th-accent rounded-full transition-colors duration-100"
-            style={{ width: `${displayVolume * 100}%` }}
-          />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-[10px] h-[10px] bg-white rounded-full shadow-sm opacity-0 group-hover/vol:opacity-100 transition-opacity duration-100"
-            style={{ left: `calc(${displayVolume * 100}% - 5px)` }}
-          />
-        </div>
-      </div>
     </div>
   );
 });
