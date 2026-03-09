@@ -33,6 +33,7 @@ import { getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
 import CrossfadeTidalImage from "./CrossfadeTidalImage";
 import TrackContextMenu from "./TrackContextMenu";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // ─── MaxProgressScrubber ──────────────────────────────────────────────────
 
@@ -364,18 +365,12 @@ export default function MaximizedPlayer() {
     if (!currentTrack) setMaximized(false);
   }, [currentTrack, setMaximized]);
 
-  // Enter true fullscreen on mount, exit on unmount
+  // Enter true fullscreen on mount, exit on unmount (Tauri — instant, no browser animation)
   useEffect(() => {
-    document.documentElement.requestFullscreen?.().catch(() => {});
-    const onFullscreenChange = () => {
-      if (!document.fullscreenElement) setMaximized(false);
-    };
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
-      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-    };
-  }, [setMaximized]);
+    const appWindow = getCurrentWindow();
+    appWindow.setFullscreen(true);
+    return () => { appWindow.setFullscreen(false); };
+  }, []);
 
   // ESC to close — yields to context menu if open
   useEffect(() => {
@@ -409,8 +404,8 @@ export default function MaximizedPlayer() {
 
       {/* Center content */}
       <div className="relative z-10 flex flex-col items-center gap-5">
-        {/* Large album art — responsive: 80vmin capped at 600px */}
-        <div className="max-w-[600px] w-[80vmin] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60">
+        {/* Large album art — responsive: 80vmin capped at 800px */}
+        <div className="max-w-[800px] w-[80vmin] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60">
           <CrossfadeTidalImage
             src={getTidalImageUrl(currentTrack.album?.cover, 1280)}
             alt={currentTrack.album?.title || currentTrack.title}
@@ -419,7 +414,7 @@ export default function MaximizedPlayer() {
         </div>
 
         {/* Track info */}
-        <div className="flex flex-col items-center gap-1 max-w-[600px] w-[80vmin]">
+        <div className="flex flex-col items-center gap-1 max-w-[800px] w-[80vmin]">
           <span className="text-white text-[24px] font-bold truncate max-w-full">
             {currentTrack.title}
           </span>

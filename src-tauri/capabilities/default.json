@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:default", "global-shortcut:allow-register"]
+  "permissions": ["core:default", "core:window:allow-set-fullscreen", "opener:default", "global-shortcut:allow-register"]
 }

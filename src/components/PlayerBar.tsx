@@ -533,8 +533,10 @@ const MaximizeButton = memo(function MaximizeButton() {
 // ─── PlayerBar (shell) ─────────────────────────────────────────────────────
 
 export default function PlayerBar() {
+  const maximized = useAtomValue(maximizedPlayerAtom);
+
   return (
-    <div className="player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none">
+    <div className={`player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none ${maximized ? "invisible" : ""}`}>
       {/* Left: Track Info */}
       <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
         <TrackInfoSection />
