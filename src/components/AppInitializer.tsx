@@ -47,7 +47,7 @@ import {
   manualQueueAtom,
   playbackSourceAtom,
 } from "../atoms/playback";
-import { drawerOpenAtom } from "../atoms/ui";
+import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 
 // Stable action callbacks (no atom subscriptions)
@@ -760,6 +760,7 @@ export function AppInitializer() {
           }
           break;
         case "Escape":
+          if (store.get(maximizedPlayerAtom)) break;
           e.preventDefault();
           setDrawerOpen(false);
           break;

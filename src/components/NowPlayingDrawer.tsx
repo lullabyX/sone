@@ -30,6 +30,7 @@ import {
   manualQueueAtom,
   playbackSourceAtom,
 } from "../atoms/playback";
+import { maximizedPlayerAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
@@ -1535,6 +1536,7 @@ function QueueTabWrapper() {
 export default function NowPlayingDrawer() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
+  const maximized = useAtomValue(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
 
@@ -1554,11 +1556,12 @@ export default function NowPlayingDrawer() {
   useEffect(() => {
     if (!drawerOpen) return;
     const handler = (e: KeyboardEvent) => {
+      if (maximized) return;
       if (e.key === "Escape") setDrawerOpen(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [drawerOpen, setDrawerOpen]);
+  }, [drawerOpen, setDrawerOpen, maximized]);
 
   // Don't render anything until there's a track to show
   if (!currentTrack) return null;

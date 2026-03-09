@@ -364,6 +364,17 @@ export default function MaximizedPlayer() {
     if (!currentTrack) setMaximized(false);
   }, [currentTrack, setMaximized]);
 
+  // ESC to close — yields to context menu if open
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (contextMenuTrack) return;
+      setMaximized(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [setMaximized, contextMenuTrack]);
+
   if (!currentTrack) return null;
 
   return (
