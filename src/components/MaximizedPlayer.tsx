@@ -11,7 +11,7 @@ import {
   Infinity as InfinityIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { useAtomValue, useSetAtom, useAtom } from "jotai";
+import { useAtomValue, useSetAtom, useAtom, useStore } from "jotai";
 import {
   currentTrackAtom,
   isPlayingAtom,
@@ -21,17 +21,22 @@ import {
 } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { maximizedPlayerAtom } from "../atoms/ui";
+import { authTokensAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useProgressScrub } from "../hooks/useProgressScrub";
-import { useFavorites } from "../hooks/useFavorites";
 import { getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
 import CrossfadeTidalImage from "./CrossfadeTidalImage";
 import TrackContextMenu from "./TrackContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { formatTime } from "../lib/format";
 import QualityBadge from "./QualityBadge";
 import VolumeSlider from "./VolumeSlider";
+import {
+  addTrackToFavoritesCache,
+  removeTrackFromFavoritesCache,
+} from "../api/tidal";
 
 // ─── MaxProgressScrubber ──────────────────────────────────────────────────
 
@@ -99,13 +104,149 @@ const MaxProgressScrubber = memo(function MaxProgressScrubber({
   );
 });
 
+// ─── MaxTransportBar ──────────────────────────────────────────────────────
+
+const MaxTransportBar = memo(function MaxTransportBar({
+  currentTrack,
+  controlsVisible,
+  isDraggingRef,
+  resetHideTimer,
+  setMaximized,
+}: {
+  currentTrack: { title: string; artist?: { name?: string }; album?: { cover?: string; title?: string } };
+  controlsVisible: boolean;
+  isDraggingRef: React.MutableRefObject<boolean>;
+  resetHideTimer: () => void;
+  setMaximized: (v: boolean) => void;
+}) {
+  const isPlaying = useAtomValue(isPlayingAtom);
+  const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
+  const [autoplay, setAutoplay] = useAtom(autoplayAtom);
+  const isShuffle = useAtomValue(shuffleAtom);
+  const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } = usePlaybackActions();
+
+  return (
+    <div className={`absolute bottom-0 left-0 right-0 z-20 px-6 pb-4 pt-8 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+      <div className="flex items-center justify-between">
+        {/* Left: Track info */}
+        <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
+          <div className="w-12 h-12 rounded-md overflow-hidden shadow-lg shadow-black/40 flex-shrink-0">
+            <TidalImage
+              src={getTidalImageUrl(currentTrack.album?.cover, 160)}
+              alt={currentTrack.album?.title || currentTrack.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex flex-col justify-center min-w-0 gap-0.5">
+            <span className="text-white text-[13px] font-semibold truncate leading-tight">
+              {currentTrack.title}
+            </span>
+            <span className="text-th-text-secondary text-[11px] truncate">
+              {currentTrack.artist?.name || "Unknown Artist"}
+            </span>
+          </div>
+        </div>
+
+        {/* Center: Transport controls + scrubber */}
+        <div className="flex flex-col items-center w-[40%] max-w-[600px] gap-1">
+          {/* Transport buttons */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleShuffle}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
+                isShuffle
+                  ? "text-th-accent"
+                  : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
+              }`}
+            >
+              <Shuffle size={15} strokeWidth={2} />
+              {isShuffle && (
+                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
+              )}
+            </button>
+            <button
+              onClick={playPrevious}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-[color,background-color,transform] duration-150 active:scale-90"
+            >
+              <SkipBack size={20} fill="currentColor" />
+            </button>
+            <button
+              onClick={() => (isPlaying ? pauseTrack() : resumeTrack())}
+              className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform duration-150"
+            >
+              {isPlaying ? (
+                <Pause size={19} fill="black" className="text-black" />
+              ) : (
+                <Play size={19} fill="black" className="text-black ml-0.5" />
+              )}
+            </button>
+            <button
+              onClick={() => playNext({ explicit: true })}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-[color,background-color,transform] duration-150 active:scale-90"
+            >
+              <SkipForward size={20} fill="currentColor" />
+            </button>
+            <button
+              onClick={() => setRepeatMode((repeatMode + 1) % 3)}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
+                repeatMode > 0
+                  ? "text-th-accent"
+                  : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
+              }`}
+            >
+              <Repeat size={15} strokeWidth={2} />
+              {repeatMode === 2 && (
+                <span className="absolute -top-0.5 -right-0.5 text-[7px] font-bold bg-th-accent text-black rounded-full w-3 h-3 flex items-center justify-center leading-none">
+                  1
+                </span>
+              )}
+              {repeatMode > 0 && (
+                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
+              )}
+            </button>
+            <button
+              onClick={() => setAutoplay(!autoplay)}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
+                autoplay
+                  ? "text-th-accent"
+                  : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
+              }`}
+              title="Autoplay"
+            >
+              <InfinityIcon size={17} strokeWidth={2.5} />
+              {autoplay && (
+                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
+              )}
+            </button>
+          </div>
+          <MaxProgressScrubber isDraggingRef={isDraggingRef} resetHideTimer={resetHideTimer} />
+        </div>
+
+        {/* Right: Quality + Volume + Minimize */}
+        <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
+          <QualityBadge />
+          <VolumeSlider widthClass="w-[130px]" isDraggingRef={isDraggingRef} onDragEnd={resetHideTimer} />
+          <button
+            onClick={() => setMaximized(false)}
+            className="text-th-text-faint hover:text-white transition-colors duration-150"
+            title="Exit fullscreen"
+          >
+            <Minimize2 size={18} strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 // ─── MaximizedPlayer ──────────────────────────────────────────────────────
 
 export default function MaximizedPlayer() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
-  const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
+  const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
+  const store = useStore();
 
   // Context menu state
   const [contextMenuTrack, setContextMenuTrack] = useState<typeof currentTrack | null>(null);
@@ -116,27 +257,56 @@ export default function MaximizedPlayer() {
 
   const toggleLike = useCallback(async () => {
     if (!currentTrack) return;
+    const authTokens = store.get(authTokensAtom);
+    if (!authTokens?.user_id) return;
+    const userId = authTokens.user_id;
+
     try {
       if (isLiked) {
-        await removeFavoriteTrack(currentTrack.id);
+        setFavoriteTrackIds((prev: Set<number>) => {
+          const next = new Set(prev);
+          next.delete(currentTrack.id);
+          return next;
+        });
+        removeTrackFromFavoritesCache(userId, currentTrack.id);
+        await invoke("remove_favorite_track", { userId, trackId: currentTrack.id });
       } else {
-        await addFavoriteTrack(currentTrack.id, currentTrack);
+        setFavoriteTrackIds((prev: Set<number>) => new Set([...prev, currentTrack.id]));
+        addTrackToFavoritesCache(userId, currentTrack);
+        await invoke("add_favorite_track", { userId, trackId: currentTrack.id });
       }
     } catch (err) {
+      // Rollback optimistic update
+      if (isLiked) {
+        setFavoriteTrackIds((prev: Set<number>) => new Set([...prev, currentTrack.id]));
+        addTrackToFavoritesCache(userId, currentTrack);
+      } else {
+        setFavoriteTrackIds((prev: Set<number>) => {
+          const next = new Set(prev);
+          next.delete(currentTrack.id);
+          return next;
+        });
+        removeTrackFromFavoritesCache(userId, currentTrack.id);
+      }
       console.error("Failed to toggle track favorite:", err);
     }
-  }, [currentTrack, isLiked, addFavoriteTrack, removeFavoriteTrack]);
+  }, [currentTrack, isLiked, setFavoriteTrackIds, store]);
 
-  // Auto-hide controls
+  // Auto-hide controls — ref guards against redundant setState on mouse move
   const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsVisibleRef = useRef(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isDraggingRef = useRef(false);
 
   const resetHideTimer = useCallback(() => {
-    setControlsVisible(true);
+    if (!controlsVisibleRef.current) {
+      controlsVisibleRef.current = true;
+      setControlsVisible(true);
+    }
     clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
       if (!isDraggingRef.current) {
+        controlsVisibleRef.current = false;
         setControlsVisible(false);
       }
     }, 3000);
@@ -146,13 +316,6 @@ export default function MaximizedPlayer() {
     resetHideTimer();
     return () => clearTimeout(hideTimerRef.current);
   }, [resetHideTimer]);
-
-  // Transport control hooks
-  const isPlaying = useAtomValue(isPlayingAtom);
-  const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
-  const [autoplay, setAutoplay] = useAtom(autoplayAtom);
-  const isShuffle = useAtomValue(shuffleAtom);
-  const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } = usePlaybackActions();
 
   // Reset maximized state when track goes away (queue depleted)
   useEffect(() => {
@@ -186,11 +349,11 @@ export default function MaximizedPlayer() {
       onMouseMove={resetHideTimer}
       className={`fixed inset-0 z-[60] flex flex-col items-center justify-center select-none bg-black ${controlsVisible ? "cursor-default" : "cursor-none"}`}
     >
-      {/* Blurred album art background — plain TidalImage (blur hides swaps) */}
+      {/* Blurred album art background — 320px source (blur hides detail), GPU-promoted layer */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="w-full h-full scale-110 blur-[40px]">
+        <div className="w-full h-full scale-110 blur-[40px] will-change-transform">
           <TidalImage
-            src={getTidalImageUrl(currentTrack.album?.cover, 1280)}
+            src={getTidalImageUrl(currentTrack.album?.cover, 320)}
             alt=""
             className="w-full h-full object-cover"
           />
@@ -253,117 +416,14 @@ export default function MaximizedPlayer() {
         />
       )}
 
-      {/* Bottom bar — transparent, pinned to bottom */}
-      <div className={`absolute bottom-0 left-0 right-0 z-20 px-6 pb-4 pt-8 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
-        <div className="flex items-center justify-between">
-          {/* Left: Track info */}
-          <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
-            <div className="w-12 h-12 rounded-md overflow-hidden shadow-lg shadow-black/40 flex-shrink-0">
-              <TidalImage
-                src={getTidalImageUrl(currentTrack.album?.cover, 160)}
-                alt={currentTrack.album?.title || currentTrack.title}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="flex flex-col justify-center min-w-0 gap-0.5">
-              <span className="text-white text-[13px] font-semibold truncate leading-tight">
-                {currentTrack.title}
-              </span>
-              <span className="text-th-text-secondary text-[11px] truncate">
-                {currentTrack.artist?.name || "Unknown Artist"}
-              </span>
-            </div>
-          </div>
-
-          {/* Center: Transport controls + scrubber */}
-          <div className="flex flex-col items-center w-[40%] max-w-[600px] gap-1">
-            {/* Transport buttons */}
-            <div className="flex items-center gap-4">
-              <button
-                onClick={toggleShuffle}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
-                  isShuffle
-                    ? "text-th-accent"
-                    : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
-                }`}
-              >
-                <Shuffle size={15} strokeWidth={2} />
-                {isShuffle && (
-                  <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
-                )}
-              </button>
-              <button
-                onClick={playPrevious}
-                className="w-8 h-8 flex items-center justify-center rounded-full text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-[color,background-color,transform] duration-150 active:scale-90"
-              >
-                <SkipBack size={20} fill="currentColor" />
-              </button>
-              <button
-                onClick={() => (isPlaying ? pauseTrack() : resumeTrack())}
-                className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform duration-150"
-              >
-                {isPlaying ? (
-                  <Pause size={19} fill="black" className="text-black" />
-                ) : (
-                  <Play size={19} fill="black" className="text-black ml-0.5" />
-                )}
-              </button>
-              <button
-                onClick={() => playNext({ explicit: true })}
-                className="w-8 h-8 flex items-center justify-center rounded-full text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-[color,background-color,transform] duration-150 active:scale-90"
-              >
-                <SkipForward size={20} fill="currentColor" />
-              </button>
-              <button
-                onClick={() => setRepeatMode((repeatMode + 1) % 3)}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
-                  repeatMode > 0
-                    ? "text-th-accent"
-                    : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
-                }`}
-              >
-                <Repeat size={15} strokeWidth={2} />
-                {repeatMode === 2 && (
-                  <span className="absolute -top-0.5 -right-0.5 text-[7px] font-bold bg-th-accent text-black rounded-full w-3 h-3 flex items-center justify-center leading-none">
-                    1
-                  </span>
-                )}
-                {repeatMode > 0 && (
-                  <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
-                )}
-              </button>
-              <button
-                onClick={() => setAutoplay(!autoplay)}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-[color,background-color,transform] duration-200 active:scale-90 relative ${
-                  autoplay
-                    ? "text-th-accent"
-                    : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
-                }`}
-                title="Autoplay"
-              >
-                <InfinityIcon size={17} strokeWidth={2.5} />
-                {autoplay && (
-                  <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
-                )}
-              </button>
-            </div>
-            <MaxProgressScrubber isDraggingRef={isDraggingRef} resetHideTimer={resetHideTimer} />
-          </div>
-
-          {/* Right: Quality + Volume + Minimize */}
-          <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
-            <QualityBadge />
-            <VolumeSlider widthClass="w-[130px]" isDraggingRef={isDraggingRef} onDragEnd={resetHideTimer} />
-            <button
-              onClick={() => setMaximized(false)}
-              className="text-th-text-faint hover:text-white transition-colors duration-150"
-              title="Exit fullscreen"
-            >
-              <Minimize2 size={18} strokeWidth={2} />
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Bottom bar — memo'd to isolate transport atom subscriptions */}
+      <MaxTransportBar
+        currentTrack={currentTrack}
+        controlsVisible={controlsVisible}
+        isDraggingRef={isDraggingRef}
+        resetHideTimer={resetHideTimer}
+        setMaximized={setMaximized}
+      />
     </div>
   );
 }
