@@ -12,11 +12,12 @@ import {
   ListMusic,
   Mic2,
   Infinity as InfinityIcon,
+  Maximize2,
 } from "lucide-react";
 import { getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { useAtomValue, useAtom } from "jotai";
+import { useAtomValue, useAtom, useSetAtom } from "jotai";
 import {
   currentTrackAtom,
   isPlayingAtom,
@@ -28,6 +29,7 @@ import {
   shuffleAtom,
 } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
+import { maximizedPlayerAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { useDrawer } from "../hooks/useDrawer";
@@ -509,6 +511,25 @@ const DrawerButtons = memo(function DrawerButtons() {
   );
 });
 
+// ─── MaximizeButton ──────────────────────────────────────────────────────
+
+const MaximizeButton = memo(function MaximizeButton() {
+  const setMaximized = useSetAtom(maximizedPlayerAtom);
+  const currentTrack = useAtomValue(currentTrackAtom);
+
+  if (!currentTrack) return null;
+
+  return (
+    <button
+      onClick={() => setMaximized(true)}
+      className="text-th-text-faint hover:text-white transition-colors duration-150"
+      title="Fullscreen player"
+    >
+      <Maximize2 size={16} strokeWidth={2} />
+    </button>
+  );
+});
+
 // ─── PlayerBar (shell) ─────────────────────────────────────────────────────
 
 export default function PlayerBar() {
@@ -527,6 +548,7 @@ export default function PlayerBar() {
       <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
         <QualityBadge />
         <DrawerButtons />
+        <MaximizeButton />
       </div>
     </div>
   );
