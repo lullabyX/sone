@@ -20,7 +20,7 @@ export default function CrossfadeTidalImage({
   // Whether the new (front) image has finished loading.
   const [newLoaded, setNewLoaded] = useState(false);
   const pendingSrc = useRef(src);
-  const fadeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Clean up fade timer on unmount.
   useEffect(() => {

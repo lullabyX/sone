@@ -36,7 +36,13 @@ import TrackContextMenu from "./TrackContextMenu";
 
 // ─── MaxProgressScrubber ──────────────────────────────────────────────────
 
-const MaxProgressScrubber = memo(function MaxProgressScrubber() {
+const MaxProgressScrubber = memo(function MaxProgressScrubber({
+  isDraggingRef,
+  resetHideTimer,
+}: {
+  isDraggingRef: React.MutableRefObject<boolean>;
+  resetHideTimer: () => void;
+}) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
   const { getPlaybackPosition, seekTo } = usePlaybackActions();
@@ -105,6 +111,7 @@ const MaxProgressScrubber = memo(function MaxProgressScrubber() {
     (e: React.MouseEvent) => {
       if (!currentTrack) return;
       e.preventDefault();
+      isDraggingRef.current = true;
       const startTime = getTimeFromClientX(e.clientX);
       setIsDragging(true);
       setDragTime(startTime);
@@ -119,6 +126,8 @@ const MaxProgressScrubber = memo(function MaxProgressScrubber() {
         const finalTime = getTimeFromClientX(ev.clientX);
         setCurrentTime(finalTime);
         setIsDragging(false);
+        isDraggingRef.current = false;
+        resetHideTimer();
         seekGuardUntil.current = Date.now() + 600;
         await seekTo(finalTime);
       };
@@ -225,7 +234,13 @@ const MaxQualityBadge = memo(function MaxQualityBadge() {
 
 // ─── MaxVolumeSlider ──────────────────────────────────────────────────────
 
-const MaxVolumeSlider = memo(function MaxVolumeSlider() {
+const MaxVolumeSlider = memo(function MaxVolumeSlider({
+  isDraggingRef,
+  resetHideTimer,
+}: {
+  isDraggingRef: React.MutableRefObject<boolean>;
+  resetHideTimer: () => void;
+}) {
   const volume = useAtomValue(volumeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const { setVolume } = usePlaybackActions();
@@ -268,6 +283,8 @@ const MaxVolumeSlider = memo(function MaxVolumeSlider() {
           step="0.01"
           value={displayVolume}
           onChange={handleVolumeChange}
+          onMouseDown={() => { isDraggingRef.current = true; }}
+          onMouseUp={() => { isDraggingRef.current = false; resetHideTimer(); }}
           disabled={bitPerfect}
           className={`absolute inset-0 w-full h-full opacity-0 z-10 ${bitPerfect ? "cursor-not-allowed" : "cursor-pointer"}`}
         />
@@ -315,6 +332,26 @@ export default function MaximizedPlayer() {
     }
   }, [currentTrack, isLiked, addFavoriteTrack, removeFavoriteTrack]);
 
+  // Auto-hide controls
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const isDraggingRef = useRef(false);
+
+  const resetHideTimer = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      if (!isDraggingRef.current) {
+        setControlsVisible(false);
+      }
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    resetHideTimer();
+    return () => clearTimeout(hideTimerRef.current);
+  }, [resetHideTimer]);
+
   // Transport control hooks
   const isPlaying = useAtomValue(isPlayingAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
@@ -333,7 +370,8 @@ export default function MaximizedPlayer() {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[60] flex flex-col items-center justify-center select-none bg-black"
+      onMouseMove={resetHideTimer}
+      className={`fixed inset-0 z-[60] flex flex-col items-center justify-center select-none bg-black ${controlsVisible ? "cursor-default" : "cursor-none"}`}
     >
       {/* Blurred album art background — 320px source is sufficient under 40px blur */}
       <div className="absolute inset-0 overflow-hidden">
@@ -401,7 +439,7 @@ export default function MaximizedPlayer() {
       )}
 
       {/* Bottom bar — transparent, pinned to bottom */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 px-6 pb-4 pt-8 bg-gradient-to-t from-black/60 to-transparent">
+      <div className={`absolute bottom-0 left-0 right-0 z-20 px-6 pb-4 pt-8 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
         <div className="flex items-center justify-between">
           {/* Left: Track info */}
           <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
@@ -494,13 +532,13 @@ export default function MaximizedPlayer() {
                 )}
               </button>
             </div>
-            <MaxProgressScrubber />
+            <MaxProgressScrubber isDraggingRef={isDraggingRef} resetHideTimer={resetHideTimer} />
           </div>
 
           {/* Right: Quality + Volume + Minimize */}
           <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
             <MaxQualityBadge />
-            <MaxVolumeSlider />
+            <MaxVolumeSlider isDraggingRef={isDraggingRef} resetHideTimer={resetHideTimer} />
             <button
               onClick={() => setMaximized(false)}
               className="text-th-text-faint hover:text-white transition-colors duration-150"
