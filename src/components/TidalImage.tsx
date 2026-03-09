@@ -57,6 +57,7 @@ interface TidalImageProps {
   alt: string;
   className?: string;
   type?: "album" | "playlist" | "artist";
+  onLoad?: () => void;
 }
 
 function TidalImageComponent({
@@ -64,6 +65,7 @@ function TidalImageComponent({
   alt,
   className = "",
   type = "album",
+  onLoad,
 }: TidalImageProps) {
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -127,7 +129,7 @@ function TidalImageComponent({
           isLoading ? "opacity-0" : "opacity-100"
         } transition-opacity`}
         onError={() => setHasError(true)}
-        onLoad={() => setIsLoading(false)}
+        onLoad={() => { setIsLoading(false); onLoad?.(); }}
         loading="lazy"
       />
     </div>
