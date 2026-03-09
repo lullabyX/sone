@@ -68,13 +68,32 @@ function TidalImageComponent({
   onLoad,
 }: TidalImageProps) {
   const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [blobUrl, setBlobUrl] = useState<string | undefined>(undefined);
+  // Synchronous cache check — if the blob is already in memory, skip loading entirely
+  const [blobUrl, setBlobUrl] = useState<string | undefined>(() => {
+    if (!src) return undefined;
+    const entry = blobCache.get(src);
+    if (entry) {
+      entry.accessOrder = ++blobAccessCounter;
+      return entry.url;
+    }
+    return undefined;
+  });
+  const [isLoading, setIsLoading] = useState(blobUrl === undefined);
 
   useEffect(() => {
     if (!src) return;
 
-    // Reset state when src changes
+    // Sync cache hit — skip loading shimmer
+    const cached = blobCache.get(src);
+    if (cached) {
+      cached.accessOrder = ++blobAccessCounter;
+      setBlobUrl(cached.url);
+      setIsLoading(false);
+      setHasError(false);
+      return;
+    }
+
+    // Not cached — fetch with loading state
     setHasError(false);
     setIsLoading(true);
     setBlobUrl(undefined);
