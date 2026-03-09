@@ -1537,7 +1537,6 @@ function QueueTabWrapper() {
 export default function NowPlayingDrawer() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
-  const maximized = useAtomValue(maximizedPlayerAtom);
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
@@ -1553,17 +1552,6 @@ export default function NowPlayingDrawer() {
     if (isNaN(r) || isNaN(g) || isNaN(b)) return "none";
     return `linear-gradient(rgba(${r}, ${g}, ${b}, 0.28) 0%, rgba(${r}, ${g}, ${b}, 0) 90%)`;
   }, [vibrantColor]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (maximized) return;
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [drawerOpen, setDrawerOpen, maximized]);
 
   // Don't render anything until there's a track to show
   if (!currentTrack) return null;
