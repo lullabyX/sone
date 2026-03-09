@@ -35,6 +35,12 @@ import CrossfadeTidalImage from "./CrossfadeTidalImage";
 import TrackContextMenu from "./TrackContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
 // ─── MaxProgressScrubber ──────────────────────────────────────────────────
 
 const MaxProgressScrubber = memo(function MaxProgressScrubber({
@@ -77,12 +83,6 @@ const MaxProgressScrubber = memo(function MaxProgressScrubber({
   const displayTime = isDragging ? dragTime : currentTime;
   const progress = duration > 0 ? (displayTime / duration) * 100 : 0;
   const clampedProgress = Math.min(100, Math.max(0, progress));
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
 
   const getTimeFromClientX = useCallback(
     (clientX: number) => {
@@ -284,8 +284,15 @@ const MaxVolumeSlider = memo(function MaxVolumeSlider({
           step="0.01"
           value={displayVolume}
           onChange={handleVolumeChange}
-          onMouseDown={() => { isDraggingRef.current = true; }}
-          onMouseUp={() => { isDraggingRef.current = false; resetHideTimer(); }}
+          onMouseDown={() => {
+            isDraggingRef.current = true;
+            const onUp = () => {
+              isDraggingRef.current = false;
+              resetHideTimer();
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mouseup", onUp);
+          }}
           disabled={bitPerfect}
           className={`absolute inset-0 w-full h-full opacity-0 z-10 ${bitPerfect ? "cursor-not-allowed" : "cursor-pointer"}`}
         />
@@ -392,13 +399,15 @@ export default function MaximizedPlayer() {
       onMouseMove={resetHideTimer}
       className={`fixed inset-0 z-[60] flex flex-col items-center justify-center select-none bg-black ${controlsVisible ? "cursor-default" : "cursor-none"}`}
     >
-      {/* Blurred album art background — 160px is always cached from PlayerBar */}
+      {/* Blurred album art background — plain TidalImage (blur hides swaps) */}
       <div className="absolute inset-0 overflow-hidden">
-        <CrossfadeTidalImage
-          src={getTidalImageUrl(currentTrack.album?.cover, 160)}
-          alt=""
-          className="w-full h-full scale-110 blur-[40px]"
-        />
+        <div className="w-full h-full scale-110 blur-[40px]">
+          <TidalImage
+            src={getTidalImageUrl(currentTrack.album?.cover, 1280)}
+            alt=""
+            className="w-full h-full object-cover"
+          />
+        </div>
         <div className="absolute inset-0 bg-black/60" />
       </div>
 

@@ -122,6 +122,12 @@ const FavoriteButton = memo(function FavoriteButton() {
   );
 });
 
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
 // ─── ProgressScrubber ──────────────────────────────────────────────────────
 
 const ProgressScrubber = memo(function ProgressScrubber() {
@@ -161,12 +167,6 @@ const ProgressScrubber = memo(function ProgressScrubber() {
   const displayTime = isDragging ? dragTime : currentTime;
   const progress = duration > 0 ? (displayTime / duration) * 100 : 0;
   const clampedProgress = Math.min(100, Math.max(0, progress));
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
 
   const getTimeFromClientX = useCallback(
     (clientX: number) => {

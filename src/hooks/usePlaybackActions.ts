@@ -30,6 +30,8 @@ import { getTrackRadio, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import type { Track, StreamInfo } from "../types";
+import { getTidalImageUrl } from "../types";
+import { preloadImage } from "../components/TidalImage";
 
 /** Normalize a raw track-like object into a proper Track.
  *  Handles the artist/artists mismatch from different API endpoints. */
@@ -125,6 +127,7 @@ export function usePlaybackActions() {
       const generation = ++playGenerationRef.current;
       try {
         const stamped = ensureQid(normalizeTrack(track));
+        preloadImage(getTidalImageUrl(stamped.album?.cover, 1280));
         const info = await invokePlayWithRetry(
           stamped.id,
           store.get(useTrackGainAtom),
@@ -560,6 +563,7 @@ export function usePlaybackActions() {
       }
 
       try {
+        preloadImage(getTidalImageUrl(prevTrack.album?.cover, 1280));
         const info = await invokePlayWithRetry(
           prevTrack.id,
           store.get(useTrackGainAtom),

@@ -29,6 +29,8 @@ function evictBlobsIfNeeded(requiredBytes: number): void {
   }
 }
 
+const inflight = new Map<string, Promise<string>>();
+
 function fetchCachedImageUrl(src: string): Promise<string> {
   const entry = blobCache.get(src);
   if (entry) {
@@ -36,20 +38,32 @@ function fetchCachedImageUrl(src: string): Promise<string> {
     return Promise.resolve(entry.url);
   }
 
-  return invoke<number[]>("get_image_bytes", { url: src }).then((bytes) => {
-    const arr = new Uint8Array(bytes);
-    const blob = new Blob([arr], { type: "image/jpeg" });
-    const blobUrl = URL.createObjectURL(blob);
-    const size = arr.byteLength;
-    evictBlobsIfNeeded(size);
-    blobCache.set(src, {
-      url: blobUrl,
-      size,
-      accessOrder: ++blobAccessCounter,
+  const existing = inflight.get(src);
+  if (existing) return existing;
+
+  const promise = invoke<number[]>("get_image_bytes", { url: src })
+    .then((bytes) => {
+      const arr = new Uint8Array(bytes);
+      const blob = new Blob([arr], { type: "image/jpeg" });
+      const blobUrl = URL.createObjectURL(blob);
+      const size = arr.byteLength;
+      evictBlobsIfNeeded(size);
+      blobCache.set(src, {
+        url: blobUrl,
+        size,
+        accessOrder: ++blobAccessCounter,
+      });
+      blobTotalBytes += size;
+      inflight.delete(src);
+      return blobUrl;
+    })
+    .catch((err) => {
+      inflight.delete(src);
+      throw err;
     });
-    blobTotalBytes += size;
-    return blobUrl;
-  });
+
+  inflight.set(src, promise);
+  return promise;
 }
 
 interface TidalImageProps {
@@ -149,7 +163,6 @@ function TidalImageComponent({
         } transition-opacity`}
         onError={() => setHasError(true)}
         onLoad={() => { setIsLoading(false); onLoad?.(); }}
-        loading="lazy"
       />
     </div>
   );
@@ -159,3 +172,8 @@ const TidalImage = memo(TidalImageComponent);
 TidalImage.displayName = "TidalImage";
 
 export default TidalImage;
+
+export function preloadImage(url: string): void {
+  if (!url) return;
+  fetchCachedImageUrl(url).catch(() => {});
+}

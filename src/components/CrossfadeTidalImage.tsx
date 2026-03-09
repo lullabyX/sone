@@ -15,67 +15,56 @@ export default function CrossfadeTidalImage({
   className = "",
   fadeDuration = 300,
 }: CrossfadeTidalImageProps) {
-  // The "committed" src — last successfully loaded image.
+  // The "committed" src — last successfully loaded & transitioned image.
   const [displaySrc, setDisplaySrc] = useState(src);
-  // Whether the new (front) image has finished loading.
-  const [newLoaded, setNewLoaded] = useState(false);
-  const pendingSrc = useRef(src);
+  const [fadeIn, setFadeIn] = useState(false);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Clean up fade timer on unmount.
-  useEffect(() => {
-    return () => clearTimeout(fadeTimerRef.current);
-  }, []);
+  useEffect(() => () => clearTimeout(fadeTimerRef.current), []);
 
-  // When src changes, update pendingSrc and clear any in-flight fade timer.
+  // When src changes, reset fade state.
   useEffect(() => {
-    pendingSrc.current = src;
     if (src !== displaySrc) {
-      setNewLoaded(false);
+      setFadeIn(false);
       clearTimeout(fadeTimerRef.current);
     }
   }, [src, displaySrc]);
-
-  const handleNewLoad = () => {
-    if (pendingSrc.current === src) {
-      setNewLoaded(true);
-      // After fade completes, promote new src to display and unmount old layer.
-      fadeTimerRef.current = setTimeout(() => {
-        // Re-check pendingSrc to guard against rapid skipping:
-        // a stale timeout must not promote a src that is no longer current.
-        if (pendingSrc.current === src) {
-          setDisplaySrc(src);
-          setNewLoaded(false);
-        }
-      }, fadeDuration);
-    }
-  };
 
   const isTransitioning = src !== displaySrc;
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      {/* Back layer: previous image */}
-      <TidalImage
-        src={displaySrc}
-        alt={alt}
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+      {/* Back layer: currently displayed image */}
+      <div className="absolute inset-0">
+        <TidalImage
+          src={displaySrc}
+          alt={alt}
+          className="w-full h-full object-cover"
+        />
+      </div>
 
-      {/* Front layer: new image — starts invisible, fades in on load */}
+      {/* Front layer: new image — fades in on load, then promotes */}
       {isTransitioning && (
         <div
           className="absolute inset-0"
           style={{
-            opacity: newLoaded ? 1 : 0,
+            opacity: fadeIn ? 1 : 0,
             transition: `opacity ${fadeDuration}ms ease-in-out`,
           }}
         >
           <TidalImage
+            key={src}
             src={src}
             alt={alt}
             className="w-full h-full object-cover"
-            onLoad={handleNewLoad}
+            onLoad={() => {
+              setFadeIn(true);
+              clearTimeout(fadeTimerRef.current);
+              fadeTimerRef.current = setTimeout(() => {
+                setDisplaySrc(src);
+                setFadeIn(false);
+              }, fadeDuration);
+            }}
           />
         </div>
       )}
