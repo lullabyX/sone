@@ -573,7 +573,7 @@ export default function MaximizedPlayer() {
       {/* Center content — single column (art centered) or two-column (art + lyrics) */}
       <div className={`relative z-10 flex items-center ${
         showLyrics
-          ? "w-full pl-40 pr-12 gap-40"
+          ? "w-full pl-52 pr-52 gap-40"
           : "flex-col gap-5"
       }`}>
         {/* Left: album art + track info + actions */}
