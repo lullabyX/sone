@@ -37,7 +37,9 @@ import VolumeSlider from "./VolumeSlider";
 import {
   addTrackToFavoritesCache,
   removeTrackFromFavoritesCache,
+  getTrackLyrics,
 } from "../api/tidal";
+import { parseLrc, type LrcLine } from "../lib/lrc";
 
 const BlurredBackground = memo(function BlurredBackground({
   coverUrl,
@@ -270,6 +272,151 @@ const MaxTransportBar = memo(function MaxTransportBar({
   );
 });
 
+// ─── MaximizedLyrics ──────────────────────────────────────────────────────
+
+const LINE_HEIGHT = 56;
+
+const MaximizedLyrics = memo(function MaximizedLyrics() {
+  const currentTrack = useAtomValue(currentTrackAtom);
+  const isPlaying = useAtomValue(isPlayingAtom);
+  const { getPlaybackPosition } = usePlaybackActions();
+
+  const [lrcLines, setLrcLines] = useState<LrcLine[]>([]);
+  const [activeLine, setActiveLine] = useState(-1);
+  const [loading, setLoading] = useState(true);
+  const [hasLyrics, setHasLyrics] = useState(false);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [isRtl, setIsRtl] = useState(false);
+  const activeLineRef = useRef(-1);
+
+  // Fetch lyrics on track change
+  useEffect(() => {
+    if (!currentTrack) return;
+    let active = true;
+    setLoading(true);
+    setLrcLines([]);
+    setActiveLine(-1);
+    activeLineRef.current = -1;
+    setHasLyrics(false);
+    setProvider(null);
+    setIsRtl(false);
+
+    getTrackLyrics(currentTrack.id)
+      .then((result) => {
+        if (!active) return;
+        setProvider(result.lyricsProvider ?? null);
+        setIsRtl(result.isRightToLeft ?? false);
+        if (result.subtitles) {
+          const parsed = parseLrc(result.subtitles);
+          if (parsed.length > 0) {
+            setLrcLines(parsed);
+            setHasLyrics(true);
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [currentTrack?.id]);
+
+  // Sync active line — 300ms polling
+  useEffect(() => {
+    if (lrcLines.length === 0 || !isPlaying) return;
+
+    const sync = async () => {
+      const pos = await getPlaybackPosition();
+      let idx = -1;
+      for (let i = lrcLines.length - 1; i >= 0; i--) {
+        if (pos >= lrcLines[i].time) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx !== activeLineRef.current) {
+        activeLineRef.current = idx;
+        setActiveLine(idx);
+      }
+    };
+
+    sync();
+    const interval = setInterval(sync, 300);
+    return () => clearInterval(interval);
+  }, [lrcLines, isPlaying, getPlaybackPosition]);
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        {[72, 55, 85, 40, 68, 90, 50].map((w, i) => (
+          <div
+            key={i}
+            className="h-[28px] rounded bg-white/[0.06] animate-pulse"
+            style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // No synced lyrics
+  if (!hasLyrics) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-th-text-disabled">
+        <Mic2 size={40} className="mb-3" />
+        <p className="text-sm">No synced lyrics available</p>
+      </div>
+    );
+  }
+
+  // Karaoke view — active line locked to vertical center via translateY
+  const activeIdx = activeLine >= 0 ? activeLine : 0;
+
+  return (
+    <div
+      className="relative h-full overflow-hidden"
+      dir={isRtl ? "rtl" : "ltr"}
+      style={{
+        maskImage: "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)",
+      }}
+    >
+      <div
+        className="flex flex-col items-start gap-1 transition-transform duration-500 ease-out will-change-transform"
+        style={{
+          transform: `translateY(calc(50% - ${activeIdx * LINE_HEIGHT}px - ${LINE_HEIGHT / 2}px))`,
+        }}
+      >
+        {lrcLines.map((line, i) => (
+          <p
+            key={i}
+            className={`text-2xl md:text-3xl font-semibold transition-[color,opacity,transform] duration-500 ease-out ${
+              i === activeLine
+                ? `text-white scale-105 ${isRtl ? "origin-right" : "origin-left"}`
+                : activeLine >= 0 && i < activeLine
+                  ? "text-white/30"
+                  : "text-white/40"
+            }`}
+            style={{ lineHeight: `${LINE_HEIGHT}px`, minHeight: `${LINE_HEIGHT}px` }}
+          >
+            {line.text}
+          </p>
+        ))}
+        {provider && (
+          <p
+            className="text-[11px] text-white/20 mt-4"
+            style={{ lineHeight: `${LINE_HEIGHT}px` }}
+          >
+            Lyrics provided by {provider}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // ─── MaximizedPlayer ──────────────────────────────────────────────────────
 
 export default function MaximizedPlayer() {
@@ -298,6 +445,7 @@ export default function MaximizedPlayer() {
 
   // All hooks MUST be above the early return (Rules of Hooks).
   const isLiked = currentTrack ? favoriteTrackIds.has(currentTrack.id) : false;
+  const showLyrics = useAtomValue(maximizedLyricsAtom);
 
   const toggleLike = useCallback(async () => {
     if (!currentTrack) return;
@@ -399,49 +547,73 @@ export default function MaximizedPlayer() {
         <div className="absolute inset-0 bg-black/60" />
       </div>
 
-      {/* Center content */}
-      <div className="relative z-10 flex flex-col items-center gap-5">
-        {/* Large album art — responsive: 80vmin capped at 800px */}
-        <div className={`max-w-[800px] w-[80vmin] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${hiResReady ? "" : "blur-[12px]"}`}>
-          <TidalImage
-            src={getTidalImageUrl(coverKey, hiResReady ? 1280 : 160)}
-            alt={currentTrack.album?.title || currentTrack.title}
-            className="w-full h-full"
-          />
-        </div>
-
-        {/* Track info */}
-        <div className="flex flex-col items-center gap-1 max-w-[800px] w-[80vmin]">
-          <span className="text-white text-[24px] font-bold truncate max-w-full">
-            {currentTrack.title}
-          </span>
-          <span className="text-th-text-muted text-[16px] truncate max-w-full">
-            {currentTrack.artist?.name || "Unknown Artist"}
-          </span>
-        </div>
-
-        {/* Favorite + context menu */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={toggleLike}
-            className={`transition-[color,transform] duration-200 active:scale-90 ${
-              isLiked ? "text-th-accent" : "text-th-text-faint hover:text-white"
-            }`}
-          >
-            <Heart
-              size={22}
-              fill={isLiked ? "currentColor" : "none"}
-              strokeWidth={isLiked ? 0 : 2}
+      {/* Center content — single column (art centered) or two-column (art + lyrics) */}
+      <div className={`relative z-10 flex items-center transition-all duration-500 ease-out ${
+        showLyrics
+          ? "w-[90%] max-w-[1400px] gap-12"
+          : "flex-col gap-5"
+      }`}>
+        {/* Left: album art + track info + actions */}
+        <div className={`flex flex-col items-center gap-5 transition-all duration-500 ease-out ${
+          showLyrics ? "w-[45%] flex-shrink-0" : ""
+        }`}>
+          {/* Large album art */}
+          <div className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter,width,max-width] duration-700 ease-out ${
+            hiResReady ? "" : "blur-[12px]"
+          } ${
+            showLyrics
+              ? "max-w-[500px] w-full"
+              : "max-w-[800px] w-[80vmin]"
+          }`}>
+            <TidalImage
+              src={getTidalImageUrl(coverKey, hiResReady ? 1280 : 160)}
+              alt={currentTrack.album?.title || currentTrack.title}
+              className="w-full h-full"
             />
-          </button>
-          <button
-            ref={contextMenuAnchorRef}
-            onClick={() => setContextMenuTrack(currentTrack)}
-            className="text-th-text-faint hover:text-white transition-colors duration-150"
-          >
-            <MoreHorizontal size={22} />
-          </button>
+          </div>
+
+          {/* Track info */}
+          <div className={`flex flex-col items-center gap-1 w-full ${
+            showLyrics ? "max-w-[500px]" : "max-w-[800px] w-[80vmin]"
+          }`}>
+            <span className="text-white text-[24px] font-bold truncate max-w-full">
+              {currentTrack.title}
+            </span>
+            <span className="text-th-text-muted text-[16px] truncate max-w-full">
+              {currentTrack.artist?.name || "Unknown Artist"}
+            </span>
+          </div>
+
+          {/* Favorite + context menu */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleLike}
+              className={`transition-[color,transform] duration-200 active:scale-90 ${
+                isLiked ? "text-th-accent" : "text-th-text-faint hover:text-white"
+              }`}
+            >
+              <Heart
+                size={22}
+                fill={isLiked ? "currentColor" : "none"}
+                strokeWidth={isLiked ? 0 : 2}
+              />
+            </button>
+            <button
+              ref={contextMenuAnchorRef}
+              onClick={() => setContextMenuTrack(currentTrack)}
+              className="text-th-text-faint hover:text-white transition-colors duration-150"
+            >
+              <MoreHorizontal size={22} />
+            </button>
+          </div>
         </div>
+
+        {/* Right: Lyrics panel (only when toggled on) */}
+        {showLyrics && (
+          <div className="flex-1 h-[80vmin] max-h-[800px] min-h-[400px]">
+            <MaximizedLyrics />
+          </div>
+        )}
       </div>
 
       {/* Context menu */}
