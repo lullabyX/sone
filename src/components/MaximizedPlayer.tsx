@@ -273,8 +273,14 @@ const MaxTransportBar = memo(function MaxTransportBar({
 });
 
 // ─── MaximizedLyrics ──────────────────────────────────────────────────────
+// All sync updates use direct DOM manipulation — zero React re-renders during playback.
 
-const LINE_HEIGHT = 72;
+const LINE_HEIGHT = 80;
+
+const ACTIVE_CLS = "text-white scale-105";
+const PAST_CLS = "text-white/30";
+const FUTURE_CLS = "text-white/40";
+const LINE_BASE_CLS = "text-5xl md:text-6xl font-semibold transition-[color,opacity,transform] duration-500 ease-out origin-left";
 
 const MaximizedLyrics = memo(function MaximizedLyrics() {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -282,12 +288,13 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
   const { getPlaybackPosition } = usePlaybackActions();
 
   const [lrcLines, setLrcLines] = useState<LrcLine[]>([]);
-  const [activeLine, setActiveLine] = useState(-1);
   const [loading, setLoading] = useState(true);
   const [hasLyrics, setHasLyrics] = useState(false);
   const [provider, setProvider] = useState<string | null>(null);
   const [isRtl, setIsRtl] = useState(false);
   const activeLineRef = useRef(-1);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const lineEls = useRef<HTMLParagraphElement[]>([]);
 
   // Fetch lyrics on track change
   useEffect(() => {
@@ -295,7 +302,6 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
     let active = true;
     setLoading(true);
     setLrcLines([]);
-    setActiveLine(-1);
     activeLineRef.current = -1;
     setHasLyrics(false);
     setProvider(null);
@@ -322,9 +328,37 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
     return () => { active = false; };
   }, [currentTrack?.id]);
 
-  // Sync active line — 300ms polling
+  // Sync active line — 300ms polling, pure DOM updates
   useEffect(() => {
     if (lrcLines.length === 0 || !isPlaying) return;
+
+    const applyLine = (idx: number) => {
+      const prev = activeLineRef.current;
+      if (idx === prev) return;
+
+      const els = lineEls.current;
+      const track = trackRef.current;
+
+      // Update previous active line
+      if (prev >= 0 && prev < els.length) {
+        const el = els[prev];
+        el.className = `${LINE_BASE_CLS} ${PAST_CLS}`;
+      }
+
+      // Update new active line
+      if (idx >= 0 && idx < els.length) {
+        const el = els[idx];
+        el.className = `${LINE_BASE_CLS} ${ACTIVE_CLS}`;
+      }
+
+      // Slide the track container
+      if (track) {
+        const target = idx >= 0 ? idx : 0;
+        track.style.transform = `translateY(-${target * LINE_HEIGHT + LINE_HEIGHT / 2}px)`;
+      }
+
+      activeLineRef.current = idx;
+    };
 
     const sync = async () => {
       const pos = await getPlaybackPosition();
@@ -335,10 +369,7 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
           break;
         }
       }
-      if (idx !== activeLineRef.current) {
-        activeLineRef.current = idx;
-        setActiveLine(idx);
-      }
+      applyLine(idx);
     };
 
     sync();
@@ -346,7 +377,6 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
     return () => clearInterval(interval);
   }, [lrcLines, isPlaying, getPlaybackPosition]);
 
-  // Loading state
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -361,7 +391,6 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
     );
   }
 
-  // No synced lyrics
   if (!hasLyrics) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-th-text-disabled">
@@ -371,35 +400,28 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
     );
   }
 
-  // Karaoke view — active line locked to vertical center via translateY
-  const activeIdx = activeLine >= 0 ? activeLine : 0;
-
   return (
     <div
-      className="relative h-full overflow-hidden"
+      className="relative h-full overflow-hidden pointer-events-none"
       dir={isRtl ? "rtl" : "ltr"}
       style={{
-        maskImage: "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)",
-        WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)",
+        maskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
       }}
     >
       <div
+        ref={trackRef}
         className="absolute left-0 right-0 flex flex-col items-start transition-transform duration-500 ease-out will-change-transform"
         style={{
           top: "50%",
-          transform: `translateY(-${activeIdx * LINE_HEIGHT + LINE_HEIGHT / 2}px)`,
+          transform: `translateY(-${LINE_HEIGHT / 2}px)`,
         }}
       >
         {lrcLines.map((line, i) => (
           <p
             key={i}
-            className={`text-4xl md:text-5xl font-semibold transition-[color,opacity,transform] duration-500 ease-out ${
-              i === activeLine
-                ? `text-white scale-105 ${isRtl ? "origin-right" : "origin-left"}`
-                : activeLine >= 0 && i < activeLine
-                  ? "text-white/30"
-                  : "text-white/40"
-            }`}
+            ref={(el) => { if (el) lineEls.current[i] = el; }}
+            className={`${LINE_BASE_CLS} ${FUTURE_CLS}`}
             style={{ lineHeight: `${LINE_HEIGHT}px`, minHeight: `${LINE_HEIGHT}px` }}
           >
             {line.text}
@@ -549,17 +571,17 @@ export default function MaximizedPlayer() {
       </div>
 
       {/* Center content — single column (art centered) or two-column (art + lyrics) */}
-      <div className={`relative z-10 flex items-center transition-all duration-500 ease-out ${
+      <div className={`relative z-10 flex items-center ${
         showLyrics
-          ? "w-full pl-36 pr-12 gap-36"
+          ? "w-full pl-40 pr-12 gap-40"
           : "flex-col gap-5"
       }`}>
         {/* Left: album art + track info + actions */}
-        <div className={`flex flex-col items-center gap-5 transition-all duration-500 ease-out ${
+        <div className={`flex flex-col items-center gap-5 ${
           showLyrics ? "flex-shrink-0" : ""
         }`}>
           {/* Large album art */}
-          <div className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter,width,max-width] duration-700 ease-out ${
+          <div className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${
             hiResReady ? "" : "blur-[12px]"
           } ${
             showLyrics
@@ -577,10 +599,10 @@ export default function MaximizedPlayer() {
           <div className={`flex flex-col items-center gap-1 w-full ${
             showLyrics ? "max-w-[800px] w-[70vmin]" : "max-w-[800px] w-[80vmin]"
           }`}>
-            <span className="text-white text-[24px] font-bold truncate max-w-full">
+            <span className="text-white text-[28px] font-bold truncate max-w-full">
               {currentTrack.title}
             </span>
-            <span className="text-th-text-muted text-[16px] truncate max-w-full">
+            <span className="text-th-text-muted text-[18px] truncate max-w-full">
               {currentTrack.artist?.name || "Unknown Artist"}
             </span>
           </div>
@@ -594,7 +616,7 @@ export default function MaximizedPlayer() {
               }`}
             >
               <Heart
-                size={22}
+                size={26}
                 fill={isLiked ? "currentColor" : "none"}
                 strokeWidth={isLiked ? 0 : 2}
               />
@@ -604,14 +626,14 @@ export default function MaximizedPlayer() {
               onClick={() => setContextMenuTrack(currentTrack)}
               className="text-th-text-faint hover:text-white transition-colors duration-150"
             >
-              <MoreHorizontal size={22} />
+              <MoreHorizontal size={26} />
             </button>
           </div>
         </div>
 
         {/* Right: Lyrics panel (only when toggled on) */}
         {showLyrics && (
-          <div className="flex-1 h-[80vmin] max-h-[800px] min-h-[400px]">
+          <div className="flex-1 h-[80vmin] max-h-[1000px] pointer-events-none">
             <MaximizedLyrics />
           </div>
         )}
