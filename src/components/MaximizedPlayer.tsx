@@ -169,7 +169,7 @@ const MaxTransportBar = memo(function MaxTransportBar({
         </div>
 
         {/* Center: Transport controls + scrubber */}
-        <div className="flex flex-col items-center w-[40%] max-w-[600px] gap-1">
+        <div className="flex flex-col items-center w-[40%] max-w-[800px] gap-1">
           {/* Transport buttons */}
           <div className="flex items-center gap-4">
             <button
@@ -274,7 +274,7 @@ const MaxTransportBar = memo(function MaxTransportBar({
 
 // ─── MaximizedLyrics ──────────────────────────────────────────────────────
 
-const LINE_HEIGHT = 56;
+const LINE_HEIGHT = 72;
 
 const MaximizedLyrics = memo(function MaximizedLyrics() {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -384,15 +384,16 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
       }}
     >
       <div
-        className="flex flex-col items-start gap-1 transition-transform duration-500 ease-out will-change-transform"
+        className="absolute left-0 right-0 flex flex-col items-start transition-transform duration-500 ease-out will-change-transform"
         style={{
-          transform: `translateY(calc(50% - ${activeIdx * LINE_HEIGHT}px - ${LINE_HEIGHT / 2}px))`,
+          top: "50%",
+          transform: `translateY(-${activeIdx * LINE_HEIGHT + LINE_HEIGHT / 2}px)`,
         }}
       >
         {lrcLines.map((line, i) => (
           <p
             key={i}
-            className={`text-2xl md:text-3xl font-semibold transition-[color,opacity,transform] duration-500 ease-out ${
+            className={`text-4xl md:text-5xl font-semibold transition-[color,opacity,transform] duration-500 ease-out ${
               i === activeLine
                 ? `text-white scale-105 ${isRtl ? "origin-right" : "origin-left"}`
                 : activeLine >= 0 && i < activeLine
@@ -550,19 +551,19 @@ export default function MaximizedPlayer() {
       {/* Center content — single column (art centered) or two-column (art + lyrics) */}
       <div className={`relative z-10 flex items-center transition-all duration-500 ease-out ${
         showLyrics
-          ? "w-[90%] max-w-[1400px] gap-12"
+          ? "w-full pl-36 pr-12 gap-36"
           : "flex-col gap-5"
       }`}>
         {/* Left: album art + track info + actions */}
         <div className={`flex flex-col items-center gap-5 transition-all duration-500 ease-out ${
-          showLyrics ? "w-[45%] flex-shrink-0" : ""
+          showLyrics ? "flex-shrink-0" : ""
         }`}>
           {/* Large album art */}
           <div className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter,width,max-width] duration-700 ease-out ${
             hiResReady ? "" : "blur-[12px]"
           } ${
             showLyrics
-              ? "max-w-[500px] w-full"
+              ? "max-w-[800px] w-[70vmin]"
               : "max-w-[800px] w-[80vmin]"
           }`}>
             <TidalImage
@@ -574,7 +575,7 @@ export default function MaximizedPlayer() {
 
           {/* Track info */}
           <div className={`flex flex-col items-center gap-1 w-full ${
-            showLyrics ? "max-w-[500px]" : "max-w-[800px] w-[80vmin]"
+            showLyrics ? "max-w-[800px] w-[70vmin]" : "max-w-[800px] w-[80vmin]"
           }`}>
             <span className="text-white text-[24px] font-bold truncate max-w-full">
               {currentTrack.title}
