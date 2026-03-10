@@ -275,14 +275,48 @@ const MaxTransportBar = memo(function MaxTransportBar({
 // ─── MaximizedLyrics ──────────────────────────────────────────────────────
 // All sync updates use direct DOM manipulation — zero React re-renders during playback.
 
-const LINE_HEIGHT = 80;
+// Responsive tiers: small (<1600px), medium (default), large (≥2560px)
+function getLyricsTier() {
+  const zoom = parseFloat(document.documentElement.style.zoom || "1");
+  const w = window.innerWidth / zoom;
+  if (w > 2560) return "lg" as const;
+  if (w < 1600) return "sm" as const;
+  return "md" as const;
+}
 
-const ACTIVE_CLS = "text-white scale-105";
+type Tier = "sm" | "md" | "lg";
+
+const TIER_CONFIG = {
+  sm: { lineHeight: 48, fontCls: "text-4xl", padding: 96, gap: 64, artSize: "55vmin", artSizeSolo: "65vmin", artMax: 500, titleSize: 20, artistSize: 14, iconSize: 20 },
+  md: { lineHeight: 80, fontCls: "text-6xl", padding: 208, gap: 160, artSize: "70vmin", artSizeSolo: "80vmin", artMax: 800, titleSize: 28, artistSize: 18, iconSize: 26 },
+  lg: { lineHeight: 112, fontCls: "text-8xl", padding: 288, gap: 224, artSize: "75vmin", artSizeSolo: "85vmin", artMax: 1200, titleSize: 38, artistSize: 24, iconSize: 34 },
+} as const;
+
+const ACTIVE_CLS = "text-white font-black";
 const PAST_CLS = "text-white/30";
 const FUTURE_CLS = "text-white/40";
-const LINE_BASE_CLS = "text-5xl md:text-6xl font-semibold transition-[color,opacity,transform] duration-500 ease-out origin-left";
 
-const MaximizedLyrics = memo(function MaximizedLyrics() {
+function getLineBaseCls(tier: Tier) {
+  return `${TIER_CONFIG[tier].fontCls} font-semibold transition-[color,opacity,transform] duration-500 ease-out origin-left`;
+}
+
+function useLyricsTier() {
+  const [tier, setTier] = useState<Tier>(getLyricsTier);
+  useEffect(() => {
+    const update = () => setTier(getLyricsTier());
+    window.addEventListener("resize", update);
+    // Re-check when zoom changes via MutationObserver on style attribute
+    const obs = new MutationObserver(update);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    return () => {
+      window.removeEventListener("resize", update);
+      obs.disconnect();
+    };
+  }, []);
+  return tier;
+}
+
+const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
   const { getPlaybackPosition } = usePlaybackActions();
@@ -293,8 +327,30 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
   const [provider, setProvider] = useState<string | null>(null);
   const [isRtl, setIsRtl] = useState(false);
   const activeLineRef = useRef(-1);
-  const trackRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const lineEls = useRef<HTMLParagraphElement[]>([]);
+
+  const lh = TIER_CONFIG[tier].lineHeight;
+  const baseCls = getLineBaseCls(tier);
+
+  // Re-apply styles when tier changes
+  useEffect(() => {
+    for (let i = 0; i < lineEls.current.length; i++) {
+      const el = lineEls.current[i];
+      if (!el) continue;
+      const active = i === activeLineRef.current;
+      const past = activeLineRef.current >= 0 && i < activeLineRef.current;
+      el.className = `${baseCls} ${active ? ACTIVE_CLS : past ? PAST_CLS : FUTURE_CLS}`;
+      el.style.lineHeight = `${lh}px`;
+    }
+    const container = containerRef.current;
+    const idx = activeLineRef.current;
+    if (container && idx >= 0 && idx < lineEls.current.length) {
+      const el = lineEls.current[idx];
+      const scrollTarget = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+      container.scrollTo({ top: scrollTarget });
+    }
+  }, [tier, baseCls, lh]);
 
   // Fetch lyrics on track change
   useEffect(() => {
@@ -337,24 +393,23 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
       if (idx === prev) return;
 
       const els = lineEls.current;
-      const track = trackRef.current;
+      const container = containerRef.current;
 
       // Update previous active line
       if (prev >= 0 && prev < els.length) {
-        const el = els[prev];
-        el.className = `${LINE_BASE_CLS} ${PAST_CLS}`;
+        els[prev].className = `${baseCls} ${PAST_CLS}`;
       }
 
       // Update new active line
       if (idx >= 0 && idx < els.length) {
-        const el = els[idx];
-        el.className = `${LINE_BASE_CLS} ${ACTIVE_CLS}`;
+        els[idx].className = `${baseCls} ${ACTIVE_CLS}`;
       }
 
-      // Slide the track container
-      if (track) {
-        const target = idx >= 0 ? idx : 0;
-        track.style.transform = `translateY(-${target * LINE_HEIGHT + LINE_HEIGHT / 2}px)`;
+      // Scroll active line to center
+      if (container && idx >= 0 && idx < els.length) {
+        const el = els[idx];
+        const scrollTarget = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+        container.scrollTo({ top: scrollTarget });
       }
 
       activeLineRef.current = idx;
@@ -375,7 +430,7 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
     sync();
     const interval = setInterval(sync, 300);
     return () => clearInterval(interval);
-  }, [lrcLines, isPlaying, getPlaybackPosition]);
+  }, [lrcLines, isPlaying, getPlaybackPosition, lh, baseCls]);
 
   if (loading) {
     return (
@@ -402,27 +457,22 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
 
   return (
     <div
-      className="relative h-full overflow-hidden pointer-events-none"
+      ref={containerRef}
+      className="relative h-full overflow-y-auto pointer-events-none no-scrollbar"
       dir={isRtl ? "rtl" : "ltr"}
       style={{
+        scrollBehavior: "smooth",
         maskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
         WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
       }}
     >
-      <div
-        ref={trackRef}
-        className="absolute left-0 right-0 flex flex-col items-start transition-transform duration-500 ease-out will-change-transform"
-        style={{
-          top: "50%",
-          transform: `translateY(-${LINE_HEIGHT / 2}px)`,
-        }}
-      >
+      <div className="flex flex-col items-start" style={{ paddingTop: "50%", paddingBottom: "50%" }}>
         {lrcLines.map((line, i) => (
           <p
             key={i}
             ref={(el) => { if (el) lineEls.current[i] = el; }}
-            className={`${LINE_BASE_CLS} ${FUTURE_CLS}`}
-            style={{ lineHeight: `${LINE_HEIGHT}px`, minHeight: `${LINE_HEIGHT}px` }}
+            className={`${baseCls} ${FUTURE_CLS}`}
+            style={{ lineHeight: `${lh}px` }}
           >
             {line.text}
           </p>
@@ -430,7 +480,7 @@ const MaximizedLyrics = memo(function MaximizedLyrics() {
         {provider && (
           <p
             className="text-[11px] text-white/20 mt-4"
-            style={{ lineHeight: `${LINE_HEIGHT}px` }}
+            style={{ lineHeight: `${lh}px` }}
           >
             Lyrics provided by {provider}
           </p>
@@ -469,6 +519,7 @@ export default function MaximizedPlayer() {
   // All hooks MUST be above the early return (Rules of Hooks).
   const isLiked = currentTrack ? favoriteTrackIds.has(currentTrack.id) : false;
   const showLyrics = useAtomValue(maximizedLyricsAtom);
+  const lyricsTier = useLyricsTier();
 
   const toggleLike = useCallback(async () => {
     if (!currentTrack) return;
@@ -512,8 +563,17 @@ export default function MaximizedPlayer() {
   const controlsVisibleRef = useRef(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isDraggingRef = useRef(false);
+  const lastMousePos = useRef({ x: 0, y: 0 });
 
-  const resetHideTimer = useCallback(() => {
+  const resetHideTimer = useCallback((e?: React.MouseEvent) => {
+    // Ignore phantom mousemove from layout shifts / scroll
+    if (e) {
+      const { clientX, clientY } = e;
+      const last = lastMousePos.current;
+      if (clientX === last.x && clientY === last.y) return;
+      lastMousePos.current = { x: clientX, y: clientY };
+    }
+
     if (!controlsVisibleRef.current) {
       controlsVisibleRef.current = true;
       setControlsVisible(true);
@@ -571,23 +631,30 @@ export default function MaximizedPlayer() {
       </div>
 
       {/* Center content — single column (art centered) or two-column (art + lyrics) */}
-      <div className={`relative z-10 flex items-center ${
-        showLyrics
-          ? "w-full pl-52 pr-52 gap-40"
-          : "flex-col gap-5"
-      }`}>
+      <div
+        className={`relative z-10 flex items-center ${
+          showLyrics ? "w-full" : "flex-col gap-5"
+        }`}
+        style={showLyrics ? {
+          paddingLeft: TIER_CONFIG[lyricsTier].padding,
+          paddingRight: TIER_CONFIG[lyricsTier].padding,
+          gap: TIER_CONFIG[lyricsTier].gap,
+        } : undefined}
+      >
         {/* Left: album art + track info + actions */}
         <div className={`flex flex-col items-center gap-5 ${
           showLyrics ? "flex-shrink-0" : ""
         }`}>
           {/* Large album art */}
-          <div className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${
-            hiResReady ? "" : "blur-[12px]"
-          } ${
-            showLyrics
-              ? "max-w-[800px] w-[70vmin]"
-              : "max-w-[800px] w-[80vmin]"
-          }`}>
+          <div
+            className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${
+              hiResReady ? "" : "blur-[12px]"
+            }`}
+            style={{
+              width: showLyrics ? TIER_CONFIG[lyricsTier].artSize : TIER_CONFIG[lyricsTier].artSizeSolo,
+              maxWidth: TIER_CONFIG[lyricsTier].artMax,
+            }}
+          >
             <TidalImage
               src={getTidalImageUrl(coverKey, hiResReady ? 1280 : 160)}
               alt={currentTrack.album?.title || currentTrack.title}
@@ -596,13 +663,17 @@ export default function MaximizedPlayer() {
           </div>
 
           {/* Track info */}
-          <div className={`flex flex-col items-center gap-1 w-full ${
-            showLyrics ? "max-w-[800px] w-[70vmin]" : "max-w-[800px] w-[80vmin]"
-          }`}>
-            <span className="text-white text-[28px] font-bold truncate max-w-full">
+          <div
+            className="flex flex-col items-center gap-1 w-full"
+            style={{
+              width: showLyrics ? TIER_CONFIG[lyricsTier].artSize : TIER_CONFIG[lyricsTier].artSizeSolo,
+              maxWidth: TIER_CONFIG[lyricsTier].artMax,
+            }}
+          >
+            <span className="text-white font-bold truncate max-w-full" style={{ fontSize: TIER_CONFIG[lyricsTier].titleSize }}>
               {currentTrack.title}
             </span>
-            <span className="text-th-text-muted text-[18px] truncate max-w-full">
+            <span className="text-th-text-muted truncate max-w-full" style={{ fontSize: TIER_CONFIG[lyricsTier].artistSize }}>
               {currentTrack.artist?.name || "Unknown Artist"}
             </span>
           </div>
@@ -616,7 +687,7 @@ export default function MaximizedPlayer() {
               }`}
             >
               <Heart
-                size={26}
+                size={TIER_CONFIG[lyricsTier].iconSize}
                 fill={isLiked ? "currentColor" : "none"}
                 strokeWidth={isLiked ? 0 : 2}
               />
@@ -626,7 +697,7 @@ export default function MaximizedPlayer() {
               onClick={() => setContextMenuTrack(currentTrack)}
               className="text-th-text-faint hover:text-white transition-colors duration-150"
             >
-              <MoreHorizontal size={26} />
+              <MoreHorizontal size={TIER_CONFIG[lyricsTier].iconSize} />
             </button>
           </div>
         </div>
@@ -634,7 +705,7 @@ export default function MaximizedPlayer() {
         {/* Right: Lyrics panel (only when toggled on) */}
         {showLyrics && (
           <div className="flex-1 h-[80vmin] max-h-[1000px] pointer-events-none">
-            <MaximizedLyrics />
+            <MaximizedLyrics tier={lyricsTier} />
           </div>
         )}
       </div>
