@@ -38,6 +38,7 @@ import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useToast } from "../contexts/ToastContext";
+import { getInterpolatedPosition } from "../lib/playbackPosition";
 import {
   getTrackRadio,
   getTrackLyrics,
@@ -878,7 +879,6 @@ const LyricsLine = memo(function LyricsLine({
 const LyricsTab = memo(function LyricsTab() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
-  const { getPlaybackPosition } = usePlaybackActions();
   const [lyrics, setLyrics] = useState<Lyrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -942,12 +942,13 @@ const LyricsTab = memo(function LyricsTab() {
     return () => el.removeEventListener("scroll", onScroll);
   }, [lrcLines]);
 
-  // Sync active line with playback position — ONLY when playing (tab unmounts when not visible)
+  // Sync active line with interpolated position — rAF loop, state update only on line change
   useEffect(() => {
     if (lrcLines.length === 0 || !isPlaying) return;
 
-    const sync = async () => {
-      const pos = await getPlaybackPosition();
+    let rafId: number;
+    const tick = () => {
+      const pos = getInterpolatedPosition();
       let idx = -1;
       for (let i = lrcLines.length - 1; i >= 0; i--) {
         if (pos >= lrcLines[i].time) {
@@ -960,12 +961,12 @@ const LyricsTab = memo(function LyricsTab() {
         activeLineRef.current = idx;
         setActiveLine(idx);
       }
+      rafId = requestAnimationFrame(tick);
     };
 
-    sync();
-    const interval = setInterval(sync, 300);
-    return () => clearInterval(interval);
-  }, [lrcLines, isPlaying, getPlaybackPosition]);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [lrcLines, isPlaying]);
 
   // Auto-scroll to active line (only if user hasn't scrolled)
   const scrollToLine = useCallback((idx: number) => {
