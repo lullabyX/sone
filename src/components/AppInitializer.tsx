@@ -76,6 +76,11 @@ import type {
 } from "../types";
 import { getTidalImageUrl } from "../types";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
+import {
+  initPositionInterpolator,
+  destroyPositionInterpolator,
+  notifySeek,
+} from "../lib/playbackPosition";
 
 const PLAYBACK_STATE_KEY = "sone.playback-state.v1";
 
@@ -661,6 +666,7 @@ export function AppInitializer() {
         const current = await invoke<number>("get_playback_position");
         const newPos = Math.max(0, current + event.payload);
         await invoke("seek_track", { positionSecs: newPos });
+        notifySeek(newPos);
       } catch {}
     });
     const unlistenVolume = listen<number>("mpris:set-volume", (event) => {
@@ -843,6 +849,15 @@ export function AppInitializer() {
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
   }, [setCurrentView]);
+
+  // ================================================================
+  //  PLAYBACK POSITION INTERPOLATOR
+  //  Single 2s IPC poll, synchronous reads for all consumers.
+  // ================================================================
+  useEffect(() => {
+    initPositionInterpolator(store, isPlayingAtom, currentTrackAtom);
+    return () => destroyPositionInterpolator();
+  }, [store]);
 
   return null;
 }
