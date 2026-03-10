@@ -438,14 +438,30 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-3">
-        {[72, 55, 85, 40, 68, 90, 50].map((w, i) => (
-          <div
-            key={i}
-            className="h-[28px] rounded bg-white/[0.06] animate-pulse"
-            style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
-          />
-        ))}
+      <div
+        className="relative h-full overflow-hidden"
+        style={{
+          maskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+          WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+        }}
+      >
+        <div className="h-1/2 shrink-0" />
+        <div className="flex flex-col items-start">
+          {[72, 55, 85, 40, 68, 90, 50].map((w, i) => (
+            <div
+              key={i}
+              className={`${TIER_CONFIG[tier].fontCls} font-semibold animate-pulse rounded`}
+              style={{
+                width: `${w}%`,
+                height: "0.75em",
+                lineHeight: `${lh}px`,
+                marginBottom: `${lh * 0.25}px`,
+                background: "rgba(255,255,255,0.06)",
+                animationDelay: `${i * 80}ms`,
+              }}
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -469,7 +485,8 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
         WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
       }}
     >
-      <div className="flex flex-col items-start" style={{ paddingTop: "50%", paddingBottom: "50%" }}>
+      <div className="h-1/2 shrink-0" />
+      <div className="flex flex-col items-start">
         {lrcLines.map((line, i) => (
           <p
             key={i}
@@ -489,6 +506,7 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
           </p>
         )}
       </div>
+      <div className="h-1/2 shrink-0" />
     </div>
   );
 });
