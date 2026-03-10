@@ -8,6 +8,7 @@ import {
   Repeat,
   Shuffle,
   Minimize2,
+  Mic2,
   Infinity as InfinityIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
@@ -20,7 +21,7 @@ import {
   shuffleAtom,
 } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
-import { maximizedPlayerAtom } from "../atoms/ui";
+import { maximizedPlayerAtom, maximizedLyricsAtom } from "../atoms/ui";
 import { authTokensAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useProgressScrub } from "../hooks/useProgressScrub";
@@ -140,6 +141,7 @@ const MaxTransportBar = memo(function MaxTransportBar({
   const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
   const isShuffle = useAtomValue(shuffleAtom);
+  const [showLyrics, setShowLyrics] = useAtom(maximizedLyricsAtom);
   const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } = usePlaybackActions();
 
   return (
@@ -239,9 +241,21 @@ const MaxTransportBar = memo(function MaxTransportBar({
           <MaxProgressScrubber isDraggingRef={isDraggingRef} resetHideTimer={resetHideTimer} />
         </div>
 
-        {/* Right: Quality + Volume + Minimize */}
+        {/* Right: Quality + Lyrics toggle + Volume + Minimize */}
         <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
           <QualityBadge />
+          <button
+            onClick={() => setShowLyrics((v) => !v)}
+            className={`relative transition-[color,transform] duration-150 active:scale-90 ${
+              showLyrics ? "text-th-accent" : "text-th-text-faint hover:text-white"
+            }`}
+            title="Lyrics"
+          >
+            <Mic2 size={18} strokeWidth={2} />
+            {showLyrics && (
+              <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
+            )}
+          </button>
           <VolumeSlider widthClass="w-[130px]" isDraggingRef={isDraggingRef} onDragEnd={resetHideTimer} />
           <button
             onClick={() => setMaximized(false)}
