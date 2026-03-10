@@ -23,13 +23,13 @@ pub fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String
 pub async fn get_image_bytes(
     state: State<'_, AppState>,
     url: String,
-) -> Result<Vec<u8>, SoneError> {
+) -> Result<tauri::ipc::Response, SoneError> {
     log::debug!("[get_image_bytes]: url={}", url);
 
     match state.disk_cache.get(&url, CacheTier::Image).await {
         CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
             log::debug!("[get_image_bytes]: cache hit ({} bytes)", bytes.len());
-            Ok(bytes)
+            Ok(tauri::ipc::Response::new(bytes))
         }
         CacheResult::Miss => {
             let http_client = state.tidal_client.lock().await.raw_client().clone();
@@ -46,7 +46,7 @@ pub async fn get_image_bytes(
                 bytes.len()
             );
 
-            Ok(bytes)
+            Ok(tauri::ipc::Response::new(bytes))
         }
     }
 }

@@ -31,7 +31,7 @@ function evictBlobsIfNeeded(requiredBytes: number): void {
 
 const inflight = new Map<string, Promise<string>>();
 
-function fetchCachedImageUrl(src: string): Promise<string> {
+export function fetchCachedImageUrl(src: string): Promise<string> {
   const entry = blobCache.get(src);
   if (entry) {
     entry.accessOrder = ++blobAccessCounter;
@@ -41,9 +41,9 @@ function fetchCachedImageUrl(src: string): Promise<string> {
   const existing = inflight.get(src);
   if (existing) return existing;
 
-  const promise = invoke<number[]>("get_image_bytes", { url: src })
-    .then((bytes) => {
-      const arr = new Uint8Array(bytes);
+  const promise = invoke<ArrayBuffer>("get_image_bytes", { url: src })
+    .then((buffer) => {
+      const arr = new Uint8Array(buffer);
       const blob = new Blob([arr], { type: "image/jpeg" });
       const blobUrl = URL.createObjectURL(blob);
       const size = arr.byteLength;
@@ -107,10 +107,8 @@ function TidalImageComponent({
       return;
     }
 
-    // Not cached — fetch with loading state
+    // Not cached — fetch silently, keep old image visible until ready
     setHasError(false);
-    setIsLoading(true);
-    setBlobUrl(undefined);
 
     let cancelled = false;
     fetchCachedImageUrl(src)

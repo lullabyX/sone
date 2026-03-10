@@ -25,8 +25,8 @@ import { authTokensAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useProgressScrub } from "../hooks/useProgressScrub";
 import { getTidalImageUrl } from "../types";
-import TidalImage from "./TidalImage";
-import CrossfadeTidalImage from "./CrossfadeTidalImage";
+import TidalImage, { fetchCachedImageUrl } from "./TidalImage";
+
 import TrackContextMenu from "./TrackContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -37,6 +37,23 @@ import {
   addTrackToFavoritesCache,
   removeTrackFromFavoritesCache,
 } from "../api/tidal";
+
+const BlurredBackground = memo(function BlurredBackground({
+  coverUrl,
+}: {
+  coverUrl: string | undefined;
+}) {
+  return (
+    <div className="w-full h-full scale-110 blur-[40px]">
+      <TidalImage
+        key={coverUrl}
+        src={getTidalImageUrl(coverUrl, 160)}
+        alt=""
+        className="w-full h-full"
+      />
+    </div>
+  );
+});
 
 // ─── MaxProgressScrubber ──────────────────────────────────────────────────
 
@@ -252,6 +269,19 @@ export default function MaximizedPlayer() {
   const [contextMenuTrack, setContextMenuTrack] = useState<typeof currentTrack | null>(null);
   const contextMenuAnchorRef = useRef<HTMLButtonElement>(null);
 
+  // Progressive album art: 160px instantly, upgrade to 1280 when ready
+  const coverKey = currentTrack?.album?.cover;
+  const [hiResReady, setHiResReady] = useState(false);
+  useEffect(() => {
+    if (!coverKey) return;
+    setHiResReady(false);
+    let cancelled = false;
+    fetchCachedImageUrl(getTidalImageUrl(coverKey, 1280))
+      .then(() => { if (!cancelled) setHiResReady(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [coverKey]);
+
   // All hooks MUST be above the early return (Rules of Hooks).
   const isLiked = currentTrack ? favoriteTrackIds.has(currentTrack.id) : false;
 
@@ -349,24 +379,18 @@ export default function MaximizedPlayer() {
       onMouseMove={resetHideTimer}
       className={`fixed inset-0 z-[60] flex flex-col items-center justify-center select-none bg-black ${controlsVisible ? "cursor-default" : "cursor-none"}`}
     >
-      {/* Blurred album art background — 320px source (blur hides detail), GPU-promoted layer */}
+      {/* Blurred album art background — pre-rendered to canvas once, zero per-frame cost */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="w-full h-full scale-110 blur-[40px] will-change-transform">
-          <TidalImage
-            src={getTidalImageUrl(currentTrack.album?.cover, 320)}
-            alt=""
-            className="w-full h-full object-cover"
-          />
-        </div>
+        <BlurredBackground coverUrl={currentTrack.album?.cover} />
         <div className="absolute inset-0 bg-black/60" />
       </div>
 
       {/* Center content */}
       <div className="relative z-10 flex flex-col items-center gap-5">
         {/* Large album art — responsive: 80vmin capped at 800px */}
-        <div className="max-w-[800px] w-[80vmin] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60">
-          <CrossfadeTidalImage
-            src={getTidalImageUrl(currentTrack.album?.cover, 1280)}
+        <div className={`max-w-[800px] w-[80vmin] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${hiResReady ? "" : "blur-[12px]"}`}>
+          <TidalImage
+            src={getTidalImageUrl(coverKey, hiResReady ? 1280 : 160)}
             alt={currentTrack.album?.title || currentTrack.title}
             className="w-full h-full"
           />
