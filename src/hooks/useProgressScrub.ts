@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { currentTrackAtom, isPlayingAtom } from "../atoms/playback";
 import { usePlaybackActions } from "./usePlaybackActions";
+import { getInterpolatedPosition } from "../lib/playbackPosition";
 
 interface UseProgressScrubOptions {
   /** Ref to signal parent that a drag is in progress (for auto-hide) */
@@ -13,7 +14,7 @@ interface UseProgressScrubOptions {
 export function useProgressScrub(options?: UseProgressScrubOptions) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
-  const { getPlaybackPosition, seekTo } = usePlaybackActions();
+  const { seekTo } = usePlaybackActions();
 
   // Destructure options for stable deps (refs are stable, useCallback fns are stable)
   const isDraggingRef = options?.isDraggingRef;
@@ -24,22 +25,19 @@ export function useProgressScrub(options?: UseProgressScrubOptions) {
   const [dragTime, setDragTime] = useState(0);
   const [isHoveringProgress, setIsHoveringProgress] = useState(false);
   const progressRef = useRef<HTMLDivElement>(null);
-  const seekGuardUntil = useRef(0);
 
-  // Sync progress with backend playback position
+  // Sync progress with interpolated position (no IPC per tick)
   useEffect(() => {
     if (!isPlaying || !currentTrack || isDragging) return;
 
-    const syncPosition = async () => {
-      if (Date.now() < seekGuardUntil.current) return;
-      const pos = await getPlaybackPosition();
-      setCurrentTime(pos);
+    const syncPosition = () => {
+      setCurrentTime(getInterpolatedPosition());
     };
 
     syncPosition();
     const interval = setInterval(syncPosition, 500);
     return () => clearInterval(interval);
-  }, [isPlaying, currentTrack, isDragging, getPlaybackPosition]);
+  }, [isPlaying, currentTrack, isDragging]);
 
   // Reset on track change
   useEffect(() => {
@@ -96,7 +94,6 @@ export function useProgressScrub(options?: UseProgressScrubOptions) {
         setIsDragging(false);
         if (isDraggingRef) isDraggingRef.current = false;
         onDragEnd?.();
-        seekGuardUntil.current = Date.now() + 600;
         await seekTo(finalTime);
       };
 
