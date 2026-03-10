@@ -29,7 +29,7 @@ import {
 import { getTrackRadio, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
-import { notifySeek } from "../lib/playbackPosition";
+import { notifySeek, getInterpolatedPosition } from "../lib/playbackPosition";
 import type { Track, StreamInfo } from "../types";
 import { getTidalImageUrl } from "../types";
 import { preloadImage } from "../components/TidalImage";
@@ -261,15 +261,6 @@ export function usePlaybackActions() {
     },
     [store],
   );
-
-  const getPlaybackPosition = useCallback(async (): Promise<number> => {
-    try {
-      return await invoke<number>("get_playback_position");
-    } catch (error) {
-      console.error("Failed to get playback position:", error);
-      return 0;
-    }
-  }, []);
 
   const seekTo = useCallback(async (positionSecs: number) => {
     try {
@@ -523,14 +514,12 @@ export function usePlaybackActions() {
     if (playNextLockRef.current) return;
     playNextLockRef.current = true;
     try {
-    try {
-      const pos = await getPlaybackPosition();
+    {
+      const pos = getInterpolatedPosition();
       if (pos > 3) {
         await seekTo(0);
         return;
       }
-    } catch {
-      // ignore position errors
     }
 
     // Stop old pipeline to prevent stale track-finished events
@@ -718,7 +707,7 @@ export function usePlaybackActions() {
     } finally {
       playNextLockRef.current = false;
     }
-  }, [store, showToast, getPlaybackPosition, seekTo]);
+  }, [store, showToast, seekTo]);
 
   const toggleShuffle = useCallback(() => {
     const current = store.get(shuffleAtom);
@@ -885,7 +874,6 @@ export function usePlaybackActions() {
     resumeTrack,
     setVolume,
     seekTo,
-    getPlaybackPosition,
     addToQueue,
     playNextInQueue,
     setQueueTracks,
