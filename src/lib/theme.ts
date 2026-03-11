@@ -38,6 +38,15 @@ export interface DerivedTheme {
   scrollbar: string;
   scrollbarHover: string;
 
+  // Highlights (adaptive overlays)
+  hlFaint: string;
+  hlMed: string;
+  hlStrong: string;
+
+  // Slider / progress
+  sliderTrack: string;
+  sliderFill: string;
+
   // Semantic (fixed)
   success: string;
   error: string;
@@ -154,15 +163,17 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
   const isDark = bgL < 50;
 
   // Background surfaces derived from bgBase via lightness shifts
-  const bgSurface = shiftLightness(bgBase, 4);
-  const bgSurfaceHover = shiftLightness(bgBase, 9);
-  const bgElevated = shiftLightness(bgBase, 2.5);
-  const bgSidebar = shiftLightness(bgBase, -2);
-  const bgOverlay = shiftLightness(bgBase, -3);
-  const bgInset = shiftLightness(bgBase, 7);
-  const bgInsetHover = shiftLightness(bgBase, 11);
-  const bgButton = shiftLightness(bgBase, 14);
-  const bgButtonHover = shiftLightness(bgBase, 19);
+  // For light themes, surfaces should be darker than base (not lighter)
+  const dir = isDark ? 1 : -1;
+  const bgSurface = shiftLightness(bgBase, 4 * dir);
+  const bgSurfaceHover = shiftLightness(bgBase, 9 * dir);
+  const bgElevated = shiftLightness(bgBase, 2.5 * dir);
+  const bgSidebar = shiftLightness(bgBase, -2);     // always darker than base
+  const bgOverlay = shiftLightness(bgBase, -3);      // always darker than base
+  const bgInset = shiftLightness(bgBase, 7 * dir);
+  const bgInsetHover = shiftLightness(bgBase, 11 * dir);
+  const bgButton = shiftLightness(bgBase, 14 * dir);
+  const bgButtonHover = shiftLightness(bgBase, 19 * dir);
 
   // Accent
   const accentHover = scaleBrightness(accent, 0.88);
@@ -185,7 +196,7 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
     textPrimary = "#111111";
     textSecondary = "#444444";
     textMuted = "#666666";
-    textFaint = "#999999";
+    textFaint = "#666666";
     textDisabled = "#aaaaaa";
   }
 
@@ -193,6 +204,15 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
   const borderSubtle = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)";
   const scrollbar = bgButton;
   const scrollbarHover = bgButtonHover;
+
+  // Adaptive highlight overlays
+  const hlFaint = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)";
+  const hlMed = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
+  const hlStrong = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
+
+  // Slider / progress
+  const sliderTrack = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)";
+  const sliderFill = isDark ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.45)";
 
   return {
     bgBase,
@@ -215,6 +235,11 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
     borderSubtle,
     scrollbar,
     scrollbarHover,
+    hlFaint,
+    hlMed,
+    hlStrong,
+    sliderTrack,
+    sliderFill,
     success: "#1ed760",
     error: "#ff6666",
     warning: "#ffa726",
@@ -247,6 +272,11 @@ export function themeToCssVars(dt: DerivedTheme): Record<string, string> {
     "--th-border-subtle": dt.borderSubtle,
     "--th-scrollbar": dt.scrollbar,
     "--th-scrollbar-hover": dt.scrollbarHover,
+    "--th-hl-faint": dt.hlFaint,
+    "--th-hl-med": dt.hlMed,
+    "--th-hl-strong": dt.hlStrong,
+    "--th-slider-track": dt.sliderTrack,
+    "--th-slider-fill": dt.sliderFill,
     "--th-success": dt.success,
     "--th-error": dt.error,
     "--th-warning": dt.warning,
@@ -267,4 +297,7 @@ export const PRESET_THEMES: Theme[] = [
   { name: "Rose", accent: "#F43F5E", bgBase: "#140E0F" },
   { name: "Ember", accent: "#F97316", bgBase: "#151010" },
   { name: "Copper", accent: "#E8915A", bgBase: "#12100E" },
+  { name: "Daylight", accent: "#2563EB", bgBase: "#F5F3EE" },
+  { name: "Snowfall", accent: "#0891B2", bgBase: "#F8FAFC" },
+  { name: "Paper", accent: "#7C3AED", bgBase: "#FAF5FF" },
 ];

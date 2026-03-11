@@ -18,7 +18,6 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: dark;
   color: var(--th-text-primary, rgba(255, 255, 255, 0.87));
   background-color: var(--th-bg-base, #121212);
 
