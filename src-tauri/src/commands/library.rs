@@ -351,15 +351,19 @@ pub async fn get_favorite_albums(
     user_id: u64,
     offset: u32,
     limit: u32,
+    order: String,
+    order_direction: String,
 ) -> Result<crate::tidal_api::PaginatedResponse<TidalAlbumDetail>, SoneError> {
     log::debug!(
-        "[get_favorite_albums]: user_id={}, offset={}, limit={}",
+        "[get_favorite_albums]: user_id={}, offset={}, limit={}, order={}, dir={}",
         user_id,
         offset,
-        limit
+        limit,
+        order,
+        order_direction
     );
 
-    let cache_key = format!("fav-albums:{}:{}:{}", user_id, offset, limit);
+    let cache_key = format!("fav-albums:{}:{}:{}:{}:{}", user_id, offset, limit, order, order_direction);
     match state
         .disk_cache
         .get(&cache_key, CacheTier::UserContent)
@@ -380,11 +384,13 @@ pub async fn get_favorite_albums(
                         state.disk_cache.mark_refresh_attempt(&cache_key).await;
                         let handle = app_handle.clone();
                         let key = cache_key.clone();
+                        let order_bg = order.clone();
+                        let dir_bg = order_direction.clone();
                         tokio::spawn(async move {
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_favorite_albums(user_id, offset, limit).await
+                                client.get_favorite_albums(user_id, offset, limit, &order_bg, &dir_bg).await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -412,7 +418,7 @@ pub async fn get_favorite_albums(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let data = client.get_favorite_albums(user_id, offset, limit).await?;
+    let data = client.get_favorite_albums(user_id, offset, limit, &order, &order_direction).await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&data) {
@@ -868,10 +874,18 @@ pub async fn get_favorite_mixes(
     app_handle: tauri::AppHandle,
     offset: u32,
     limit: u32,
+    order: String,
+    order_direction: String,
 ) -> Result<crate::tidal_api::PaginatedResponse<crate::tidal_api::TidalFavoriteMix>, SoneError> {
-    log::debug!("[get_favorite_mixes]: offset={}, limit={}", offset, limit);
+    log::debug!(
+        "[get_favorite_mixes]: offset={}, limit={}, order={}, dir={}",
+        offset,
+        limit,
+        order,
+        order_direction
+    );
 
-    let cache_key = format!("fav-mixes:{}:{}", offset, limit);
+    let cache_key = format!("fav-mixes:{}:{}:{}:{}", offset, limit, order, order_direction);
     match state
         .disk_cache
         .get(&cache_key, CacheTier::UserContent)
@@ -892,11 +906,13 @@ pub async fn get_favorite_mixes(
                         state.disk_cache.mark_refresh_attempt(&cache_key).await;
                         let handle = app_handle.clone();
                         let key = cache_key.clone();
+                        let order_bg = order.clone();
+                        let dir_bg = order_direction.clone();
                         tokio::spawn(async move {
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_favorite_mixes(offset, limit).await
+                                client.get_favorite_mixes(offset, limit, &order_bg, &dir_bg).await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -919,7 +935,7 @@ pub async fn get_favorite_mixes(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let data = client.get_favorite_mixes(offset, limit).await?;
+    let data = client.get_favorite_mixes(offset, limit, &order, &order_direction).await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&data) {
@@ -962,15 +978,19 @@ pub async fn get_favorite_artists(
     user_id: u64,
     offset: u32,
     limit: u32,
+    order: String,
+    order_direction: String,
 ) -> Result<crate::tidal_api::PaginatedResponse<TidalArtistDetail>, SoneError> {
     log::debug!(
-        "[get_favorite_artists]: user_id={}, offset={}, limit={}",
+        "[get_favorite_artists]: user_id={}, offset={}, limit={}, order={}, dir={}",
         user_id,
         offset,
-        limit
+        limit,
+        order,
+        order_direction
     );
 
-    let cache_key = format!("fav-artists:{}:{}:{}", user_id, offset, limit);
+    let cache_key = format!("fav-artists:{}:{}:{}:{}:{}", user_id, offset, limit, order, order_direction);
     match state
         .disk_cache
         .get(&cache_key, CacheTier::UserContent)
@@ -991,11 +1011,13 @@ pub async fn get_favorite_artists(
                         state.disk_cache.mark_refresh_attempt(&cache_key).await;
                         let handle = app_handle.clone();
                         let key = cache_key.clone();
+                        let order_bg = order.clone();
+                        let dir_bg = order_direction.clone();
                         tokio::spawn(async move {
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_favorite_artists(user_id, offset, limit).await
+                                client.get_favorite_artists(user_id, offset, limit, &order_bg, &dir_bg).await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -1023,7 +1045,7 @@ pub async fn get_favorite_artists(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let data = client.get_favorite_artists(user_id, offset, limit).await?;
+    let data = client.get_favorite_artists(user_id, offset, limit, &order, &order_direction).await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&data) {
