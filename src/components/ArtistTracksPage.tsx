@@ -178,7 +178,7 @@ export default function ArtistTracksPage({
     return (
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load tracks
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
@@ -190,7 +190,7 @@ export default function ArtistTracksPage({
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <div className="px-8 pt-6 pb-4">
-        <h1 className="text-[32px] font-extrabold text-white leading-tight mb-1">
+        <h1 className="text-[32px] font-extrabold text-th-text-primary leading-tight mb-1">
           Popular tracks
         </h1>
         <p className="text-th-text-muted text-sm">{artistName}</p>
@@ -210,7 +210,7 @@ export default function ArtistTracksPage({
         </button>
         <button
           onClick={handleShuffle}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
         >
           <Shuffle size={18} />
           Shuffle
@@ -220,7 +220,7 @@ export default function ArtistTracksPage({
       <div className="px-8 pb-8">
         {tracks.length === 0 ? (
           <div className="py-16 text-center">
-            <p className="text-white font-semibold text-lg mb-2">
+            <p className="text-th-text-primary font-semibold text-lg mb-2">
               No tracks available
             </p>
             <p className="text-th-text-muted text-sm">

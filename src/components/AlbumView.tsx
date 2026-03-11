@@ -344,13 +344,13 @@ export default function AlbumView({
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Music size={48} className="text-th-text-disabled" />
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load album
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -373,17 +373,17 @@ export default function AlbumView({
           />
         </div>
         <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-white/70 uppercase tracking-widest">
+          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             Album
           </span>
-          <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight line-clamp-2">
+          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
             {displayTitle}
           </h1>
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             <TrackArtists
               artists={album?.artists}
               artist={album?.artist}
-              className="text-white font-semibold hover:underline cursor-pointer"
+              className="text-th-text-primary font-semibold hover:underline cursor-pointer"
               fallback={albumInfo?.artistName || "Unknown Artist"}
             />
             {album?.releaseDate && (
@@ -427,7 +427,7 @@ export default function AlbumView({
           </button>
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle
@@ -440,7 +440,7 @@ export default function AlbumView({
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
               albumFavorited
                 ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-white hover:bg-white/8"
+                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
             } disabled:opacity-60 disabled:cursor-not-allowed`}
             title={
               albumFavorited ? "Remove from favorites" : "Add to favorites"
@@ -462,7 +462,7 @@ export default function AlbumView({
               e.stopPropagation();
               setContextMenu({ x: e.clientX, y: e.clientY });
             }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
             title="More options"
           >
             <MoreHorizontal size={20} />
@@ -494,7 +494,7 @@ export default function AlbumView({
               return (
                 <div key={vol}>
                   <h3
-                    className={`text-md font-semibold text-white mb-2${
+                    className={`text-md font-semibold text-th-text-primary mb-2${
                       vol > 1 ? " mt-6" : ""
                     }`}
                   >

@@ -351,13 +351,13 @@ export default function PlaylistView({
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Music size={48} className="text-th-text-disabled" />
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load playlist
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -382,10 +382,10 @@ export default function PlaylistView({
           )}
         </div>
         <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-white/70 uppercase tracking-widest">
+          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             Playlist
           </span>
-          <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight line-clamp-2">
+          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
             {displayTitle}
           </h1>
           {displayDescription && (
@@ -396,7 +396,7 @@ export default function PlaylistView({
               {descriptionIsLong && (
                 <button
                   onClick={() => setShowDescriptionModal(true)}
-                  className="text-[13px] text-white font-semibold hover:underline mt-1"
+                  className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
                 >
                   Read more
                 </button>
@@ -406,7 +406,7 @@ export default function PlaylistView({
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             {displayCreator && (
               <>
-                <span className="text-white font-semibold">
+                <span className="text-th-text-primary font-semibold">
                   {displayCreator}
                 </span>
                 <span className="mx-1">•</span>
@@ -436,7 +436,7 @@ export default function PlaylistView({
           </button>
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle
@@ -449,7 +449,7 @@ export default function PlaylistView({
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
               playlistFavorited
                 ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-white hover:bg-white/8"
+                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
             }`}
             title={
               playlistFavorited ? "Remove from favorites" : "Add to favorites"
@@ -466,7 +466,7 @@ export default function PlaylistView({
               e.stopPropagation();
               setContextMenu({ x: e.clientX, y: e.clientY });
             }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
             title="More options"
           >
             <MoreHorizontal size={20} />
@@ -526,7 +526,7 @@ export default function PlaylistView({
         {tracks.length === 0 && (
           <div className="py-16 text-center">
             <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-white font-semibold text-lg mb-2">
+            <p className="text-th-text-primary font-semibold text-lg mb-2">
               This playlist is empty
             </p>
             <p className="text-th-text-muted text-sm">
@@ -564,14 +564,14 @@ export default function PlaylistView({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-[15px] font-bold text-white leading-tight truncate">
+                <h3 className="text-[15px] font-bold text-th-text-primary leading-tight truncate">
                   {displayTitle}
                 </h3>
                 <p className="text-[13px] text-th-text-muted">Description</p>
               </div>
               <button
                 onClick={() => setShowDescriptionModal(false)}
-                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-white"
+                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
               >
                 <X size={18} />
               </button>

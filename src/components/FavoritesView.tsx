@@ -235,13 +235,13 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Heart size={48} className="text-th-text-disabled" />
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load favorites
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -258,10 +258,10 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           <Heart size={80} className="text-white drop-shadow-lg" fill="white" />
         </div>
         <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-white/70 uppercase tracking-widest">
+          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             Collection
           </span>
-          <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight">
+          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight">
             Loved Tracks
           </h1>
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
@@ -308,7 +308,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         {tracks.length === 0 && (
           <div className="py-16 text-center">
             <Heart size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-white font-semibold text-lg mb-2">
+            <p className="text-th-text-primary font-semibold text-lg mb-2">
               No loved tracks yet
             </p>
             <p className="text-th-text-muted text-sm">

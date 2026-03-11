@@ -183,13 +183,13 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           ) : (
             <Music size={48} className="text-th-text-disabled" />
           )}
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             {isTrackRadio ? "Couldn't load track radio" : "Couldn't load mix"}
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -227,10 +227,10 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           )}
         </div>
         <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-white/70 uppercase tracking-widest">
+          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             {isTrackRadio ? "Track Radio" : "Mix"}
           </span>
-          <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight line-clamp-2">
+          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
             {displayTitle}
           </h1>
           {displaySubtitle && (
@@ -263,7 +263,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           </button>
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle
@@ -276,7 +276,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
               mixFavorited
                 ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-white hover:bg-white/8"
+                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
             }`}
             title={mixFavorited ? "Remove from favorites" : "Add to favorites"}
           >
@@ -291,7 +291,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
               e.stopPropagation();
               setContextMenu({ x: e.clientX, y: e.clientY });
             }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
             title="More options"
           >
             <MoreHorizontal size={20} />
@@ -330,7 +330,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
             ) : (
               <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
             )}
-            <p className="text-white font-semibold text-lg mb-2">
+            <p className="text-th-text-primary font-semibold text-lg mb-2">
               {isTrackRadio ? "No radio tracks found" : "This mix is empty"}
             </p>
             <p className="text-th-text-muted text-sm">
@@ -340,7 +340,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
             </p>
             <button
               onClick={onBack}
-              className="mt-4 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+              className="mt-4 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
             >
               Go back
             </button>
