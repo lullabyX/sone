@@ -2356,7 +2356,7 @@ impl TidalClient {
 
     /// Fetch favorite mix IDs from api.tidal.com/v2/favorites/mixes.
     pub async fn get_favorite_mix_ids(&mut self) -> Result<Vec<String>, SoneError> {
-        let response = self.get_favorite_mixes(0, 50).await?;
+        let response = self.get_favorite_mixes(0, 50, "DATE", "DESC").await?;
         let ids: Vec<String> = response.items.iter().map(|m| m.id.clone()).collect();
         log::debug!("[get_favorite_mix_ids]: found {} mix IDs", ids.len());
         Ok(ids)
@@ -2367,6 +2367,8 @@ impl TidalClient {
         &mut self,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedResponse<TidalFavoriteMix>, SoneError> {
         let url = format!("{}/favorites/mixes", TIDAL_API_V2_URL);
         let cc = self.country_code.clone();
@@ -2381,6 +2383,8 @@ impl TidalClient {
                     ("deviceType", "BROWSER"),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;
@@ -3546,6 +3550,8 @@ impl TidalClient {
         user_id: u64,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedResponse<TidalArtistDetail>, SoneError> {
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
@@ -3557,8 +3563,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
-                    ("order", "DATE"),
-                    ("orderDirection", "DESC"),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;
@@ -3597,6 +3603,8 @@ impl TidalClient {
         user_id: u64,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedResponse<TidalAlbumDetail>, SoneError> {
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
@@ -3608,8 +3616,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
-                    ("order", "DATE"),
-                    ("orderDirection", "DESC"),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;
