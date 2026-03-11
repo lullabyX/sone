@@ -1,4 +1,5 @@
 import { Home, Compass, Library, Heart, Music, User } from "lucide-react";
+import SortDropdown from "./SortDropdown";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import SidebarSkeleton from "./SidebarSkeleton";
 import {
@@ -20,7 +21,7 @@ import MediaContextMenu from "./MediaContextMenu";
 import { CreatePlaylistModal } from "./AddToPlaylistMenu";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
 import { useState, useCallback, useMemo } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useAtom } from "jotai";
 import { userPlaylistsAtom, favoritePlaylistsAtom } from "../atoms/playlists";
 import {
   favoriteAlbumIdsAtom,
@@ -29,6 +30,9 @@ import {
   optimisticFollowedArtistsAtom,
   optimisticFavoriteMixesAtom,
   favoriteMixIdsAtom,
+  albumSortAtom,
+  artistSortAtom,
+  mixSortAtom,
 } from "../atoms/favorites";
 
 export default function Sidebar() {
@@ -98,6 +102,11 @@ export default function Sidebar() {
     return merged;
   }, [userPlaylists, userPlaylistItems, favoritePlaylists]);
 
+  // Sort atoms
+  const [albumSort, setAlbumSort] = useAtom(albumSortAtom);
+  const [artistSort, setArtistSort] = useAtom(artistSortAtom);
+  const [mixSort, setMixSort] = useAtom(mixSortAtom);
+
   // Albums
   const optimisticAlbums = useAtomValue(optimisticFavoriteAlbumsAtom);
   const favoriteAlbumIds = useAtomValue(favoriteAlbumIdsAtom);
@@ -105,9 +114,9 @@ export default function Sidebar() {
   const albumFetch = useCallback(
     async (offset: number, limit: number) => {
       if (!authTokens?.user_id) return { items: [], totalNumberOfItems: 0 };
-      return getFavoriteAlbums(authTokens.user_id, offset, limit);
+      return getFavoriteAlbums(authTokens.user_id, offset, limit, albumSort.order, albumSort.direction);
     },
-    [authTokens?.user_id],
+    [authTokens?.user_id, albumSort.order, albumSort.direction],
   );
 
   const {
@@ -120,6 +129,7 @@ export default function Sidebar() {
     fetchPage: albumFetch,
     pageSize: 20,
     enabled: activeFilter === "albums" && !!authTokens?.user_id,
+    resetKey: `${albumSort.order}:${albumSort.direction}`,
   });
 
   // Merge optimistic albums with paginated list, filter by current favorites
@@ -146,8 +156,8 @@ export default function Sidebar() {
   const favoriteMixIds = useAtomValue(favoriteMixIdsAtom);
 
   const mixFetch = useCallback(async (offset: number, limit: number) => {
-    return getFavoriteMixes(offset, limit);
-  }, []);
+    return getFavoriteMixes(offset, limit, mixSort.order, mixSort.direction);
+  }, [mixSort.order, mixSort.direction]);
 
   const {
     items: favoriteMixesList,
@@ -159,6 +169,7 @@ export default function Sidebar() {
     fetchPage: mixFetch,
     pageSize: 20,
     enabled: activeFilter === "mixes" && !!authTokens?.user_id,
+    resetKey: `${mixSort.order}:${mixSort.direction}`,
   });
 
   // Merge optimistic mixes with paginated list, filter by current favorites
@@ -188,9 +199,9 @@ export default function Sidebar() {
     async (offset: number, limit: number) => {
       if (!authTokens?.user_id)
         return { items: [] as ArtistDetail[], totalNumberOfItems: 0 };
-      return getFavoriteArtists(authTokens.user_id, offset, limit);
+      return getFavoriteArtists(authTokens.user_id, offset, limit, artistSort.order, artistSort.direction);
     },
-    [authTokens?.user_id],
+    [authTokens?.user_id, artistSort.order, artistSort.direction],
   );
 
   const {
@@ -203,6 +214,7 @@ export default function Sidebar() {
     fetchPage: artistFetch,
     pageSize: 20,
     enabled: activeFilter === "artists" && !!authTokens?.user_id,
+    resetKey: `${artistSort.order}:${artistSort.direction}`,
   });
 
   // Merge optimistic artists with paginated list, filter by current follows
@@ -335,12 +347,22 @@ export default function Sidebar() {
             )}
           </button>
           {!isCollapsed && (
-            <button
-              onClick={() => navigateToLibraryViewAll(activeFilter)}
-              className="text-xs text-th-text-muted hover:text-white transition-colors px-2.5"
-            >
-              Show all
-            </button>
+            <div className="flex items-center gap-1">
+              {activeFilter !== "playlists" && (
+                <SortDropdown
+                  libraryType={activeFilter as "albums" | "artists" | "mixes"}
+                  currentSort={activeFilter === "albums" ? albumSort : activeFilter === "artists" ? artistSort : mixSort}
+                  onSortChange={activeFilter === "albums" ? setAlbumSort : activeFilter === "artists" ? setArtistSort : setMixSort}
+                  compact
+                />
+              )}
+              <button
+                onClick={() => navigateToLibraryViewAll(activeFilter)}
+                className="text-xs text-th-text-muted hover:text-white transition-colors px-2.5"
+              >
+                Show all
+              </button>
+            </div>
           )}
         </div>
 
