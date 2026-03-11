@@ -1,0 +1,134 @@
+name: sone
+base: core22
+adopt-info: build-app
+title: SONE
+summary: Native Linux client for TIDAL
+description: |
+  Native Linux client for TIDAL — lossless and bit-perfect audio streaming.
+  Supports HiRes FLAC, exclusive ALSA output, Scrobbling integration, MPRIS integration, and more.
+
+  For exclusive ALSA output, run: sudo snap connect sone:alsa
+icon: snap/gui/sone.png
+license: GPL-3.0-only
+website: https://github.com/lullabyX/sone
+source-code: https://github.com/lullabyX/sone
+issues: https://github.com/lullabyX/sone/issues
+contact: https://github.com/lullabyX/sone/issues
+
+grade: stable
+confinement: strict
+
+architectures:
+  - build-on: amd64
+
+lint:
+  ignore:
+    - library:
+        - usr/lib/x86_64-linux-gnu/libzvbi*
+        - usr/lib/x86_64-linux-gnu/libEGL_mesa*
+        - usr/lib/x86_64-linux-gnu/libGLESv2*
+        - usr/lib/x86_64-linux-gnu/libGLX_mesa*
+        - usr/lib/x86_64-linux-gnu/libIex*
+        - usr/lib/x86_64-linux-gnu/libIlm*
+        - usr/lib/x86_64-linux-gnu/libayatana*
+        - usr/lib/x86_64-linux-gnu/libcaca*
+        - usr/lib/x86_64-linux-gnu/libcolord*
+        - usr/lib/x86_64-linux-gnu/libdconf*
+        - usr/lib/x86_64-linux-gnu/libexslt*
+        - usr/lib/x86_64-linux-gnu/libfaad*
+        - usr/lib/x86_64-linux-gnu/libflite*
+        - usr/lib/x86_64-linux-gnu/libgstcheck*
+        - usr/lib/x86_64-linux-gnu/libgstcontroller*
+        - usr/lib/x86_64-linux-gnu/libgstinsertbin*
+        - usr/lib/x86_64-linux-gnu/libgstplayer*
+        - usr/lib/x86_64-linux-gnu/libgsttranscoder*
+        - usr/lib/x86_64-linux-gnu/libicu*
+        - usr/lib/x86_64-linux-gnu/libjack*
+        - usr/lib/x86_64-linux-gnu/libmfx*
+        - usr/lib/x86_64-linux-gnu/liborc-test*
+        - usr/lib/x86_64-linux-gnu/libsmime3*
+        - usr/lib/x86_64-linux-gnu/libsphinx*
+        - usr/lib/x86_64-linux-gnu/libssl3*
+        - usr/lib/x86_64-linux-gnu/libunwind*
+        - usr/lib/x86_64-linux-gnu/libwoff2enc*
+
+layout:
+  /usr/lib/$SNAPCRAFT_ARCH_TRIPLET/webkit2gtk-4.1:
+    bind: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/webkit2gtk-4.1
+  /usr/lib/$SNAPCRAFT_ARCH_TRIPLET/gstreamer-1.0:
+    bind: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/gstreamer-1.0
+  /usr/share/gstreamer-1.0:
+    bind: $SNAP/usr/share/gstreamer-1.0
+  /usr/share/alsa:
+    bind: $SNAP/usr/share/alsa
+  /usr/lib/$SNAPCRAFT_ARCH_TRIPLET/alsa-lib:
+    bind: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/alsa-lib
+
+apps:
+  sone:
+    command: usr/bin/sone
+    desktop: usr/share/applications/sone.desktop
+    extensions: [gnome]
+    environment:
+      GST_PLUGIN_SYSTEM_PATH: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/gstreamer-1.0
+      WEBKIT_DISABLE_DMABUF_RENDERER: 1
+    plugs:
+      - home
+      - network
+      - network-bind
+      - network-status
+      - audio-playback
+      - alsa
+      - browser-support
+
+parts:
+  build-app:
+    plugin: dump
+    build-snaps:
+      - node/22/stable
+      - rustup/latest/stable
+    build-packages:
+      - libwebkit2gtk-4.1-dev
+      - build-essential
+      - curl
+      - wget
+      - file
+      - pkg-config
+      - libssl-dev
+      - libgtk-3-dev
+      - libayatana-appindicator3-dev
+      - librsvg2-dev
+      - libdbus-1-dev
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libsecret-1-dev
+      - libasound2-dev
+      - dpkg
+    stage-packages:
+      - libwebkit2gtk-4.1-0
+      - libayatana-appindicator3-1
+      - libsecret-1-0
+      - librsvg2-common
+      - libasound2
+      - libasound2-data
+      - libasound2-plugins
+      - libgstreamer1.0-0
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-bad
+      - gstreamer1.0-libav
+      - gstreamer1.0-alsa
+      - libblas3
+    source: .
+    override-build: |
+      set -eu
+      rustup default stable
+
+      VERSION=$(node -p "require('./package.json').version")
+      craftctl set version="$VERSION"
+
+      npm ci
+      npm run tauri build -- --bundles deb
+      dpkg -x src-tauri/target/release/bundle/deb/*.deb $SNAPCRAFT_PART_INSTALL/
+      sed -i -e "s|Icon=sone|Icon=/usr/share/icons/hicolor/32x32/apps/sone.png|g" $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop
+      cp $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop $SNAPCRAFT_PART_INSTALL/usr/share/applications/sone.desktop
