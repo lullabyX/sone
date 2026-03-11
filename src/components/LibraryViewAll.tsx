@@ -10,12 +10,17 @@ import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "../hooks/useNavigation";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useFavorites } from "../hooks/useFavorites";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useAtom } from "jotai";
 import {
   userPlaylistsAtom,
   favoritePlaylistsAtom,
   deletedPlaylistIdsAtom,
 } from "../atoms/playlists";
+import {
+  albumSortAtom,
+  artistSortAtom,
+  mixSortAtom,
+} from "../atoms/favorites";
 import {
   getUserPlaylists,
   getFavoriteAlbums,
@@ -27,6 +32,7 @@ import MediaGrid, { MediaGridSkeleton, MediaGridEmpty } from "./MediaGrid";
 import MediaCard from "./MediaCard";
 import MediaContextMenu from "./MediaContextMenu";
 import DebouncedFilterInput from "./DebouncedFilterInput";
+import SortDropdown from "./SortDropdown";
 import { buildMediaItem } from "../utils/itemHelpers";
 import type { MediaItemType, Playlist } from "../types";
 
@@ -84,6 +90,20 @@ export default function LibraryViewAll({ libraryType }: LibraryViewAllProps) {
   const userPlaylists = useAtomValue(userPlaylistsAtom);
   const favoritePlaylists = useAtomValue(favoritePlaylistsAtom);
   const deletedPlaylistIds = useAtomValue(deletedPlaylistIdsAtom);
+
+  const [albumSort, setAlbumSort] = useAtom(albumSortAtom);
+  const [artistSort, setArtistSort] = useAtom(artistSortAtom);
+  const [mixSort, setMixSort] = useAtom(mixSortAtom);
+
+  const currentSort = libraryType === "albums" ? albumSort
+    : libraryType === "artists" ? artistSort
+    : libraryType === "mixes" ? mixSort
+    : null;
+
+  const setCurrentSort = libraryType === "albums" ? setAlbumSort
+    : libraryType === "artists" ? setArtistSort
+    : libraryType === "mixes" ? setMixSort
+    : null;
 
   const [items, setItems] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -146,18 +166,18 @@ export default function LibraryViewAll({ libraryType }: LibraryViewAllProps) {
         }
         case "albums": {
           if (!userId) return { items: [], totalNumberOfItems: 0 };
-          return getFavoriteAlbums(userId, offset, limit);
+          return getFavoriteAlbums(userId, offset, limit, currentSort?.order ?? "DATE", currentSort?.direction ?? "DESC");
         }
         case "artists": {
           if (!userId) return { items: [], totalNumberOfItems: 0 };
-          return getFavoriteArtists(userId, offset, limit);
+          return getFavoriteArtists(userId, offset, limit, currentSort?.order ?? "DATE", currentSort?.direction ?? "DESC");
         }
         case "mixes": {
-          return getFavoriteMixes(offset, limit);
+          return getFavoriteMixes(offset, limit, currentSort?.order ?? "DATE", currentSort?.direction ?? "DESC");
         }
       }
     },
-    [libraryType, userId],
+    [libraryType, userId, currentSort?.order, currentSort?.direction],
   );
 
   // Load first page
@@ -504,24 +524,33 @@ export default function LibraryViewAll({ libraryType }: LibraryViewAllProps) {
         <h1 className="text-[32px] font-extrabold text-white leading-tight tracking-tight">
           {config.title}
         </h1>
-        <p className="text-[14px] text-th-text-muted mt-1">
-          {itemCount}{" "}
-          {libraryType === "artists"
-            ? itemCount === 1
-              ? "artist"
-              : "artists"
-            : libraryType === "albums"
+        <div className="flex items-center gap-3 mt-1">
+          <p className="text-[14px] text-th-text-muted">
+            {itemCount}{" "}
+            {libraryType === "artists"
               ? itemCount === 1
-                ? "album"
-                : "albums"
-              : libraryType === "mixes"
+                ? "artist"
+                : "artists"
+              : libraryType === "albums"
                 ? itemCount === 1
-                  ? "mix"
-                  : "mixes"
-                : itemCount === 1
-                  ? "playlist"
-                  : "playlists"}
-        </p>
+                  ? "album"
+                  : "albums"
+                : libraryType === "mixes"
+                  ? itemCount === 1
+                    ? "mix"
+                    : "mixes"
+                  : itemCount === 1
+                    ? "playlist"
+                    : "playlists"}
+          </p>
+          {libraryType !== "playlists" && currentSort && setCurrentSort && (
+            <SortDropdown
+              libraryType={libraryType as "albums" | "artists" | "mixes"}
+              currentSort={currentSort}
+              onSortChange={setCurrentSort}
+            />
+          )}
+        </div>
       </div>
 
       {/* Search */}
