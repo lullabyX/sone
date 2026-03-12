@@ -42,6 +42,7 @@ function useZoom() {
 
   useEffect(() => {
     document.documentElement.style.zoom = String(zoom);
+    document.documentElement.style.setProperty("--zoom", String(zoom));
   }, [zoom]);
 
   useEffect(() => {

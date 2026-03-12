@@ -34,6 +34,7 @@ import {
   artistSortAtom,
   mixSortAtom,
 } from "../atoms/favorites";
+import { sidebarCollapsedAtom } from "../atoms/ui";
 
 export default function Sidebar() {
   const {
@@ -48,7 +49,7 @@ export default function Sidebar() {
     currentView,
   } = useNavigation();
   const { authTokens } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useAtom(sidebarCollapsedAtom);
   const [activeFilter, setActiveFilter] = useState<
     "playlists" | "albums" | "artists" | "mixes"
   >("playlists");

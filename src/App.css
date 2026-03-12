@@ -161,11 +161,13 @@ textarea {
   --cols: 2;
 }
 
-@container (min-width: 850px)  { .card-scroll-item { --cols: 3; } }
-@container (min-width: 1100px) { .card-scroll-item { --cols: 4; } }
-@container (min-width: 1350px) { .card-scroll-item { --cols: 5; } }
-@container (min-width: 1600px) { .card-scroll-item { --cols: 6; } }
-@container (min-width: 1850px) { .card-scroll-item { --cols: 7; } }
+@container (min-width: 588px)  { .card-scroll-item { --cols: 2; } }
+@container (min-width: 802px)  { .card-scroll-item { --cols: 3; } }
+@container (min-width: 1016px) { .card-scroll-item { --cols: 4; } }
+@container (min-width: 1230px) { .card-scroll-item { --cols: 5; } }
+@container (min-width: 1444px) { .card-scroll-item { --cols: 6; } }
+@container (min-width: 1658px) { .card-scroll-item { --cols: 7; } }
+@container (min-width: 1824px) { .card-scroll-item { --cols: 8; } }
 
 /* Toast slide-in */
 @keyframes toastIn {
