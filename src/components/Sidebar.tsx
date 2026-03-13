@@ -86,7 +86,7 @@ export default function Sidebar() {
     sentinelRef: playlistsSentinelRef,
   } = useInfiniteScroll<PlaylistOrFolder>({
     fetchPage: playlistFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "playlists" && !!authTokens?.user_id,
     resetKey: `${playlistSort.order}:${playlistSort.direction}`,
   });
@@ -118,7 +118,7 @@ export default function Sidebar() {
     sentinelRef: albumsSentinelRef,
   } = useInfiniteScroll({
     fetchPage: albumFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "albums" && !!authTokens?.user_id,
     resetKey: `${albumSort.order}:${albumSort.direction}`,
   });
@@ -158,7 +158,7 @@ export default function Sidebar() {
     sentinelRef: mixesSentinelRef,
   } = useInfiniteScroll({
     fetchPage: mixFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "mixes" && !!authTokens?.user_id,
     resetKey: `${mixSort.order}:${mixSort.direction}`,
   });
@@ -203,7 +203,7 @@ export default function Sidebar() {
     sentinelRef: artistsSentinelRef,
   } = useInfiniteScroll({
     fetchPage: artistFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "artists" && !!authTokens?.user_id,
     resetKey: `${artistSort.order}:${artistSort.direction}`,
   });
