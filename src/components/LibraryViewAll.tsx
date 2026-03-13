@@ -116,6 +116,7 @@ export default function LibraryViewAll({ libraryType, folderId, folderName }: Li
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const playlistCursorRef = useRef<string | null>(null);
+  const playlistApiTotalRef = useRef(0);
 
   const config = CONFIG[libraryType];
   const userId = authTokens?.user_id;
@@ -137,6 +138,7 @@ export default function LibraryViewAll({ libraryType, folderId, folderName }: Li
           );
           const normalized = normalizePlaylistFolders(response);
           playlistCursorRef.current = normalized.cursor;
+          playlistApiTotalRef.current = normalized.totalNumberOfItems;
           const total = normalized.cursor
             ? offset + normalized.items.length + 1
             : offset + normalized.items.length;
@@ -482,7 +484,11 @@ export default function LibraryViewAll({ libraryType, folderId, folderName }: Li
 
   const hasMore = !isFiltering && items.length < totalCount;
   const isArtist = libraryType === "artists";
-  const itemCount = isFiltering ? filteredItems.length : displayItems.length;
+  const itemCount = isFiltering
+    ? filteredItems.length
+    : libraryType === "playlists"
+      ? playlistApiTotalRef.current || displayItems.length
+      : totalCount || displayItems.length;
 
   if (loading) {
     return (
