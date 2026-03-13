@@ -1072,12 +1072,14 @@ pub async fn get_playlist_folders(
     limit: u32,
     order: String,
     order_direction: String,
+    cursor: Option<String>,
 ) -> Result<serde_json::Value, SoneError> {
     log::debug!(
-        "[get_playlist_folders]: folder_id={}, offset={}, limit={}",
+        "[get_playlist_folders]: folder_id={}, offset={}, limit={}, cursor={:?}",
         folder_id,
         offset,
-        limit
+        limit,
+        cursor
     );
 
     let mut client = state.tidal_client.lock().await;
@@ -1089,6 +1091,7 @@ pub async fn get_playlist_folders(
             limit,
             &order,
             &order_direction,
+            cursor.as_deref().unwrap_or(""),
         )
         .await
 }

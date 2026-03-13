@@ -868,6 +868,7 @@ export async function getPlaylistFolders(
   order: string = "DATE_UPDATED",
   orderDirection: string = "DESC",
   includeOnly?: string,
+  cursor?: string,
 ): Promise<PlaylistFoldersResponse> {
   return invoke<PlaylistFoldersResponse>("get_playlist_folders", {
     folderId,
@@ -876,6 +877,7 @@ export async function getPlaylistFolders(
     limit,
     order,
     orderDirection,
+    cursor: cursor ?? "",
   });
 }
 
@@ -914,10 +916,11 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
 
 export function normalizePlaylistFolders(
   response: PlaylistFoldersResponse,
-): { items: PlaylistOrFolder[]; totalNumberOfItems: number } {
+): { items: PlaylistOrFolder[]; totalNumberOfItems: number; cursor: string | null } {
   return {
     items: response.items.map(normalizeFolderItem),
     totalNumberOfItems: response.totalNumberOfItems,
+    cursor: response.cursor,
   };
 }
 

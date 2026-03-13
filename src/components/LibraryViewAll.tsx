@@ -120,6 +120,7 @@ export default function LibraryViewAll({ libraryType, folderId, folderName }: Li
   const cancelledRef = useRef(false);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const playlistCursorRef = useRef<string | null>(null);
 
   const config = CONFIG[libraryType];
   const userId = authTokens?.user_id;
@@ -133,11 +134,18 @@ export default function LibraryViewAll({ libraryType, folderId, folderName }: Li
     ): Promise<{ items: any[]; totalNumberOfItems: number }> => {
       switch (libraryType) {
         case "playlists": {
+          const cursor = offset === 0 ? undefined : (playlistCursorRef.current ?? undefined);
           const response = await getPlaylistFolders(
             folderId ?? "root", offset, limit,
             currentSort?.order ?? "DATE_UPDATED", currentSort?.direction ?? "DESC",
+            undefined, cursor,
           );
-          return normalizePlaylistFolders(response);
+          const normalized = normalizePlaylistFolders(response);
+          playlistCursorRef.current = normalized.cursor;
+          const total = normalized.cursor
+            ? offset + normalized.items.length + 1
+            : offset + normalized.items.length;
+          return { items: normalized.items, totalNumberOfItems: total };
         }
         case "albums": {
           if (!userId) return { items: [], totalNumberOfItems: 0 };
@@ -159,6 +167,7 @@ export default function LibraryViewAll({ libraryType, folderId, folderName }: Li
   useEffect(() => {
     cancelledRef.current = false;
     bgFetchingRef.current = false;
+    playlistCursorRef.current = null;
     setItems([]);
     setTotalCount(0);
     setLoading(true);

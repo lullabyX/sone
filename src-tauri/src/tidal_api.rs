@@ -2444,26 +2444,28 @@ impl TidalClient {
         limit: u32,
         order: &str,
         order_direction: &str,
+        cursor: &str,
     ) -> Result<serde_json::Value, SoneError> {
         let url = format!("{}/my-collection/playlists/folders", TIDAL_API_V2_URL);
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
         let offset_str = offset.to_string();
+        let mut params: Vec<(&str, &str)> = vec![
+            ("folderId", folder_id),
+            ("includeOnly", include_only),
+            ("offset", &offset_str),
+            ("limit", &limit_str),
+            ("order", order),
+            ("orderDirection", order_direction),
+            ("countryCode", &cc),
+            ("locale", "en_US"),
+            ("deviceType", "BROWSER"),
+        ];
+        if !cursor.is_empty() {
+            params.push(("cursor", cursor));
+        }
         let body = self
-            .api_get_body(
-                &url,
-                &[
-                    ("folderId", folder_id),
-                    ("includeOnly", include_only),
-                    ("offset", &offset_str),
-                    ("limit", &limit_str),
-                    ("order", order),
-                    ("orderDirection", order_direction),
-                    ("countryCode", &cc),
-                    ("locale", "en_US"),
-                    ("deviceType", "BROWSER"),
-                ],
-            )
+            .api_get_body(&url, &params)
             .await?;
 
         log::debug!(

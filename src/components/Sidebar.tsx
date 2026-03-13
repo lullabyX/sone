@@ -22,7 +22,7 @@ import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
 import { CreatePlaylistModal } from "./AddToPlaylistMenu";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useAtomValue, useAtom } from "jotai";
 import {
   favoriteAlbumIdsAtom,
@@ -60,12 +60,20 @@ export default function Sidebar() {
   // Playlist sort
   const [playlistSort, setPlaylistSort] = useAtom(playlistSortAtom);
 
-  // Playlists + folders: paginate from folders endpoint
+  // Playlists + folders: cursor-based pagination from folders endpoint
+  const playlistCursorRef = useRef<string | null>(null);
+
   const playlistFetch = useCallback(
     async (offset: number, limit: number) => {
-      const response = await getPlaylistFolders("root", offset, limit, playlistSort.order, playlistSort.direction);
+      const cursor = offset === 0 ? undefined : (playlistCursorRef.current ?? undefined);
+      const response = await getPlaylistFolders("root", offset, limit, playlistSort.order, playlistSort.direction, undefined, cursor);
       const normalized = normalizePlaylistFolders(response);
-      return { items: normalized.items, totalNumberOfItems: normalized.totalNumberOfItems };
+      playlistCursorRef.current = normalized.cursor;
+      // Derive hasMore from cursor presence — API's totalNumberOfItems is unreliable
+      const total = normalized.cursor
+        ? offset + normalized.items.length + 1
+        : offset + normalized.items.length;
+      return { items: normalized.items, totalNumberOfItems: total };
     },
     [playlistSort.order, playlistSort.direction],
   );
@@ -76,14 +84,14 @@ export default function Sidebar() {
     isLoadingMore: playlistsLoadingMore,
     hasMore: playlistsHasMore,
     sentinelRef: playlistsSentinelRef,
-  } = useInfiniteScroll({
+  } = useInfiniteScroll<PlaylistOrFolder>({
     fetchPage: playlistFetch,
     pageSize: 20,
     enabled: activeFilter === "playlists" && !!authTokens?.user_id,
     resetKey: `${playlistSort.order}:${playlistSort.direction}`,
   });
 
-  const allPlaylistItems: PlaylistOrFolder[] = playlistFolderItems as PlaylistOrFolder[];
+  const allPlaylistItems: PlaylistOrFolder[] = playlistFolderItems;
 
   // Sort atoms
   const [albumSort, setAlbumSort] = useAtom(albumSortAtom);
