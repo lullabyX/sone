@@ -209,7 +209,7 @@ const TIDAL_SHARE_BASE = "https://tidal.com";
 
 /** Build a Tidal share URL for a track. */
 export function getTrackShareUrl(trackId: number): string {
-  return `${TIDAL_SHARE_BASE}/track/${trackId}`;
+  return `${TIDAL_SHARE_BASE}/track/${trackId}/u`;
 }
 
 /** Build a Tidal share URL for a media item (album/playlist/mix/artist). */
