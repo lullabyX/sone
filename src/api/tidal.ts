@@ -928,6 +928,34 @@ export function getItemKey(item: PlaylistOrFolder): string {
   return item.kind === "playlist" ? item.data.uuid : item.data.id;
 }
 
+export async function createPlaylistFolder(
+  folderId: string,
+  name: string,
+  trns: string = "",
+): Promise<void> {
+  return invoke("create_playlist_folder", { folderId, name, trns });
+}
+
+export async function renamePlaylistFolder(
+  folderTrn: string,
+  name: string,
+): Promise<void> {
+  return invoke("rename_playlist_folder", { folderTrn, name });
+}
+
+export async function deletePlaylistFolder(
+  folderTrn: string,
+): Promise<void> {
+  return invoke("delete_playlist_folder", { folderTrn });
+}
+
+export async function movePlaylistToFolder(
+  folderId: string,
+  playlistTrn: string,
+): Promise<void> {
+  return invoke("move_playlist_to_folder", { folderId, playlistTrn });
+}
+
 // ==================== Unified favorite IDs (one-shot init) ====================
 
 /** @public */
