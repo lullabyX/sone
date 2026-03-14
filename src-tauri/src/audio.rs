@@ -41,6 +41,7 @@ enum WriterCommand {
     },
     FormatHint(PcmFormat),
     Resampling { from: u32, to: u32 },
+    BitDepthChanged { from: String, to: String },
     Flush,
     Shutdown,
 }
