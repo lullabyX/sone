@@ -103,6 +103,7 @@ export function useFolders() {
       });
       try {
         await renamePlaylistFolder(`trn:folder:${folderId}`, newName);
+        setFoldersFetched(false);
       } catch (error) {
         setRenamedFolders((prev) => {
           const next = new Map(prev);
@@ -113,7 +114,7 @@ export function useFolders() {
         throw error;
       }
     },
-    [setRenamedFolders],
+    [setRenamedFolders, setFoldersFetched],
   );
 
   const deleteFolder = useCallback(
