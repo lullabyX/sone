@@ -5,3 +5,4 @@ export const drawerTabAtom = atom<string>("queue");
 export const maximizedPlayerAtom = atom(false);
 export const maximizedLyricsAtom = atom(false);
 export const sidebarCollapsedAtom = atom(false);
+export const miniplayerOpenAtom = atom(false);

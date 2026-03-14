@@ -11,6 +11,7 @@ import {
   Infinity as InfinityIcon,
   Maximize2,
   MoreHorizontal,
+  PictureInPicture2,
 } from "lucide-react";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import { formatTime } from "../lib/format";
@@ -32,6 +33,7 @@ import { useProgressScrub } from "../hooks/useProgressScrub";
 import { useFavorites } from "../hooks/useFavorites";
 import { useDrawer } from "../hooks/useDrawer";
 import { useNavigation } from "../hooks/useNavigation";
+import { useMiniplayerWindow } from "../hooks/useMiniplayerWindow";
 import { TrackArtists } from "./TrackArtists";
 import QualityBadge from "./QualityBadge";
 import VolumeSlider from "./VolumeSlider";
@@ -450,6 +452,28 @@ const MaximizeButton = memo(function MaximizeButton() {
   );
 });
 
+// ─── MiniPlayerButton ────────────────────────────────────────────────────
+
+const MiniPlayerButton = memo(function MiniPlayerButton() {
+  const { miniplayerOpen, toggleMiniplayer, canToggle } = useMiniplayerWindow();
+
+  if (!canToggle) return null;
+
+  return (
+    <button
+      onClick={toggleMiniplayer}
+      className={`transition-colors duration-150 ${
+        miniplayerOpen
+          ? "text-th-accent"
+          : "text-th-text-faint hover:text-th-text-primary"
+      }`}
+      title={miniplayerOpen ? "Close miniplayer" : "Open miniplayer"}
+    >
+      <PictureInPicture2 size={16} strokeWidth={2} />
+    </button>
+  );
+});
+
 // ─── PlayerBar (shell) ─────────────────────────────────────────────────────
 
 export default function PlayerBar() {
@@ -471,6 +495,7 @@ export default function PlayerBar() {
       <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
         <QualityBadge />
         <DrawerButtons />
+        <MiniPlayerButton />
         <MaximizeButton />
       </div>
     </div>
