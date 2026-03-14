@@ -226,12 +226,12 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
       {isNavigable ? (
         <button
           onClick={navigateToSource}
-          className="hover:text-th-text-primary transition-colors hover:underline"
+          className="underline hover:text-th-text-primary transition-colors"
         >
           {source.name}
         </button>
       ) : (
-        <span>{source.name}</span>
+        <span className="underline">{source.name}</span>
       )}
     </span>
   );
