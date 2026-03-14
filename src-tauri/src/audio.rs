@@ -661,6 +661,12 @@ fn spawn_alsa_writer(
                             serde_json::json!({ "from": from, "to": to })).ok();
                     }
 
+                    Ok(WriterCommand::BitDepthChanged { from, to }) => {
+                        log::info!("[alsa-writer] bit-depth promotion: {} -> {}", from, to);
+                        app_handle.emit("audio-bit-depth-changed",
+                            serde_json::json!({ "from": from, "to": to })).ok();
+                    }
+
                     Ok(WriterCommand::EndOfTrack { emit_finished, generation }) => {
                         if generation < writer_gen.load(Ordering::Acquire) {
                             continue; // stale EOS from old pipeline
