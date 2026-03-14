@@ -794,6 +794,10 @@ export async function getTrackCredits(trackId: number): Promise<Credit[]> {
   );
 }
 
+export async function getTrack(trackId: number): Promise<Track> {
+  return invoke<Track>("get_track", { trackId });
+}
+
 // ==================== Favorites (parameterised by userId) ====================
 
 export async function getFavoriteTracks(
