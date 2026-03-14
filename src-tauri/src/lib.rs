@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Listener, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 use tidal_api::{AuthTokens, TidalClient};
 use tokio::sync::Mutex;
@@ -343,6 +344,10 @@ pub fn run() {
                     }
                 }),
             )?;
+            // Deep link: register tidal:// scheme handler
+            app.handle().plugin(tauri_plugin_deep_link::init())?;
+            #[cfg(target_os = "linux")]
+            app.deep_link().register_all()?;
 
             app.manage(AppState::new(app.handle().clone()));
 
