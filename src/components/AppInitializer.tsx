@@ -12,6 +12,8 @@ import { useEffect, useRef, startTransition } from "react";
 import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { parseTidalUrl } from "../lib/tidalUrl";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -66,6 +68,7 @@ import {
   getFavoriteAlbums,
   getPlaylistFolders,
   normalizePlaylistFolders,
+  getTrack,
 } from "../api/tidal";
 
 import type {
@@ -116,7 +119,7 @@ export function AppInitializer() {
   const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
-  const { playNext, playPrevious, pauseTrack, resumeTrack, setVolume } =
+  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume } =
     usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
@@ -300,6 +303,71 @@ export function AppInitializer() {
 
     return () => clearTimeout(timer);
   }, [isAuthenticated]);
+
+  // ================================================================
+  //  DEEP LINK HANDLING (tidal:// URIs)
+  // ================================================================
+  const deepLinkQueueRef = useRef<string | null>(null);
+  const handledUrlRef = useRef<string | null>(null);
+
+  // Register listener on mount — queues URL if not yet authenticated
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    onOpenUrl((urls) => {
+      const url = urls[0];
+      if (!url) return;
+      if (!store.get(isAuthenticatedAtom)) {
+        deepLinkQueueRef.current = url;
+        return;
+      }
+      handleDeepLink(url);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => unlisten?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // After auth, check cold-start URL and drain queue
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Cold start: app launched via deep link
+    getCurrent()
+      .then((urls) => {
+        const url = urls?.[0];
+        if (url) handleDeepLink(url);
+      })
+      .catch(() => {});
+
+    // Queued from warm-start before auth
+    if (deepLinkQueueRef.current) {
+      handleDeepLink(deepLinkQueueRef.current);
+      deepLinkQueueRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  function handleDeepLink(url: string) {
+    // Deduplicate: getCurrent() and onOpenUrl can both fire for the same cold-start URL
+    if (handledUrlRef.current === url) return;
+    handledUrlRef.current = url;
+
+    const action = parseTidalUrl(url);
+    if (!action) return;
+
+    if (action.kind === "navigate") {
+      window.history.pushState(action.view, "");
+      startTransition(() => setCurrentView(action.view));
+    } else {
+      // playTrack: fetch track metadata, then play
+      getTrack(action.trackId)
+        .then((track) => playTrack(track))
+        .catch((err) => console.error("Deep link play failed:", err));
+    }
+  }
 
   // ================================================================
   //  PLAYBACK RESTORE + PERSISTENCE (merged into one effect)
