@@ -794,6 +794,10 @@ export async function getTrackCredits(trackId: number): Promise<Credit[]> {
   );
 }
 
+export async function getPlaylistDetails(playlistId: string): Promise<Playlist> {
+  return invoke<Playlist>("get_playlist_details", { playlistId });
+}
+
 export async function getTrack(trackId: number): Promise<Track> {
   return invoke<Track>("get_track", { trackId });
 }

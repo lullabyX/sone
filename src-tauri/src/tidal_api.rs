@@ -2946,6 +2946,18 @@ impl TidalClient {
         .await
     }
 
+    pub async fn get_playlist_details(
+        &mut self,
+        playlist_id: &str,
+    ) -> Result<serde_json::Value, SoneError> {
+        let cc = self.country_code.clone();
+        self.api_get(
+            &format!("/playlists/{}", playlist_id),
+            &[("countryCode", &cc)],
+        )
+        .await
+    }
+
     pub async fn get_track(&mut self, track_id: u64) -> Result<serde_json::Value, SoneError> {
         let cc = self.country_code.clone();
         self.api_get(

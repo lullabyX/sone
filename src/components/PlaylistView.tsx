@@ -26,7 +26,7 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useToast } from "../contexts/ToastContext";
-import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache } from "../api/tidal";
+import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache, getPlaylistDetails } from "../api/tidal";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
@@ -71,6 +71,25 @@ export default function PlaylistView({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
+
+  // Fetch playlist metadata when playlistInfo is not provided (e.g. deep link)
+  useEffect(() => {
+    if (playlistInfo) return;
+    getPlaylistDetails(playlistId)
+      .then((p) =>
+        setFetchedInfo({
+          title: p.title,
+          image: p.squareImage || p.image,
+          description: p.description,
+          creatorName: p.creator?.name,
+          numberOfTracks: p.numberOfTracks,
+        }),
+      )
+      .catch(() => {});
+  }, [playlistId, playlistInfo]);
+
+  const effectiveInfo = playlistInfo || fetchedInfo;
 
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
@@ -295,8 +314,8 @@ export default function PlaylistView({
   const playlistSource = (allTracks: Track[]) => ({
     type: "playlist" as const,
     id: playlistId,
-    name: playlistInfo?.title || "Playlist",
-    image: playlistInfo?.image,
+    name: effectiveInfo?.title || "Playlist",
+    image: effectiveInfo?.image,
     allTracks,
   });
 
@@ -415,14 +434,14 @@ export default function PlaylistView({
 
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
 
-  const displayTitle = playlistInfo?.title || "Playlist";
-  const displayDescription = playlistInfo?.description;
+  const displayTitle = effectiveInfo?.title || "Playlist";
+  const displayDescription = effectiveInfo?.description;
   // Show "You" for user's own playlists, actual creator name for public ones
-  const displayCreator = playlistInfo?.isUserPlaylist
+  const displayCreator = effectiveInfo?.isUserPlaylist
     ? "You"
-    : playlistInfo?.creatorName || undefined;
+    : effectiveInfo?.creatorName || undefined;
   const displayTrackCount =
-    totalTracks > 0 ? totalTracks : (playlistInfo?.numberOfTracks ?? 0);
+    totalTracks > 0 ? totalTracks : (effectiveInfo?.numberOfTracks ?? 0);
 
   // Show "Read more" if description is long enough to be truncated
   const descriptionIsLong = (displayDescription?.length ?? 0) > 120;
@@ -456,9 +475,9 @@ export default function PlaylistView({
       <PageContainer>
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
-          {playlistInfo?.image ? (
+          {effectiveInfo?.image ? (
             <TidalImage
-              src={getTidalImageUrl(playlistInfo.image, 640)}
+              src={getTidalImageUrl(effectiveInfo!.image, 640)}
               alt={displayTitle}
               type="playlist"
               className="w-full h-full"
@@ -564,8 +583,8 @@ export default function PlaylistView({
                 type: "playlist",
                 uuid: playlistId,
                 title: displayTitle,
-                image: playlistInfo?.image,
-                creatorName: playlistInfo?.creatorName,
+                image: effectiveInfo?.image,
+                creatorName: effectiveInfo?.creatorName,
               }}
               onClose={() => setContextMenu(null)}
             />
@@ -590,13 +609,13 @@ export default function PlaylistView({
           hasMore={isFiltering ? false : hasMore}
           loadingMore={isFiltering ? false : loadingMore}
           trackDisplayNumbers={displayNumbers}
-          showDateAdded={!!playlistInfo?.isUserPlaylist}
+          showDateAdded={!!effectiveInfo?.isUserPlaylist}
           showArtist={true}
           showAlbum={true}
           showCover={true}
           context="playlist"
           playlistId={playlistId}
-          isUserPlaylist={playlistInfo?.isUserPlaylist}
+          isUserPlaylist={effectiveInfo?.isUserPlaylist}
           onTrackRemoved={(index) => {
             setAllTracks((prev) => prev.filter((_, i) => i !== index));
           }}
@@ -659,9 +678,9 @@ export default function PlaylistView({
             {/* Header: cover + title + close */}
             <div className="flex items-center gap-3 px-6 pt-5 pb-4">
               <div className="w-11 h-11 shrink-0 rounded overflow-hidden bg-th-surface-hover">
-                {playlistInfo?.image ? (
+                {effectiveInfo?.image ? (
                   <TidalImage
-                    src={getTidalImageUrl(playlistInfo.image, 160)}
+                    src={getTidalImageUrl(effectiveInfo!.image, 160)}
                     alt={displayTitle}
                     type="playlist"
                     className="w-full h-full"

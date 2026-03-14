@@ -41,6 +41,8 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mixType, setMixType] = useState<string | null>(mixInfo?.mixType ?? null);
+  const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
+  const [fetchedSubtitle, setFetchedSubtitle] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +56,8 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
         if (!cancelled) {
           setTracks(result.tracks);
           if (result.mixType) setMixType(result.mixType);
+          if (result.title) setFetchedTitle(result.title);
+          if (result.subtitle) setFetchedSubtitle(result.subtitle);
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -171,8 +175,8 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
     y: number;
   } | null>(null);
 
-  const displayTitle = mixInfo?.title || "Mix";
-  const displaySubtitle = mixInfo?.subtitle;
+  const displayTitle = mixInfo?.title || fetchedTitle || "Mix";
+  const displaySubtitle = mixInfo?.subtitle || fetchedSubtitle;
 
   if (loading) {
     return <DetailPageSkeleton type="mix" />;

@@ -637,6 +637,7 @@ pub fn run() {
             commands::search::get_suggestions,
             // metadata
             commands::metadata::get_stream_url,
+            commands::metadata::get_playlist_details,
             commands::metadata::get_track,
             commands::metadata::get_track_lyrics,
             commands::metadata::get_track_credits,
