@@ -43,6 +43,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const [mixType, setMixType] = useState<string | null>(mixInfo?.mixType ?? null);
   const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
   const [fetchedSubtitle, setFetchedSubtitle] = useState<string | null>(null);
+  const [fetchedImage, setFetchedImage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +59,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           if (result.mixType) setMixType(result.mixType);
           if (result.title) setFetchedTitle(result.title);
           if (result.subtitle) setFetchedSubtitle(result.subtitle);
+          if (result.image) setFetchedImage(result.image);
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -94,10 +96,10 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const mixSource = {
     type: isTrackRadio ? ("radio" as const) : ("mix" as const),
     id: mixId,
-    name: mixInfo?.title || (isTrackRadio ? "Track Radio" : "Mix"),
-    image: mixInfo?.image,
-    subtitle: mixInfo?.subtitle,
-    mixType: mixInfo?.mixType,
+    name: mixInfo?.title || fetchedTitle || (isTrackRadio ? "Track Radio" : "Mix"),
+    image: mixInfo?.image || fetchedImage || undefined,
+    subtitle: mixInfo?.subtitle || fetchedSubtitle || undefined,
+    mixType: mixInfo?.mixType ?? mixType ?? undefined,
     allTracks: tracks,
   };
 
@@ -161,7 +163,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           title: displayTitle,
           subTitle: displaySubtitle || "",
           mixType: mixType ?? undefined,
-          images: mixInfo?.image ? { SMALL: { url: mixInfo.image }, MEDIUM: { url: mixInfo.image } } : undefined,
+          images: displayImage ? { SMALL: { url: displayImage }, MEDIUM: { url: displayImage } } : undefined,
         });
       }
     } catch (err) {
@@ -177,6 +179,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
 
   const displayTitle = mixInfo?.title || fetchedTitle || "Mix";
   const displaySubtitle = mixInfo?.subtitle || fetchedSubtitle;
+  const displayImage = mixInfo?.image || fetchedImage;
 
   if (loading) {
     return <DetailPageSkeleton type="mix" />;
@@ -211,10 +214,10 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
       <PageContainer>
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center relative">
-          {mixInfo?.image ? (
+          {displayImage ? (
             <>
               <img
-                src={mixInfo.image}
+                src={displayImage}
                 alt={displayTitle}
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -312,8 +315,8 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
                 type: "mix",
                 mixId,
                 title: displayTitle,
-                image: mixInfo?.image,
-                subtitle: mixInfo?.subtitle,
+                image: displayImage ?? undefined,
+                subtitle: displaySubtitle ?? undefined,
               }}
               onClose={() => setContextMenu(null)}
             />

@@ -118,6 +118,7 @@ pub struct MixPageResult {
     pub mix_type: Option<String>,
     pub title: Option<String>,
     pub subtitle: Option<String>,
+    pub image: Option<String>,
     pub tracks: Vec<TidalTrack>,
 }
 
@@ -3990,6 +3991,7 @@ impl TidalClient {
         let mut title: Option<String> = None;
         let mut subtitle: Option<String> = None;
         let mut mix_type: Option<String> = None;
+        let mut image: Option<String> = None;
         let mut tracks: Vec<TidalTrack> = Vec::new();
 
         for row in rows {
@@ -4003,6 +4005,16 @@ impl TidalClient {
                             title = mix.get("title").and_then(|t| t.as_str()).map(String::from);
                             subtitle = mix.get("subTitle").and_then(|s| s.as_str()).map(String::from);
                             mix_type = mix.get("mixType").and_then(|t| t.as_str()).map(String::from);
+                            // Extract image URL from images.LARGE.url (or MEDIUM, SMALL)
+                            if let Some(images) = mix.get("images") {
+                                image = images
+                                    .get("LARGE")
+                                    .or_else(|| images.get("MEDIUM"))
+                                    .or_else(|| images.get("SMALL"))
+                                    .and_then(|img| img.get("url"))
+                                    .and_then(|u| u.as_str())
+                                    .map(String::from);
+                            }
                         }
                     }
                     "TRACK_LIST" => {
@@ -4033,6 +4045,7 @@ impl TidalClient {
             mix_type,
             title,
             subtitle,
+            image,
             tracks,
         })
     }
@@ -4067,6 +4080,7 @@ impl TidalClient {
             mix_type: None,
             title: None,
             subtitle: None,
+            image: None,
             tracks,
         })
     }

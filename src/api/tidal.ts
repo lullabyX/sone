@@ -720,6 +720,7 @@ export interface MixPageResult {
   mixType: string | null;
   title: string | null;
   subtitle: string | null;
+  image: string | null;
   tracks: Track[];
 }
 
