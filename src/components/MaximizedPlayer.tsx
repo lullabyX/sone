@@ -30,6 +30,7 @@ import TidalImage, { fetchCachedImageUrl } from "./TidalImage";
 
 import TrackContextMenu from "./TrackContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { formatTime } from "../lib/format";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
@@ -643,6 +644,27 @@ export default function MaximizedPlayer() {
     const appWindow = getCurrentWindow();
     appWindow.setFullscreen(true);
     return () => { appWindow.setFullscreen(false); };
+  }, []);
+
+  // Hide miniplayer during fullscreen to avoid always-on-top conflict
+  useEffect(() => {
+    const wasOpenRef = { current: false };
+
+    (async () => {
+      const win = await WebviewWindow.getByLabel("miniplayer");
+      if (win) {
+        wasOpenRef.current = true;
+        await win.hide();
+      }
+    })();
+
+    return () => {
+      if (wasOpenRef.current) {
+        WebviewWindow.getByLabel("miniplayer").then((win) => {
+          if (win) win.show();
+        });
+      }
+    };
   }, []);
 
   // ESC to close — yields to context menu if open
