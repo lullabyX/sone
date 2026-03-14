@@ -1156,3 +1156,16 @@ pub async fn move_playlist_to_folder(
         .move_playlist_to_folder(&folder_id, &playlist_trn)
         .await
 }
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_playlist_recommendations(
+    state: State<'_, AppState>,
+    playlist_id: String,
+    offset: u32,
+    limit: u32,
+) -> Result<PaginatedTracks, SoneError> {
+    let mut client = state.tidal_client.lock().await;
+    client
+        .get_playlist_recommendations(&playlist_id, offset, limit)
+        .await
+}

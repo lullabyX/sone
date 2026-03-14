@@ -1638,6 +1638,63 @@ impl TidalClient {
         })
     }
 
+    /// Fetch playlist recommendations. The API wraps each track in `{ item, type }`.
+    pub async fn get_playlist_recommendations(
+        &mut self,
+        playlist_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<PaginatedTracks, SoneError> {
+        let cc = self.country_code.clone();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        let body = self
+            .api_get_body(
+                &format!("/playlists/{}/recommendations/items", playlist_id),
+                &[
+                    ("countryCode", &cc),
+                    ("limit", &limit_str),
+                    ("offset", &offset_str),
+                    ("locale", "en_US"),
+                    ("deviceType", "BROWSER"),
+                ],
+            )
+            .await?;
+
+        #[derive(Deserialize)]
+        struct WrappedItem {
+            item: TidalTrack,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RecommendationsResponse {
+            #[serde(default)]
+            items: Vec<WrappedItem>,
+            #[serde(default)]
+            total_number_of_items: u32,
+            #[serde(default)]
+            offset: u32,
+            #[serde(default)]
+            limit: u32,
+        }
+
+        let data: RecommendationsResponse = serde_json::from_str(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)])))?;
+
+        let mut tracks: Vec<TidalTrack> = data.items.into_iter().map(|w| w.item).collect();
+        for t in &mut tracks {
+            t.backfill_artist();
+        }
+
+        Ok(PaginatedTracks {
+            items: tracks,
+            total_number_of_items: data.total_number_of_items,
+            offset: data.offset,
+            limit: data.limit,
+        })
+    }
+
     pub async fn get_album_detail(&mut self, album_id: u64) -> Result<TidalAlbumDetail, SoneError> {
         let cc = self.country_code.clone();
         self.api_get(&format!("/albums/{}", album_id), &[("countryCode", &cc)])

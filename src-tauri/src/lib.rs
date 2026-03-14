@@ -597,6 +597,7 @@ pub fn run() {
             commands::library::rename_playlist_folder,
             commands::library::delete_playlist_folder,
             commands::library::move_playlist_to_folder,
+            commands::library::get_playlist_recommendations,
             // pages
             commands::pages::get_album_detail,
             commands::pages::get_album_page,
