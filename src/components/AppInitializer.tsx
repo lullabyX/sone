@@ -45,6 +45,7 @@ import {
   originalQueueAtom,
   manualQueueAtom,
   playbackSourceAtom,
+  contextSourceAtom,
 } from "../atoms/playback";
 import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
@@ -112,6 +113,7 @@ export function AppInitializer() {
   const setOriginalQueue = useSetAtom(originalQueueAtom);
   const setManualQueue = useSetAtom(manualQueueAtom);
   const setPlaybackSource = useSetAtom(playbackSourceAtom);
+  const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
   const { playNext, playPrevious, pauseTrack, resumeTrack, setVolume } =
@@ -314,6 +316,7 @@ export function AppInitializer() {
     let unsub4: (() => void) | null = null;
     let unsub5: (() => void) | null = null;
     let unsub6: (() => void) | null = null;
+    let unsub7: (() => void) | null = null;
     let backendTimer: ReturnType<typeof setTimeout> | null = null;
     let latestJson: string | null = null;
 
@@ -367,6 +370,15 @@ export function AppInitializer() {
         });
       }
 
+      if (parsed.contextSource) {
+        setContextSource({
+          ...parsed.contextSource,
+          tracks: parsed.contextSource.tracks
+            .filter(isValidTrack)
+            .map((t) => ensureQid(t as QueuedTrack)),
+        });
+      }
+
       // Advance QID counter past all restored _qid values to prevent collisions
       const allRestored = [
         ...(parsed.queue || []),
@@ -374,6 +386,7 @@ export function AppInitializer() {
         ...(parsed.manualQueue || []),
         ...(parsed.originalQueue || []),
         ...(parsed.playbackSource?.tracks || []),
+        ...(parsed.contextSource?.tracks || []),
         ...(parsed.currentTrack ? [parsed.currentTrack] : []),
       ]
         .filter(isValidTrack)
@@ -409,6 +422,7 @@ export function AppInitializer() {
           manualQueue: store.get(manualQueueAtom),
           originalQueue: store.get(originalQueueAtom),
           playbackSource: store.get(playbackSourceAtom),
+          contextSource: store.get(contextSourceAtom),
         };
         const json = JSON.stringify(snapshot);
         latestJson = json;
@@ -437,6 +451,7 @@ export function AppInitializer() {
       unsub4 = store.sub(manualQueueAtom, persist);
       unsub5 = store.sub(originalQueueAtom, persist);
       unsub6 = store.sub(playbackSourceAtom, persist);
+      unsub7 = store.sub(contextSourceAtom, persist);
     };
 
     restore().finally(() => {
@@ -451,6 +466,7 @@ export function AppInitializer() {
       unsub4?.();
       unsub5?.();
       unsub6?.();
+      unsub7?.();
       if (backendTimer) clearTimeout(backendTimer);
       // Flush pending save on unmount
       if (latestJson) {
