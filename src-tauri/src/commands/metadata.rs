@@ -21,6 +21,16 @@ pub async fn get_stream_url(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn get_track(
+    state: State<'_, AppState>,
+    track_id: u64,
+) -> Result<serde_json::Value, SoneError> {
+    log::debug!("[get_track]: track_id={}", track_id);
+    let mut client = state.tidal_client.lock().await;
+    client.get_track(track_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_track_lyrics(
     state: State<'_, AppState>,
     track_id: u64,
