@@ -971,7 +971,7 @@ export async function createPlaylistFolder(
   folderId: string,
   name: string,
   trns: string = "",
-): Promise<void> {
+): Promise<any> {
   return invoke("create_playlist_folder", { folderId, name, trns });
 }
 

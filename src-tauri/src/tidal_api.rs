@@ -2543,7 +2543,7 @@ impl TidalClient {
         folder_id: &str,
         name: &str,
         trns: &str,
-    ) -> Result<(), SoneError> {
+    ) -> Result<serde_json::Value, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         log::debug!(
@@ -2591,7 +2591,7 @@ impl TidalClient {
             });
         }
 
-        Ok(())
+        Ok(serde_json::from_str(&body).unwrap_or(serde_json::Value::Null))
     }
 
     pub async fn rename_playlist_folder(

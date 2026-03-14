@@ -33,7 +33,7 @@ function CreateFolderModal({
   playlistUuid: string;
   playlistTitle: string;
   onClose: () => void;
-  onCreated: (folderName: string) => void;
+  onCreated: (folderName: string, folderId?: string) => void;
 }) {
   const { createFolder } = useFolders();
   const { showToast } = useToast();
@@ -62,7 +62,7 @@ function CreateFolderModal({
     setError(null);
     setSaving(true);
     try {
-      await createFolder(name.trim(), "root", `trn:playlist:${playlistUuid}`);
+      const result = await createFolder(name.trim(), "root", `trn:playlist:${playlistUuid}`);
       const label =
         playlistTitle.length > 25
           ? playlistTitle.slice(0, 23) + "\u2026"
@@ -72,7 +72,7 @@ function CreateFolderModal({
           ? name.trim().slice(0, 23) + "\u2026"
           : name.trim();
       showToast(`Moved "${label}" to "${folderLabel}"`);
-      onCreated(name.trim());
+      onCreated(name.trim(), result?.id);
     } catch {
       setError("Failed to create folder");
       setSaving(false);
@@ -522,9 +522,9 @@ export default function MoveToFolderMenu({
           playlistUuid={playlistUuid}
           playlistTitle={playlistTitle}
           onClose={() => setShowCreateModal(false)}
-          onCreated={(folderName) => {
+          onCreated={(folderName, realFolderId) => {
             // Optimistic: add new folder to sidebar
-            const folderId = `optimistic-${Date.now()}`;
+            const folderId = realFolderId ?? `optimistic-${Date.now()}`;
             setAddedToFolder((prev) => {
               const next = new Map(prev);
               const list = next.get("root") ?? [];

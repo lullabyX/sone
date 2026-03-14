@@ -1200,7 +1200,7 @@ pub async fn create_playlist_folder(
     folder_id: String,
     name: String,
     trns: String,
-) -> Result<(), SoneError> {
+) -> Result<serde_json::Value, SoneError> {
     log::debug!(
         "[create_playlist_folder]: folder_id={}, name={}, trns={}",
         folder_id,

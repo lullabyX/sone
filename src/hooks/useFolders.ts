@@ -5,6 +5,8 @@ import {
   renamePlaylistFolder,
   deletePlaylistFolder,
   movePlaylistToFolder,
+  getPlaylistFolders,
+  normalizePlaylistFolders,
 } from "../api/tidal";
 import {
   deletedFolderIdsAtom,
@@ -56,9 +58,36 @@ export function useFolders() {
       name: string,
       parentId: string = "root",
       playlistTrn: string = "",
-    ): Promise<void> => {
-      await createPlaylistFolder(parentId, name, playlistTrn);
+    ): Promise<{ id: string; name: string } | undefined> => {
+      const response = await createPlaylistFolder(parentId, name, playlistTrn);
       setFoldersFetched(false);
+
+      // Attempt 1: Extract from response body
+      if (response && typeof response === "object") {
+        const items = response.items ?? response.data?.items;
+        if (Array.isArray(items)) {
+          for (const item of items) {
+            const folderData = item.data ?? item;
+            const trn: string | undefined = folderData.trn;
+            if (trn?.startsWith("trn:folder:") && folderData.name === name) {
+              return { id: trn.replace("trn:folder:", ""), name };
+            }
+          }
+        }
+      }
+
+      // Attempt 2: Re-fetch folder list and find newest match
+      try {
+        const resp = await getPlaylistFolders("root", 0, 50, "DATE_UPDATED", "DESC");
+        const normalized = normalizePlaylistFolders(resp);
+        for (const item of normalized.items) {
+          if (item.kind === "folder" && item.data.name === name) {
+            return { id: item.data.id, name };
+          }
+        }
+      } catch {}
+
+      return undefined;
     },
     [setFoldersFetched],
   );
