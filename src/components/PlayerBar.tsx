@@ -185,10 +185,18 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
         navigateToAlbum(source.id as number);
         break;
       case "playlist":
-        navigateToPlaylist(source.id as string);
+        navigateToPlaylist(source.id as string, {
+          title: source.name,
+          image: source.image,
+        });
         break;
       case "mix":
-        navigateToMix(source.id as string);
+        navigateToMix(source.id as string, {
+          title: source.name,
+          image: source.image,
+          subtitle: source.subtitle,
+          mixType: source.mixType,
+        });
         break;
       case "artist":
         navigateToArtist(source.id as number);
@@ -202,6 +210,7 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
       case "radio":
         navigateToMix(source.id.toString(), {
           title: source.name,
+          image: source.image,
           mixType: "TRACK_MIX",
         });
         break;
@@ -221,17 +230,17 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
   const isNavigable = navigableSourceTypes.has(source.type);
 
   return (
-    <span className="text-th-text-faint text-[10px] truncate mt-1.5">
-      Playing from{" "}
+    <span className="flex items-center text-th-text-faint text-[10px] mt-1.5 min-w-0">
+      <span className="flex-shrink-0">Playing from&nbsp;</span>
       {isNavigable ? (
         <button
           onClick={navigateToSource}
-          className="underline hover:text-th-text-primary transition-colors"
+          className="underline hover:text-th-text-primary transition-colors truncate"
         >
           {source.name}
         </button>
       ) : (
-        <span className="underline">{source.name}</span>
+        <span className="underline truncate">{source.name}</span>
       )}
     </span>
   );
