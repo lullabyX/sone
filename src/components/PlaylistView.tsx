@@ -6,6 +6,7 @@ import {
   Shuffle,
   Heart,
   MoreHorizontal,
+  RefreshCw,
 } from "lucide-react";
 import {
   useEffect,
@@ -23,7 +24,9 @@ import {
 } from "../atoms/playback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
-import { getPlaylistTracksPage } from "../api/tidal";
+import { usePlaylists } from "../hooks/usePlaylists";
+import { useToast } from "../contexts/ToastContext";
+import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache } from "../api/tidal";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
@@ -75,9 +78,79 @@ export default function PlaylistView({
   const cancelledRef = useRef(false);
   const allTracksRef = useRef<Track[]>([]);
 
+  // Recommendations state
+  const RECS_BATCH = 50;
+  const RECS_PAGE = 10;
+  const [recPool, setRecPool] = useState<Track[]>([]);
+  const [recPageIndex, setRecPageIndex] = useState(0);
+  const [recApiOffset, setRecApiOffset] = useState(0);
+  const [loadingRecs, setLoadingRecs] = useState(false);
+  const { addTrackToPlaylist } = usePlaylists();
+  const { showToast } = useToast();
+
   useEffect(() => {
     allTracksRef.current = allTracks;
   }, [allTracks]);
+
+  // Fetch a batch of recommendations
+  const fetchRecBatch = useCallback(async (offset: number) => {
+    setLoadingRecs(true);
+    try {
+      const res = await getPlaylistRecommendations(playlistId, offset, RECS_BATCH);
+      return res.items;
+    } catch {
+      return [];
+    } finally {
+      setLoadingRecs(false);
+    }
+  }, [playlistId]);
+
+  // Current slice of recommendations to display
+  const visibleRecs = useMemo(
+    () => recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
+    [recPool, recPageIndex],
+  );
+
+  const handleRefreshRecs = useCallback(async () => {
+    const nextPage = recPageIndex + 1;
+    const nextStart = nextPage * RECS_PAGE;
+    if (nextStart < recPool.length) {
+      // Still have cached tracks
+      setRecPageIndex(nextPage);
+    } else {
+      // Exhausted current batch — fetch next from API
+      const newOffset = recApiOffset + RECS_BATCH;
+      invalidateCache(`playlist-recs:${playlistId}`);
+      const newTracks = await fetchRecBatch(newOffset);
+      if (newTracks.length > 0) {
+        setRecPool(newTracks);
+        setRecApiOffset(newOffset);
+        setRecPageIndex(0);
+      } else {
+        // API returned empty — wrap around to beginning
+        const freshTracks = await fetchRecBatch(0);
+        setRecPool(freshTracks);
+        setRecApiOffset(0);
+        setRecPageIndex(0);
+      }
+    }
+  }, [recPageIndex, recPool.length, recApiOffset, playlistId, fetchRecBatch]);
+
+  const handleAddRecToPlaylist = useCallback(async (track: Track) => {
+    // Optimistic: remove from recs immediately
+    setRecPool((prev) => prev.filter((t) => t.id !== track.id));
+    try {
+      await addTrackToPlaylist(playlistId, track.id);
+      showToast(`Added "${track.title}" to playlist`, "success");
+    } catch {
+      // Rollback: re-insert the track
+      setRecPool((prev) => {
+        if (prev.some((t) => t.id === track.id)) return prev;
+        return [...prev, track];
+      });
+      showToast("Failed to add track", "error");
+    }
+  }, [playlistId, addTrackToPlaylist, showToast]);
 
   // Load first page only
   useEffect(() => {
@@ -115,6 +188,16 @@ export default function PlaylistView({
       cancelledRef.current = true;
     };
   }, [playlistId]);
+
+  // Fetch initial batch of recommendations when playlist changes
+  useEffect(() => {
+    setRecPool([]);
+    setRecPageIndex(0);
+    setRecApiOffset(0);
+    fetchRecBatch(0).then((tracks) => {
+      setRecPool(tracks);
+    });
+  }, [playlistId, fetchRecBatch]);
 
   // Fetch all remaining pages in the background
   const fetchRemaining = useCallback(async () => {
@@ -518,10 +601,31 @@ export default function PlaylistView({
           }}
         />
 
-        {/* End of list */}
-        {tracks.length > 0 && !hasMore && (
-          <div className="py-6 text-center text-[13px] text-th-text-disabled">
-            {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
+        {/* Recommended Tracks */}
+        {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
+              Recommended Tracks
+            </h2>
+            <TrackList
+              tracks={visibleRecs}
+              onPlay={handlePlayTrack}
+              showArtist={true}
+              showAlbum={true}
+              showCover={true}
+              context="playlist"
+              onAddToCurrentPlaylist={handleAddRecToPlaylist}
+            />
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleRefreshRecs}
+                disabled={loadingRecs}
+                className="flex items-center gap-2 px-5 py-2 bg-th-button text-th-text-primary font-semibold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,background-color] duration-150 disabled:opacity-50"
+              >
+                <RefreshCw size={16} className={loadingRecs ? "animate-spin" : ""} />
+                Refresh suggestions
+              </button>
+            </div>
           </div>
         )}
 

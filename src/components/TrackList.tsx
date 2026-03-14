@@ -1,4 +1,4 @@
-import { Play, Heart, MoreHorizontal, Plus } from "lucide-react";
+import { Play, Heart, MoreHorizontal, Plus, ListPlus } from "lucide-react";
 import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
@@ -28,6 +28,8 @@ interface TrackListProps {
   playlistId?: string;
   isUserPlaylist?: boolean;
   onTrackRemoved?: (index: number) => void;
+  /** When provided, shows a dedicated "add to this playlist" button (immediate action, no menu) */
+  onAddToCurrentPlaylist?: (track: Track) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -72,6 +74,7 @@ interface TrackRowProps {
   playlistId?: string;
   isUserPlaylist?: boolean;
   onTrackRemoved?: (index: number) => void;
+  onAddToCurrentPlaylist?: (track: Track) => void;
 }
 
 const TrackRow = memo(function TrackRow({
@@ -90,6 +93,7 @@ const TrackRow = memo(function TrackRow({
   playlistId,
   isUserPlaylist,
   onTrackRemoved,
+  onAddToCurrentPlaylist,
 }: TrackRowProps) {
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
   const { navigateToAlbum } = useNavigation();
@@ -291,24 +295,39 @@ const TrackRow = memo(function TrackRow({
             onTrackRemoved={onTrackRemoved}
           />
         )}
-        <button
-          ref={plusButtonRef}
-          className={`p-1.5 rounded-full transition-colors ${
-            playlistMenuOpen
-              ? "text-th-accent"
-              : "text-th-text-muted hover:text-th-text-primary"
-          }`}
-          title="Add to playlist"
-          onClick={handlePlusClick}
-        >
-          <Plus size={18} />
-        </button>
-        {playlistMenuOpen && (
-          <AddToPlaylistMenu
-            trackIds={[track.id]}
-            anchorRef={plusButtonRef}
-            onClose={() => setPlaylistMenuOpen(false)}
-          />
+        {onAddToCurrentPlaylist ? (
+          <button
+            className="p-1.5 rounded-full transition-colors text-th-text-muted hover:text-th-accent"
+            title="Add to this playlist"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddToCurrentPlaylist(track);
+            }}
+          >
+            <ListPlus size={18} />
+          </button>
+        ) : (
+          <>
+            <button
+              ref={plusButtonRef}
+              className={`p-1.5 rounded-full transition-colors ${
+                playlistMenuOpen
+                  ? "text-th-accent"
+                  : "text-th-text-muted hover:text-th-text-primary"
+              }`}
+              title="Add to playlist"
+              onClick={handlePlusClick}
+            >
+              <Plus size={18} />
+            </button>
+            {playlistMenuOpen && (
+              <AddToPlaylistMenu
+                trackIds={[track.id]}
+                anchorRef={plusButtonRef}
+                onClose={() => setPlaylistMenuOpen(false)}
+              />
+            )}
+          </>
         )}
         <button
           className={`p-1.5 rounded-full transition-colors ${isFav ? "text-th-accent" : "text-th-text-muted hover:text-th-text-primary"}`}
@@ -339,6 +358,7 @@ export default memo(function TrackList({
   playlistId,
   isUserPlaylist,
   onTrackRemoved,
+  onAddToCurrentPlaylist,
 }: TrackListProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
@@ -416,6 +436,7 @@ export default memo(function TrackList({
             playlistId={playlistId}
             isUserPlaylist={isUserPlaylist}
             onTrackRemoved={onTrackRemoved}
+            onAddToCurrentPlaylist={onAddToCurrentPlaylist}
           />
         ))}
       </div>

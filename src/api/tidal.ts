@@ -690,6 +690,31 @@ export async function getPlaylistTracksPage(
   );
 }
 
+/** Fetch recommended tracks for a playlist. Can return empty items. */
+export async function getPlaylistRecommendations(
+  playlistId: string,
+  offset: number = 0,
+  limit: number = 50,
+): Promise<PaginatedTracks> {
+  return cached(
+    `playlist-recs:${playlistId}:${offset}:${limit}`,
+    [`playlist-recs:${playlistId}`],
+    async () => {
+      try {
+        return await invoke<PaginatedTracks>("get_playlist_recommendations", {
+          playlistId,
+          offset,
+          limit,
+        });
+      } catch {
+        // API can return empty or fail — return empty result
+        return { items: [], totalNumberOfItems: 0, offset: 0, limit };
+      }
+    },
+    TTL.MEDIUM,
+  );
+}
+
 export interface MixPageResult {
   mixId: string;
   mixType: string | null;
