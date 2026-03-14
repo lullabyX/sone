@@ -8,7 +8,8 @@ import {
 } from "../api/tidal";
 import {
   deletedFolderIdsAtom,
-  folderRefreshKeyAtom,
+  movedPlaylistsAtom,
+  renamedFoldersAtom,
 } from "../atoms/playlists";
 
 const RECENT_FOLDERS_KEY = "sone.recent-folders.v1";
@@ -33,11 +34,8 @@ export function pushRecentFolderId(folderId: string) {
 
 export function useFolders() {
   const setDeletedFolderIds = useSetAtom(deletedFolderIdsAtom);
-  const setFolderRefreshKey = useSetAtom(folderRefreshKeyAtom);
-
-  const refreshFolders = useCallback(() => {
-    setFolderRefreshKey((prev) => prev + 1);
-  }, [setFolderRefreshKey]);
+  const setMovedPlaylists = useSetAtom(movedPlaylistsAtom);
+  const setRenamedFolders = useSetAtom(renamedFoldersAtom);
 
   const createFolder = useCallback(
     async (
@@ -46,30 +44,32 @@ export function useFolders() {
       playlistTrn: string = "",
     ): Promise<void> => {
       await createPlaylistFolder(parentId, name, playlistTrn);
-      refreshFolders();
     },
-    [refreshFolders],
+    [],
   );
 
   const renameFolder = useCallback(
     async (folderId: string, newName: string): Promise<void> => {
       await renamePlaylistFolder(`trn:folder:${folderId}`, newName);
-      refreshFolders();
+      setRenamedFolders((prev) => {
+        const next = new Map(prev);
+        next.set(folderId, newName);
+        return next;
+      });
     },
-    [refreshFolders],
+    [setRenamedFolders],
   );
 
   const deleteFolder = useCallback(
     async (folderId: string): Promise<void> => {
       await deletePlaylistFolder(`trn:folder:${folderId}`);
       setDeletedFolderIds((prev) => new Set(prev).add(folderId));
-      refreshFolders();
     },
-    [setDeletedFolderIds, refreshFolders],
+    [setDeletedFolderIds],
   );
 
   const movePlaylistTo = useCallback(
-    async (playlistUuid: string, targetFolderId: string): Promise<void> => {
+    async (playlistUuid: string, targetFolderId: string, sourceFolderId?: string): Promise<void> => {
       await movePlaylistToFolder(
         targetFolderId,
         `trn:playlist:${playlistUuid}`,
@@ -77,9 +77,15 @@ export function useFolders() {
       if (targetFolderId !== "root") {
         pushRecentFolderId(targetFolderId);
       }
-      refreshFolders();
+      if (sourceFolderId) {
+        setMovedPlaylists((prev) => {
+          const next = new Map(prev);
+          next.set(playlistUuid, sourceFolderId);
+          return next;
+        });
+      }
     },
-    [refreshFolders],
+    [setMovedPlaylists],
   );
 
   return {
@@ -87,6 +93,5 @@ export function useFolders() {
     renameFolder,
     deleteFolder,
     movePlaylistTo,
-    refreshFolders,
   };
 }

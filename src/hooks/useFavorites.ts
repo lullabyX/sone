@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useAtom, useAtomValue, useStore } from "jotai";
+import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import {
   favoriteTrackIdsAtom,
@@ -12,6 +12,7 @@ import {
   optimisticFavoriteMixesAtom,
 } from "../atoms/favorites";
 import { authTokensAtom } from "../atoms/auth";
+import { deletedPlaylistIdsAtom } from "../atoms/playlists";
 import {
   addTrackToFavoritesCache,
   removeTrackFromFavoritesCache,
@@ -37,6 +38,7 @@ export function useFavorites() {
   const [favoriteMixIds, setFavoriteMixIds] = useAtom(favoriteMixIdsAtom);
   const authTokens = useAtomValue(authTokensAtom);
   const store = useStore();
+  const setDeletedPlaylistIds = useSetAtom(deletedPlaylistIdsAtom);
 
   // NOTE: Initial loading of favorite IDs has been moved to
   // AppInitializer to avoid firing once per component that calls useFavorites().
@@ -191,6 +193,7 @@ export function useFavorites() {
         next.delete(playlistUuid);
         return next;
       });
+      setDeletedPlaylistIds((prev) => new Set(prev).add(playlistUuid));
       removePlaylistFromFavoritesCache(authTokens.user_id, playlistUuid);
       try {
         await invoke("remove_favorite_playlist", {
