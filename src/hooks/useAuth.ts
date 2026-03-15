@@ -223,7 +223,10 @@ export function useAuth() {
         const result = await getPlaylistFolders("root", 0, 50);
         const normalized = normalizePlaylistFolders(result);
         const playlists = normalized.items
-          .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+          .filter(
+            (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+              i.kind === "playlist",
+          )
           .map((i) => i.data);
         setUserPlaylists(playlists);
         return playlists;

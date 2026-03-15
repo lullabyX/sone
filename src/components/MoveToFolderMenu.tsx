@@ -1,4 +1,11 @@
-import { Plus, Search, X, Loader2, FolderOpen, FolderInput } from "lucide-react";
+import {
+  Plus,
+  Search,
+  X,
+  Loader2,
+  FolderOpen,
+  FolderInput,
+} from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useToast } from "../contexts/ToastContext";
@@ -6,7 +13,13 @@ import { useFolders, getRecentFolderIds } from "../hooks/useFolders";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { getPlaylistFolders, normalizePlaylistFolders } from "../api/tidal";
 import { folderSubtitle } from "../utils/itemHelpers";
-import { allFoldersAtom, allFoldersFetchedAtom, folderCountAdjustmentsAtom, addedToFolderAtom, movedPlaylistsAtom } from "../atoms/playlists";
+import {
+  allFoldersAtom,
+  allFoldersFetchedAtom,
+  folderCountAdjustmentsAtom,
+  addedToFolderAtom,
+  movedPlaylistsAtom,
+} from "../atoms/playlists";
 import type { Folder } from "../types";
 import MenuPortal from "./MenuPortal";
 
@@ -62,7 +75,11 @@ function CreateFolderModal({
     setError(null);
     setSaving(true);
     try {
-      const result = await createFolder(name.trim(), "root", `trn:playlist:${playlistUuid}`);
+      const result = await createFolder(
+        name.trim(),
+        "root",
+        `trn:playlist:${playlistUuid}`,
+      );
       const label =
         playlistTitle.length > 25
           ? playlistTitle.slice(0, 23) + "\u2026"
@@ -77,7 +94,15 @@ function CreateFolderModal({
       setError("Failed to create folder");
       setSaving(false);
     }
-  }, [name, saving, createFolder, playlistUuid, playlistTitle, showToast, onCreated]);
+  }, [
+    name,
+    saving,
+    createFolder,
+    playlistUuid,
+    playlistTitle,
+    showToast,
+    onCreated,
+  ]);
 
   return (
     <div
@@ -197,7 +222,15 @@ export default function MoveToFolderMenu({
       let cursor: string | undefined;
       try {
         do {
-          const resp = await getPlaylistFolders("root", 0, 50, "DATE_UPDATED", "DESC", undefined, cursor);
+          const resp = await getPlaylistFolders(
+            "root",
+            0,
+            50,
+            "DATE_UPDATED",
+            "DESC",
+            undefined,
+            cursor,
+          );
           if (cancelled) return;
           const normalized = normalizePlaylistFolders(resp);
           for (const item of normalized.items) {
@@ -215,7 +248,9 @@ export default function MoveToFolderMenu({
         setFoldersLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [foldersFetched, setAllFolders, setFoldersFetched]);
 
   // Focus search when showing all
@@ -246,7 +281,11 @@ export default function MoveToFolderMenu({
           playlistUuid,
           targetFolderId: folder.id,
           sourceFolderId,
-          playlistSnapshot: { title: playlistTitle, image: playlistImage, creatorName: playlistCreatorName },
+          playlistSnapshot: {
+            title: playlistTitle,
+            image: playlistImage,
+            creatorName: playlistCreatorName,
+          },
         });
         setMovedTo((prev) => new Set([...prev, folder.id]));
         const playlistLabel =
@@ -265,7 +304,16 @@ export default function MoveToFolderMenu({
         setMovingTo(null);
       }
     },
-    [movePlaylistTo, playlistUuid, playlistTitle, playlistImage, playlistCreatorName, sourceFolderId, onClose, showToast],
+    [
+      movePlaylistTo,
+      playlistUuid,
+      playlistTitle,
+      playlistImage,
+      playlistCreatorName,
+      sourceFolderId,
+      onClose,
+      showToast,
+    ],
   );
 
   const handleMoveToRoot = useCallback(async () => {
@@ -276,7 +324,11 @@ export default function MoveToFolderMenu({
         playlistUuid,
         targetFolderId: "root",
         sourceFolderId,
-        playlistSnapshot: { title: playlistTitle, image: playlistImage, creatorName: playlistCreatorName },
+        playlistSnapshot: {
+          title: playlistTitle,
+          image: playlistImage,
+          creatorName: playlistCreatorName,
+        },
       });
       setMovedTo((prev) => new Set([...prev, "root"]));
       const playlistLabel =
@@ -290,7 +342,16 @@ export default function MoveToFolderMenu({
     } finally {
       setMovingTo(null);
     }
-  }, [movePlaylistTo, playlistUuid, playlistTitle, playlistImage, playlistCreatorName, sourceFolderId, onClose, showToast]);
+  }, [
+    movePlaylistTo,
+    playlistUuid,
+    playlistTitle,
+    playlistImage,
+    playlistCreatorName,
+    sourceFolderId,
+    onClose,
+    showToast,
+  ]);
 
   // ── Row components ──
 
@@ -422,7 +483,10 @@ export default function MoveToFolderMenu({
             <div className="flex-1 overflow-y-auto custom-scrollbar pb-2">
               {foldersLoading ? (
                 <div className="px-5 py-8 flex items-center justify-center">
-                  <Loader2 size={20} className="text-th-text-muted animate-spin" />
+                  <Loader2
+                    size={20}
+                    className="text-th-text-muted animate-spin"
+                  />
                 </div>
               ) : filteredFolders.length === 0 ? (
                 <div className="px-5 py-8 text-center text-[13px] text-th-text-disabled">
@@ -497,7 +561,10 @@ export default function MoveToFolderMenu({
               </div>
               <div className="shrink-0 ml-2 flex items-center justify-center">
                 {movingTo === "root" ? (
-                  <Loader2 size={16} className="text-th-text-muted animate-spin" />
+                  <Loader2
+                    size={16}
+                    className="text-th-text-muted animate-spin"
+                  />
                 ) : movedTo.has("root") ? (
                   <span className="text-th-accent text-[11px] font-semibold">
                     Moved
@@ -528,10 +595,20 @@ export default function MoveToFolderMenu({
             setAddedToFolder((prev) => {
               const next = new Map(prev);
               const list = next.get("root") ?? [];
-              next.set("root", [...list, {
-                kind: "folder" as const,
-                data: { id: folderId, name: folderName, parent: null, addedAt: new Date().toISOString(), lastModifiedAt: new Date().toISOString(), totalNumberOfItems: 1 },
-              }]);
+              next.set("root", [
+                ...list,
+                {
+                  kind: "folder" as const,
+                  data: {
+                    id: folderId,
+                    name: folderName,
+                    parent: null,
+                    addedAt: new Date().toISOString(),
+                    lastModifiedAt: new Date().toISOString(),
+                    totalNumberOfItems: 1,
+                  },
+                },
+              ]);
               return next;
             });
             // Optimistic: hide playlist from source

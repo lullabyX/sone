@@ -1,4 +1,12 @@
-import { Home, Compass, Library, Heart, Music, User, FolderOpen } from "lucide-react";
+import {
+  Home,
+  Compass,
+  Library,
+  Heart,
+  Music,
+  User,
+  FolderOpen,
+} from "lucide-react";
 import SortDropdown from "./SortDropdown";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import SidebarSkeleton from "./SidebarSkeleton";
@@ -38,7 +46,14 @@ import {
   mixSortAtom,
   playlistSortAtom,
 } from "../atoms/favorites";
-import { deletedFolderIdsAtom, deletedPlaylistIdsAtom, movedPlaylistsAtom, folderCountAdjustmentsAtom, addedToFolderAtom, renamedFoldersAtom } from "../atoms/playlists";
+import {
+  deletedFolderIdsAtom,
+  deletedPlaylistIdsAtom,
+  movedPlaylistsAtom,
+  folderCountAdjustmentsAtom,
+  addedToFolderAtom,
+  renamedFoldersAtom,
+} from "../atoms/playlists";
 import { sidebarCollapsedAtom } from "../atoms/ui";
 
 export default function Sidebar() {
@@ -68,15 +83,25 @@ export default function Sidebar() {
 
   const playlistFetch = useCallback(
     async (offset: number, limit: number) => {
-      const cursor = offset === 0 ? undefined : (playlistCursorRef.current ?? undefined);
+      const cursor =
+        offset === 0 ? undefined : (playlistCursorRef.current ?? undefined);
       if (offset === 0) playlistCursorRef.current = null;
-      const response = await getPlaylistFolders("root", offset, limit, playlistSort.order, playlistSort.direction, undefined, cursor);
+      const response = await getPlaylistFolders(
+        "root",
+        offset,
+        limit,
+        playlistSort.order,
+        playlistSort.direction,
+        undefined,
+        cursor,
+      );
       const normalized = normalizePlaylistFolders(response);
       playlistCursorRef.current = normalized.cursor;
       // Derive hasMore from cursor presence — API's totalNumberOfItems is unreliable
-      const total = (normalized.cursor && normalized.items.length > 0)
-        ? offset + normalized.items.length + 1
-        : offset + normalized.items.length;
+      const total =
+        normalized.cursor && normalized.items.length > 0
+          ? offset + normalized.items.length + 1
+          : offset + normalized.items.length;
       return { items: normalized.items, totalNumberOfItems: total };
     },
     [playlistSort.order, playlistSort.direction],
@@ -121,17 +146,29 @@ export default function Sidebar() {
     const added = addedToFolder.get("root") ?? [];
     if (added.length === 0) return filtered;
     // Dedup against existing items
-    const existingFolderIds = new Set(filtered.filter((e) => e.kind === "folder").map((e) => e.data.id));
-    const existingPlaylistUuids = new Set(filtered.filter((e) => e.kind === "playlist").map((e) => e.data.uuid));
-    const newFolders = added.filter((e) => e.kind === "folder" && !existingFolderIds.has(e.data.id));
-    const newPlaylists = added.filter((e) =>
-      e.kind === "playlist" && !existingPlaylistUuids.has(e.data.uuid) && movedPlaylists.get(e.data.uuid) !== "root"
+    const existingFolderIds = new Set(
+      filtered.filter((e) => e.kind === "folder").map((e) => e.data.id),
+    );
+    const existingPlaylistUuids = new Set(
+      filtered.filter((e) => e.kind === "playlist").map((e) => e.data.uuid),
+    );
+    const newFolders = added.filter(
+      (e) => e.kind === "folder" && !existingFolderIds.has(e.data.id),
+    );
+    const newPlaylists = added.filter(
+      (e) =>
+        e.kind === "playlist" &&
+        !existingPlaylistUuids.has(e.data.uuid) &&
+        movedPlaylists.get(e.data.uuid) !== "root",
     );
     if (newFolders.length === 0 && newPlaylists.length === 0) return filtered;
     // Insert new folders with existing folders, new playlists after all folders
     let lastFolderIdx = -1;
     for (let i = filtered.length - 1; i >= 0; i--) {
-      if (filtered[i].kind === "folder") { lastFolderIdx = i; break; }
+      if (filtered[i].kind === "folder") {
+        lastFolderIdx = i;
+        break;
+      }
     }
     const insertAt = lastFolderIdx + 1;
     return [
@@ -140,7 +177,13 @@ export default function Sidebar() {
       ...newPlaylists,
       ...filtered.slice(insertAt),
     ];
-  }, [allPlaylistItems, deletedFolderIds, deletedPlaylistIds, movedPlaylists, addedToFolder]);
+  }, [
+    allPlaylistItems,
+    deletedFolderIds,
+    deletedPlaylistIds,
+    movedPlaylists,
+    addedToFolder,
+  ]);
 
   // Sort atoms
   const [albumSort, setAlbumSort] = useAtom(albumSortAtom);
@@ -154,7 +197,13 @@ export default function Sidebar() {
   const albumFetch = useCallback(
     async (offset: number, limit: number) => {
       if (!authTokens?.user_id) return { items: [], totalNumberOfItems: 0 };
-      return getFavoriteAlbums(authTokens.user_id, offset, limit, albumSort.order, albumSort.direction);
+      return getFavoriteAlbums(
+        authTokens.user_id,
+        offset,
+        limit,
+        albumSort.order,
+        albumSort.direction,
+      );
     },
     [authTokens?.user_id, albumSort.order, albumSort.direction],
   );
@@ -195,9 +244,12 @@ export default function Sidebar() {
   const optimisticMixes = useAtomValue(optimisticFavoriteMixesAtom);
   const favoriteMixIds = useAtomValue(favoriteMixIdsAtom);
 
-  const mixFetch = useCallback(async (offset: number, limit: number) => {
-    return getFavoriteMixes(offset, limit, mixSort.order, mixSort.direction);
-  }, [mixSort.order, mixSort.direction]);
+  const mixFetch = useCallback(
+    async (offset: number, limit: number) => {
+      return getFavoriteMixes(offset, limit, mixSort.order, mixSort.direction);
+    },
+    [mixSort.order, mixSort.direction],
+  );
 
   const {
     items: favoriteMixesList,
@@ -239,7 +291,13 @@ export default function Sidebar() {
     async (offset: number, limit: number) => {
       if (!authTokens?.user_id)
         return { items: [] as ArtistDetail[], totalNumberOfItems: 0 };
-      return getFavoriteArtists(authTokens.user_id, offset, limit, artistSort.order, artistSort.direction);
+      return getFavoriteArtists(
+        authTokens.user_id,
+        offset,
+        limit,
+        artistSort.order,
+        artistSort.direction,
+      );
     },
     [authTokens?.user_id, artistSort.order, artistSort.direction],
   );
@@ -410,16 +468,22 @@ export default function Sidebar() {
               <SortDropdown
                 libraryType={activeFilter}
                 currentSort={
-                  activeFilter === "playlists" ? playlistSort
-                  : activeFilter === "albums" ? albumSort
-                  : activeFilter === "artists" ? artistSort
-                  : mixSort
+                  activeFilter === "playlists"
+                    ? playlistSort
+                    : activeFilter === "albums"
+                      ? albumSort
+                      : activeFilter === "artists"
+                        ? artistSort
+                        : mixSort
                 }
                 onSortChange={
-                  activeFilter === "playlists" ? setPlaylistSort
-                  : activeFilter === "albums" ? setAlbumSort
-                  : activeFilter === "artists" ? setArtistSort
-                  : setMixSort
+                  activeFilter === "playlists"
+                    ? setPlaylistSort
+                    : activeFilter === "albums"
+                      ? setAlbumSort
+                      : activeFilter === "artists"
+                        ? setArtistSort
+                        : setMixSort
                 }
                 compact
               />
@@ -514,17 +578,30 @@ export default function Sidebar() {
 
                 {visiblePlaylistItems.map((entry) => {
                   if (entry.kind === "folder") {
-                    const folderName = renamedFolders.get(entry.data.id) ?? entry.data.name;
+                    const folderName =
+                      renamedFolders.get(entry.data.id) ?? entry.data.name;
                     return (
                       <button
                         key={entry.data.id}
-                        onClick={() => navigateToPlaylistFolder(entry.data.id, folderName)}
-                        onContextMenu={(e) => handleFolderContextMenu(e, { ...entry.data, name: folderName })}
+                        onClick={() =>
+                          navigateToPlaylistFolder(entry.data.id, folderName)
+                        }
+                        onContextMenu={(e) =>
+                          handleFolderContextMenu(e, {
+                            ...entry.data,
+                            name: folderName,
+                          })
+                        }
                         className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group hover:bg-th-border-subtle ${isCollapsed ? "justify-center" : ""}`}
                         title={folderName}
                       >
-                        <div className={`bg-th-surface-hover shrink-0 overflow-hidden rounded flex items-center justify-center ${isCollapsed ? "w-10 h-10" : "w-10 h-10"}`}>
-                          <FolderOpen size={18} className="text-th-text-faint" />
+                        <div
+                          className={`bg-th-surface-hover shrink-0 overflow-hidden rounded flex items-center justify-center ${isCollapsed ? "w-10 h-10" : "w-10 h-10"}`}
+                        >
+                          <FolderOpen
+                            size={18}
+                            className="text-th-text-faint"
+                          />
                         </div>
                         {!isCollapsed && (
                           <div className="flex-1 min-w-0 text-left">
@@ -532,7 +609,10 @@ export default function Sidebar() {
                               {folderName}
                             </div>
                             <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
-                              {folderSubtitle((entry.data.totalNumberOfItems ?? 0) + (countAdjustments.get(entry.data.id) ?? 0))}
+                              {folderSubtitle(
+                                (entry.data.totalNumberOfItems ?? 0) +
+                                  (countAdjustments.get(entry.data.id) ?? 0),
+                              )}
                             </div>
                           </div>
                         )}
@@ -560,16 +640,25 @@ export default function Sidebar() {
                     <button
                       key={playlist.uuid}
                       onClick={() => handlePlaylistClick(playlist)}
-                      onContextMenu={(e) => handlePlaylistContextMenu(e, playlist)}
+                      onContextMenu={(e) =>
+                        handlePlaylistContextMenu(e, playlist)
+                      }
                       className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
-                        currentView.type === "playlist" && currentView.playlistId === playlist.uuid
+                        currentView.type === "playlist" &&
+                        currentView.playlistId === playlist.uuid
                           ? "bg-th-hl-med"
                           : "hover:bg-th-border-subtle"
                       } ${isCollapsed ? "justify-center" : ""}`}
                       title={playlist.title}
                     >
-                      <div className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${isCollapsed ? "w-10 h-10" : "w-10 h-10"}`}>
-                        <TidalImage src={getTidalImageUrl(playlist.image, 80)} alt={playlist.title} type="playlist" />
+                      <div
+                        className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${isCollapsed ? "w-10 h-10" : "w-10 h-10"}`}
+                      >
+                        <TidalImage
+                          src={getTidalImageUrl(playlist.image, 80)}
+                          alt={playlist.title}
+                          type="playlist"
+                        />
                       </div>
                       {!isCollapsed && (
                         <div className="flex-1 min-w-0 text-left">
@@ -843,7 +932,10 @@ export default function Sidebar() {
             setAddedToFolder((prev) => {
               const next = new Map(prev);
               const list = next.get("root") ?? [];
-              next.set("root", [...list, { kind: "playlist" as const, data: playlist }]);
+              next.set("root", [
+                ...list,
+                { kind: "playlist" as const, data: playlist },
+              ]);
               return next;
             });
             setShowCreateModal(false);

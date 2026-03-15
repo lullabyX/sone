@@ -26,7 +26,12 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useToast } from "../contexts/ToastContext";
-import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache, getPlaylistDetails } from "../api/tidal";
+import {
+  getPlaylistTracksPage,
+  getPlaylistRecommendations,
+  invalidateCache,
+  getPlaylistDetails,
+} from "../api/tidal";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
@@ -71,7 +76,8 @@ export default function PlaylistView({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
+  const [fetchedInfo, setFetchedInfo] =
+    useState<typeof playlistInfo>(undefined);
 
   // Fetch playlist metadata when playlistInfo is not provided (e.g. deep link)
   useEffect(() => {
@@ -112,21 +118,29 @@ export default function PlaylistView({
   }, [allTracks]);
 
   // Fetch a batch of recommendations
-  const fetchRecBatch = useCallback(async (offset: number) => {
-    setLoadingRecs(true);
-    try {
-      const res = await getPlaylistRecommendations(playlistId, offset, RECS_BATCH);
-      return res.items;
-    } catch {
-      return [];
-    } finally {
-      setLoadingRecs(false);
-    }
-  }, [playlistId]);
+  const fetchRecBatch = useCallback(
+    async (offset: number) => {
+      setLoadingRecs(true);
+      try {
+        const res = await getPlaylistRecommendations(
+          playlistId,
+          offset,
+          RECS_BATCH,
+        );
+        return res.items;
+      } catch {
+        return [];
+      } finally {
+        setLoadingRecs(false);
+      }
+    },
+    [playlistId],
+  );
 
   // Current slice of recommendations to display
   const visibleRecs = useMemo(
-    () => recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
+    () =>
+      recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
     [recPool, recPageIndex],
   );
 
@@ -155,21 +169,24 @@ export default function PlaylistView({
     }
   }, [recPageIndex, recPool.length, recApiOffset, playlistId, fetchRecBatch]);
 
-  const handleAddRecToPlaylist = useCallback(async (track: Track) => {
-    // Optimistic: remove from recs immediately
-    setRecPool((prev) => prev.filter((t) => t.id !== track.id));
-    try {
-      await addTrackToPlaylist(playlistId, track.id);
-      showToast(`Added "${track.title}" to playlist`, "success");
-    } catch {
-      // Rollback: re-insert the track
-      setRecPool((prev) => {
-        if (prev.some((t) => t.id === track.id)) return prev;
-        return [...prev, track];
-      });
-      showToast("Failed to add track", "error");
-    }
-  }, [playlistId, addTrackToPlaylist, showToast]);
+  const handleAddRecToPlaylist = useCallback(
+    async (track: Track) => {
+      // Optimistic: remove from recs immediately
+      setRecPool((prev) => prev.filter((t) => t.id !== track.id));
+      try {
+        await addTrackToPlaylist(playlistId, track.id);
+        showToast(`Added "${track.title}" to playlist`, "success");
+      } catch {
+        // Rollback: re-insert the track
+        setRecPool((prev) => {
+          if (prev.some((t) => t.id === track.id)) return prev;
+          return [...prev, track];
+        });
+        showToast("Failed to add track", "error");
+      }
+    },
+    [playlistId, addTrackToPlaylist, showToast],
+  );
 
   // Load first page only
   useEffect(() => {
@@ -289,8 +306,8 @@ export default function PlaylistView({
     tracks.forEach((t, i) => {
       if (
         t.title.toLowerCase().includes(q) ||
-        (t.artist?.name?.toLowerCase().includes(q) ||
-          t.artists?.some((a) => a.name?.toLowerCase().includes(q))) ||
+        t.artist?.name?.toLowerCase().includes(q) ||
+        t.artists?.some((a) => a.name?.toLowerCase().includes(q)) ||
         t.album?.title?.toLowerCase().includes(q)
       ) {
         filtered.push(t);
@@ -473,195 +490,197 @@ export default function PlaylistView({
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
-          {effectiveInfo?.image ? (
-            <TidalImage
-              src={getTidalImageUrl(effectiveInfo!.image, 640)}
-              alt={displayTitle}
-              type="playlist"
-              className="w-full h-full"
-            />
-          ) : (
-            <Music size={56} className="text-th-text-faint" />
-          )}
-        </div>
-        <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-            Playlist
-          </span>
-          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
-            {displayTitle}
-          </h1>
-          {displayDescription && (
-            <div className="mt-1 max-w-[800px]">
-              <p className="text-[14px] text-th-text-muted line-clamp-2">
-                {displayDescription}
-              </p>
-              {descriptionIsLong && (
-                <button
-                  onClick={() => setShowDescriptionModal(true)}
-                  className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
-                >
-                  Read more
-                </button>
-              )}
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-            {displayCreator && (
-              <>
-                <span className="text-th-text-primary font-semibold">
-                  {displayCreator}
-                </span>
-                <span className="mx-1">•</span>
-              </>
-            )}
-            <span>
-              {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center justify-between">
-        {/* Left — Play & Shuffle buttons */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handlePlayAll}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
-          >
-            {playlistPlaying ? (
-              <Pause size={18} fill="black" className="text-black" />
+        <div className="px-8 pb-8 pt-8 flex items-end gap-7">
+          <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
+            {effectiveInfo?.image ? (
+              <TidalImage
+                src={getTidalImageUrl(effectiveInfo!.image, 640)}
+                alt={displayTitle}
+                type="playlist"
+                className="w-full h-full"
+              />
             ) : (
-              <Play size={18} fill="black" className="text-black" />
+              <Music size={56} className="text-th-text-faint" />
             )}
-            {playlistPlaying ? "Pause" : "Play"}
-          </button>
-          <button
-            onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-          >
-            <Shuffle size={18} />
-            Shuffle
-          </button>
-        </div>
-        {/* Right — Heart & More icons */}
-        <div className="flex items-center gap-2 relative">
-          <button
-            onClick={handleToggleFavorite}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
-              playlistFavorited
-                ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
-            }`}
-            title={
-              playlistFavorited ? "Remove from favorites" : "Add to favorites"
-            }
-          >
-            <Heart
-              size={20}
-              fill={playlistFavorited ? "currentColor" : "none"}
-              strokeWidth={playlistFavorited ? 0 : 2}
-            />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setContextMenu({ x: e.clientX, y: e.clientY });
-            }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
-            title="More options"
-          >
-            <MoreHorizontal size={20} />
-          </button>
-          {contextMenu && (
-            <MediaContextMenu
-              cursorPosition={contextMenu}
-              item={{
-                type: "playlist",
-                uuid: playlistId,
-                title: displayTitle,
-                image: effectiveInfo?.image,
-                creatorName: effectiveInfo?.creatorName,
-              }}
-              onClose={() => setContextMenu(null)}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Search / Filter bar */}
-      <div className="px-8 pb-4">
-        <DebouncedFilterInput
-          placeholder="Filter playlist on title, artist or album"
-          onChange={setSearchQuery}
-          onFocus={handleSearchFocus}
-        />
-      </div>
-
-      <div className="px-8 pb-8">
-        <TrackList
-          tracks={filteredTracks}
-          onPlay={handlePlayTrack}
-          onLoadMore={isFiltering ? undefined : loadMore}
-          hasMore={isFiltering ? false : hasMore}
-          loadingMore={isFiltering ? false : loadingMore}
-          trackDisplayNumbers={displayNumbers}
-          showDateAdded={!!effectiveInfo?.isUserPlaylist}
-          showArtist={true}
-          showAlbum={true}
-          showCover={true}
-          context="playlist"
-          playlistId={playlistId}
-          isUserPlaylist={effectiveInfo?.isUserPlaylist}
-          onTrackRemoved={(index) => {
-            setAllTracks((prev) => prev.filter((_, i) => i !== index));
-          }}
-        />
-
-        {/* Recommended Tracks */}
-        {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
-          <div className="mt-10">
-            <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
-              Recommended Tracks
-            </h2>
-            <TrackList
-              tracks={visibleRecs}
-              onPlay={handlePlayTrack}
-              showArtist={true}
-              showAlbum={true}
-              showCover={true}
-              context="playlist"
-              onAddToCurrentPlaylist={handleAddRecToPlaylist}
-            />
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={handleRefreshRecs}
-                disabled={loadingRecs}
-                className="flex items-center gap-2 px-5 py-2 bg-th-button text-th-text-primary font-semibold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,background-color] duration-150 disabled:opacity-50"
-              >
-                <RefreshCw size={16} className={loadingRecs ? "animate-spin" : ""} />
-                Refresh suggestions
-              </button>
+          </div>
+          <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+              Playlist
+            </span>
+            <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              {displayTitle}
+            </h1>
+            {displayDescription && (
+              <div className="mt-1 max-w-[800px]">
+                <p className="text-[14px] text-th-text-muted line-clamp-2">
+                  {displayDescription}
+                </p>
+                {descriptionIsLong && (
+                  <button
+                    onClick={() => setShowDescriptionModal(true)}
+                    className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
+                  >
+                    Read more
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
+              {displayCreator && (
+                <>
+                  <span className="text-th-text-primary font-semibold">
+                    {displayCreator}
+                  </span>
+                  <span className="mx-1">•</span>
+                </>
+              )}
+              <span>
+                {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
+              </span>
             </div>
           </div>
-        )}
+        </div>
 
-        {tracks.length === 0 && (
-          <div className="py-16 text-center">
-            <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-th-text-primary font-semibold text-lg mb-2">
-              This playlist is empty
-            </p>
-            <p className="text-th-text-muted text-sm">
-              Add tracks in TIDAL to see them here.
-            </p>
+        {/* Play Controls */}
+        <div className="px-8 py-5 flex items-center justify-between">
+          {/* Left — Play & Shuffle buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handlePlayAll}
+              className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
+            >
+              {playlistPlaying ? (
+                <Pause size={18} fill="black" className="text-black" />
+              ) : (
+                <Play size={18} fill="black" className="text-black" />
+              )}
+              {playlistPlaying ? "Pause" : "Play"}
+            </button>
+            <button
+              onClick={handleShuffle}
+              className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            >
+              <Shuffle size={18} />
+              Shuffle
+            </button>
           </div>
-        )}
-      </div>
+          {/* Right — Heart & More icons */}
+          <div className="flex items-center gap-2 relative">
+            <button
+              onClick={handleToggleFavorite}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
+                playlistFavorited
+                  ? "text-th-accent hover:brightness-110"
+                  : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
+              }`}
+              title={
+                playlistFavorited ? "Remove from favorites" : "Add to favorites"
+              }
+            >
+              <Heart
+                size={20}
+                fill={playlistFavorited ? "currentColor" : "none"}
+                strokeWidth={playlistFavorited ? 0 : 2}
+              />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setContextMenu({ x: e.clientX, y: e.clientY });
+              }}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
+              title="More options"
+            >
+              <MoreHorizontal size={20} />
+            </button>
+            {contextMenu && (
+              <MediaContextMenu
+                cursorPosition={contextMenu}
+                item={{
+                  type: "playlist",
+                  uuid: playlistId,
+                  title: displayTitle,
+                  image: effectiveInfo?.image,
+                  creatorName: effectiveInfo?.creatorName,
+                }}
+                onClose={() => setContextMenu(null)}
+              />
+            )}
+          </div>
+        </div>
 
+        {/* Search / Filter bar */}
+        <div className="px-8 pb-4">
+          <DebouncedFilterInput
+            placeholder="Filter playlist on title, artist or album"
+            onChange={setSearchQuery}
+            onFocus={handleSearchFocus}
+          />
+        </div>
+
+        <div className="px-8 pb-8">
+          <TrackList
+            tracks={filteredTracks}
+            onPlay={handlePlayTrack}
+            onLoadMore={isFiltering ? undefined : loadMore}
+            hasMore={isFiltering ? false : hasMore}
+            loadingMore={isFiltering ? false : loadingMore}
+            trackDisplayNumbers={displayNumbers}
+            showDateAdded={!!effectiveInfo?.isUserPlaylist}
+            showArtist={true}
+            showAlbum={true}
+            showCover={true}
+            context="playlist"
+            playlistId={playlistId}
+            isUserPlaylist={effectiveInfo?.isUserPlaylist}
+            onTrackRemoved={(index) => {
+              setAllTracks((prev) => prev.filter((_, i) => i !== index));
+            }}
+          />
+
+          {/* Recommended Tracks */}
+          {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
+            <div className="mt-10">
+              <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
+                Recommended Tracks
+              </h2>
+              <TrackList
+                tracks={visibleRecs}
+                onPlay={handlePlayTrack}
+                showArtist={true}
+                showAlbum={true}
+                showCover={true}
+                context="playlist"
+                onAddToCurrentPlaylist={handleAddRecToPlaylist}
+              />
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={handleRefreshRecs}
+                  disabled={loadingRecs}
+                  className="flex items-center gap-2 px-5 py-2 bg-th-button text-th-text-primary font-semibold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,background-color] duration-150 disabled:opacity-50"
+                >
+                  <RefreshCw
+                    size={16}
+                    className={loadingRecs ? "animate-spin" : ""}
+                  />
+                  Refresh suggestions
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tracks.length === 0 && (
+            <div className="py-16 text-center">
+              <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                This playlist is empty
+              </p>
+              <p className="text-th-text-muted text-sm">
+                Add tracks in TIDAL to see them here.
+              </p>
+            </div>
+          )}
+        </div>
       </PageContainer>
 
       {/* Description Modal */}

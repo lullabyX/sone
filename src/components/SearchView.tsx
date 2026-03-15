@@ -171,7 +171,9 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Search size={48} className="text-th-text-disabled" />
-          <p className="text-th-text-primary font-semibold text-lg">Search failed</p>
+          <p className="text-th-text-primary font-semibold text-lg">
+            Search failed
+          </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
@@ -613,7 +615,9 @@ function TopHitsList({
     return (
       <div className="flex flex-col items-center justify-center py-20 text-th-text-disabled">
         <Search size={48} className="mb-4" />
-        <p className="text-th-text-primary font-semibold text-lg mb-1">No top hits</p>
+        <p className="text-th-text-primary font-semibold text-lg mb-1">
+          No top hits
+        </p>
         <p className="text-sm">Try the other tabs for more results</p>
       </div>
     );
@@ -664,7 +668,9 @@ function TopHitsList({
                   </div>
                 </div>
                 <div className="flex-1 min-w-0 text-left">
-                  <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
+                  <p className="text-[14px] text-th-text-primary truncate">
+                    {hit.title}
+                  </p>
                   <p className="text-[12px] text-th-text-faint truncate">
                     Track &middot; {hit.artistName || "Unknown Artist"}
                   </p>
@@ -733,7 +739,9 @@ function TopHitsList({
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
+                <p className="text-[14px] text-th-text-primary truncate">
+                  {hit.title}
+                </p>
                 <p className="text-[12px] text-th-text-faint truncate">
                   Album &middot; {hit.artistName || "Unknown"}
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}
@@ -860,7 +868,9 @@ function TopHitsList({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
+                <p className="text-[14px] text-th-text-primary truncate">
+                  {hit.title}
+                </p>
                 <p className="text-[12px] text-th-text-faint truncate">
                   Playlist
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}

@@ -124,35 +124,37 @@ function cached<T>(
     entry.accessOrder = ++accessCounter;
     return Promise.resolve(entry.data as T);
   }
-  return fetcher().catch((err) => {
-    checkNetworkError(err);
-    throw err;
-  }).then((data) => {
-    // Remove stale entry if present
-    if (store.has(hk)) removeEntry(hk);
-    const size = estimateSize(data);
-    evictIfNeeded(size);
-    const newEntry: CacheEntry = {
-      data,
-      ts: Date.now(),
-      ttl,
-      tags,
-      accessOrder: ++accessCounter,
-      estimatedSize: size,
-    };
-    store.set(hk, newEntry);
-    keyMap.set(hk, key);
-    currentBytes += size;
-    for (const tag of tags) {
-      let set = tagIndex.get(tag);
-      if (!set) {
-        set = new Set();
-        tagIndex.set(tag, set);
+  return fetcher()
+    .catch((err) => {
+      checkNetworkError(err);
+      throw err;
+    })
+    .then((data) => {
+      // Remove stale entry if present
+      if (store.has(hk)) removeEntry(hk);
+      const size = estimateSize(data);
+      evictIfNeeded(size);
+      const newEntry: CacheEntry = {
+        data,
+        ts: Date.now(),
+        ttl,
+        tags,
+        accessOrder: ++accessCounter,
+        estimatedSize: size,
+      };
+      store.set(hk, newEntry);
+      keyMap.set(hk, key);
+      currentBytes += size;
+      for (const tag of tags) {
+        let set = tagIndex.get(tag);
+        if (!set) {
+          set = new Set();
+          tagIndex.set(tag, set);
+        }
+        set.add(hk);
       }
-      set.add(hk);
-    }
-    return data;
-  });
+      return data;
+    });
 }
 
 /** Remove all cache entries matching a tag (fast path) or key prefix (fallback). */
@@ -724,9 +726,7 @@ export interface MixPageResult {
   tracks: Track[];
 }
 
-export async function getMixItems(
-  mixId: string,
-): Promise<MixPageResult> {
+export async function getMixItems(mixId: string): Promise<MixPageResult> {
   return cached(
     `mix-page:${mixId}`,
     ["mix-page"],
@@ -795,7 +795,9 @@ export async function getTrackCredits(trackId: number): Promise<Credit[]> {
   );
 }
 
-export async function getPlaylistDetails(playlistId: string): Promise<Playlist> {
+export async function getPlaylistDetails(
+  playlistId: string,
+): Promise<Playlist> {
   return invoke<Playlist>("get_playlist_details", { playlistId });
 }
 
@@ -927,9 +929,10 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
         parent: item.parent,
         addedAt: item.addedAt,
         lastModifiedAt: item.lastModifiedAt,
-        totalNumberOfItems: typeof folderData.totalNumberOfItems === "number"
-          ? folderData.totalNumberOfItems
-          : undefined,
+        totalNumberOfItems:
+          typeof folderData.totalNumberOfItems === "number"
+            ? folderData.totalNumberOfItems
+            : undefined,
       },
     };
   }
@@ -953,9 +956,11 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
   };
 }
 
-export function normalizePlaylistFolders(
-  response: PlaylistFoldersResponse,
-): { items: PlaylistOrFolder[]; totalNumberOfItems: number; cursor: string | null } {
+export function normalizePlaylistFolders(response: PlaylistFoldersResponse): {
+  items: PlaylistOrFolder[];
+  totalNumberOfItems: number;
+  cursor: string | null;
+} {
   return {
     items: response.items.map(normalizeFolderItem),
     totalNumberOfItems: response.totalNumberOfItems,
@@ -982,9 +987,7 @@ export async function renamePlaylistFolder(
   return invoke("rename_playlist_folder", { folderTrn, name });
 }
 
-export async function deletePlaylistFolder(
-  folderTrn: string,
-): Promise<void> {
+export async function deletePlaylistFolder(folderTrn: string): Promise<void> {
   return invoke("delete_playlist_folder", { folderTrn });
 }
 

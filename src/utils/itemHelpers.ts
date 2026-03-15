@@ -198,7 +198,10 @@ export function buildMediaItem(
 }
 
 /** Return comma-separated artist names for a track (plain text, no links). */
-export function getTrackArtistDisplay(track: { artist?: { name?: string }; artists?: { name: string }[] }): string {
+export function getTrackArtistDisplay(track: {
+  artist?: { name?: string };
+  artists?: { name: string }[];
+}): string {
   if (track.artists && track.artists.length > 0) {
     return track.artists.map((a) => a.name).join(", ");
   }
@@ -230,7 +233,10 @@ export function getTrackArtistDiscordDisplay(track: {
   const featStr =
     featured.length === 1
       ? featured[0].name
-      : featured.slice(0, -1).map((a) => a.name).join(", ") +
+      : featured
+          .slice(0, -1)
+          .map((a) => a.name)
+          .join(", ") +
         " & " +
         featured[featured.length - 1].name;
 

@@ -27,7 +27,9 @@ function loadGeometry(): MiniplayerGeometry | null {
     ) {
       return geo;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
@@ -42,7 +44,9 @@ async function saveGeometry(win: WebviewWindow) {
       height: size.height,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(geo));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function useMiniplayerWindow() {
@@ -54,7 +58,9 @@ export function useMiniplayerWindow() {
     const unlisten = listen("miniplayer-closed", () => {
       setMiniplayerOpen(false);
     });
-    return () => { unlisten.then((fn) => fn()); };
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [setMiniplayerOpen]);
 
   const toggleMiniplayer = useCallback(async () => {
@@ -97,7 +103,8 @@ export function useMiniplayerWindow() {
         // Off-screen clamping (only when restoring a saved position)
         if (saved) {
           try {
-            const { availableMonitors } = await import("@tauri-apps/api/window");
+            const { availableMonitors } =
+              await import("@tauri-apps/api/window");
             const monitors = await availableMonitors();
             const pos = await miniplayer.outerPosition();
             const size = await miniplayer.outerSize();
@@ -111,8 +118,10 @@ export function useMiniplayerWindow() {
               const mw = mon.size.width;
               const mh = mon.size.height;
               if (
-                pos.x < mx + mw - 50 && right > mx + 50 &&
-                pos.y < my + mh - 50 && bottom > my + 50
+                pos.x < mx + mw - 50 &&
+                right > mx + 50 &&
+                pos.y < my + mh - 50 &&
+                bottom > my + 50
               ) {
                 onScreen = true;
                 break;
@@ -121,12 +130,16 @@ export function useMiniplayerWindow() {
 
             if (!onScreen && monitors.length > 0) {
               const primary = monitors[0];
-              const newX = primary.position.x + primary.size.width - size.width - 40;
-              const newY = primary.position.y + primary.size.height - size.height - 100;
+              const newX =
+                primary.position.x + primary.size.width - size.width - 40;
+              const newY =
+                primary.position.y + primary.size.height - size.height - 100;
               const { PhysicalPosition } = await import("@tauri-apps/api/dpi");
               await miniplayer.setPosition(new PhysicalPosition(newX, newY));
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       });
 

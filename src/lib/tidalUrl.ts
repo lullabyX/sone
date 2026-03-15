@@ -31,7 +31,10 @@ export function parseTidalUrl(url: string): DeepLinkAction | null {
       return { kind: "navigate", view: { type: "artist", artistId: id } };
     }
     case "playlist":
-      return { kind: "navigate", view: { type: "playlist", playlistId: contentId } };
+      return {
+        kind: "navigate",
+        view: { type: "playlist", playlistId: contentId },
+      };
     case "mix":
       return { kind: "navigate", view: { type: "mix", mixId: contentId } };
     default:

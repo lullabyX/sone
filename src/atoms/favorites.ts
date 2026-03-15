@@ -19,4 +19,7 @@ const makeSortAtom = (key: string, defaultOrder: string = "DATE") =>
 export const albumSortAtom = makeSortAtom("sone.albumSort.v1");
 export const artistSortAtom = makeSortAtom("sone.artistSort.v1");
 export const mixSortAtom = makeSortAtom("sone.mixSort.v1");
-export const playlistSortAtom = makeSortAtom("sone.playlistSort.v1", "DATE_UPDATED");
+export const playlistSortAtom = makeSortAtom(
+  "sone.playlistSort.v1",
+  "DATE_UPDATED",
+);

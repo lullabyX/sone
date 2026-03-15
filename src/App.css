@@ -163,13 +163,41 @@ textarea {
   --cols: 2;
 }
 
-@container (min-width: 5.88em)  { .card-scroll-item { --cols: 2; } }
-@container (min-width: 8.02em)  { .card-scroll-item { --cols: 3; } }
-@container (min-width: 10.16em) { .card-scroll-item { --cols: 4; } }
-@container (min-width: 12.30em) { .card-scroll-item { --cols: 5; } }
-@container (min-width: 14.44em) { .card-scroll-item { --cols: 6; } }
-@container (min-width: 16.58em) { .card-scroll-item { --cols: 7; } }
-@container (min-width: 18.24em) { .card-scroll-item { --cols: 8; } }
+@container (min-width: 5.88em) {
+  .card-scroll-item {
+    --cols: 2;
+  }
+}
+@container (min-width: 8.02em) {
+  .card-scroll-item {
+    --cols: 3;
+  }
+}
+@container (min-width: 10.16em) {
+  .card-scroll-item {
+    --cols: 4;
+  }
+}
+@container (min-width: 12.30em) {
+  .card-scroll-item {
+    --cols: 5;
+  }
+}
+@container (min-width: 14.44em) {
+  .card-scroll-item {
+    --cols: 6;
+  }
+}
+@container (min-width: 16.58em) {
+  .card-scroll-item {
+    --cols: 7;
+  }
+}
+@container (min-width: 18.24em) {
+  .card-scroll-item {
+    --cols: 8;
+  }
+}
 
 /* Toast slide-in */
 @keyframes toastIn {

@@ -305,15 +305,15 @@ export default function Home() {
             <div key={i} className="mb-8">
               <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
               <div className="card-scroll">
-              <div className="card-scroll-track">
-                {Array.from({ length: 10 }).map((_, j) => (
-                  <div key={j} className="card-scroll-item">
-                    <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-                    <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
-                    <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
-                  </div>
-                ))}
-              </div>
+                <div className="card-scroll-track">
+                  {Array.from({ length: 10 }).map((_, j) => (
+                    <div key={j} className="card-scroll-item">
+                      <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+                      <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+                      <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           ))}
@@ -396,15 +396,15 @@ export default function Home() {
               <div key={i} className="mb-8">
                 <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
                 <div className="card-scroll">
-                <div className="card-scroll-track">
-                  {Array.from({ length: 10 }).map((_, j) => (
-                    <div key={j} className="card-scroll-item">
-                      <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-                      <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
-                      <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
-                    </div>
-                  ))}
-                </div>
+                  <div className="card-scroll-track">
+                    {Array.from({ length: 10 }).map((_, j) => (
+                      <div key={j} className="card-scroll-item">
+                        <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+                        <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+                        <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}

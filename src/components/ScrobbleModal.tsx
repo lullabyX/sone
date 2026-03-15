@@ -264,7 +264,9 @@ export default function ScrobbleModal({ open, onClose }: ScrobbleModalProps) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-[16px] font-bold text-th-text-primary">Scrobbling</h2>
+          <h2 className="text-[16px] font-bold text-th-text-primary">
+            Scrobbling
+          </h2>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"

@@ -169,8 +169,8 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
   const bgSurface = shiftLightness(bgBase, 4 * dir);
   const bgSurfaceHover = shiftLightness(bgBase, 9 * dir);
   const bgElevated = shiftLightness(bgBase, 2.5 * dir);
-  const bgSidebar = shiftLightness(bgBase, -2);     // always darker than base
-  const bgOverlay = shiftLightness(bgBase, -3);      // always darker than base
+  const bgSidebar = shiftLightness(bgBase, -2); // always darker than base
+  const bgOverlay = shiftLightness(bgBase, -3); // always darker than base
   const bgInset = shiftLightness(bgBase, 7 * dir);
   const bgInsetHover = shiftLightness(bgBase, 11 * dir);
   const bgButton = shiftLightness(bgBase, 14 * dir);
