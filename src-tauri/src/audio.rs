@@ -40,10 +40,7 @@ enum WriterCommand {
         generation: u64,
     },
     FormatHint(PcmFormat),
-    Resampling {
-        from: u32,
-        to: u32,
-    },
+    Resampling { from: u32, to: u32 },
     Flush,
     Shutdown,
 }
@@ -147,8 +144,8 @@ fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
     };
     let probe: &[(Format, &str)] = &[
         (Format::S32LE, "S32LE"),
-        (Format::S24LE, "S24_32LE"), // ALSA S24LE = GStreamer S24_32LE
-        (Format::S243LE, "S24LE"),   // ALSA S243LE = GStreamer S24LE
+        (Format::S24LE, "S24_32LE"),  // ALSA S24LE = GStreamer S24_32LE
+        (Format::S243LE, "S24LE"),    // ALSA S243LE = GStreamer S24LE
         (Format::FloatLE, "F32LE"),
         (Format::S16LE, "S16LE"),
     ];
@@ -228,8 +225,8 @@ fn configure_alsa_hwparams(
         // Ranked fallback: requested first, then descending quality
         let fallbacks: &[Format] = &[
             Format::S32LE,
-            Format::S24LE,  // 24-in-32 container
-            Format::S243LE, // 24-bit packed
+            Format::S24LE,   // 24-in-32 container
+            Format::S243LE,  // 24-bit packed
             Format::FloatLE,
             Format::S16LE,
         ];
@@ -261,10 +258,7 @@ fn configure_alsa_hwparams(
     hwp.set_rate(fmt.sample_rate, ValueOr::Nearest)
         .map_err(|e| {
             if bit_perfect {
-                log::warn!(
-                    "[audio] bit-perfect set_rate({}) failed: {e}",
-                    fmt.sample_rate
-                );
+                log::warn!("[audio] bit-perfect set_rate({}) failed: {e}", fmt.sample_rate);
                 format!(
                     "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
                     fmt.sample_rate / 1000
@@ -278,8 +272,7 @@ fn configure_alsa_hwparams(
         if actual_rate != fmt.sample_rate {
             log::warn!(
                 "[audio] bit-perfect rate mismatch: DAC negotiated {}Hz, track requires {}Hz",
-                actual_rate,
-                fmt.sample_rate
+                actual_rate, fmt.sample_rate
             );
             return Err(format!(
                 "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
@@ -311,13 +304,10 @@ fn configure_alsa_hwparams(
     if alsa_fmt != requested {
         log::info!(
             "[audio] format fallback: {} -> {} (DAC doesn't support {})",
-            fmt.gst_format,
-            gst_fmt_str,
-            fmt.gst_format
+            fmt.gst_format, gst_fmt_str, fmt.gst_format
         );
     }
-    let actual_rate = pcm
-        .hw_params_current()
+    let actual_rate = pcm.hw_params_current()
         .and_then(|p| p.get_rate())
         .unwrap_or(fmt.sample_rate);
     Ok(PcmFormat {
@@ -341,16 +331,7 @@ fn spawn_alsa_writer(
     paused: Arc<AtomicBool>,
     bit_perfect: bool,
     combined_vol: Arc<AtomicU32>,
-) -> Result<
-    (
-        crossbeam_channel::Sender<WriterCommand>,
-        JoinHandle<()>,
-        PcmFormat,
-        Vec<&'static str>,
-        Vec<u32>,
-    ),
-    String,
-> {
+) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>, PcmFormat, Vec<&'static str>, Vec<u32>), String> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
     let (tx, rx) = crossbeam_channel::bounded::<WriterCommand>(256);
@@ -366,10 +347,7 @@ fn spawn_alsa_writer(
     })?;
 
     let supported_gst_formats = probe_supported_gst_formats(&pcm);
-    log::debug!(
-        "[alsa-writer] DAC supported GStreamer formats: {:?}",
-        supported_gst_formats
-    );
+    log::debug!("[alsa-writer] DAC supported GStreamer formats: {:?}", supported_gst_formats);
 
     let supported_rates = probe_supported_rates(&pcm);
     log::debug!("[alsa-writer] DAC supported rates: {:?}", supported_rates);
@@ -783,13 +761,7 @@ fn spawn_alsa_writer(
         })
         .map_err(|e| format!("Failed to spawn ALSA writer thread: {e}"))?;
 
-    Ok((
-        tx,
-        handle,
-        negotiated_fmt,
-        supported_gst_formats,
-        supported_rates,
-    ))
+    Ok((tx, handle, negotiated_fmt, supported_gst_formats, supported_rates))
 }
 
 // ── Audio command protocol ─────────────────────────────────────────────
@@ -920,13 +892,8 @@ impl AudioPlayer {
                                             // Fade out
                                             if let Some(ref vol) = user_volume_el {
                                                 for i in (0..=10).rev() {
-                                                    vol.set_property(
-                                                        "volume",
-                                                        current_volume * (i as f64 / 10.0),
-                                                    );
-                                                    std::thread::sleep(
-                                                        std::time::Duration::from_millis(10),
-                                                    );
+                                                    vol.set_property("volume", current_volume * (i as f64 / 10.0));
+                                                    std::thread::sleep(std::time::Duration::from_millis(10));
                                                 }
                                             }
                                             old_pipe.set_state(gst::State::Null).ok();
@@ -1003,13 +970,7 @@ impl AudioPlayer {
                                         if let Some(h) = writer_thread.take() {
                                             h.join().ok();
                                         }
-                                        let (
-                                            tx,
-                                            handle,
-                                            negotiated_fmt,
-                                            supported_gst_fmts,
-                                            supported_rates,
-                                        ) = spawn_alsa_writer(
+                                        let (tx, handle, negotiated_fmt, supported_gst_fmts, supported_rates) = spawn_alsa_writer(
                                             dev,
                                             &default_fmt,
                                             app_handle.clone(),
@@ -1032,13 +993,9 @@ impl AudioPlayer {
                                     let wtx = writer_tx.as_ref().unwrap().clone();
 
                                     // Build appsink pipeline
-                                    let fmt_for_pipeline =
-                                        writer_fmt.as_ref().unwrap_or(&default_fmt);
-                                    let supported_fmts_for_pipeline =
-                                        writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
-                                    let supported_rates_for_pipeline = writer_supported_rates
-                                        .as_deref()
-                                        .unwrap_or(&[44100, 48000]);
+                                    let fmt_for_pipeline = writer_fmt.as_ref().unwrap_or(&default_fmt);
+                                    let supported_fmts_for_pipeline = writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
+                                    let supported_rates_for_pipeline = writer_supported_rates.as_deref().unwrap_or(&[44100, 48000]);
                                     let (pipe, u_vol, n_vol) = build_appsink_pipeline(
                                         &uri,
                                         exclusive,
@@ -1342,7 +1299,7 @@ impl AudioPlayer {
                                         WriterCommand::Shutdown,
                                         std::time::Duration::from_millis(200),
                                     );
-                                }
+                                }                                
                                 pipeline.set_state(gst::State::Null).ok();
                                 let _ = pipeline.state(gst::ClockTime::from_mseconds(500));
                                 drop(pipeline);
@@ -1594,16 +1551,10 @@ fn build_appsink_pipeline(
     if is_dash && bit_perfect {
         appsink.set_caps(Some(
             &gst::Caps::builder("audio/x-raw")
-                .field(
-                    "format",
-                    gst::List::new(supported_gst_formats.iter().copied()),
-                )
+                .field("format", gst::List::new(supported_gst_formats.iter().copied()))
                 .build(),
         ));
-        log::debug!(
-            "[audio] bit-perfect DASH: appsink caps = {:?}",
-            supported_gst_formats
-        );
+        log::debug!("[audio] bit-perfect DASH: appsink caps = {:?}", supported_gst_formats);
     }
 
     log::debug!(
@@ -1692,10 +1643,7 @@ fn build_appsink_pipeline(
 
     // Connect uridecodebin's dynamic pad to audioconvert
     let convert_weak = audioconvert.downgrade();
-    let supported_fmts_for_closure: Vec<String> = supported_gst_formats
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let supported_fmts_for_closure: Vec<String> = supported_gst_formats.iter().map(|s| s.to_string()).collect();
     let supported_rates_for_closure: Vec<u32> = supported_rates.to_vec();
     let resample_tx = writer_tx.clone();
     let is_bit_perfect = bit_perfect;
@@ -1734,10 +1682,9 @@ fn build_appsink_pipeline(
                                 .copied()
                                 .min_by_key(|&r| (r as i64 - native as i64).unsigned_abs())
                                 .unwrap_or(48000);
-                            let _ = resample_tx.try_send(WriterCommand::Resampling {
-                                from: native,
-                                to: closest,
-                            });
+                            let _ = resample_tx.try_send(
+                                WriterCommand::Resampling { from: native, to: closest },
+                            );
                         }
                     }
                 }

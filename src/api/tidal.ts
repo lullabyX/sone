@@ -121,37 +121,35 @@ function cached<T>(
     entry.accessOrder = ++accessCounter;
     return Promise.resolve(entry.data as T);
   }
-  return fetcher()
-    .catch((err) => {
-      checkNetworkError(err);
-      throw err;
-    })
-    .then((data) => {
-      // Remove stale entry if present
-      if (store.has(hk)) removeEntry(hk);
-      const size = estimateSize(data);
-      evictIfNeeded(size);
-      const newEntry: CacheEntry = {
-        data,
-        ts: Date.now(),
-        ttl,
-        tags,
-        accessOrder: ++accessCounter,
-        estimatedSize: size,
-      };
-      store.set(hk, newEntry);
-      keyMap.set(hk, key);
-      currentBytes += size;
-      for (const tag of tags) {
-        let set = tagIndex.get(tag);
-        if (!set) {
-          set = new Set();
-          tagIndex.set(tag, set);
-        }
-        set.add(hk);
+  return fetcher().catch((err) => {
+    checkNetworkError(err);
+    throw err;
+  }).then((data) => {
+    // Remove stale entry if present
+    if (store.has(hk)) removeEntry(hk);
+    const size = estimateSize(data);
+    evictIfNeeded(size);
+    const newEntry: CacheEntry = {
+      data,
+      ts: Date.now(),
+      ttl,
+      tags,
+      accessOrder: ++accessCounter,
+      estimatedSize: size,
+    };
+    store.set(hk, newEntry);
+    keyMap.set(hk, key);
+    currentBytes += size;
+    for (const tag of tags) {
+      let set = tagIndex.get(tag);
+      if (!set) {
+        set = new Set();
+        tagIndex.set(tag, set);
       }
-      return data;
-    });
+      set.add(hk);
+    }
+    return data;
+  });
 }
 
 /** Remove all cache entries matching a tag (fast path) or key prefix (fallback). */

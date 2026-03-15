@@ -124,9 +124,9 @@ pub async fn play_tidal_track(
         player.set_normalization_gain(norm_gain)?;
         player.play_url(&uri_clone)
     })
-    .await
-    .map_err(|e| SoneError::Audio(e.to_string()))?
-    .map_err(SoneError::Audio)?;
+        .await
+        .map_err(|e| SoneError::Audio(e.to_string()))?
+        .map_err(SoneError::Audio)?;
 
     // Save last played track
     if let Some(mut settings) = state.load_settings() {

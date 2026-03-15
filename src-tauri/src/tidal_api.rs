@@ -12,10 +12,7 @@ pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error
 
     if proxy.enabled && !proxy.host.is_empty() && proxy.port > 0 {
         // Reject hosts with characters that could break URL parsing
-        if proxy
-            .host
-            .contains(|c: char| matches!(c, '@' | '/' | '?' | '#') || c.is_whitespace())
-        {
+        if proxy.host.contains(|c: char| matches!(c, '@' | '/' | '?' | '#') || c.is_whitespace()) {
             return builder.build(); // return client without proxy if host is invalid
         }
 

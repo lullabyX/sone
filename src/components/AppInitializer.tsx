@@ -528,10 +528,7 @@ export function AppInitializer() {
         const { from, to } = event.payload;
         const fromKhz = from >= 1000 ? `${from / 1000}kHz` : `${from}Hz`;
         const toKhz = to >= 1000 ? `${to / 1000}kHz` : `${to}Hz`;
-        showToast(
-          `DAC doesn't support ${fromKhz} — resampling to ${toKhz}`,
-          "info",
-        );
+        showToast(`DAC doesn't support ${fromKhz} — resampling to ${toKhz}`, "info");
       },
     );
     return () => {

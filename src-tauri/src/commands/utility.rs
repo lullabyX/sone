@@ -231,7 +231,10 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
 
 #[tauri::command]
 pub fn get_proxy_settings(state: State<'_, AppState>) -> crate::ProxySettings {
-    state.load_settings().map(|s| s.proxy).unwrap_or_default()
+    state
+        .load_settings()
+        .map(|s| s.proxy)
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -260,7 +263,9 @@ pub async fn set_proxy_settings(
 }
 
 #[tauri::command]
-pub async fn test_proxy_connection(settings: crate::ProxySettings) -> Result<String, String> {
+pub async fn test_proxy_connection(
+    settings: crate::ProxySettings,
+) -> Result<String, String> {
     let client = crate::tidal_api::build_http_client(&settings)
         .map_err(|e| format!("Failed to create client: {e}"))?;
 

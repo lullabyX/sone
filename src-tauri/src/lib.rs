@@ -22,20 +22,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 use tidal_api::{AuthTokens, TidalClient};
 use tokio::sync::Mutex;
 
 mod defaults {
-    pub fn yes() -> bool {
-        true
-    }
-    pub fn volume() -> f32 {
-        1.0
-    }
+    pub fn yes() -> bool { true }
+    pub fn volume() -> f32 { 1.0 }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -360,13 +356,14 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<AppState>();
                     if let Some(settings) = state.load_settings() {
-                        let http_client = crate::tidal_api::build_http_client(&settings.proxy)
-                            .unwrap_or_else(|_| {
-                                reqwest::Client::builder()
-                                    .timeout(std::time::Duration::from_secs(30))
-                                    .build()
-                                    .unwrap()
-                            });
+                        let http_client = crate::tidal_api::build_http_client(
+                            &settings.proxy
+                        ).unwrap_or_else(|_| {
+                            reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(30))
+                                .build()
+                                .unwrap()
+                        });
 
                         // Last.fm
                         if let Some(ref creds) = settings.scrobble.lastfm {
@@ -414,9 +411,8 @@ pub fn run() {
 
                         // ListenBrainz
                         if let Some(ref creds) = settings.scrobble.listenbrainz {
-                            let provider = crate::scrobble::listenbrainz::ListenBrainzProvider::new(
-                                http_client.clone(),
-                            );
+                            let provider =
+                                crate::scrobble::listenbrainz::ListenBrainzProvider::new(http_client.clone());
                             provider
                                 .set_token(creds.token.clone(), creds.username.clone())
                                 .await;
@@ -475,7 +471,7 @@ pub fn run() {
                         })
                         .ok();
                 }
-
+                
                 let decorations = state.decorations.load(Ordering::Relaxed);
 
                 if !decorations {
@@ -490,7 +486,8 @@ pub fn run() {
                 let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
                 let play_pause =
                     MenuItemBuilder::with_id("play-pause", "Play / Pause").build(app)?;
-                let next_track = MenuItemBuilder::with_id("next-track", "Next Track").build(app)?;
+                let next_track =
+                    MenuItemBuilder::with_id("next-track", "Next Track").build(app)?;
                 let prev_track =
                     MenuItemBuilder::with_id("prev-track", "Previous Track").build(app)?;
                 let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
