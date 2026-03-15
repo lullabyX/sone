@@ -49,3 +49,6 @@ flatpak*
 
 # workspace
 sone.code-workspace
+
+# superpowers brainstorm artifacts
+.superpowers
