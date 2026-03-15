@@ -1,5 +1,5 @@
-import { Play, Heart, MoreHorizontal, Plus } from "lucide-react";
-import { type Track, getTidalImageUrl } from "../types";
+import { Play, Heart, MoreHorizontal, Plus, ListPlus } from "lucide-react";
+import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import TrackContextMenu from "./TrackContextMenu";
@@ -9,6 +9,7 @@ import { currentTrackAtom, isPlayingAtom } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
+import { TrackArtists } from "./TrackArtists";
 
 interface TrackListProps {
   tracks: Track[];
@@ -27,6 +28,8 @@ interface TrackListProps {
   playlistId?: string;
   isUserPlaylist?: boolean;
   onTrackRemoved?: (index: number) => void;
+  /** When provided, shows a dedicated "add to this playlist" button (immediate action, no menu) */
+  onAddToCurrentPlaylist?: (track: Track) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -71,6 +74,7 @@ interface TrackRowProps {
   playlistId?: string;
   isUserPlaylist?: boolean;
   onTrackRemoved?: (index: number) => void;
+  onAddToCurrentPlaylist?: (track: Track) => void;
 }
 
 const TrackRow = memo(function TrackRow({
@@ -89,9 +93,10 @@ const TrackRow = memo(function TrackRow({
   playlistId,
   isUserPlaylist,
   onTrackRemoved,
+  onAddToCurrentPlaylist,
 }: TrackRowProps) {
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
-  const { navigateToAlbum, navigateToArtist } = useNavigation();
+  const { navigateToAlbum } = useNavigation();
   const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
 
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false);
@@ -145,7 +150,7 @@ const TrackRow = memo(function TrackRow({
       onClick={() => onPlay(track, index)}
       onContextMenu={handleRowContextMenu}
       className={`grid gap-4 px-4 py-2.5 rounded-md cursor-pointer group transition-colors items-center ${
-        isActive ? "bg-[#ffffff0a]" : "hover:bg-[#ffffff08]"
+        isActive ? "bg-th-hl-faint" : "hover:bg-th-hl-faint"
       }`}
       style={{ gridTemplateColumns: gridCols }}
     >
@@ -178,8 +183,8 @@ const TrackRow = memo(function TrackRow({
             </span>
             <Play
               size={14}
-              fill="white"
-              className="text-white hidden group-hover:block"
+              fill="currentColor"
+              className="text-th-text-primary hidden group-hover:block"
             />
           </>
         )}
@@ -199,25 +204,18 @@ const TrackRow = memo(function TrackRow({
         <div className="flex flex-col justify-center min-w-0">
           <span
             className={`text-[15px] font-medium truncate leading-snug ${
-              isActive ? "text-th-accent" : "text-white"
+              isActive ? "text-th-accent" : "text-th-text-primary"
             }`}
           >
-            {track.title}
+            {getTrackDisplayTitle(track)}
           </span>
           {!showArtist && (
-            <span
-              className="text-[13px] text-th-text-muted truncate leading-snug hover:text-white hover:underline transition-colors cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (track.artist?.id) {
-                  navigateToArtist(track.artist.id, {
-                    name: track.artist.name,
-                    picture: track.artist.picture,
-                  });
-                }
-              }}
-            >
-              {track.artist?.name || "Unknown Artist"}
+            <span className="text-[13px] text-th-text-muted truncate leading-snug">
+              <TrackArtists
+                artists={track.artists}
+                artist={track.artist}
+                className="hover:text-th-text-primary hover:underline transition-colors cursor-pointer"
+              />
             </span>
           )}
         </div>
@@ -226,19 +224,12 @@ const TrackRow = memo(function TrackRow({
       {/* Artist (Column) */}
       {showArtist && (
         <div className="flex items-center min-w-0">
-          <span
-            className="text-[14px] text-th-text-muted truncate hover:text-white hover:underline transition-colors cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (track.artist?.id) {
-                navigateToArtist(track.artist.id, {
-                  name: track.artist.name,
-                  picture: track.artist.picture,
-                });
-              }
-            }}
-          >
-            {track.artist?.name || "Unknown Artist"}
+          <span className="text-[14px] text-th-text-muted truncate">
+            <TrackArtists
+              artists={track.artists}
+              artist={track.artist}
+              className="hover:text-th-text-primary hover:underline transition-colors cursor-pointer"
+            />
           </span>
         </div>
       )}
@@ -247,7 +238,7 @@ const TrackRow = memo(function TrackRow({
       {showAlbum && (
         <div className="flex items-center min-w-0">
           <span
-            className="text-[14px] text-th-text-muted truncate hover:text-white hover:underline transition-colors cursor-pointer"
+            className="text-[14px] text-th-text-muted truncate hover:text-th-text-primary hover:underline transition-colors cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
               if (track.album?.id) {
@@ -284,8 +275,8 @@ const TrackRow = memo(function TrackRow({
           ref={dotsButtonRef}
           className={`p-1.5 rounded-full transition-colors ${
             contextMenuOpen
-              ? "text-white opacity-100"
-              : "text-th-text-muted hover:text-white opacity-0 group-hover:opacity-100"
+              ? "text-th-text-primary opacity-100"
+              : "text-th-text-muted hover:text-th-text-primary opacity-0 group-hover:opacity-100"
           }`}
           title="More options"
           onClick={handleDotsClick}
@@ -304,27 +295,42 @@ const TrackRow = memo(function TrackRow({
             onTrackRemoved={onTrackRemoved}
           />
         )}
-        <button
-          ref={plusButtonRef}
-          className={`p-1.5 rounded-full transition-colors ${
-            playlistMenuOpen
-              ? "text-th-accent"
-              : "text-th-text-muted hover:text-white"
-          }`}
-          title="Add to playlist"
-          onClick={handlePlusClick}
-        >
-          <Plus size={18} />
-        </button>
-        {playlistMenuOpen && (
-          <AddToPlaylistMenu
-            trackIds={[track.id]}
-            anchorRef={plusButtonRef}
-            onClose={() => setPlaylistMenuOpen(false)}
-          />
+        {onAddToCurrentPlaylist ? (
+          <button
+            className="p-1.5 rounded-full transition-colors text-th-text-muted hover:text-th-accent"
+            title="Add to this playlist"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddToCurrentPlaylist(track);
+            }}
+          >
+            <ListPlus size={18} />
+          </button>
+        ) : (
+          <>
+            <button
+              ref={plusButtonRef}
+              className={`p-1.5 rounded-full transition-colors ${
+                playlistMenuOpen
+                  ? "text-th-accent"
+                  : "text-th-text-muted hover:text-th-text-primary"
+              }`}
+              title="Add to playlist"
+              onClick={handlePlusClick}
+            >
+              <Plus size={18} />
+            </button>
+            {playlistMenuOpen && (
+              <AddToPlaylistMenu
+                trackIds={[track.id]}
+                anchorRef={plusButtonRef}
+                onClose={() => setPlaylistMenuOpen(false)}
+              />
+            )}
+          </>
         )}
         <button
-          className={`p-1.5 rounded-full transition-colors ${isFav ? "text-th-accent" : "text-th-text-muted hover:text-white"}`}
+          className={`p-1.5 rounded-full transition-colors ${isFav ? "text-th-accent" : "text-th-text-muted hover:text-th-text-primary"}`}
           title={isFav ? "Remove from favorites" : "Add to favorites"}
           onClick={toggleFavorite}
         >
@@ -352,6 +358,7 @@ export default memo(function TrackList({
   playlistId,
   isUserPlaylist,
   onTrackRemoved,
+  onAddToCurrentPlaylist,
 }: TrackListProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
@@ -429,6 +436,7 @@ export default memo(function TrackList({
             playlistId={playlistId}
             isUserPlaylist={isUserPlaylist}
             onTrackRemoved={onTrackRemoved}
+            onAddToCurrentPlaylist={onAddToCurrentPlaylist}
           />
         ))}
       </div>

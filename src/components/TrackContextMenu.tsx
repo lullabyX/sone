@@ -5,6 +5,7 @@ import {
   Radio,
   Trash2,
   ListMusic,
+  Link,
 } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import { useToast } from "../contexts/ToastContext";
@@ -13,7 +14,8 @@ import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useContextMenu } from "../hooks/useContextMenu";
-import type { Track } from "../types";
+import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
+import { getTrackShareUrl } from "../utils/itemHelpers";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
 
@@ -43,7 +45,7 @@ export default function TrackContextMenu({
   const { addToQueue, playNextInQueue } = usePlaybackActions();
   const { favoriteTrackIds, addFavoriteTrack, removeFavoriteTrack } =
     useFavorites();
-  const { navigateToTrackRadio } = useNavigation();
+  const { navigateToMix } = useNavigation();
   const { removeTrackFromPlaylist } = usePlaylists();
   const { showToast } = useToast();
 
@@ -62,7 +64,7 @@ export default function TrackContextMenu({
     onClose,
   });
 
-  const trackTitle = track.title || (track as any).name || "";
+  const trackTitle = getTrackDisplayTitle(track) || (track as any).name || "";
   const trackLabel =
     trackTitle.length > 30 ? trackTitle.slice(0, 28) + "…" : trackTitle;
 
@@ -103,13 +105,16 @@ export default function TrackContextMenu({
   ]);
 
   const handleGoToTrackRadio = useCallback(() => {
-    navigateToTrackRadio(track.id, {
-      title: track.title,
-      artistName: track.artist?.name,
-      cover: track.album?.cover,
+    const trackMixId = track.mixes?.TRACK_MIX;
+    if (!trackMixId) return;
+    navigateToMix(trackMixId, {
+      title: `${track.title} Radio`,
+      image: track.album?.cover ? getTidalImageUrl(track.album.cover, 640) : undefined,
+      subtitle: `Based on ${track.artist?.name ?? ""}`,
+      mixType: "TRACK_MIX",
     });
     onClose();
-  }, [track, navigateToTrackRadio, onClose]);
+  }, [track, navigateToMix, onClose]);
 
   const handleRemoveFromPlaylist = useCallback(async () => {
     if (!playlistId) return;
@@ -132,8 +137,18 @@ export default function TrackContextMenu({
     onClose,
   ]);
 
+  const handleShare = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(getTrackShareUrl(track.id));
+      showToast("Copied share link to clipboard");
+    } catch {
+      showToast("Failed to copy link", "error");
+    }
+    onClose();
+  }, [track.id, showToast, onClose]);
+
   const menuItemClass =
-    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-text-secondary hover:text-white";
+    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left text-[14px] text-th-text-secondary hover:text-th-text-primary";
 
   return (
     <MenuPortal>
@@ -191,12 +206,19 @@ export default function TrackContextMenu({
           </>
         )}
 
+        {/* Share */}
+        <div className="my-1 border-t border-th-inset" />
+        <button className={menuItemClass} onClick={handleShare}>
+          <Link size={18} className="shrink-0 text-th-text-muted" />
+          <span>Share</span>
+        </button>
+
         {/* Remove from playlist (only for user's own playlist) */}
         {canRemoveFromPlaylist && (
           <>
             <div className="my-1 border-t border-th-inset" />
             <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-error hover:text-th-error"
+              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left text-[14px] text-th-error hover:text-th-error"
               onClick={handleRemoveFromPlaylist}
             >
               <Trash2 size={18} className="shrink-0" />

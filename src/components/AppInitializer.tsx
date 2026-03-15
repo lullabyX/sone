@@ -12,6 +12,8 @@ import { useEffect, useRef, startTransition } from "react";
 import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { parseTidalUrl } from "../lib/tidalUrl";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -22,7 +24,6 @@ import {
 } from "../atoms/auth";
 import {
   userPlaylistsAtom,
-  favoritePlaylistsAtom,
   deletedPlaylistIdsAtom,
 } from "../atoms/playlists";
 import {
@@ -46,8 +47,12 @@ import {
   originalQueueAtom,
   manualQueueAtom,
   playbackSourceAtom,
+  contextSourceAtom,
+  shuffleAtom,
+  repeatAtom,
+  streamInfoAtom,
 } from "../atoms/playback";
-import { drawerOpenAtom } from "../atoms/ui";
+import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 
 // Stable action callbacks (no atom subscriptions)
@@ -64,8 +69,9 @@ import {
   getFavoriteTracks,
   getFavoriteArtists,
   getFavoriteAlbums,
-  getUserPlaylists,
-  getFavoritePlaylists,
+  getPlaylistFolders,
+  normalizePlaylistFolders,
+  getTrack,
 } from "../api/tidal";
 
 import type {
@@ -73,9 +79,21 @@ import type {
   Track,
   QueuedTrack,
   PlaybackSnapshot,
+  PlaylistOrFolder,
 } from "../types";
-import { getTidalImageUrl } from "../types";
+import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
+import {
+  getTrackArtistDisplay,
+  getTrackArtistDiscordDisplay,
+  getTrackShareUrl,
+} from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
+import {
+  initPositionInterpolator,
+  destroyPositionInterpolator,
+  notifySeek,
+  getInterpolatedPosition,
+} from "../lib/playbackPosition";
 
 const PLAYBACK_STATE_KEY = "sone.playback-state.v1";
 
@@ -93,7 +111,6 @@ export function AppInitializer() {
   const setAuthTokens = useSetAtom(authTokensAtom);
   const setUserName = useSetAtom(userNameAtom);
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
-  const setFavoritePlaylists = useSetAtom(favoritePlaylistsAtom);
   const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
   const setFavoriteAlbumIds = useSetAtom(favoriteAlbumIdsAtom);
   const setFavoritePlaylistUuids = useSetAtom(favoritePlaylistUuidsAtom);
@@ -107,9 +124,10 @@ export function AppInitializer() {
   const setOriginalQueue = useSetAtom(originalQueueAtom);
   const setManualQueue = useSetAtom(manualQueueAtom);
   const setPlaybackSource = useSetAtom(playbackSourceAtom);
+  const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
-  const { playNext, playPrevious, pauseTrack, resumeTrack, setVolume } =
+  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, toggleShuffle, seekTo } =
     usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
@@ -149,7 +167,7 @@ export function AppInitializer() {
           }
         }
 
-        let activeTokens = { ...tokens, user_id: userId };
+        let activeTokens: AuthTokens = { ...tokens, user_id: userId };
         setAuthTokens(activeTokens);
         setIsAuthenticated(true);
         setIsAuthChecking(false); // show home immediately, playlists load in background
@@ -177,52 +195,45 @@ export function AppInitializer() {
           .then((v) => store.set(proxySettingsAtom, v))
           .catch(() => {});
 
-        // Playlists
+        // Playlists (via folders endpoint)
         try {
-          const result = await getUserPlaylists(userId, 0, 50);
-          setUserPlaylists(result.items || []);
-
-          getFavoritePlaylists(userId, 0, 50)
-            .then((r) => setFavoritePlaylists(r.items || []))
-            .catch(() => setFavoritePlaylists([]));
+          const result = await getPlaylistFolders("root", 0, 50);
+          const normalized = normalizePlaylistFolders(result);
+          const playlists = normalized.items
+            .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+            .map((i) => i.data);
+          setUserPlaylists(playlists);
         } catch (playlistErr: any) {
           console.error("Failed to load playlists:", playlistErr);
           checkNetworkError(playlistErr);
 
           const isAuthError = (err: unknown): boolean => {
-            try {
-              const parsed = typeof err === "string" ? JSON.parse(err) : err;
-              if (parsed?.kind === "NotAuthenticated") return true;
-              if (parsed?.kind === "Api" && parsed?.message?.status === 401)
+            if (typeof err === "object" && err !== null) {
+              const e = err as Record<string, unknown>;
+              if (e.status === 401 || e.status === "401") return true;
+              if (typeof e.body === "string" && e.body.includes("401"))
                 return true;
-            } catch {}
-            return (
-              String(err).includes("401") || String(err).includes("expired")
-            );
+            }
+            return false;
           };
 
-          if (isAuthError(playlistErr)) {
+          if (isAuthError(playlistErr) && activeTokens) {
             try {
-              console.log("Token expired, attempting refresh...");
               const refreshed = await invoke<AuthTokens>("refresh_tidal_auth");
-              activeTokens = {
-                ...refreshed,
-                user_id: userId ?? refreshed.user_id,
-              };
+              activeTokens = refreshed;
               setAuthTokens(activeTokens);
 
-              const retryResult = await getUserPlaylists(userId, 0, 50);
-              setUserPlaylists(retryResult.items || []);
-
-              getFavoritePlaylists(userId, 0, 50)
-                .then((r) => setFavoritePlaylists(r.items || []))
-                .catch(() => setFavoritePlaylists([]));
+              const retryResult = await getPlaylistFolders("root", 0, 50);
+              const retryNormalized = normalizePlaylistFolders(retryResult);
+              const retryPlaylists = retryNormalized.items
+                .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+                .map((i) => i.data);
+              setUserPlaylists(retryPlaylists);
             } catch (refreshErr) {
               console.error("Token refresh failed:", refreshErr);
               setIsAuthenticated(false);
               setAuthTokens(null);
               setUserPlaylists([]);
-              setFavoritePlaylists([]);
             }
           } else {
             setUserPlaylists([]);
@@ -302,6 +313,71 @@ export function AppInitializer() {
   }, [isAuthenticated]);
 
   // ================================================================
+  //  DEEP LINK HANDLING (tidal:// URIs)
+  // ================================================================
+  const deepLinkQueueRef = useRef<string | null>(null);
+  const handledUrlRef = useRef<string | null>(null);
+
+  // Register listener on mount — queues URL if not yet authenticated
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    onOpenUrl((urls) => {
+      const url = urls[0];
+      if (!url) return;
+      if (!store.get(isAuthenticatedAtom)) {
+        deepLinkQueueRef.current = url;
+        return;
+      }
+      handleDeepLink(url);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => unlisten?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // After auth, check cold-start URL and drain queue
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Cold start: app launched via deep link
+    getCurrent()
+      .then((urls) => {
+        const url = urls?.[0];
+        if (url) handleDeepLink(url);
+      })
+      .catch(() => {});
+
+    // Queued from warm-start before auth
+    if (deepLinkQueueRef.current) {
+      handleDeepLink(deepLinkQueueRef.current);
+      deepLinkQueueRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  function handleDeepLink(url: string) {
+    // Deduplicate: getCurrent() and onOpenUrl can both fire for the same cold-start URL
+    if (handledUrlRef.current === url) return;
+    handledUrlRef.current = url;
+
+    const action = parseTidalUrl(url);
+    if (!action) return;
+
+    if (action.kind === "navigate") {
+      window.history.pushState(action.view, "");
+      startTransition(() => setCurrentView(action.view));
+    } else {
+      // playTrack: fetch track metadata, then play
+      getTrack(action.trackId)
+        .then((track) => playTrack(track))
+        .catch((err) => console.error("Deep link play failed:", err));
+    }
+  }
+
+  // ================================================================
   //  PLAYBACK RESTORE + PERSISTENCE (merged into one effect)
   //  1. Restore from backend disk → localStorage fallback
   //  2. After restore completes, subscribe to atom changes for persistence
@@ -316,6 +392,7 @@ export function AppInitializer() {
     let unsub4: (() => void) | null = null;
     let unsub5: (() => void) | null = null;
     let unsub6: (() => void) | null = null;
+    let unsub7: (() => void) | null = null;
     let backendTimer: ReturnType<typeof setTimeout> | null = null;
     let latestJson: string | null = null;
 
@@ -369,6 +446,15 @@ export function AppInitializer() {
         });
       }
 
+      if (parsed.contextSource) {
+        setContextSource({
+          ...parsed.contextSource,
+          tracks: parsed.contextSource.tracks
+            .filter(isValidTrack)
+            .map((t) => ensureQid(t as QueuedTrack)),
+        });
+      }
+
       // Advance QID counter past all restored _qid values to prevent collisions
       const allRestored = [
         ...(parsed.queue || []),
@@ -376,6 +462,7 @@ export function AppInitializer() {
         ...(parsed.manualQueue || []),
         ...(parsed.originalQueue || []),
         ...(parsed.playbackSource?.tracks || []),
+        ...(parsed.contextSource?.tracks || []),
         ...(parsed.currentTrack ? [parsed.currentTrack] : []),
       ]
         .filter(isValidTrack)
@@ -411,6 +498,7 @@ export function AppInitializer() {
           manualQueue: store.get(manualQueueAtom),
           originalQueue: store.get(originalQueueAtom),
           playbackSource: store.get(playbackSourceAtom),
+          contextSource: store.get(contextSourceAtom),
         };
         const json = JSON.stringify(snapshot);
         latestJson = json;
@@ -439,6 +527,7 @@ export function AppInitializer() {
       unsub4 = store.sub(manualQueueAtom, persist);
       unsub5 = store.sub(originalQueueAtom, persist);
       unsub6 = store.sub(playbackSourceAtom, persist);
+      unsub7 = store.sub(contextSourceAtom, persist);
     };
 
     restore().finally(() => {
@@ -453,6 +542,7 @@ export function AppInitializer() {
       unsub4?.();
       unsub5?.();
       unsub6?.();
+      unsub7?.();
       if (backendTimer) clearTimeout(backendTimer);
       // Flush pending save on unmount
       if (latestJson) {
@@ -537,6 +627,25 @@ export function AppInitializer() {
   }, [showToast]);
 
   // ================================================================
+  //  BIT-DEPTH CHANGE — toast when bit-perfect promotes sample format
+  // ================================================================
+  useEffect(() => {
+    const unlisten = listen<{ from: string; to: string }>(
+      "audio-bit-depth-changed",
+      (event) => {
+        const { from, to } = event.payload;
+        showToast(
+          `DAC doesn't support ${from} — playing as ${to} (lossless)`,
+          "info",
+        );
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [showToast]);
+
+  // ================================================================
   //  SCROBBLE AUTH ERROR — toast when a provider's session expires
   // ================================================================
   useEffect(() => {
@@ -591,10 +700,27 @@ export function AppInitializer() {
     const unlistenPrev = listen("tray:prev-track", () => {
       playPrevious();
     });
+    const unlistenMprisPlay = listen("mpris:play", () => {
+      if (!store.get(isPlayingAtom)) {
+        resumeTrack();
+      }
+    });
+    const unlistenMprisPause = listen("mpris:pause", () => {
+      if (store.get(isPlayingAtom)) {
+        pauseTrack();
+      }
+    });
+    const unlistenMprisStop = listen("mpris:stop", () => {
+      invoke("stop_track").catch(() => {});
+      store.set(isPlayingAtom, false);
+    });
     return () => {
       unlistenToggle.then((fn) => fn());
       unlistenNext.then((fn) => fn());
       unlistenPrev.then((fn) => fn());
+      unlistenMprisPlay.then((fn) => fn());
+      unlistenMprisPause.then((fn) => fn());
+      unlistenMprisStop.then((fn) => fn());
     };
   }, [store, playNext, playPrevious, pauseTrack, resumeTrack]);
 
@@ -605,7 +731,7 @@ export function AppInitializer() {
     const updateTooltip = () => {
       const track = store.get(currentTrackAtom);
       const text = track
-        ? `${track.title} — ${track.artist?.name || "Unknown"}`
+        ? `${getTrackDisplayTitle(track)} — ${getTrackArtistDisplay(track)}`
         : "Sone";
       invoke("update_tray_tooltip", { text })
         .then((r) => console.log("[tray tooltip]", text, "→", r))
@@ -623,31 +749,54 @@ export function AppInitializer() {
   //  MPRIS — push metadata & playback status to backend for D-Bus
   // ================================================================
   useEffect(() => {
+    const formatQualityText = (info: import("../types").StreamInfo | null): string => {
+      if (!info) return "";
+      const parts: string[] = [];
+      if (info.bitDepth) parts.push(`${info.bitDepth}-BIT`);
+      if (info.sampleRate) {
+        const khz = info.sampleRate / 1000;
+        parts.push(`${info.sampleRate % 1000 ? khz.toFixed(1) : khz}KHZ`);
+      }
+      if (info.codec) parts.push(info.codec.toUpperCase());
+      return parts.join(" ");
+    };
+
     const pushMetadata = () => {
       const track = store.get(currentTrackAtom);
       if (!track) return;
+      const streamInfo = store.get(streamInfoAtom);
       invoke("update_mpris_metadata", {
         metadata: {
-          title: track.title,
-          artist: track.artist?.name || "Unknown",
+          trackId: track.id,
+          title: getTrackDisplayTitle(track),
+          artist: getTrackArtistDiscordDisplay(track),
           album: track.album?.title || "",
           artUrl: getTidalImageUrl(track.album?.cover, 320),
           durationSecs: track.duration,
+          url: getTrackShareUrl(track.id),
+          qualityText: formatQualityText(streamInfo),
         },
+      }).catch(() => {});
+      // Re-push playback status — isPlayingAtom may not have changed
+      // (was true before, still true after), so its subscriber won't fire
+      invoke("update_mpris_playback_status", {
+        isPlaying: store.get(isPlayingAtom),
       }).catch(() => {});
     };
 
     pushMetadata();
-    const unsub = store.sub(currentTrackAtom, pushMetadata);
-    return unsub;
+    const unsubTrack = store.sub(currentTrackAtom, pushMetadata);
+    const unsubStream = store.sub(streamInfoAtom, pushMetadata);
+    return () => { unsubTrack(); unsubStream(); };
   }, [store]);
 
   useEffect(() => {
     const pushStatus = () => {
       const playing = store.get(isPlayingAtom);
-      invoke("update_mpris_playback_status", { isPlaying: playing }).catch(
-        () => {},
-      );
+      invoke("update_mpris_playback_status", {
+        isPlaying: playing,
+        positionSecs: getInterpolatedPosition(),
+      }).catch(() => {});
     };
 
     pushStatus();
@@ -656,21 +805,53 @@ export function AppInitializer() {
   }, [store]);
 
   useEffect(() => {
+    const push = () => {
+      invoke("update_mpris_shuffle", { enabled: store.get(shuffleAtom) }).catch(() => {});
+    };
+    push();
+    return store.sub(shuffleAtom, push);
+  }, [store]);
+
+  useEffect(() => {
+    const push = () => {
+      invoke("update_mpris_loop_status", { mode: store.get(repeatAtom) }).catch(() => {});
+    };
+    push();
+    return store.sub(repeatAtom, push);
+  }, [store]);
+
+  useEffect(() => {
     const unlistenSeek = listen<number>("mpris:seek", async (event) => {
       try {
         const current = await invoke<number>("get_playback_position");
         const newPos = Math.max(0, current + event.payload);
         await invoke("seek_track", { positionSecs: newPos });
+        notifySeek(newPos);
       } catch {}
     });
     const unlistenVolume = listen<number>("mpris:set-volume", (event) => {
       setVolume(Math.max(0, Math.min(1, event.payload)));
     });
+    const unlistenShuffle = listen<boolean>("mpris:set-shuffle", (event) => {
+      if (store.get(shuffleAtom) !== event.payload) {
+        toggleShuffle();
+      }
+    });
+    const unlistenLoop = listen<number>("mpris:set-loop-status", (event) => {
+      store.set(repeatAtom, event.payload);
+    });
+    const unlistenSetPosition = listen<number>("mpris:set-position", async (event) => {
+      const pos = Math.max(0, event.payload);
+      await seekTo(pos);
+    });
     return () => {
       unlistenSeek.then((fn) => fn());
       unlistenVolume.then((fn) => fn());
+      unlistenShuffle.then((fn) => fn());
+      unlistenLoop.then((fn) => fn());
+      unlistenSetPosition.then((fn) => fn());
     };
-  }, [setVolume]);
+  }, [store, setVolume, toggleShuffle, seekTo]);
 
   // ================================================================
   //  KEYBOARD SHORTCUTS
@@ -760,6 +941,7 @@ export function AppInitializer() {
           }
           break;
         case "Escape":
+          if (store.get(maximizedPlayerAtom)) break;
           e.preventDefault();
           setDrawerOpen(false);
           break;
@@ -842,6 +1024,15 @@ export function AppInitializer() {
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
   }, [setCurrentView]);
+
+  // ================================================================
+  //  PLAYBACK POSITION INTERPOLATOR
+  //  Single 2s IPC poll, synchronous reads for all consumers.
+  // ================================================================
+  useEffect(() => {
+    initPositionInterpolator(store, isPlayingAtom, currentTrackAtom);
+    return () => destroyPositionInterpolator();
+  }, [store]);
 
   return null;
 }

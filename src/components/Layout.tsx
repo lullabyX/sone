@@ -5,6 +5,9 @@ import NowPlayingDrawer from "./NowPlayingDrawer";
 import { ReactNode, useRef, useEffect, useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
+import { maximizedPlayerAtom } from "../atoms/ui";
+import MaximizedPlayer from "./MaximizedPlayer";
+import { useMiniplayerEmitter } from "../hooks/useMiniplayerEmitter";
 
 interface LayoutProps {
   children: ReactNode;
@@ -13,6 +16,9 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentView = useAtomValue(currentViewAtom);
+  const maximized = useAtomValue(maximizedPlayerAtom);
+
+  useMiniplayerEmitter();
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, 0);
@@ -74,7 +80,7 @@ export default function Layout({ children }: LayoutProps) {
   }, []);
 
   return (
-    <div className="flex flex-col h-full w-full bg-th-overlay text-white overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-th-overlay text-th-text-primary overflow-hidden">
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0 bg-th-base">
@@ -89,6 +95,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       </div>
       <NowPlayingDrawer />
+      {maximized && <MaximizedPlayer />}
       <PlayerBar />
     </div>
   );

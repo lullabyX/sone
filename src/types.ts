@@ -38,6 +38,13 @@ export interface Track {
     artistType?: string;
     handle?: string;
   };
+  artists?: {
+    id: number;
+    name: string;
+    picture?: string;
+    artistType?: string;
+    handle?: string;
+  }[];
   album?: {
     id: number;
     title: string;
@@ -68,8 +75,23 @@ export interface Track {
   _qid?: string;
 }
 
+export function getTrackDisplayTitle(track: { title: string; version?: string }): string {
+  if (track.version) return `${track.title} (${track.version})`;
+  return track.title;
+}
+
+export interface ManualTrackSource {
+  type: string;
+  id: string | number;
+  name: string;
+  image?: string;
+  subtitle?: string;
+  mixType?: string;
+}
+
 export interface QueuedTrack extends Track {
   _qid: string;
+  _source?: ManualTrackSource;
 }
 
 export interface AlbumDetail {
@@ -86,6 +108,13 @@ export interface AlbumDetail {
     artistType?: string;
     handle?: string;
   };
+  artists?: {
+    id: number;
+    name: string;
+    picture?: string;
+    artistType?: string;
+    handle?: string;
+  }[];
   numberOfTracks?: number;
   numberOfVideos?: number;
   numberOfVolumes?: number;
@@ -155,12 +184,7 @@ export type AppView =
   | {
       type: "mix";
       mixId: string;
-      mixInfo?: { title: string; image?: string; subtitle?: string };
-    }
-  | {
-      type: "trackRadio";
-      trackId: number;
-      trackInfo?: { title: string; artistName?: string; cover?: string };
+      mixInfo?: { title: string; image?: string; subtitle?: string; mixType?: string };
     }
   | { type: "explore" }
   | { type: "explorePage"; apiPath: string; title: string }
@@ -172,6 +196,8 @@ export type AppView =
   | {
       type: "libraryViewAll";
       libraryType: "playlists" | "albums" | "artists" | "mixes";
+      folderId?: string;
+      folderName?: string;
     };
 
 export interface SearchResults {
@@ -221,6 +247,9 @@ export interface Playlist {
   playlistType?: string;
   duration?: number;
   lastUpdated?: string;
+  squareImage?: string;
+  sharingLevel?: string;
+  addedAt?: string;
 }
 
 export interface PkceAuthParams {
@@ -445,6 +474,9 @@ export interface PlaybackSource {
   type: string;
   id: string | number;
   name: string;
+  image?: string;
+  subtitle?: string;
+  mixType?: string;
   tracks: QueuedTrack[];
 }
 
@@ -458,6 +490,18 @@ export interface PlaybackSnapshot {
     type: string;
     id: string | number;
     name: string;
+    image?: string;
+    subtitle?: string;
+    mixType?: string;
+    tracks: Track[];
+  } | null;
+  contextSource?: {
+    type: string;
+    id: string | number;
+    name: string;
+    image?: string;
+    subtitle?: string;
+    mixType?: string;
     tracks: Track[];
   } | null;
 }
@@ -504,3 +548,77 @@ export interface AlbumPageCached {
   page: AlbumPageResponse;
   isStale: boolean;
 }
+
+// ==================== Playlist Folders (v2/my-collection/playlists/folders) ====================
+
+export interface PlaylistFoldersResponse {
+  lastModifiedAt: string;
+  items: PlaylistFolderItem[];
+  totalNumberOfItems: number;
+  cursor: string | null;
+}
+
+export type CollectionItemType = "PLAYLIST" | "FOLDER";
+
+export interface PlaylistFolderItem {
+  trn: string;
+  itemType: CollectionItemType;
+  addedAt: string;
+  lastModifiedAt: string;
+  name: string;
+  parent: string | null;
+  data: PlaylistFolderData;
+}
+
+export interface PlaylistFolderCreator {
+  id: number;
+  name: string | null;
+  picture: string | null;
+  type: "TIDAL" | "USER";
+}
+
+export interface PlaylistFolderPromotedArtist {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export interface PlaylistFolderData {
+  uuid: string;
+  type: "EDITORIAL" | "USER";
+  creator: PlaylistFolderCreator;
+  curators: unknown[];
+  contentBehavior: string;
+  sharingLevel: string;
+  status: string;
+  source: string;
+  title: string;
+  description: string;
+  image: string;
+  squareImage: string;
+  customImageUrl: string | null;
+  url: string;
+  created: string;
+  lastUpdated: string;
+  lastItemAddedAt: string;
+  duration: number;
+  numberOfTracks: number;
+  numberOfVideos: number;
+  promotedArtists: PlaylistFolderPromotedArtist[];
+  trn: string;
+  itemType: CollectionItemType;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent: string | null;
+  addedAt: string;
+  lastModifiedAt: string;
+  /** Count of items in the folder, from API */
+  totalNumberOfItems?: number;
+}
+
+export type PlaylistOrFolder =
+  | { kind: "playlist"; data: Playlist }
+  | { kind: "folder"; data: Folder };

@@ -18,7 +18,6 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: dark;
   color: var(--th-text-primary, rgba(255, 255, 255, 0.87));
   background-color: var(--th-bg-base, #121212);
 
@@ -136,6 +135,41 @@ textarea {
   will-change: transform;
   animation: barBounce 1s ease-in-out infinite;
 }
+
+/* Adaptive card scroll — cards fill container exactly, scroll-snap for paging */
+.card-scroll {
+  container-type: inline-size;
+  font-size: calc(100px / var(--zoom, 1));
+}
+
+.card-scroll-track {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  font-size: 1rem;
+}
+.card-scroll-track::-webkit-scrollbar {
+  display: none;
+}
+
+.card-scroll-item {
+  flex: 0 0 calc((100% - (var(--cols) - 1) * 16px) / var(--cols));
+  scroll-snap-align: start;
+  min-width: 0;
+  --cols: 2;
+}
+
+@container (min-width: 5.88em)  { .card-scroll-item { --cols: 2; } }
+@container (min-width: 8.02em)  { .card-scroll-item { --cols: 3; } }
+@container (min-width: 10.16em) { .card-scroll-item { --cols: 4; } }
+@container (min-width: 12.30em) { .card-scroll-item { --cols: 5; } }
+@container (min-width: 14.44em) { .card-scroll-item { --cols: 6; } }
+@container (min-width: 16.58em) { .card-scroll-item { --cols: 7; } }
+@container (min-width: 18.24em) { .card-scroll-item { --cols: 8; } }
 
 /* Toast slide-in */
 @keyframes toastIn {

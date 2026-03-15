@@ -19,20 +19,20 @@ export default function Header() {
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => window.history.back()}
-            className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-th-text-muted hover:text-white transition-colors disabled:opacity-50"
+            className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-th-text-muted hover:text-th-text-primary transition-colors disabled:opacity-50"
           >
             <ChevronLeft size={20} />
           </button>
           <button
             onClick={() => window.history.forward()}
-            className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-th-text-muted hover:text-white transition-colors disabled:opacity-50"
+            className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-th-text-muted hover:text-th-text-primary transition-colors disabled:opacity-50"
           >
             <ChevronRight size={20} />
           </button>
         </div>
 
         {/* Dynamic Title */}
-        <h1 className="text-[18px] font-bold text-white truncate ml-2">
+        <h1 className="text-[18px] font-bold text-th-text-primary truncate ml-2">
           {getHeaderTitle()}
         </h1>
       </div>

@@ -15,7 +15,7 @@ interface MediaCardProps {
   onFavoriteToggle?: (e: React.MouseEvent) => void;
   isArtist?: boolean;
   showPlayButton?: boolean;
-  /** Card width class — defaults to full-width (grid-controlled). Use "w-[180px] flex-shrink-0" for horizontal scroll rows. */
+  /** Card width class — defaults to full-width (grid-controlled). Use "card-scroll-item" for horizontal scroll rows. */
   widthClass?: string;
   /** Pass current user ID to show "By You" for own playlists */
   userId?: number;
@@ -73,9 +73,9 @@ export default function MediaCard({
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-th-button to-th-surface">
             {isArtist ? (
-              <User size={40} className="text-gray-600" />
+              <User size={40} className="text-th-text-faint" />
             ) : (
-              <Music size={40} className="text-gray-600" />
+              <Music size={40} className="text-th-text-faint" />
             )}
           </div>
         )}
@@ -151,7 +151,7 @@ export default function MediaCard({
       </div>
       {/* Title */}
       <h4
-        className={`font-bold text-[14px] text-white truncate mb-1 ${
+        className={`font-bold text-[14px] text-th-text-primary truncate mb-1 ${
           isArtist ? "text-center" : ""
         }`}
       >

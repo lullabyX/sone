@@ -1,5 +1,5 @@
 use std::sync::atomic::Ordering;
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::playback::compute_norm_gain;
 use crate::audio::AudioDevice;
@@ -8,33 +8,30 @@ use crate::AppState;
 use crate::SoneError;
 
 #[tauri::command]
-pub fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String, SoneError> {
-    match app.tray_by_id("main-tray") {
-        Some(tray) => {
-            let r1 = tray.set_tooltip(Some(&text));
-            let r2 = tray.set_title(Some(&text));
-            Ok(format!("tooltip={r1:?}, title={r2:?}"))
-        }
-        None => Ok("tray not found".into()),
+pub async fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String, SoneError> {
+    #[cfg(target_os = "linux")]
+    if let Some(tray_handle) = app.try_state::<crate::tray::TrayHandle>() {
+        tray_handle.inner().update_tooltip(text).await;
+        return Ok("updated".into());
     }
+    Ok("tray not available".into())
 }
 
 #[tauri::command]
 pub async fn get_image_bytes(
     state: State<'_, AppState>,
     url: String,
-) -> Result<Vec<u8>, SoneError> {
+) -> Result<tauri::ipc::Response, SoneError> {
     log::debug!("[get_image_bytes]: url={}", url);
 
     match state.disk_cache.get(&url, CacheTier::Image).await {
         CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
             log::debug!("[get_image_bytes]: cache hit ({} bytes)", bytes.len());
-            Ok(bytes)
+            Ok(tauri::ipc::Response::new(bytes))
         }
         CacheResult::Miss => {
-            let client = state.tidal_client.lock().await;
-            let res = client.raw_get(&url).await?;
-            drop(client);
+            let http_client = state.tidal_client.lock().await.raw_client().clone();
+            let res = http_client.get(&url).send().await?;
             let bytes = res.bytes().await?.to_vec();
 
             state
@@ -47,7 +44,7 @@ pub async fn get_image_bytes(
                 bytes.len()
             );
 
-            Ok(bytes)
+            Ok(tauri::ipc::Response::new(bytes))
         }
     }
 }
@@ -227,6 +224,31 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
     let devices = crate::audio::list_alsa_devices().map_err(SoneError::Audio)?;
     *state.cached_audio_devices.lock().unwrap() = Some(devices.clone());
     Ok(devices)
+}
+
+#[tauri::command]
+pub fn get_discord_rpc(state: State<'_, AppState>) -> bool {
+    state
+        .load_settings()
+        .map(|s| s.discord_rpc)
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_discord_rpc(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    if enabled {
+        state
+            .discord
+            .send(crate::discord::DiscordCommand::Connect);
+    } else {
+        state
+            .discord
+            .send(crate::discord::DiscordCommand::Disconnect);
+    }
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.discord_rpc = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
 }
 
 #[tauri::command]

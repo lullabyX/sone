@@ -6,6 +6,7 @@ import {
   Shuffle,
   Heart,
   MoreHorizontal,
+  RefreshCw,
 } from "lucide-react";
 import {
   useEffect,
@@ -23,12 +24,15 @@ import {
 } from "../atoms/playback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
-import { getPlaylistTracksPage } from "../api/tidal";
+import { usePlaylists } from "../hooks/usePlaylists";
+import { useToast } from "../contexts/ToastContext";
+import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache, getPlaylistDetails } from "../api/tidal";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
 import MediaContextMenu from "./MediaContextMenu";
 import DebouncedFilterInput from "./DebouncedFilterInput";
+import PageContainer from "./PageContainer";
 import { DetailPageSkeleton } from "./PageSkeleton";
 
 interface PlaylistViewProps {
@@ -67,6 +71,25 @@ export default function PlaylistView({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
+
+  // Fetch playlist metadata when playlistInfo is not provided (e.g. deep link)
+  useEffect(() => {
+    if (playlistInfo) return;
+    getPlaylistDetails(playlistId)
+      .then((p) =>
+        setFetchedInfo({
+          title: p.title,
+          image: p.squareImage || p.image,
+          description: p.description,
+          creatorName: p.creator?.name,
+          numberOfTracks: p.numberOfTracks,
+        }),
+      )
+      .catch(() => {});
+  }, [playlistId, playlistInfo]);
+
+  const effectiveInfo = playlistInfo || fetchedInfo;
 
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
@@ -74,9 +97,79 @@ export default function PlaylistView({
   const cancelledRef = useRef(false);
   const allTracksRef = useRef<Track[]>([]);
 
+  // Recommendations state
+  const RECS_BATCH = 50;
+  const RECS_PAGE = 10;
+  const [recPool, setRecPool] = useState<Track[]>([]);
+  const [recPageIndex, setRecPageIndex] = useState(0);
+  const [recApiOffset, setRecApiOffset] = useState(0);
+  const [loadingRecs, setLoadingRecs] = useState(false);
+  const { addTrackToPlaylist } = usePlaylists();
+  const { showToast } = useToast();
+
   useEffect(() => {
     allTracksRef.current = allTracks;
   }, [allTracks]);
+
+  // Fetch a batch of recommendations
+  const fetchRecBatch = useCallback(async (offset: number) => {
+    setLoadingRecs(true);
+    try {
+      const res = await getPlaylistRecommendations(playlistId, offset, RECS_BATCH);
+      return res.items;
+    } catch {
+      return [];
+    } finally {
+      setLoadingRecs(false);
+    }
+  }, [playlistId]);
+
+  // Current slice of recommendations to display
+  const visibleRecs = useMemo(
+    () => recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
+    [recPool, recPageIndex],
+  );
+
+  const handleRefreshRecs = useCallback(async () => {
+    const nextPage = recPageIndex + 1;
+    const nextStart = nextPage * RECS_PAGE;
+    if (nextStart < recPool.length) {
+      // Still have cached tracks
+      setRecPageIndex(nextPage);
+    } else {
+      // Exhausted current batch — fetch next from API
+      const newOffset = recApiOffset + RECS_BATCH;
+      invalidateCache(`playlist-recs:${playlistId}`);
+      const newTracks = await fetchRecBatch(newOffset);
+      if (newTracks.length > 0) {
+        setRecPool(newTracks);
+        setRecApiOffset(newOffset);
+        setRecPageIndex(0);
+      } else {
+        // API returned empty — wrap around to beginning
+        const freshTracks = await fetchRecBatch(0);
+        setRecPool(freshTracks);
+        setRecApiOffset(0);
+        setRecPageIndex(0);
+      }
+    }
+  }, [recPageIndex, recPool.length, recApiOffset, playlistId, fetchRecBatch]);
+
+  const handleAddRecToPlaylist = useCallback(async (track: Track) => {
+    // Optimistic: remove from recs immediately
+    setRecPool((prev) => prev.filter((t) => t.id !== track.id));
+    try {
+      await addTrackToPlaylist(playlistId, track.id);
+      showToast(`Added "${track.title}" to playlist`, "success");
+    } catch {
+      // Rollback: re-insert the track
+      setRecPool((prev) => {
+        if (prev.some((t) => t.id === track.id)) return prev;
+        return [...prev, track];
+      });
+      showToast("Failed to add track", "error");
+    }
+  }, [playlistId, addTrackToPlaylist, showToast]);
 
   // Load first page only
   useEffect(() => {
@@ -114,6 +207,16 @@ export default function PlaylistView({
       cancelledRef.current = true;
     };
   }, [playlistId]);
+
+  // Fetch initial batch of recommendations when playlist changes
+  useEffect(() => {
+    setRecPool([]);
+    setRecPageIndex(0);
+    setRecApiOffset(0);
+    fetchRecBatch(0).then((tracks) => {
+      setRecPool(tracks);
+    });
+  }, [playlistId, fetchRecBatch]);
 
   // Fetch all remaining pages in the background
   const fetchRemaining = useCallback(async () => {
@@ -186,7 +289,8 @@ export default function PlaylistView({
     tracks.forEach((t, i) => {
       if (
         t.title.toLowerCase().includes(q) ||
-        t.artist?.name?.toLowerCase().includes(q) ||
+        (t.artist?.name?.toLowerCase().includes(q) ||
+          t.artists?.some((a) => a.name?.toLowerCase().includes(q))) ||
         t.album?.title?.toLowerCase().includes(q)
       ) {
         filtered.push(t);
@@ -210,7 +314,8 @@ export default function PlaylistView({
   const playlistSource = (allTracks: Track[]) => ({
     type: "playlist" as const,
     id: playlistId,
-    name: playlistInfo?.title || "Playlist",
+    name: effectiveInfo?.title || "Playlist",
+    image: effectiveInfo?.image,
     allTracks,
   });
 
@@ -329,14 +434,14 @@ export default function PlaylistView({
 
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
 
-  const displayTitle = playlistInfo?.title || "Playlist";
-  const displayDescription = playlistInfo?.description;
+  const displayTitle = effectiveInfo?.title || "Playlist";
+  const displayDescription = effectiveInfo?.description;
   // Show "You" for user's own playlists, actual creator name for public ones
-  const displayCreator = playlistInfo?.isUserPlaylist
+  const displayCreator = effectiveInfo?.isUserPlaylist
     ? "You"
-    : playlistInfo?.creatorName || undefined;
+    : effectiveInfo?.creatorName || undefined;
   const displayTrackCount =
-    totalTracks > 0 ? totalTracks : (playlistInfo?.numberOfTracks ?? 0);
+    totalTracks > 0 ? totalTracks : (effectiveInfo?.numberOfTracks ?? 0);
 
   // Show "Read more" if description is long enough to be truncated
   const descriptionIsLong = (displayDescription?.length ?? 0) > 120;
@@ -350,13 +455,13 @@ export default function PlaylistView({
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Music size={48} className="text-th-text-disabled" />
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load playlist
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -367,11 +472,12 @@ export default function PlaylistView({
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+      <PageContainer>
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
-          {playlistInfo?.image ? (
+          {effectiveInfo?.image ? (
             <TidalImage
-              src={getTidalImageUrl(playlistInfo.image, 640)}
+              src={getTidalImageUrl(effectiveInfo!.image, 640)}
               alt={displayTitle}
               type="playlist"
               className="w-full h-full"
@@ -381,10 +487,10 @@ export default function PlaylistView({
           )}
         </div>
         <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-white/70 uppercase tracking-widest">
+          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             Playlist
           </span>
-          <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight line-clamp-2">
+          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
             {displayTitle}
           </h1>
           {displayDescription && (
@@ -395,7 +501,7 @@ export default function PlaylistView({
               {descriptionIsLong && (
                 <button
                   onClick={() => setShowDescriptionModal(true)}
-                  className="text-[13px] text-white font-semibold hover:underline mt-1"
+                  className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
                 >
                   Read more
                 </button>
@@ -405,7 +511,7 @@ export default function PlaylistView({
           <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
             {displayCreator && (
               <>
-                <span className="text-white font-semibold">
+                <span className="text-th-text-primary font-semibold">
                   {displayCreator}
                 </span>
                 <span className="mx-1">•</span>
@@ -435,7 +541,7 @@ export default function PlaylistView({
           </button>
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle
@@ -448,7 +554,7 @@ export default function PlaylistView({
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
               playlistFavorited
                 ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-white hover:bg-white/8"
+                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
             }`}
             title={
               playlistFavorited ? "Remove from favorites" : "Add to favorites"
@@ -465,7 +571,7 @@ export default function PlaylistView({
               e.stopPropagation();
               setContextMenu({ x: e.clientX, y: e.clientY });
             }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
             title="More options"
           >
             <MoreHorizontal size={20} />
@@ -477,8 +583,8 @@ export default function PlaylistView({
                 type: "playlist",
                 uuid: playlistId,
                 title: displayTitle,
-                image: playlistInfo?.image,
-                creatorName: playlistInfo?.creatorName,
+                image: effectiveInfo?.image,
+                creatorName: effectiveInfo?.creatorName,
               }}
               onClose={() => setContextMenu(null)}
             />
@@ -503,29 +609,50 @@ export default function PlaylistView({
           hasMore={isFiltering ? false : hasMore}
           loadingMore={isFiltering ? false : loadingMore}
           trackDisplayNumbers={displayNumbers}
-          showDateAdded={!!playlistInfo?.isUserPlaylist}
+          showDateAdded={!!effectiveInfo?.isUserPlaylist}
           showArtist={true}
           showAlbum={true}
           showCover={true}
           context="playlist"
           playlistId={playlistId}
-          isUserPlaylist={playlistInfo?.isUserPlaylist}
+          isUserPlaylist={effectiveInfo?.isUserPlaylist}
           onTrackRemoved={(index) => {
             setAllTracks((prev) => prev.filter((_, i) => i !== index));
           }}
         />
 
-        {/* End of list */}
-        {tracks.length > 0 && !hasMore && (
-          <div className="py-6 text-center text-[13px] text-th-text-disabled">
-            {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
+        {/* Recommended Tracks */}
+        {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
+              Recommended Tracks
+            </h2>
+            <TrackList
+              tracks={visibleRecs}
+              onPlay={handlePlayTrack}
+              showArtist={true}
+              showAlbum={true}
+              showCover={true}
+              context="playlist"
+              onAddToCurrentPlaylist={handleAddRecToPlaylist}
+            />
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleRefreshRecs}
+                disabled={loadingRecs}
+                className="flex items-center gap-2 px-5 py-2 bg-th-button text-th-text-primary font-semibold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,background-color] duration-150 disabled:opacity-50"
+              >
+                <RefreshCw size={16} className={loadingRecs ? "animate-spin" : ""} />
+                Refresh suggestions
+              </button>
+            </div>
           </div>
         )}
 
         {tracks.length === 0 && (
           <div className="py-16 text-center">
             <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-white font-semibold text-lg mb-2">
+            <p className="text-th-text-primary font-semibold text-lg mb-2">
               This playlist is empty
             </p>
             <p className="text-th-text-muted text-sm">
@@ -534,6 +661,8 @@ export default function PlaylistView({
           </div>
         )}
       </div>
+
+      </PageContainer>
 
       {/* Description Modal */}
       {showDescriptionModal && displayDescription && (
@@ -549,9 +678,9 @@ export default function PlaylistView({
             {/* Header: cover + title + close */}
             <div className="flex items-center gap-3 px-6 pt-5 pb-4">
               <div className="w-11 h-11 shrink-0 rounded overflow-hidden bg-th-surface-hover">
-                {playlistInfo?.image ? (
+                {effectiveInfo?.image ? (
                   <TidalImage
-                    src={getTidalImageUrl(playlistInfo.image, 160)}
+                    src={getTidalImageUrl(effectiveInfo!.image, 160)}
                     alt={displayTitle}
                     type="playlist"
                     className="w-full h-full"
@@ -563,14 +692,14 @@ export default function PlaylistView({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-[15px] font-bold text-white leading-tight truncate">
+                <h3 className="text-[15px] font-bold text-th-text-primary leading-tight truncate">
                   {displayTitle}
                 </h3>
                 <p className="text-[13px] text-th-text-muted">Description</p>
               </div>
               <button
                 onClick={() => setShowDescriptionModal(false)}
-                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-white"
+                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
               >
                 <X size={18} />
               </button>

@@ -16,6 +16,7 @@ import {
   isMixItem,
   isMyTracksItem,
 } from "../utils/itemHelpers";
+import PageContainer from "./PageContainer";
 
 // Simple in-memory cache to prevent skeleton flash on navigation
 let cachedHomeData: {
@@ -287,7 +288,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
-        <div className="px-6 py-8">
+        <PageContainer className="px-6 py-8">
           {/* Skeleton greeting */}
           <div className="h-10 w-64 bg-th-surface-hover rounded-lg animate-pulse mb-6" />
           {/* Skeleton quick access */}
@@ -303,28 +304,30 @@ export default function Home() {
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="mb-8">
               <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
-              <div className="flex gap-4">
-                {Array.from({ length: 6 }).map((_, j) => (
-                  <div key={j} className="flex-shrink-0 w-[180px]">
+              <div className="card-scroll">
+              <div className="card-scroll-track">
+                {Array.from({ length: 10 }).map((_, j) => (
+                  <div key={j} className="card-scroll-item">
                     <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-                    <div className="h-4 w-32 bg-th-surface-hover rounded animate-pulse mb-1" />
-                    <div className="h-3 w-24 bg-th-surface-hover rounded animate-pulse" />
+                    <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+                    <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
                   </div>
                 ))}
               </div>
+              </div>
             </div>
           ))}
-        </div>
+        </PageContainer>
       </div>
     );
   }
 
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
-      <div className="px-6 py-8">
+      <PageContainer className="px-6 py-8">
         {/* Quick Access Grid (Hero) — SHORTCUT_LIST from v2 feed */}
         <section className="mb-10">
-          <h1 className="text-[32px] font-bold text-white mb-6 tracking-tight">
+          <h1 className="text-[32px] font-bold text-th-text-primary mb-6 tracking-tight">
             {greeting}
           </h1>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -340,7 +343,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex-1 flex items-center px-3 min-w-0">
-                <span className="font-bold text-[13px] text-white truncate">
+                <span className="font-bold text-[13px] text-th-text-primary truncate">
                   Loved Tracks
                 </span>
               </div>
@@ -372,7 +375,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex-1 flex items-center px-3 min-w-0">
-                  <span className="font-bold text-[13px] text-white truncate">
+                  <span className="font-bold text-[13px] text-th-text-primary truncate">
                     {getItemTitle(item)}
                   </span>
                 </div>
@@ -392,14 +395,16 @@ export default function Home() {
             {Array.from({ length: 2 }).map((_, i) => (
               <div key={i} className="mb-8">
                 <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
-                <div className="flex gap-4">
-                  {Array.from({ length: 6 }).map((_, j) => (
-                    <div key={j} className="flex-shrink-0 w-[180px]">
+                <div className="card-scroll">
+                <div className="card-scroll-track">
+                  {Array.from({ length: 10 }).map((_, j) => (
+                    <div key={j} className="card-scroll-item">
                       <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-                      <div className="h-4 w-32 bg-th-surface-hover rounded animate-pulse mb-1" />
-                      <div className="h-3 w-24 bg-th-surface-hover rounded animate-pulse" />
+                      <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+                      <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
                     </div>
                   ))}
+                </div>
                 </div>
               </div>
             ))}
@@ -408,7 +413,7 @@ export default function Home() {
 
         {/* Infinite scroll sentinel */}
         <div ref={sentinelRef} className="h-1" />
-      </div>
+      </PageContainer>
 
       {/* Media context menu for quick-access cards */}
       {contextMenu && (

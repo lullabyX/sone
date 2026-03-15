@@ -53,6 +53,7 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 
 - **Custom themes** — 9 presets and a full color picker for accent and background
 - **Lyrics** — synced lyrics display for supported tracks
+- **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, desktop taskbar widgets, and system media controls
 - **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
@@ -90,8 +91,11 @@ Pre-built packages for Ubuntu/Debian (.deb), Fedora (.rpm), openSUSE (.rpm), and
   <a href="https://github.com/lullabyX/sone/releases/latest">
     <img src="https://img.shields.io/badge/Arch%20Linux-PKGBUILD-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Download SONE PKGBUILD for Arch Linux and Manjaro" />
   </a>
+  <a href="https://aur.archlinux.org/packages/sone">
+    <img src="https://img.shields.io/badge/AUR-sone-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Install SONE from AUR (build from source)" />
+  </a>
   <a href="https://aur.archlinux.org/packages/sone-bin">
-    <img src="https://img.shields.io/badge/AUR-sone--bin-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Install SONE from AUR" />
+    <img src="https://img.shields.io/badge/AUR-sone--bin-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Install SONE from AUR (pre-built binary)" />
   </a>
 </p>
 
@@ -168,13 +172,16 @@ sudo dnf install -y gstreamer1-plugins-base-tools
 
 #### AUR
 
-SONE is available on the [AUR](https://aur.archlinux.org/packages/sone-bin) as `sone-bin` — a pre-built binary package, no compilation required.
+SONE is available on the AUR in two variants:
+
+- [`sone`](https://aur.archlinux.org/packages/sone) — builds from source
+- [`sone-bin`](https://aur.archlinux.org/packages/sone-bin) — pre-built binary, no compilation required
 
 **Install with your AUR helper:**
 ```bash
-yay -S sone-bin
+yay -S sone       # build from source
 # or
-paru -S sone-bin
+yay -S sone-bin   # pre-built binary
 ```
 
 #### Manual Install
@@ -298,7 +305,7 @@ If you enjoy using SONE, consider giving the project a star to help others find 
 
 ## Disclaimer
 
-SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content.
+SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content. As with any third-party client, please be aware of TIDAL's terms of use.
 
 All trademarks belong to their respective owners.
 

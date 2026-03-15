@@ -1,34 +1,27 @@
 import {
-  AppWindow,
   LogOut,
   Palette,
-  RefreshCw,
   User,
   Keyboard,
   X,
-  MonitorDown,
-  Volume2,
-  Infinity as InfinityIcon,
   Headphones,
   Shield,
   ChevronDown,
+  Settings,
   Radio,
-  Globe,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
-import { clearAllCache } from "../api/tidal";
 import {
-  autoplayAtom,
   exclusiveModeAtom,
   bitPerfectAtom,
   exclusiveDeviceAtom,
 } from "../atoms/playback";
-import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import { useToast } from "../contexts/ToastContext";
 import ThemeEditor from "./ThemeEditor";
+import SettingsModal from "./SettingsModal";
 import ScrobbleModal from "./ScrobbleModal";
 
 const SHORTCUTS = [
@@ -52,11 +45,9 @@ export default function UserMenu() {
   const { userName, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [scrobbleOpen, setScrobbleOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [minimizeToTray, setMinimizeToTray] = useState(false);
-  const [decorations, setDecorations] = useState(true);
-  const [volumeNormalization, setVolumeNormalization] = useState(false);
   const [exclusiveMode, setExclusiveMode] = useAtom(exclusiveModeAtom);
   const [bitPerfect, setBitPerfect] = useAtom(bitPerfectAtom);
   const [exclusiveDevice, setExclusiveDevice] = useAtom(exclusiveDeviceAtom);
@@ -64,52 +55,8 @@ export default function UserMenu() {
     Array<{ id: string; name: string }>
   >([]);
   const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
-  const [autoplay, setAutoplay] = useAtom(autoplayAtom);
-  const [proxySettings, setProxySettings] = useAtom(proxySettingsAtom);
-  const [proxyTestStatus, setProxyTestStatus] = useState<
-    "idle" | "testing" | "success" | "error"
-  >("idle");
-  const [proxyTestMessage, setProxyTestMessage] = useState("");
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
-  const proxySaveTimer = useRef<number | undefined>(undefined);
-
-  const updateProxy = (patch: Partial<ProxySettings>) => {
-    const next = { ...proxySettings, ...patch };
-    setProxySettings(next);
-    setProxyTestStatus("idle");
-    clearTimeout(proxySaveTimer.current);
-    proxySaveTimer.current = window.setTimeout(() => {
-      invoke("set_proxy_settings", { settings: next }).catch(() => {});
-    }, 500);
-  };
-
-  const testProxy = async () => {
-    setProxyTestStatus("testing");
-    try {
-      const msg = await invoke<string>("test_proxy_connection", {
-        settings: proxySettings,
-      });
-      setProxyTestStatus("success");
-      setProxyTestMessage(msg);
-    } catch (e: any) {
-      setProxyTestStatus("error");
-      setProxyTestMessage(typeof e === "string" ? e : e.message || "Failed");
-    }
-  };
-
-  // Load preferences (exclusive/bitPerfect/device are from Jotai atoms, hydrated by AppInitializer)
-  useEffect(() => {
-    invoke<boolean>("get_minimize_to_tray")
-      .then(setMinimizeToTray)
-      .catch(() => {});
-    invoke<boolean>("get_volume_normalization")
-      .then(setVolumeNormalization)
-      .catch(() => {});
-    invoke<boolean>("get_decorations")
-      .then(setDecorations)
-      .catch(() => {});
-  }, []);
 
   // Toggle shortcuts modal from ? key
   useEffect(() => {
@@ -148,6 +95,37 @@ export default function UserMenu() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Close dropdown on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setDeviceDropdownOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open]);
+
+  // Reusable toggle for dropdown items
+  const Toggle = ({ on }: { on: boolean }) => (
+    <div
+      className={`w-8 h-[18px] rounded-full transition-colors ${
+        on ? "bg-th-accent" : "bg-th-border-subtle"
+      }`}
+    >
+      <div
+        className={`w-3.5 h-3.5 rounded-full bg-th-text-primary mt-[2px] transition-transform ${
+          on ? "translate-x-[16px]" : "translate-x-[2px]"
+        }`}
+      />
+    </div>
+  );
+
+  const menuItemClass =
+    "w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle transition-colors";
+
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -167,67 +145,14 @@ export default function UserMenu() {
                 <User size={16} className="text-th-text-muted" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium text-white truncate">
+                <p className="text-[13px] font-medium text-th-text-primary truncate">
                   {userName}
                 </p>
               </div>
             </div>
           </div>
 
-          {/* ── Playback ── */}
-
-          {/* Autoplay */}
-          <button
-            onClick={() => setAutoplay(!autoplay)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
-          >
-            <InfinityIcon size={16} />
-            <span className="flex-1 text-left">Autoplay</span>
-            <div
-              className={`w-8 h-[18px] rounded-full transition-colors ${
-                autoplay ? "bg-th-accent" : "bg-th-border-subtle"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                  autoplay ? "translate-x-[16px]" : "translate-x-[2px]"
-                }`}
-              />
-            </div>
-          </button>
-
-          {/* Volume normalization */}
-          <button
-            onClick={() => {
-              if (bitPerfect) return;
-              const next = !volumeNormalization;
-              setVolumeNormalization(next);
-              invoke("set_volume_normalization", { enabled: next }).catch(
-                () => {},
-              );
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-[13px] transition-colors ${
-              bitPerfect
-                ? "text-th-text-muted cursor-not-allowed opacity-50"
-                : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
-            }`}
-          >
-            <Volume2 size={16} />
-            <span className="flex-1 text-left">Normalize volume</span>
-            <div
-              className={`w-8 h-[18px] rounded-full transition-colors ${
-                volumeNormalization ? "bg-th-accent" : "bg-th-border-subtle"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                  volumeNormalization
-                    ? "translate-x-[16px]"
-                    : "translate-x-[2px]"
-                }`}
-              />
-            </div>
-          </button>
+          {/* ── Exclusive output group ── */}
 
           {/* Exclusive output */}
           <button
@@ -244,21 +169,11 @@ export default function UserMenu() {
                   : "Exclusive output off — takes effect next track",
               );
             }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+            className={menuItemClass}
           >
             <Headphones size={16} />
             <span className="flex-1 text-left">Exclusive output</span>
-            <div
-              className={`w-8 h-[18px] rounded-full transition-colors ${
-                exclusiveMode ? "bg-th-accent" : "bg-th-border-subtle"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                  exclusiveMode ? "translate-x-[16px]" : "translate-x-[2px]"
-                }`}
-              />
-            </div>
+            <Toggle on={exclusiveMode} />
           </button>
 
           {/* Device selector (visible when exclusive on) */}
@@ -318,251 +233,68 @@ export default function UserMenu() {
                     : "Bit-perfect off — takes effect next track",
                 );
               }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+              className={menuItemClass}
             >
               <Shield size={16} />
               <span className="flex-1 text-left">Bit-perfect</span>
-              <div
-                className={`w-8 h-[18px] rounded-full transition-colors ${
-                  bitPerfect ? "bg-th-accent" : "bg-th-border-subtle"
-                }`}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                    bitPerfect ? "translate-x-[16px]" : "translate-x-[2px]"
-                  }`}
-                />
-              </div>
+              <Toggle on={bitPerfect} />
             </button>
           )}
 
-          {/* Scrobbling */}
+          {/* ── Scrobbling ── */}
+          <div className="border-t border-th-border-subtle my-1" />
+
           <button
             onClick={() => {
               setOpen(false);
               setScrobbleOpen(true);
             }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+            className={menuItemClass}
           >
             <Radio size={16} />
             Scrobbling
           </button>
 
-          {/* ── App settings ── */}
+          {/* ── Theme + Settings ── */}
           <div className="border-t border-th-border-subtle my-1" />
 
-          {/* Theme */}
           <button
             onClick={() => {
               setOpen(false);
               setThemeOpen(true);
             }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+            className={menuItemClass}
           >
             <Palette size={16} />
             Theme
           </button>
 
-          {/* Window decorations */}
           <button
             onClick={() => {
-              const next = !decorations;
-              setDecorations(next);
-              invoke("set_decorations", { enabled: next }).catch(() => {
-                setDecorations(!next);
-                showToast("Failed to update window decorations");
-              });
+              setOpen(false);
+              setSettingsOpen(true);
             }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+            className={menuItemClass}
           >
-            <AppWindow size={16} />
-            <span className="flex-1 text-left">Window decorations</span>
-            <div
-              className={`w-8 h-[18px] rounded-full transition-colors ${
-                decorations ? "bg-th-accent" : "bg-th-border-subtle"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                  decorations ? "translate-x-[16px]" : "translate-x-[2px]"
-                }`}
-              />
-            </div>
+            <Settings size={16} />
+            Settings
           </button>
 
-          {/* Close to tray */}
-          <button
-            onClick={() => {
-              const next = !minimizeToTray;
-              setMinimizeToTray(next);
-              invoke("set_minimize_to_tray", { enabled: next }).catch(() => {});
-            }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
-          >
-            <MonitorDown size={16} />
-            <span className="flex-1 text-left">Close to tray</span>
-            <div
-              className={`w-8 h-[18px] rounded-full transition-colors ${
-                minimizeToTray ? "bg-th-accent" : "bg-th-border-subtle"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                  minimizeToTray ? "translate-x-[16px]" : "translate-x-[2px]"
-                }`}
-              />
-            </div>
-          </button>
-
-          {/* ── Network ── */}
+          {/* ── Shortcuts ── */}
           <div className="border-t border-th-border-subtle my-1" />
 
-          {/* Proxy toggle */}
-          <button
-            onClick={() => updateProxy({ enabled: !proxySettings.enabled })}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
-          >
-            <Globe size={16} />
-            <span className="flex-1 text-left">Proxy</span>
-            <div
-              className={`w-8 h-[18px] rounded-full transition-colors ${
-                proxySettings.enabled ? "bg-th-accent" : "bg-th-border-subtle"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-white mt-[2px] transition-transform ${
-                  proxySettings.enabled
-                    ? "translate-x-[16px]"
-                    : "translate-x-[2px]"
-                }`}
-              />
-            </div>
-          </button>
-
-          {/* Proxy config (visible when enabled) */}
-          {proxySettings.enabled && (
-            <div className="px-4 py-2 space-y-2">
-              <div className="ml-7 space-y-2">
-                {/* Type selector */}
-                <div className="flex gap-2">
-                  {(["http", "socks5"] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => updateProxy({ proxy_type: t })}
-                      className={`flex-1 text-[12px] py-1.5 rounded-md border transition-colors ${
-                        proxySettings.proxy_type === t
-                          ? "border-th-accent text-th-accent bg-th-accent/10"
-                          : "border-th-border-subtle text-th-text-muted hover:border-th-accent/50"
-                      }`}
-                    >
-                      {t.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Host + Port */}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Host"
-                    value={proxySettings.host}
-                    onChange={(e) => updateProxy({ host: e.target.value })}
-                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Port"
-                    value={proxySettings.port || ""}
-                    onChange={(e) =>
-                      updateProxy({ port: parseInt(e.target.value) || 0 })
-                    }
-                    className="w-20 px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
-                  />
-                </div>
-
-                {/* Username + Password */}
-                <input
-                  type="text"
-                  placeholder="Username (optional)"
-                  value={proxySettings.username || ""}
-                  onChange={(e) =>
-                    updateProxy({
-                      username: e.target.value || null,
-                    })
-                  }
-                  className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
-                />
-                <input
-                  type="password"
-                  placeholder="Password (optional)"
-                  value={proxySettings.password || ""}
-                  onChange={(e) =>
-                    updateProxy({
-                      password: e.target.value || null,
-                    })
-                  }
-                  className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-white placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
-                />
-
-                {/* Test button */}
-                <button
-                  onClick={testProxy}
-                  disabled={
-                    proxyTestStatus === "testing" ||
-                    !proxySettings.host ||
-                    !proxySettings.port
-                  }
-                  className="w-full py-1.5 rounded-md text-[12px] font-medium border border-th-border-subtle text-th-text-secondary hover:text-white hover:border-th-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {proxyTestStatus === "testing"
-                    ? "Testing..."
-                    : "Test Connection"}
-                </button>
-
-                {/* Test result */}
-                {proxyTestStatus === "success" && (
-                  <p className="text-[11px] text-green-400">
-                    {proxyTestMessage}
-                  </p>
-                )}
-                {proxyTestStatus === "error" && (
-                  <p className="text-[11px] text-red-400">
-                    {proxyTestMessage}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── Utilities ── */}
-          <div className="border-t border-th-border-subtle my-1" />
-
-          {/* Shortcuts */}
           <button
             onClick={() => {
               setOpen(false);
               setShortcutsOpen(true);
             }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
+            className={menuItemClass}
           >
             <Keyboard size={16} />
             Shortcuts
           </button>
 
-          {/* Refresh */}
-          <button
-            onClick={async () => {
-              await clearAllCache();
-              setOpen(false);
-              window.location.reload();
-            }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-white hover:bg-th-border-subtle transition-colors"
-          >
-            <RefreshCw size={16} />
-            Refresh App
-          </button>
-
-          {/* Logout */}
+          {/* ── Logout ── */}
           <div className="border-t border-th-border-subtle my-1" />
           <button
             onClick={() => {
@@ -578,6 +310,10 @@ export default function UserMenu() {
       )}
 
       <ThemeEditor open={themeOpen} onClose={() => setThemeOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
       <ScrobbleModal
         open={scrobbleOpen}
         onClose={() => setScrobbleOpen(false)}
@@ -594,20 +330,17 @@ export default function UserMenu() {
             onClick={(e) => e.stopPropagation()}
             style={{ animation: "slideUp 0.2s ease-out" }}
           >
-            {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
-              <h2 className="text-[16px] font-bold text-white">
+              <h2 className="text-[16px] font-bold text-th-text-primary">
                 Keyboard Shortcuts
               </h2>
               <button
                 onClick={() => setShortcutsOpen(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-white"
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
               >
                 <X size={18} />
               </button>
             </div>
-
-            {/* Shortcut list */}
             <div className="px-5 pb-5 flex flex-col gap-1">
               {SHORTCUTS.map((s) => (
                 <div

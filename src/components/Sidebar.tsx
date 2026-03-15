@@ -1,8 +1,10 @@
-import { Home, Compass, Library, Heart, Music, User } from "lucide-react";
+import { Home, Compass, Library, Heart, Music, User, FolderOpen } from "lucide-react";
+import SortDropdown from "./SortDropdown";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import SidebarSkeleton from "./SidebarSkeleton";
 import {
-  getUserPlaylists,
+  getPlaylistFolders,
+  normalizePlaylistFolders,
   getFavoriteAlbums,
   getFavoriteMixes,
   getFavoriteArtists,
@@ -14,13 +16,30 @@ import {
   type MediaItemType,
   type Playlist,
   type ArtistDetail,
+  type PlaylistOrFolder,
+  type Folder,
 } from "../types";
 import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
+import FolderContextMenu from "./FolderContextMenu";
 import { CreatePlaylistModal } from "./AddToPlaylistMenu";
-import { useState, useCallback, useMemo } from "react";
-import { useAtomValue } from "jotai";
-import { userPlaylistsAtom, favoritePlaylistsAtom } from "../atoms/playlists";
+import { getTrackArtistDisplay, folderSubtitle } from "../utils/itemHelpers";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useAtomValue, useAtom, useSetAtom } from "jotai";
+import {
+  favoriteAlbumIdsAtom,
+  followedArtistIdsAtom,
+  optimisticFavoriteAlbumsAtom,
+  optimisticFollowedArtistsAtom,
+  optimisticFavoriteMixesAtom,
+  favoriteMixIdsAtom,
+  albumSortAtom,
+  artistSortAtom,
+  mixSortAtom,
+  playlistSortAtom,
+} from "../atoms/favorites";
+import { deletedFolderIdsAtom, deletedPlaylistIdsAtom, movedPlaylistsAtom, folderCountAdjustmentsAtom, addedToFolderAtom, renamedFoldersAtom } from "../atoms/playlists";
+import { sidebarCollapsedAtom } from "../atoms/ui";
 
 export default function Sidebar() {
   const {
@@ -32,70 +51,112 @@ export default function Sidebar() {
     navigateHome,
     navigateToExplore,
     navigateToLibraryViewAll,
+    navigateToPlaylistFolder,
     currentView,
   } = useNavigation();
   const { authTokens } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useAtom(sidebarCollapsedAtom);
   const [activeFilter, setActiveFilter] = useState<
     "playlists" | "albums" | "artists" | "mixes"
   >("playlists");
 
-  // Playlists: paginate user playlists, merge in favorites from atom (loaded at boot)
-  const userPlaylists = useAtomValue(userPlaylistsAtom);
-  const favoritePlaylists = useAtomValue(favoritePlaylistsAtom);
+  // Playlist sort
+  const [playlistSort, setPlaylistSort] = useAtom(playlistSortAtom);
+
+  // Playlists + folders: cursor-based pagination from folders endpoint
+  const playlistCursorRef = useRef<string | null>(null);
 
   const playlistFetch = useCallback(
     async (offset: number, limit: number) => {
-      if (!authTokens?.user_id) return { items: [], totalNumberOfItems: 0 };
-      return getUserPlaylists(authTokens.user_id, offset, limit);
+      const cursor = offset === 0 ? undefined : (playlistCursorRef.current ?? undefined);
+      if (offset === 0) playlistCursorRef.current = null;
+      const response = await getPlaylistFolders("root", offset, limit, playlistSort.order, playlistSort.direction, undefined, cursor);
+      const normalized = normalizePlaylistFolders(response);
+      playlistCursorRef.current = normalized.cursor;
+      // Derive hasMore from cursor presence — API's totalNumberOfItems is unreliable
+      const total = (normalized.cursor && normalized.items.length > 0)
+        ? offset + normalized.items.length + 1
+        : offset + normalized.items.length;
+      return { items: normalized.items, totalNumberOfItems: total };
     },
-    [authTokens?.user_id],
+    [playlistSort.order, playlistSort.direction],
   );
 
   const {
-    items: userPlaylistItems,
+    items: playlistFolderItems,
     isInitialLoading: playlistsLoading,
     isLoadingMore: playlistsLoadingMore,
     hasMore: playlistsHasMore,
     sentinelRef: playlistsSentinelRef,
-  } = useInfiniteScroll({
+  } = useInfiniteScroll<PlaylistOrFolder>({
     fetchPage: playlistFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "playlists" && !!authTokens?.user_id,
+    resetKey: `${playlistSort.order}:${playlistSort.direction}`,
   });
 
-  // Merge: atom playlists (optimistic) → paginated → favorites, deduped
-  const allPlaylists = useMemo(() => {
-    const seen = new Set<string>();
-    const merged: Playlist[] = [];
-    for (const p of userPlaylists) {
-      if (!seen.has(p.uuid)) {
-        seen.add(p.uuid);
-        merged.push(p);
-      }
+  const allPlaylistItems: PlaylistOrFolder[] = playlistFolderItems;
+
+  const setCountAdjustments = useSetAtom(folderCountAdjustmentsAtom);
+
+  useEffect(() => {
+    setCountAdjustments(new Map());
+  }, [playlistSort.order, playlistSort.direction, setCountAdjustments]);
+
+  const deletedFolderIds = useAtomValue(deletedFolderIdsAtom);
+  const deletedPlaylistIds = useAtomValue(deletedPlaylistIdsAtom);
+  const movedPlaylists = useAtomValue(movedPlaylistsAtom);
+  const countAdjustments = useAtomValue(folderCountAdjustmentsAtom);
+  const addedToFolder = useAtomValue(addedToFolderAtom);
+  const setAddedToFolder = useSetAtom(addedToFolderAtom);
+  const renamedFolders = useAtomValue(renamedFoldersAtom);
+
+  const visiblePlaylistItems = useMemo(() => {
+    const filtered = allPlaylistItems.filter((entry) => {
+      if (entry.kind === "folder") return !deletedFolderIds.has(entry.data.id);
+      if (deletedPlaylistIds.has(entry.data.uuid)) return false;
+      if (movedPlaylists.get(entry.data.uuid) === "root") return false;
+      return true;
+    });
+    const added = addedToFolder.get("root") ?? [];
+    if (added.length === 0) return filtered;
+    // Dedup against existing items
+    const existingFolderIds = new Set(filtered.filter((e) => e.kind === "folder").map((e) => e.data.id));
+    const existingPlaylistUuids = new Set(filtered.filter((e) => e.kind === "playlist").map((e) => e.data.uuid));
+    const newFolders = added.filter((e) => e.kind === "folder" && !existingFolderIds.has(e.data.id));
+    const newPlaylists = added.filter((e) =>
+      e.kind === "playlist" && !existingPlaylistUuids.has(e.data.uuid) && movedPlaylists.get(e.data.uuid) !== "root"
+    );
+    if (newFolders.length === 0 && newPlaylists.length === 0) return filtered;
+    // Insert new folders with existing folders, new playlists after all folders
+    let lastFolderIdx = -1;
+    for (let i = filtered.length - 1; i >= 0; i--) {
+      if (filtered[i].kind === "folder") { lastFolderIdx = i; break; }
     }
-    for (const p of userPlaylistItems) {
-      if (!seen.has(p.uuid)) {
-        seen.add(p.uuid);
-        merged.push(p);
-      }
-    }
-    for (const p of favoritePlaylists) {
-      if (!seen.has(p.uuid)) {
-        seen.add(p.uuid);
-        merged.push(p);
-      }
-    }
-    return merged;
-  }, [userPlaylists, userPlaylistItems, favoritePlaylists]);
+    const insertAt = lastFolderIdx + 1;
+    return [
+      ...filtered.slice(0, insertAt),
+      ...newFolders,
+      ...newPlaylists,
+      ...filtered.slice(insertAt),
+    ];
+  }, [allPlaylistItems, deletedFolderIds, deletedPlaylistIds, movedPlaylists, addedToFolder]);
+
+  // Sort atoms
+  const [albumSort, setAlbumSort] = useAtom(albumSortAtom);
+  const [artistSort, setArtistSort] = useAtom(artistSortAtom);
+  const [mixSort, setMixSort] = useAtom(mixSortAtom);
 
   // Albums
+  const optimisticAlbums = useAtomValue(optimisticFavoriteAlbumsAtom);
+  const favoriteAlbumIds = useAtomValue(favoriteAlbumIdsAtom);
+
   const albumFetch = useCallback(
     async (offset: number, limit: number) => {
       if (!authTokens?.user_id) return { items: [], totalNumberOfItems: 0 };
-      return getFavoriteAlbums(authTokens.user_id, offset, limit);
+      return getFavoriteAlbums(authTokens.user_id, offset, limit, albumSort.order, albumSort.direction);
     },
-    [authTokens?.user_id],
+    [authTokens?.user_id, albumSort.order, albumSort.direction],
   );
 
   const {
@@ -106,14 +167,37 @@ export default function Sidebar() {
     sentinelRef: albumsSentinelRef,
   } = useInfiniteScroll({
     fetchPage: albumFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "albums" && !!authTokens?.user_id,
+    resetKey: `${albumSort.order}:${albumSort.direction}`,
   });
 
+  // Merge optimistic albums with paginated list, filter by current favorites
+  const allAlbums = useMemo(() => {
+    const seen = new Set<number>();
+    const merged: typeof favoriteAlbumsList = [];
+    for (const a of optimisticAlbums) {
+      if (!seen.has(a.id) && favoriteAlbumIds.has(a.id)) {
+        seen.add(a.id);
+        merged.push(a);
+      }
+    }
+    for (const a of favoriteAlbumsList) {
+      if (!seen.has(a.id) && favoriteAlbumIds.has(a.id)) {
+        seen.add(a.id);
+        merged.push(a);
+      }
+    }
+    return merged;
+  }, [optimisticAlbums, favoriteAlbumsList, favoriteAlbumIds]);
+
   // Mixes
+  const optimisticMixes = useAtomValue(optimisticFavoriteMixesAtom);
+  const favoriteMixIds = useAtomValue(favoriteMixIdsAtom);
+
   const mixFetch = useCallback(async (offset: number, limit: number) => {
-    return getFavoriteMixes(offset, limit);
-  }, []);
+    return getFavoriteMixes(offset, limit, mixSort.order, mixSort.direction);
+  }, [mixSort.order, mixSort.direction]);
 
   const {
     items: favoriteMixesList,
@@ -123,18 +207,41 @@ export default function Sidebar() {
     sentinelRef: mixesSentinelRef,
   } = useInfiniteScroll({
     fetchPage: mixFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "mixes" && !!authTokens?.user_id,
+    resetKey: `${mixSort.order}:${mixSort.direction}`,
   });
 
+  // Merge optimistic mixes with paginated list, filter by current favorites
+  const allMixes = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: typeof favoriteMixesList = [];
+    for (const m of optimisticMixes) {
+      if (!seen.has(m.id) && favoriteMixIds.has(m.id)) {
+        seen.add(m.id);
+        merged.push(m);
+      }
+    }
+    for (const m of favoriteMixesList) {
+      if (!seen.has(m.id) && favoriteMixIds.has(m.id)) {
+        seen.add(m.id);
+        merged.push(m);
+      }
+    }
+    return merged;
+  }, [optimisticMixes, favoriteMixesList, favoriteMixIds]);
+
   // Artists
+  const optimisticArtists = useAtomValue(optimisticFollowedArtistsAtom);
+  const followedArtistIds = useAtomValue(followedArtistIdsAtom);
+
   const artistFetch = useCallback(
     async (offset: number, limit: number) => {
       if (!authTokens?.user_id)
         return { items: [] as ArtistDetail[], totalNumberOfItems: 0 };
-      return getFavoriteArtists(authTokens.user_id, offset, limit);
+      return getFavoriteArtists(authTokens.user_id, offset, limit, artistSort.order, artistSort.direction);
     },
-    [authTokens?.user_id],
+    [authTokens?.user_id, artistSort.order, artistSort.direction],
   );
 
   const {
@@ -145,9 +252,29 @@ export default function Sidebar() {
     sentinelRef: artistsSentinelRef,
   } = useInfiniteScroll({
     fetchPage: artistFetch,
-    pageSize: 20,
+    pageSize: 50,
     enabled: activeFilter === "artists" && !!authTokens?.user_id,
+    resetKey: `${artistSort.order}:${artistSort.direction}`,
   });
+
+  // Merge optimistic artists with paginated list, filter by current follows
+  const allArtists = useMemo(() => {
+    const seen = new Set<number>();
+    const merged: typeof favoriteArtistsList = [];
+    for (const a of optimisticArtists) {
+      if (!seen.has(a.id) && followedArtistIds.has(a.id)) {
+        seen.add(a.id);
+        merged.push(a);
+      }
+    }
+    for (const a of favoriteArtistsList) {
+      if (!seen.has(a.id) && followedArtistIds.has(a.id)) {
+        seen.add(a.id);
+        merged.push(a);
+      }
+    }
+    return merged;
+  }, [optimisticArtists, favoriteArtistsList, followedArtistIds]);
 
   // Create playlist modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -155,6 +282,12 @@ export default function Sidebar() {
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
     item: MediaItemType;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const [folderContextMenu, setFolderContextMenu] = useState<{
+    folderId: string;
+    folderName: string;
     position: { x: number; y: number };
   } | null>(null);
 
@@ -172,6 +305,19 @@ export default function Sidebar() {
             playlist.creator?.name ||
             (playlist.creator?.id === 0 ? "TIDAL" : undefined),
         },
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
+
+  const handleFolderContextMenu = useCallback(
+    (e: React.MouseEvent, folder: Folder) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setFolderContextMenu({
+        folderId: folder.id,
+        folderName: folder.name,
         position: { x: e.clientX, y: e.clientY },
       });
     },
@@ -217,8 +363,8 @@ export default function Sidebar() {
           onClick={navigateHome}
           className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-md transition-colors duration-150 group ${
             currentView.type === "home"
-              ? "text-white bg-white/[0.08]"
-              : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
+              ? "text-th-text-primary bg-th-hl-med"
+              : "text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle"
           } ${isCollapsed ? "justify-center px-0" : ""}`}
           title="Home"
         >
@@ -229,8 +375,8 @@ export default function Sidebar() {
           onClick={navigateToExplore}
           className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-md transition-colors duration-150 group ${
             currentView.type === "explore" || currentView.type === "explorePage"
-              ? "text-white bg-white/[0.08]"
-              : "text-th-text-secondary hover:text-white hover:bg-th-border-subtle"
+              ? "text-th-text-primary bg-th-hl-med"
+              : "text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle"
           } ${isCollapsed ? "justify-center px-0" : ""}`}
           title="Explore"
         >
@@ -250,7 +396,7 @@ export default function Sidebar() {
         >
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className={`flex items-center gap-3 px-2.5 py-2 text-th-text-secondary hover:text-white transition-colors duration-150 group ${
+            className={`flex items-center gap-3 px-2.5 py-2 text-th-text-secondary hover:text-th-text-primary transition-colors duration-150 group ${
               isCollapsed ? "justify-center w-full px-0" : ""
             }`}
           >
@@ -260,12 +406,30 @@ export default function Sidebar() {
             )}
           </button>
           {!isCollapsed && (
-            <button
-              onClick={() => navigateToLibraryViewAll(activeFilter)}
-              className="text-xs text-th-text-muted hover:text-white transition-colors px-2.5"
-            >
-              Show all
-            </button>
+            <div className="flex items-center gap-1">
+              <SortDropdown
+                libraryType={activeFilter}
+                currentSort={
+                  activeFilter === "playlists" ? playlistSort
+                  : activeFilter === "albums" ? albumSort
+                  : activeFilter === "artists" ? artistSort
+                  : mixSort
+                }
+                onSortChange={
+                  activeFilter === "playlists" ? setPlaylistSort
+                  : activeFilter === "albums" ? setAlbumSort
+                  : activeFilter === "artists" ? setArtistSort
+                  : setMixSort
+                }
+                compact
+              />
+              <button
+                onClick={() => navigateToLibraryViewAll(activeFilter)}
+                className="text-xs text-th-text-muted hover:text-th-text-primary transition-colors px-2.5"
+              >
+                Show all
+              </button>
+            </div>
           )}
         </div>
 
@@ -280,7 +444,7 @@ export default function Sidebar() {
                   className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors duration-150 ${
                     activeFilter === tab
                       ? "bg-th-accent/15 text-th-accent"
-                      : "bg-white/[0.07] hover:bg-th-inset text-th-text-secondary"
+                      : "bg-th-hl-med hover:bg-th-inset text-th-text-secondary"
                   }`}
                 >
                   {tab === "playlists"
@@ -302,7 +466,7 @@ export default function Sidebar() {
             /* Playlists view */
             playlistsLoading ? (
               <SidebarSkeleton count={5} />
-            ) : allPlaylists.length === 0 ? (
+            ) : visiblePlaylistItems.length === 0 ? (
               <div
                 className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
               >
@@ -311,7 +475,7 @@ export default function Sidebar() {
                 </p>
                 <button
                   onClick={() => setShowCreateModal(true)}
-                  className="mt-4 px-4 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+                  className="mt-4 px-4 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
                 >
                   Create playlist
                 </button>
@@ -323,7 +487,7 @@ export default function Sidebar() {
                   onClick={navigateToFavorites}
                   className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
                     currentView.type === "favorites"
-                      ? "bg-white/[0.08]"
+                      ? "bg-th-hl-med"
                       : "hover:bg-th-border-subtle"
                   } ${isCollapsed ? "justify-center" : ""}`}
                   title="Loved Tracks"
@@ -338,7 +502,7 @@ export default function Sidebar() {
 
                   {!isCollapsed && (
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="text-[13px] font-medium text-white truncate leading-tight">
+                      <div className="text-[13px] font-medium text-th-text-primary truncate leading-tight">
                         Loved Tracks
                       </div>
                       <div className="text-[11px] text-th-text-faint truncate leading-tight mt-0.5">
@@ -348,11 +512,37 @@ export default function Sidebar() {
                   )}
                 </button>
 
-                {allPlaylists.map((playlist) => {
+                {visiblePlaylistItems.map((entry) => {
+                  if (entry.kind === "folder") {
+                    const folderName = renamedFolders.get(entry.data.id) ?? entry.data.name;
+                    return (
+                      <button
+                        key={entry.data.id}
+                        onClick={() => navigateToPlaylistFolder(entry.data.id, folderName)}
+                        onContextMenu={(e) => handleFolderContextMenu(e, { ...entry.data, name: folderName })}
+                        className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group hover:bg-th-border-subtle ${isCollapsed ? "justify-center" : ""}`}
+                        title={folderName}
+                      >
+                        <div className={`bg-th-surface-hover shrink-0 overflow-hidden rounded flex items-center justify-center ${isCollapsed ? "w-10 h-10" : "w-10 h-10"}`}>
+                          <FolderOpen size={18} className="text-th-text-faint" />
+                        </div>
+                        {!isCollapsed && (
+                          <div className="flex-1 min-w-0 text-left">
+                            <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
+                              {folderName}
+                            </div>
+                            <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
+                              {folderSubtitle((entry.data.totalNumberOfItems ?? 0) + (countAdjustments.get(entry.data.id) ?? 0))}
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  }
+
+                  const playlist = entry.data;
                   const own = isOwnPlaylist(playlist);
                   const trackCount = playlist.numberOfTracks;
-
-                  // Build subtitle: "You · N tracks" for own, "Creator name · N tracks" for others
                   const creatorLabel = own ? "You" : getCreatorName(playlist);
                   let subtitle = "";
                   if (creatorLabel) {
@@ -370,32 +560,20 @@ export default function Sidebar() {
                     <button
                       key={playlist.uuid}
                       onClick={() => handlePlaylistClick(playlist)}
-                      onContextMenu={(e) =>
-                        handlePlaylistContextMenu(e, playlist)
-                      }
+                      onContextMenu={(e) => handlePlaylistContextMenu(e, playlist)}
                       className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
-                        currentView.type === "playlist" &&
-                        currentView.playlistId === playlist.uuid
-                          ? "bg-white/[0.08]"
+                        currentView.type === "playlist" && currentView.playlistId === playlist.uuid
+                          ? "bg-th-hl-med"
                           : "hover:bg-th-border-subtle"
                       } ${isCollapsed ? "justify-center" : ""}`}
                       title={playlist.title}
                     >
-                      <div
-                        className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${
-                          isCollapsed ? "w-10 h-10" : "w-10 h-10"
-                        }`}
-                      >
-                        <TidalImage
-                          src={getTidalImageUrl(playlist.image, 80)}
-                          alt={playlist.title}
-                          type="playlist"
-                        />
+                      <div className={`bg-th-surface-hover shrink-0 overflow-hidden rounded ${isCollapsed ? "w-10 h-10" : "w-10 h-10"}`}>
+                        <TidalImage src={getTidalImageUrl(playlist.image, 80)} alt={playlist.title} type="playlist" />
                       </div>
-
                       {!isCollapsed && (
                         <div className="flex-1 min-w-0 text-left">
-                          <div className="text-[14px] font-medium text-white truncate leading-snug">
+                          <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
                             {playlist.title}
                           </div>
                           <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
@@ -414,7 +592,7 @@ export default function Sidebar() {
             /* Albums view */
             albumsLoading ? (
               <SidebarSkeleton count={5} />
-            ) : favoriteAlbumsList.length === 0 ? (
+            ) : allAlbums.length === 0 ? (
               <div
                 className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
               >
@@ -424,7 +602,7 @@ export default function Sidebar() {
               </div>
             ) : (
               <div className="space-y-px">
-                {favoriteAlbumsList.map((album) => (
+                {allAlbums.map((album) => (
                   <button
                     key={album.id}
                     onClick={() =>
@@ -437,7 +615,7 @@ export default function Sidebar() {
                     className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
                       currentView.type === "album" &&
                       currentView.albumId === album.id
-                        ? "bg-white/[0.08]"
+                        ? "bg-th-hl-med"
                         : "hover:bg-th-border-subtle"
                     } ${isCollapsed ? "justify-center" : ""}`}
                     title={album.title}
@@ -455,18 +633,18 @@ export default function Sidebar() {
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          <Music size={16} className="text-gray-600" />
+                          <Music size={16} className="text-th-text-faint" />
                         </div>
                       )}
                     </div>
 
                     {!isCollapsed && (
                       <div className="flex-1 min-w-0 text-left">
-                        <div className="text-[14px] font-medium text-white truncate leading-snug">
+                        <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
                           {album.title}
                         </div>
                         <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
-                          {album.artist?.name || "Unknown Artist"}
+                          {getTrackArtistDisplay(album)}
                         </div>
                       </div>
                     )}
@@ -480,7 +658,7 @@ export default function Sidebar() {
             /* Artists view */
             artistsLoading ? (
               <SidebarSkeleton count={5} />
-            ) : favoriteArtistsList.length === 0 ? (
+            ) : allArtists.length === 0 ? (
               <div
                 className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
               >
@@ -490,7 +668,7 @@ export default function Sidebar() {
               </div>
             ) : (
               <div className="space-y-px">
-                {favoriteArtistsList.map((artist) => (
+                {allArtists.map((artist) => (
                   <button
                     key={artist.id}
                     onClick={() =>
@@ -515,7 +693,7 @@ export default function Sidebar() {
                     className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
                       currentView.type === "artist" &&
                       currentView.artistId === artist.id
-                        ? "bg-white/[0.08]"
+                        ? "bg-th-hl-med"
                         : "hover:bg-th-border-subtle"
                     } ${isCollapsed ? "justify-center" : ""}`}
                     title={artist.name}
@@ -533,14 +711,14 @@ export default function Sidebar() {
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          <User size={16} className="text-gray-600" />
+                          <User size={16} className="text-th-text-faint" />
                         </div>
                       )}
                     </div>
 
                     {!isCollapsed && (
                       <div className="flex-1 min-w-0 text-left">
-                        <div className="text-[14px] font-medium text-white truncate leading-snug">
+                        <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
                           {artist.name}
                         </div>
                         <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
@@ -557,7 +735,7 @@ export default function Sidebar() {
           ) : /* Mixes view */
           mixesLoading ? (
             <SidebarSkeleton count={5} />
-          ) : favoriteMixesList.length === 0 ? (
+          ) : allMixes.length === 0 ? (
             <div
               className={`px-3 py-8 text-center ${isCollapsed ? "hidden" : ""}`}
             >
@@ -567,7 +745,7 @@ export default function Sidebar() {
             </div>
           ) : (
             <div className="space-y-px">
-              {favoriteMixesList.map((mix) => (
+              {allMixes.map((mix) => (
                 <button
                   key={mix.id}
                   onClick={() =>
@@ -575,6 +753,7 @@ export default function Sidebar() {
                       title: mix.title,
                       image: mix.images?.MEDIUM?.url,
                       subtitle: mix.subTitle,
+                      mixType: mix.mixType,
                     })
                   }
                   onContextMenu={(e) => {
@@ -593,7 +772,7 @@ export default function Sidebar() {
                   }}
                   className={`w-full flex items-center gap-2.5 px-1.5 py-2 rounded-md transition-colors duration-150 group ${
                     currentView.type === "mix" && currentView.mixId === mix.id
-                      ? "bg-white/[0.08]"
+                      ? "bg-th-hl-med"
                       : "hover:bg-th-border-subtle"
                   } ${isCollapsed ? "justify-center" : ""}`}
                   title={mix.title}
@@ -611,14 +790,14 @@ export default function Sidebar() {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <Music size={16} className="text-gray-600" />
+                        <Music size={16} className="text-th-text-faint" />
                       </div>
                     )}
                   </div>
 
                   {!isCollapsed && (
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="text-[14px] font-medium text-white truncate leading-snug">
+                      <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
                         {mix.title}
                       </div>
                       <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
@@ -640,7 +819,18 @@ export default function Sidebar() {
         <MediaContextMenu
           item={contextMenu.item}
           cursorPosition={contextMenu.position}
+          sourceFolderId="root"
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Folder context menu */}
+      {folderContextMenu && (
+        <FolderContextMenu
+          folderId={folderContextMenu.folderId}
+          folderName={folderContextMenu.folderName}
+          cursorPosition={folderContextMenu.position}
+          onClose={() => setFolderContextMenu(null)}
         />
       )}
 
@@ -649,7 +839,15 @@ export default function Sidebar() {
         <CreatePlaylistModal
           trackIds={[]}
           onClose={() => setShowCreateModal(false)}
-          onCreated={() => setShowCreateModal(false)}
+          onCreated={(playlist) => {
+            setAddedToFolder((prev) => {
+              const next = new Map(prev);
+              const list = next.get("root") ?? [];
+              next.set("root", [...list, { kind: "playlist" as const, data: playlist }]);
+              return next;
+            });
+            setShowCreateModal(false);
+          }}
         />
       )}
     </div>

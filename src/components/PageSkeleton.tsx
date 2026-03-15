@@ -3,14 +3,17 @@
  * Used while data is being fetched to prevent layout shift and provide visual feedback.
  */
 
+import PageContainer from "./PageContainer";
+
 function Pulse({ className }: { className: string }) {
-  return <div className={`animate-pulse bg-white/6 rounded ${className}`} />;
+  return <div className={`animate-pulse bg-th-hl-med rounded ${className}`} />;
 }
 
 /** Skeleton for artist pages — round avatar, name, bio snippet, tracks, discography */
 export function ArtistPageSkeleton() {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
+      <PageContainer>
       {/* Header: round avatar + name + bio */}
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
         <Pulse className="w-[232px] h-[232px] shrink-0 rounded-full!" />
@@ -55,16 +58,19 @@ export function ArtistPageSkeleton() {
       {/* Discography */}
       <div className="px-8 pb-8">
         <Pulse className="w-36 h-6 rounded-lg mb-4" />
-        <div className="flex gap-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="w-[180px] shrink-0 p-3">
+        <div className="card-scroll">
+        <div className="card-scroll-track">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="card-scroll-item p-3">
               <Pulse className="w-full aspect-square rounded-md mb-3" />
               <Pulse className="w-[75%] h-3.5 rounded mb-2" />
               <Pulse className="w-[50%] h-3 rounded" />
             </div>
           ))}
         </div>
+        </div>
       </div>
+      </PageContainer>
     </div>
   );
 }
@@ -73,7 +79,7 @@ export function ArtistPageSkeleton() {
 export function SearchPageSkeleton() {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base min-h-full">
-      <div className="px-6 py-6">
+      <PageContainer className="px-6 py-6">
         {/* Tab pills */}
         <div className="pb-6 flex items-center gap-2">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -128,7 +134,7 @@ export function SearchPageSkeleton() {
             ))}
           </div>
         </div>
-      </div>
+      </PageContainer>
     </div>
   );
 }
@@ -144,6 +150,7 @@ export function DetailPageSkeleton({
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
+      <PageContainer>
       {/* Header area */}
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
         {/* Cover art skeleton */}
@@ -206,6 +213,7 @@ export function DetailPageSkeleton({
           </div>
         ))}
       </div>
+      </PageContainer>
     </div>
   );
 }

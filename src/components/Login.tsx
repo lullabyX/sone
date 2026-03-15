@@ -440,7 +440,7 @@ export default function Login() {
           <div className="w-10 h-12 text-th-accent">
             <Icon />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-white">ONE</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-th-text-primary">ONE</h1>
         </div>
 
         {/* ==================== Simple View — Idle ==================== */}
@@ -518,7 +518,7 @@ export default function Login() {
                 Scan the QR code or enter this code:
               </p>
               <div className="flex items-center justify-center py-3">
-                <span className="text-4xl font-mono font-bold tracking-[0.3em] text-white">
+                <span className="text-4xl font-mono font-bold tracking-[0.3em] text-th-text-primary">
                   {userCode}
                 </span>
               </div>
@@ -545,7 +545,7 @@ export default function Login() {
                     window.open(verificationUri, "_blank");
                   }
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-th-inset rounded-full text-[13px] text-white font-medium transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-th-hl-med hover:bg-th-inset rounded-full text-[13px] text-th-text-primary font-medium transition-colors"
               >
                 <ExternalLink size={14} />
                 Open {verificationUri}
@@ -600,7 +600,7 @@ export default function Login() {
             >
               <div className="flex items-center gap-2 mb-4">
                 <KeyRound size={16} className="text-th-accent" />
-                <span className="text-[14px] text-white font-medium">
+                <span className="text-[14px] text-th-text-primary font-medium">
                   API Credentials
                 </span>
                 {authMethod === "import" && (
@@ -630,7 +630,7 @@ export default function Login() {
                         ? "Auto-extracted from cURL"
                         : "Your TIDAL app Client ID"
                     }
-                    className="w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2.5 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
+                    className="w-full bg-th-surface border border-th-border-subtle rounded-lg px-3 py-2.5 text-[13px] text-th-text-primary placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
                   />
                 </div>
 
@@ -654,7 +654,7 @@ export default function Login() {
                           ? "Auto-extracted from cURL"
                           : "Leave blank for Lossless (CD quality)"
                       }
-                      className="w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2.5 pr-10 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
+                      className="w-full bg-th-surface border border-th-border-subtle rounded-lg px-3 py-2.5 pr-10 text-[13px] text-th-text-primary placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono disabled:cursor-not-allowed disabled:placeholder-th-text-faint"
                     />
                     <button
                       type="button"
@@ -792,7 +792,7 @@ export default function Login() {
                         </label>
                         <button
                           onClick={() => pasteTo(setCurlText)}
-                          className="flex items-center gap-1 text-[10px] text-th-text-faint hover:text-white transition-colors"
+                          className="flex items-center gap-1 text-[10px] text-th-text-faint hover:text-th-text-primary transition-colors"
                         >
                           <ClipboardPaste size={10} />
                           Paste
@@ -807,7 +807,7 @@ export default function Login() {
                           }}
                           placeholder="Right-click token request → Copy as cURL"
                           rows={2}
-                          className={`w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2 text-[11px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono resize-none ${
+                          className={`w-full bg-th-surface border border-th-border-subtle rounded-lg px-3 py-2 text-[11px] text-th-text-primary placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono resize-none ${
                             curlMasked && curlText.length > 0
                               ? "[-webkit-text-security:disc]"
                               : ""
@@ -840,7 +840,7 @@ export default function Login() {
                         </label>
                         <button
                           onClick={() => pasteTo(setResponseText)}
-                          className="flex items-center gap-1 text-[10px] text-th-text-faint hover:text-white transition-colors"
+                          className="flex items-center gap-1 text-[10px] text-th-text-faint hover:text-th-text-primary transition-colors"
                         >
                           <ClipboardPaste size={10} />
                           Paste
@@ -855,7 +855,7 @@ export default function Login() {
                           }}
                           placeholder='Same request → Response tab → copy JSON&#10;{"access_token":"...","refresh_token":"..."}'
                           rows={2}
-                          className={`w-full bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2 text-[11px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono resize-none ${
+                          className={`w-full bg-th-surface border border-th-border-subtle rounded-lg px-3 py-2 text-[11px] text-th-text-primary placeholder-th-text-disabled outline-none focus:border-th-accent/50 font-mono resize-none ${
                             responseMasked && responseText.length > 0
                               ? "[-webkit-text-security:disc]"
                               : ""
@@ -920,7 +920,7 @@ export default function Login() {
                   </span>
                 </div>
                 <div>
-                  <p className="text-[14px] text-white font-medium">
+                  <p className="text-[14px] text-th-text-primary font-medium">
                     Log in to TIDAL in your browser
                   </p>
                   <p className="text-[12px] text-th-text-faint mt-1">
@@ -935,7 +935,7 @@ export default function Login() {
                   </span>
                 </div>
                 <div>
-                  <p className="text-[14px] text-white font-medium">
+                  <p className="text-[14px] text-th-text-primary font-medium">
                     Copy the redirect URL
                   </p>
                   <p className="text-[12px] text-th-text-faint mt-1">
@@ -950,7 +950,7 @@ export default function Login() {
                   </span>
                 </div>
                 <div className="flex-1">
-                  <p className="text-[14px] text-white font-medium mb-2">
+                  <p className="text-[14px] text-th-text-primary font-medium mb-2">
                     Paste the URL here
                   </p>
                   <div className="flex gap-2">
@@ -962,11 +962,11 @@ export default function Login() {
                         if (e.key === "Enter") handleSubmitUrl();
                       }}
                       placeholder="https://tidal.com/android/login/auth?code=..."
-                      className="flex-1 bg-th-surface border border-white/[0.1] rounded-lg px-3 py-2 text-[13px] text-white placeholder-th-text-disabled outline-none focus:border-th-accent/50 min-w-0"
+                      className="flex-1 bg-th-surface border border-th-border-subtle rounded-lg px-3 py-2 text-[13px] text-th-text-primary placeholder-th-text-disabled outline-none focus:border-th-accent/50 min-w-0"
                     />
                     <button
                       onClick={handlePaste}
-                      className="px-3 py-2 bg-white/[0.08] hover:bg-th-inset rounded-lg text-th-text-muted hover:text-white transition-colors shrink-0"
+                      className="px-3 py-2 bg-th-hl-med hover:bg-th-inset rounded-lg text-th-text-muted hover:text-th-text-primary transition-colors shrink-0"
                     >
                       <ClipboardPaste size={16} />
                     </button>
@@ -983,7 +983,7 @@ export default function Login() {
                     window.open(authorizeUrl, "_blank");
                   }
                 }}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white/[0.08] hover:bg-th-inset rounded-full text-[13px] text-white font-medium transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-th-hl-med hover:bg-th-inset rounded-full text-[13px] text-th-text-primary font-medium transition-colors"
               >
                 <ExternalLink size={14} />
                 Open TIDAL Login
@@ -1046,12 +1046,12 @@ export default function Login() {
           >
             <button
               onClick={() => setShowHelp(false)}
-              className="absolute top-4 right-4 text-th-text-faint hover:text-white transition-colors"
+              className="absolute top-4 right-4 text-th-text-faint hover:text-th-text-primary transition-colors"
             >
               <X size={18} />
             </button>
 
-            <h2 className="text-[16px] font-bold text-white mb-4">
+            <h2 className="text-[16px] font-bold text-th-text-primary mb-4">
               What are Client ID and Client Secret?
             </h2>
 
@@ -1064,7 +1064,7 @@ export default function Login() {
 
               <p>
                 SONE requires credentials from a{" "}
-                <span className="text-white font-medium">
+                <span className="text-th-text-primary font-medium">
                   native TIDAL application
                 </span>{" "}
                 (such as the Android or desktop client). Credentials from the
@@ -1085,17 +1085,17 @@ export default function Login() {
               </p>
 
               <div>
-                <p className="text-white font-medium mb-2">Do I need both?</p>
+                <p className="text-th-text-primary font-medium mb-2">Do I need both?</p>
                 <p className="mb-2">No. There are two login methods:</p>
                 <ul className="list-disc list-inside space-y-1.5 ml-1">
                   <li>
-                    <span className="text-white font-medium">Device Code</span>{" "}
+                    <span className="text-th-text-primary font-medium">Device Code</span>{" "}
                     — works with Client ID alone (CD-quality lossless,
                     16-bit/44.1kHz). Adding Client Secret unlocks Hi-Res up to
                     24-bit/192kHz.
                   </li>
                   <li>
-                    <span className="text-white font-medium">PKCE</span> —
+                    <span className="text-th-text-primary font-medium">PKCE</span> —
                     requires both Client ID and Client Secret. Supports Hi-Res
                     up to 24-bit/192kHz.
                   </li>
@@ -1103,7 +1103,7 @@ export default function Login() {
               </div>
 
               <div>
-                <p className="text-white font-medium mb-2">
+                <p className="text-th-text-primary font-medium mb-2">
                   Are my credentials safe?
                 </p>
                 <p>

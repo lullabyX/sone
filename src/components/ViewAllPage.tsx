@@ -12,6 +12,7 @@ import MediaGrid, {
   MediaGridError,
   MediaGridEmpty,
 } from "./MediaGrid";
+import PageContainer from "./PageContainer";
 import {
   getItemTitle,
   getItemSubtitle,
@@ -209,10 +210,10 @@ export default function ViewAllPage({
 
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
-      <div className="px-6 py-8">
+      <PageContainer className="px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <h1 className="text-[32px] font-bold text-white tracking-tight">
+          <h1 className="text-[32px] font-bold text-th-text-primary tracking-tight">
             {title}
           </h1>
         </div>
@@ -260,7 +261,7 @@ export default function ViewAllPage({
             onClose={() => setContextMenu(null)}
           />
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }

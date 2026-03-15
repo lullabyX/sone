@@ -16,6 +16,7 @@ import { getPageSection } from "../api/tidal";
 import { getItemTitle, getItemId } from "../utils/itemHelpers";
 import type { HomeSection } from "../types";
 import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
+import PageContainer from "./PageContainer";
 
 /** Check if items in a section have icons (bottom shortcut items like New, Top, Videos). */
 function hasIcons(section: HomeSection): boolean {
@@ -99,9 +100,9 @@ export default function ExplorePage() {
 
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
-      <div className="px-8 py-10">
+      <PageContainer className="px-8 py-10">
         {/* Header */}
-        <h1 className="text-[32px] font-bold text-white tracking-tight mb-10">
+        <h1 className="text-[32px] font-bold text-th-text-primary tracking-tight mb-10">
           Explore
         </h1>
 
@@ -146,7 +147,7 @@ export default function ExplorePage() {
               ))}
           </div>
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }
@@ -189,14 +190,14 @@ function PillSection({
     <section>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[20px] font-bold text-white tracking-tight">
+        <h2 className="text-[20px] font-bold text-th-text-primary tracking-tight">
           {section.title}
         </h2>
         <div className="flex items-center gap-2">
           {section.apiPath && (
             <button
               onClick={onViewAll}
-              className="text-[14px] font-semibold text-th-text-muted hover:text-white transition-colors mr-2"
+              className="text-[14px] font-semibold text-th-text-muted hover:text-th-text-primary transition-colors mr-2"
             >
               View all
             </button>
@@ -205,7 +206,7 @@ function PillSection({
             onClick={() => scroll("left")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollLeft
-                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
                 : "text-th-text-disabled cursor-default opacity-0"
             }`}
             disabled={!canScrollLeft}
@@ -216,7 +217,7 @@ function PillSection({
             onClick={() => scroll("right")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollRight
-                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
                 : "text-th-text-disabled cursor-default opacity-0"
             }`}
             disabled={!canScrollRight}
@@ -236,7 +237,7 @@ function PillSection({
           <button
             key={getItemId(item)}
             onClick={() => onItemClick(item)}
-            className="shrink-0 px-6 py-3 bg-th-inset hover:bg-th-inset-hover rounded-lg text-[15px] font-medium text-white whitespace-nowrap transition-colors duration-150"
+            className="shrink-0 px-6 py-3 bg-th-inset hover:bg-th-inset-hover rounded-lg text-[15px] font-medium text-th-text-primary whitespace-nowrap transition-colors duration-150"
           >
             {getItemTitle(item)}
           </button>
@@ -268,7 +269,7 @@ function IconGrid({
             className="flex items-center gap-4 text-left group"
           >
             {Icon ? (
-              <Icon className="w-6 h-6 text-th-text-muted group-hover:text-white transition-colors" />
+              <Icon className="w-6 h-6 text-th-text-muted group-hover:text-th-text-primary transition-colors" />
             ) : (
               item.icon && (
                 <img
@@ -281,7 +282,7 @@ function IconGrid({
                 />
               )
             )}
-            <span className="text-[16px] font-medium text-th-text-muted group-hover:text-white transition-colors">
+            <span className="text-[16px] font-medium text-th-text-muted group-hover:text-th-text-primary transition-colors">
               {title}
             </span>
           </button>

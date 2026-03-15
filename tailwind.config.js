@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  content: ["./index.html", "./miniplayer.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -26,6 +26,12 @@ export default {
           success: "var(--th-success)",
           error: "var(--th-error)",
           warning: "var(--th-warning)",
+          "hl-faint": "var(--th-hl-faint)",
+          "hl-med": "var(--th-hl-med)",
+          "hl-strong": "var(--th-hl-strong)",
+          "slider-track": "var(--th-slider-track)",
+          "slider-fill": "var(--th-slider-fill)",
+          "slider-border": "var(--th-slider-border)",
         },
       },
     },

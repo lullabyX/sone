@@ -24,6 +24,7 @@
       <li>Volume normalization (ReplayGain) with automatic album/track switching</li>
       <li>Scrobble to Last.fm, Libre.fm, and ListenBrainz with ISRC and MusicBrainz metadata</li>
       <li>Synced lyrics display</li>
+      <li>Full-screen player with album art, lyrics option and auto-hiding controls</li>
       <li>Custom themes with full color picker</li>
       <li>Queue persistence across restarts</li>
       <li>MPRIS media controls and system tray</li>
@@ -47,7 +48,11 @@
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/lullabyX/sone/master/data/sone_drawer_metainfo.png</image>
-      <caption>Now playing drawer with synced lyrics</caption>
+      <caption>Now playing drawer with play queue</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/lullabyX/sone/master/data/sone_fullscreen_metainfo.png</image>
+      <caption>Full-screen maximized player with auto-hiding controls and karaoke-style lyrics</caption>
     </screenshot>
     <screenshot>
       <image>https://raw.githubusercontent.com/lullabyX/sone/master/data/sone_homepage_metainfo.png</image>
@@ -70,6 +75,59 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.11.0" date="2026-03-12">
+      <description>
+        <p>Light Theme</p>
+        <ul>
+          <li>Full light theme support — every page, component, menu, and overlay adapts to your chosen theme</li>
+          <li>Frosted glass effect for the maximized player in light mode</li>
+        </ul>
+        <p>Layout</p>
+        <ul>
+          <li>Wider page container and responsive grid that adapts from 1 to 6 columns</li>
+          <li>Adaptive and zoom-aware card scroll sections with scroll-snap and container queries</li>
+        </ul>
+        <p>System</p>
+        <ul>
+          <li>Replaced libappindicator tray with ksni for broader desktop compatibility</li>
+          <li>Single-instance support — launching SONE again focuses the existing window</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.10.1" date="2026-03-11">
+      <description>
+        <p>Library</p>
+        <ul>
+          <li>Sort your favorites (albums, artists, mixes) by date added, name, or artist</li>
+          <li>Optimistic sidebar updates — album favorites, artist follows, and mix favorites reflect instantly</li>
+        </ul>
+        <p>Playback &amp; UI</p>
+        <ul>
+          <li>Track context menu on the player bar</li>
+          <li>Display all track artists and version suffixes across the entire UI</li>
+          <li>Consolidated mix and track radio into a single page</li>
+        </ul>
+        <p>Lyrics</p>
+        <ul>
+          <li>Smoother scrolling with frame-accurate position interpolation</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Fixed context menu positioning across the app at non-default zoom levels</li>
+          <li>Fixed Wayland window controls becoming unresponsive after restoring from tray</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.9.0" date="2026-03-10">
+      <description>
+        <ul>
+          <li>Full-screen maximized player with album art, lyrics option, blurred background, and auto-hiding controls</li>
+          <li>Karaoke-style synced lyrics in a two-column layout with responsive font sizing</li>
+          <li>Instant track transitions with progressive album art loading</li>
+          <li>Smoother interactions — GPU compositing and optimized state management eliminate lag in the maximized view</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-03-08">
       <description>
         <ul>

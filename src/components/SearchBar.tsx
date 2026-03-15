@@ -211,10 +211,10 @@ export default function SearchBar() {
 
   return (
     <div className="relative max-w-[360px] w-64 lg:w-80">
-      <div className="flex items-center gap-2 px-3 py-2 bg-th-inset hover:bg-th-inset focus-within:bg-th-inset rounded-full transition-colors group border border-transparent focus-within:border-white/10">
+      <div className="flex items-center gap-2 px-3 py-2 bg-th-inset hover:bg-th-inset focus-within:bg-th-inset rounded-full transition-colors group border border-transparent focus-within:border-th-border-subtle">
         <Search
           size={18}
-          className="text-th-text-secondary group-focus-within:text-white shrink-0"
+          className="text-th-text-secondary group-focus-within:text-th-text-primary shrink-0"
         />
         <input
           ref={searchInputRef}
@@ -224,12 +224,12 @@ export default function SearchBar() {
           onKeyDown={handleSearchKeyDown}
           onFocus={() => setSearchOpen(true)}
           placeholder="Search"
-          className="bg-transparent text-sm text-white placeholder-th-text-faint outline-none flex-1 min-w-0"
+          className="bg-transparent text-sm text-th-text-primary placeholder-th-text-faint outline-none flex-1 min-w-0"
         />
         {searchQuery && (
           <button
             onClick={clearSearch}
-            className="text-th-text-faint hover:text-white shrink-0"
+            className="text-th-text-faint hover:text-th-text-primary shrink-0"
           >
             <X size={16} />
           </button>
@@ -255,7 +255,7 @@ export default function SearchBar() {
                 >
                   <Clock size={15} className="text-th-text-faint shrink-0" />
                   <button
-                    className="flex-1 text-left text-[13px] text-white truncate"
+                    className="flex-1 text-left text-[13px] text-th-text-primary truncate"
                     onClick={() => {
                       setSearchQuery(item);
                       setSearchOpen(false);
@@ -270,7 +270,7 @@ export default function SearchBar() {
                       e.stopPropagation();
                       removeFromHistory(item);
                     }}
-                    className="text-th-text-faint hover:text-white shrink-0 p-0.5"
+                    className="text-th-text-faint hover:text-th-text-primary shrink-0 p-0.5"
                     title="Remove"
                   >
                     <X size={14} />
@@ -301,7 +301,7 @@ export default function SearchBar() {
                   ) : (
                     <Search size={15} className="text-th-text-faint shrink-0" />
                   )}
-                  <span className="text-[13px] text-white truncate">
+                  <span className="text-[13px] text-th-text-primary truncate">
                     {s.query}
                   </span>
                   {s.source === "history" && (
@@ -310,7 +310,7 @@ export default function SearchBar() {
                         e.stopPropagation();
                         removeFromHistory(s.query);
                       }}
-                      className="ml-auto text-th-text-faint hover:text-white shrink-0 p-0.5"
+                      className="ml-auto text-th-text-faint hover:text-th-text-primary shrink-0 p-0.5"
                       title="Remove"
                     >
                       <X size={14} />
@@ -386,7 +386,7 @@ export default function SearchBar() {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] text-white truncate font-medium">
+                            <p className="text-[14px] text-th-text-primary truncate font-medium">
                               {hit.name}
                             </p>
                             <p className="text-[11px] text-th-text-faint">
@@ -394,7 +394,7 @@ export default function SearchBar() {
                             </p>
                           </div>
                           <button
-                            className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                            className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
                             title="More options"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -453,7 +453,7 @@ export default function SearchBar() {
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] text-white truncate">
+                            <p className="text-[14px] text-th-text-primary truncate">
                               {hit.title}
                             </p>
                             <p className="text-[11px] text-th-text-faint truncate">
@@ -461,7 +461,7 @@ export default function SearchBar() {
                             </p>
                           </div>
                           <button
-                            className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                            className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
                             title="More options"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -535,7 +535,7 @@ export default function SearchBar() {
                               </div>
                             </div>
                             <div className="flex-1 min-w-0 text-left">
-                              <p className="text-[14px] text-white truncate">
+                              <p className="text-[14px] text-th-text-primary truncate">
                                 {hit.title}
                               </p>
                               <p className="text-[11px] text-th-text-faint truncate">
@@ -549,7 +549,7 @@ export default function SearchBar() {
                               if (el) dotsRefs.current.set(hit.id || 0, el);
                               else dotsRefs.current.delete(hit.id || 0);
                             }}
-                            className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/track:opacity-100 transition-opacity shrink-0"
+                            className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/track:opacity-100 transition-opacity shrink-0"
                             title="More options"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -613,7 +613,7 @@ export default function SearchBar() {
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] text-white truncate">
+                            <p className="text-[14px] text-th-text-primary truncate">
                               {hit.title}
                             </p>
                             <p className="text-[11px] text-th-text-faint truncate">
@@ -624,7 +624,7 @@ export default function SearchBar() {
                             </p>
                           </div>
                           <button
-                            className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                            className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
                             title="More options"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -655,7 +655,7 @@ export default function SearchBar() {
                       addToHistory(searchQuery.trim());
                       navigateToSearch(searchQuery.trim());
                     }}
-                    className="w-full py-2.5 text-center text-[12px] font-semibold text-th-accent hover:bg-white/4 border-t border-th-border-subtle transition-colors"
+                    className="w-full py-2.5 text-center text-[12px] font-semibold text-th-accent hover:bg-th-hl-faint border-t border-th-border-subtle transition-colors"
                   >
                     View all results
                   </button>

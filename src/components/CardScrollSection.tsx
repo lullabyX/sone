@@ -64,7 +64,7 @@ export default function CardScrollSection({
   const scroll = useCallback((direction: "left" | "right") => {
     const el = scrollRef.current;
     if (!el) return;
-    const scrollAmount = el.clientWidth * 0.8;
+    const scrollAmount = el.clientWidth + 16; // one full page + gap for exact card alignment
     el.scrollBy({
       left: direction === "left" ? -scrollAmount : scrollAmount,
       behavior: "smooth",
@@ -78,7 +78,7 @@ export default function CardScrollSection({
     <div className="px-8 pb-8">
       <div className="flex items-center justify-between mb-4">
         {section.title && (
-          <h2 className="text-[22px] font-bold text-white tracking-tight">
+          <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight">
             {section.title}
           </h2>
         )}
@@ -87,7 +87,7 @@ export default function CardScrollSection({
             onClick={() => scroll("left")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollLeft
-                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
                 : "text-th-text-disabled cursor-default"
             }`}
             disabled={!canScrollLeft}
@@ -98,7 +98,7 @@ export default function CardScrollSection({
             onClick={() => scroll("right")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollRight
-                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
                 : "text-th-text-disabled cursor-default"
             }`}
             disabled={!canScrollRight}
@@ -108,7 +108,7 @@ export default function CardScrollSection({
           {onViewAll && (
             <button
               onClick={onViewAll}
-              className="px-3 py-1.5 text-[13px] font-bold text-th-text-muted hover:text-white transition-colors"
+              className="px-3 py-1.5 text-[13px] font-bold text-th-text-muted hover:text-th-text-primary transition-colors"
             >
               View all
             </button>
@@ -116,10 +116,11 @@ export default function CardScrollSection({
         </div>
       </div>
 
+      <div className="card-scroll">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2"
+        className="card-scroll-track pb-2"
       >
         {section.items.map((item: any) => {
           let isFavorited: boolean | undefined;
@@ -184,10 +185,11 @@ export default function CardScrollSection({
               showPlayButton
               isFavorited={isFavorited}
               onFavoriteToggle={onFavoriteToggle}
-              widthClass="w-[180px] flex-shrink-0"
+              widthClass="card-scroll-item"
             />
           );
         })}
+      </div>
       </div>
     </div>
   );

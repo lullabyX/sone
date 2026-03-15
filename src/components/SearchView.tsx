@@ -19,6 +19,7 @@ import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
 import MediaCard from "./MediaCard";
 import ReusableTrackList from "./TrackList";
+import PageContainer from "./PageContainer";
 import { SearchPageSkeleton } from "./PageSkeleton";
 
 type SearchTab =
@@ -170,11 +171,11 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Search size={48} className="text-th-text-disabled" />
-          <p className="text-white font-semibold text-lg">Search failed</p>
+          <p className="text-th-text-primary font-semibold text-lg">Search failed</p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -192,7 +193,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base min-h-full">
-      <div className="px-6 py-6">
+      <PageContainer className="px-6 py-6">
         {/* Tab bar */}
         <div className="pb-6 flex items-center gap-2">
           {TABS.map((tab) => (
@@ -201,8 +202,8 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-1.5 rounded-full text-[13px] font-medium transition-colors duration-150 ${
                 activeTab === tab.id
-                  ? "bg-white text-black"
-                  : "bg-white/7 text-th-text-secondary hover:bg-th-inset"
+                  ? "bg-th-text-primary text-th-base"
+                  : "bg-th-hl-med text-th-text-secondary hover:bg-th-inset"
               }`}
             >
               {tab.label}
@@ -213,7 +214,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
         {noResults && (
           <div className="flex flex-col items-center justify-center py-20 text-th-text-disabled">
             <Search size={48} className="mb-4" />
-            <p className="text-white font-semibold text-lg mb-1">
+            <p className="text-th-text-primary font-semibold text-lg mb-1">
               No results found
             </p>
             <p className="text-sm">Try a different search term</p>
@@ -228,12 +229,12 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 {results.tracks.length > 0 && (
                   <section>
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-[16px] font-bold text-white">
+                      <h2 className="text-[16px] font-bold text-th-text-primary">
                         Tracks
                       </h2>
                       <button
                         onClick={() => setActiveTab("tracks")}
-                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                        className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
                       >
                         View all
                       </button>
@@ -251,12 +252,12 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 {results.playlists.length > 0 && (
                   <section>
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-[16px] font-bold text-white">
+                      <h2 className="text-[16px] font-bold text-th-text-primary">
                         Playlists
                       </h2>
                       <button
                         onClick={() => setActiveTab("playlists")}
-                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                        className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
                       >
                         View all
                       </button>
@@ -304,12 +305,12 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 {results.albums.length > 0 && (
                   <section>
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-[16px] font-bold text-white">
+                      <h2 className="text-[16px] font-bold text-th-text-primary">
                         Albums
                       </h2>
                       <button
                         onClick={() => setActiveTab("albums")}
-                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                        className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
                       >
                         View all
                       </button>
@@ -353,12 +354,12 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                 {results.artists.length > 0 && (
                   <section>
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-[16px] font-bold text-white">
+                      <h2 className="text-[16px] font-bold text-th-text-primary">
                         Artists
                       </h2>
                       <button
                         onClick={() => setActiveTab("artists")}
-                        className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+                        className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
                       >
                         View all
                       </button>
@@ -573,7 +574,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
             onClose={() => setContextMenu(null)}
           />
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }
@@ -612,7 +613,7 @@ function TopHitsList({
     return (
       <div className="flex flex-col items-center justify-center py-20 text-th-text-disabled">
         <Search size={48} className="mb-4" />
-        <p className="text-white font-semibold text-lg mb-1">No top hits</p>
+        <p className="text-th-text-primary font-semibold text-lg mb-1">No top hits</p>
         <p className="text-sm">Try the other tabs for more results</p>
       </div>
     );
@@ -663,7 +664,7 @@ function TopHitsList({
                   </div>
                 </div>
                 <div className="flex-1 min-w-0 text-left">
-                  <p className="text-[14px] text-white truncate">{hit.title}</p>
+                  <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
                   <p className="text-[12px] text-th-text-faint truncate">
                     Track &middot; {hit.artistName || "Unknown Artist"}
                   </p>
@@ -674,7 +675,7 @@ function TopHitsList({
                   if (el) dotsRefs.current.set(trackObj.id, el);
                   else dotsRefs.current.delete(trackObj.id);
                 }}
-                className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/track:opacity-100 transition-opacity shrink-0"
+                className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/track:opacity-100 transition-opacity shrink-0"
                 title="More options"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -732,14 +733,14 @@ function TopHitsList({
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-white truncate">{hit.title}</p>
+                <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
                 <p className="text-[12px] text-th-text-faint truncate">
                   Album &middot; {hit.artistName || "Unknown"}
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}
                 </p>
               </div>
               <button
-                className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
                 title="More options"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -796,13 +797,13 @@ function TopHitsList({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-white truncate font-medium">
+                <p className="text-[14px] text-th-text-primary truncate font-medium">
                   {hit.name}
                 </p>
                 <p className="text-[12px] text-th-text-faint">Artist</p>
               </div>
               <button
-                className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
                 title="More options"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -859,14 +860,14 @@ function TopHitsList({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-white truncate">{hit.title}</p>
+                <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
                 <p className="text-[12px] text-th-text-faint truncate">
                   Playlist
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}
                 </p>
               </div>
               <button
-                className="p-1 rounded-full text-th-text-faint hover:text-white opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
                 title="More options"
                 onClick={(e) => {
                   e.stopPropagation();

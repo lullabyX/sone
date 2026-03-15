@@ -32,6 +32,7 @@ import {
 } from "../utils/itemHelpers";
 import BioText, { stripBio } from "./BioText";
 import CardScrollSection from "./CardScrollSection";
+import PageContainer from "./PageContainer";
 
 interface ArtistPageProps {
   artistId: number;
@@ -320,13 +321,13 @@ export default function ArtistPage({
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <User size={48} className="text-th-text-disabled" />
-          <p className="text-white font-semibold text-lg">
+          <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load artist
           </p>
           <p className="text-th-text-muted text-sm max-w-md">{error}</p>
           <button
             onClick={onBack}
-            className="mt-2 px-6 py-2 bg-white text-black rounded-full text-sm font-bold hover:scale-105 transition-transform"
+            className="mt-2 px-6 py-2 bg-th-text-primary text-th-base rounded-full text-sm font-bold hover:scale-105 transition-transform"
           >
             Go back
           </button>
@@ -337,6 +338,7 @@ export default function ArtistPage({
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+      <PageContainer>
       {/* Artist Header */}
       <div className="px-8 pb-8 pt-8 flex items-end gap-7">
         <div className="w-[232px] h-[232px] shrink-0 rounded-full overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
@@ -360,10 +362,10 @@ export default function ArtistPage({
           )}
         </div>
         <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-white/70 uppercase tracking-widest">
+          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             Artist
           </span>
-          <h1 className="text-[48px] font-extrabold text-white leading-none tracking-tight line-clamp-2">
+          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
             {displayName}
           </h1>
           {bio && (
@@ -373,7 +375,7 @@ export default function ArtistPage({
               </p>
               <button
                 onClick={() => setShowBioModal(true)}
-                className="text-[13px] text-white font-semibold hover:underline mt-1"
+                className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
               >
                 Read more
               </button>
@@ -407,14 +409,14 @@ export default function ArtistPage({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-[15px] font-bold text-white leading-tight">
+                <h3 className="text-[15px] font-bold text-th-text-primary leading-tight">
                   {displayName}
                 </h3>
                 <p className="text-[13px] text-th-text-muted">Biography</p>
               </div>
               <button
                 onClick={() => setShowBioModal(false)}
-                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-white"
+                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
               >
                 <X size={18} />
               </button>
@@ -454,7 +456,7 @@ export default function ArtistPage({
         </button>
         <button
           onClick={handleShuffle}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-white font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
         >
           <Shuffle size={18} />
           Shuffle
@@ -464,7 +466,7 @@ export default function ArtistPage({
           className={`flex items-center justify-center gap-2 min-w-[120px] px-5 py-2.5 font-bold text-sm rounded-full transition-[transform,filter,background-color] duration-150 hover:scale-[1.03] ${
             isFollowed
               ? "bg-th-accent/15 text-th-accent border border-th-accent/30 hover:brightness-110"
-              : "bg-th-button text-white border border-transparent hover:bg-th-button-hover"
+              : "bg-th-button text-th-text-primary border border-transparent hover:bg-th-button-hover"
           }`}
         >
           {isFollowed ? <UserCheck size={18} /> : <UserPlus size={18} />}
@@ -531,7 +533,7 @@ export default function ArtistPage({
       {pageData && pageData.sections.length === 0 && topTracks.length === 0 && (
         <div className="px-8 py-16 text-center">
           <User size={48} className="text-th-text-disabled mx-auto mb-4" />
-          <p className="text-white font-semibold text-lg mb-2">
+          <p className="text-th-text-primary font-semibold text-lg mb-2">
             No content available
           </p>
           <p className="text-th-text-muted text-sm">
@@ -539,6 +541,8 @@ export default function ArtistPage({
           </p>
         </div>
       )}
+
+      </PageContainer>
 
       {contextMenu && (
         <MediaContextMenu
@@ -591,14 +595,14 @@ function TrackSection({
     <div className="px-8 pb-6">
       <div className="flex items-center justify-between mb-4">
         {section.title && (
-          <h2 className="text-[22px] font-bold text-white tracking-tight">
+          <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight">
             {section.title}
           </h2>
         )}
         {section.apiPath && (
           <button
             onClick={onViewAll}
-            className="px-3 py-1.5 text-[13px] font-bold text-th-text-muted hover:text-white transition-colors"
+            className="px-3 py-1.5 text-[13px] font-bold text-th-text-muted hover:text-th-text-primary transition-colors"
           >
             View all
           </button>

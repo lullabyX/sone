@@ -10,7 +10,9 @@ import {
   MoreHorizontal,
   ListPlus,
   GripVertical,
+  Maximize2,
 } from "lucide-react";
+import { parseLrc, type LrcLine } from "../lib/lrc";
 import {
   useState,
   useEffect,
@@ -20,7 +22,7 @@ import {
   memo,
   useMemo,
 } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   isPlayingAtom,
@@ -29,14 +31,17 @@ import {
   historyAtom,
   manualQueueAtom,
   playbackSourceAtom,
+  contextSourceAtom,
 } from "../atoms/playback";
+import { maximizedPlayerAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useToast } from "../contexts/ToastContext";
+import { getInterpolatedPosition } from "../lib/playbackPosition";
 import {
-  getTrackRadio,
+  getMixItems,
   getTrackLyrics,
   getTrackCredits,
   getArtistBio,
@@ -44,12 +49,15 @@ import {
 import BioText from "./BioText";
 import {
   getTidalImageUrl,
+  getTrackDisplayTitle,
   type Track,
   type Lyrics,
   type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
 import TrackContextMenu from "./TrackContextMenu";
+import { TrackArtists, type ArtistInfo } from "./TrackArtists";
+import { getTrackArtistDisplay } from "../utils/itemHelpers";
 
 type TabId = "queue" | "suggested" | "lyrics" | "credits";
 
@@ -75,7 +83,9 @@ const QueueTab = memo(function QueueTab({
   const history = useAtomValue(historyAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
   const source = useAtomValue(playbackSourceAtom);
+  const contextSource = useAtomValue(contextSourceAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
+  const contextQueueSource = contextSource ?? source;
   const combinedQueue = useMemo(
     () => [...manualQueue, ...contextQueue],
     [manualQueue, contextQueue],
@@ -96,7 +106,6 @@ const QueueTab = memo(function QueueTab({
     navigateToMix,
     navigateToArtistTracks,
     navigateToFavorites,
-    navigateToTrackRadio,
   } = useNavigation();
   const { setDrawerOpen } = useDrawer();
   const { showToast } = useToast();
@@ -120,10 +129,18 @@ const QueueTab = memo(function QueueTab({
         navigateToAlbum(source.id as number);
         break;
       case "playlist":
-        navigateToPlaylist(source.id as string);
+        navigateToPlaylist(source.id as string, {
+          title: source.name,
+          image: source.image,
+        });
         break;
       case "mix":
-        navigateToMix(source.id as string);
+        navigateToMix(source.id as string, {
+          title: source.name,
+          image: source.image,
+          subtitle: source.subtitle,
+          mixType: source.mixType,
+        });
         break;
       case "artist":
         navigateToArtist(source.id as number);
@@ -135,7 +152,11 @@ const QueueTab = memo(function QueueTab({
         navigateToFavorites();
         break;
       case "radio":
-        navigateToTrackRadio(source.id as number);
+        navigateToMix(source.id.toString(), {
+          title: source.name,
+          image: source.image,
+          mixType: "TRACK_MIX",
+        });
         break;
     }
   }, [
@@ -147,8 +168,36 @@ const QueueTab = memo(function QueueTab({
     navigateToArtist,
     navigateToArtistTracks,
     navigateToFavorites,
-    navigateToTrackRadio,
   ]);
+
+  const navigateToContextQueueSource = useCallback(() => {
+    const s = contextQueueSource;
+    if (!s) return;
+    setDrawerOpen(false);
+    switch (s.type) {
+      case "album":
+        navigateToAlbum(s.id as number);
+        break;
+      case "playlist":
+        navigateToPlaylist(s.id as string, { title: s.name, image: s.image });
+        break;
+      case "mix":
+        navigateToMix(s.id as string, { title: s.name, image: s.image, subtitle: s.subtitle, mixType: s.mixType });
+        break;
+      case "artist":
+        navigateToArtist(s.id as number);
+        break;
+      case "artist-tracks":
+        navigateToArtistTracks(s.id as number, s.name);
+        break;
+      case "favorites":
+        navigateToFavorites();
+        break;
+      case "radio":
+        navigateToMix(s.id.toString(), { title: s.name, image: s.image, mixType: "TRACK_MIX" });
+        break;
+    }
+  }, [contextQueueSource, setDrawerOpen, navigateToAlbum, navigateToPlaylist, navigateToMix, navigateToArtist, navigateToArtistTracks, navigateToFavorites]);
 
   // Use refs so drag/drop handlers always read the current values
   const dragIdxRef = useRef<number | null>(null);
@@ -234,12 +283,12 @@ const QueueTab = memo(function QueueTab({
   );
 
   const handleArtistClick = useCallback(
-    (track: Track) => {
-      if (track.artist?.id) {
+    (artist: ArtistInfo) => {
+      if (artist.id) {
         setDrawerOpen(false);
-        navigateToArtist(track.artist.id, {
-          name: track.artist.name,
-          picture: track.artist.picture,
+        navigateToArtist(artist.id, {
+          name: artist.name,
+          picture: artist.picture,
         });
       }
     },
@@ -265,8 +314,8 @@ const QueueTab = memo(function QueueTab({
     (track: Track) => ({
       isFav: favoriteTrackIds.has(track.id),
       onToggleFavorite: () => handleToggleFavorite(track.id, track),
-      onArtistClick: track.artist?.id
-        ? () => handleArtistClick(track)
+      onArtistClick: (track.artist?.id || track.artists?.[0]?.id)
+        ? handleArtistClick
         : undefined,
       onAlbumClick: track.album?.id ? () => handleAlbumClick(track) : undefined,
     }),
@@ -352,16 +401,16 @@ const QueueTab = memo(function QueueTab({
                 "Next in queue"
               ) : source ? (
                 <>
-                  Next from{" "}
+                  Next up from{" "}
                   {sourceIsNavigable ? (
                     <button
                       onClick={navigateToSource}
-                      className="uppercase hover:text-white transition-colors hover:underline"
+                      className="uppercase underline hover:text-th-text-primary transition-colors"
                     >
                       {source.name}
                     </button>
                   ) : (
-                    <span className="uppercase">{source.name}</span>
+                    <span className="uppercase underline">{source.name}</span>
                   )}
                 </>
               ) : (
@@ -370,7 +419,7 @@ const QueueTab = memo(function QueueTab({
             </h3>
             <button
               onClick={() => clearQueue()}
-              className="text-[11px] text-th-text-muted hover:text-white transition-colors"
+              className="text-[11px] text-th-text-muted hover:text-th-text-primary transition-colors"
             >
               Clear
             </button>
@@ -397,18 +446,18 @@ const QueueTab = memo(function QueueTab({
                     }}
                   >
                     <span className="text-[13px] font-bold text-th-text-muted uppercase tracking-wider pb-3">
-                      {source ? (
+                      {contextQueueSource ? (
                         <>
-                          Next from{" "}
-                          {sourceIsNavigable ? (
+                          Next up from{" "}
+                          {navigableSourceTypes.has(contextQueueSource.type) ? (
                             <button
-                              onClick={navigateToSource}
-                              className="uppercase hover:text-white transition-colors hover:underline"
+                              onClick={navigateToContextQueueSource}
+                              className="uppercase underline hover:text-th-text-primary transition-colors"
                             >
-                              {source.name}
+                              {contextQueueSource.name}
                             </button>
                           ) : (
-                            <span className="uppercase">{source.name}</span>
+                            <span className="uppercase underline">{contextQueueSource.name}</span>
                           )}
                         </>
                       ) : (
@@ -510,7 +559,7 @@ function SuggestedTrackRow({
   onPlay: (track: Track) => void;
   onAddToQueue: (track: Track) => void;
   onToggleFavorite: (trackId: number, isFav: boolean, track?: Track) => void;
-  onArtistClick?: (track: Track) => void;
+  onArtistClick?: (artist: ArtistInfo) => void;
   onAlbumClick?: (track: Track) => void;
 }) {
   // Context menu state — lightweight, no heavy hooks
@@ -570,7 +619,7 @@ function SuggestedTrackRow({
         onClick={handleRowClick}
         onContextMenu={handleRightClick}
         className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer group transition-[background-color] duration-150 ${
-          isActive ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"
+          isActive ? "bg-th-hl-med" : "hover:bg-th-hl-faint"
         }`}
       >
         {/* Album art with play overlay — scoped hover via group/image */}
@@ -593,30 +642,23 @@ function SuggestedTrackRow({
         <div className="flex-1 min-w-0">
           <p
             className={`text-[13px] font-medium truncate ${
-              isActive ? "text-th-accent" : "text-white"
+              isActive ? "text-th-accent" : "text-th-text-primary"
             }`}
           >
-            {track.title}
+            {getTrackDisplayTitle(track)}
           </p>
           <p className="text-[11px] text-th-text-muted truncate">
-            {track.artist?.name ? (
-              <span
-                className="hover:text-white hover:underline cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onArtistClick?.(track);
-                }}
-              >
-                {track.artist.name}
-              </span>
-            ) : (
-              "Unknown Artist"
-            )}
+            <TrackArtists
+              artists={track.artists}
+              artist={track.artist}
+              className="hover:text-th-text-primary hover:underline cursor-pointer"
+              onArtistClick={onArtistClick}
+            />
             {track.album?.title && (
               <>
                 <span className="mx-1">&middot;</span>
                 <span
-                  className="hover:text-white hover:underline cursor-pointer"
+                  className="hover:text-th-text-primary hover:underline cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
                     onAlbumClick?.(track);
@@ -635,7 +677,7 @@ function SuggestedTrackRow({
           <button
             ref={dotsBtnRef}
             onClick={handleDotsClick}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-th-text-primary hover:bg-th-border-subtle transition-colors duration-150"
             title="More options"
           >
             <MoreHorizontal size={15} />
@@ -652,7 +694,7 @@ function SuggestedTrackRow({
               className={
                 isFav
                   ? "text-th-accent"
-                  : "text-th-text-disabled hover:text-white"
+                  : "text-th-text-disabled hover:text-th-text-primary"
               }
               fill={isFav ? "currentColor" : "none"}
             />
@@ -661,7 +703,7 @@ function SuggestedTrackRow({
           {/* Add to queue */}
           <button
             onClick={handleAddToQueue}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-th-text-primary hover:bg-th-border-subtle transition-colors duration-150"
             title="Add to queue"
           >
             <ListPlus size={15} />
@@ -715,16 +757,22 @@ const SuggestedTab = memo(function SuggestedTab() {
     setLoading(true);
     setError(null);
 
-    getTrackRadio(currentTrack.id, 20)
-      .then((result) => {
-        if (active) setTracks(result);
-      })
-      .catch((err) => {
-        if (active) setError(String(err));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    const trackMixId = currentTrack.mixes?.TRACK_MIX;
+    if (trackMixId) {
+      getMixItems(trackMixId)
+        .then(({ tracks }) => {
+          if (active) setTracks(tracks);
+        })
+        .catch((err) => {
+          if (active) setError(String(err));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    } else {
+      setTracks([]);
+      setLoading(false);
+    }
 
     return () => {
       active = false;
@@ -735,8 +783,8 @@ const SuggestedTab = memo(function SuggestedTab() {
   const handleAddToQueue = useCallback(
     (track: Track) => {
       addToQueue(track);
-      const label =
-        track.title.length > 30 ? track.title.slice(0, 28) + "…" : track.title;
+      const displayTitle = getTrackDisplayTitle(track);
+      const label = displayTitle.length > 30 ? displayTitle.slice(0, 28) + "…" : displayTitle;
       showToast(`Added "${label}" to queue`, "success");
     },
     [addToQueue, showToast],
@@ -760,12 +808,12 @@ const SuggestedTab = memo(function SuggestedTab() {
   );
 
   const handleArtistClick = useCallback(
-    (track: Track) => {
-      if (track.artist?.id) {
+    (artist: ArtistInfo) => {
+      if (artist.id) {
         setDrawerOpen(false);
-        navigateToArtist(track.artist.id, {
-          name: track.artist.name,
-          picture: track.artist.picture,
+        navigateToArtist(artist.id, {
+          name: artist.name,
+          picture: artist.picture,
         });
       }
     },
@@ -795,14 +843,14 @@ const SuggestedTab = memo(function SuggestedTab() {
             className="flex items-center gap-3 px-3 py-2"
             style={{ animationDelay: `${i * 60}ms` }}
           >
-            <div className="w-10 h-10 rounded bg-white/[0.06] animate-pulse shrink-0" />
+            <div className="w-10 h-10 rounded bg-th-hl-med animate-pulse shrink-0" />
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
               <div
-                className="h-[13px] rounded bg-white/[0.06] animate-pulse"
+                className="h-[13px] rounded bg-th-hl-med animate-pulse"
                 style={{ width: `${[65, 45, 72, 55, 80, 50, 60, 40][i]}%` }}
               />
               <div
-                className="h-[11px] rounded bg-white/[0.04] animate-pulse"
+                className="h-[11px] rounded bg-th-hl-faint animate-pulse"
                 style={{ width: `${[50, 70, 40, 60, 35, 55, 45, 65][i]}%` }}
               />
             </div>
@@ -841,62 +889,6 @@ const SuggestedTab = memo(function SuggestedTab() {
   );
 });
 
-// ─── Lyrics helpers ──────────────────────────────────────────────────────────
-
-interface LrcLine {
-  time: number; // seconds
-  text: string;
-}
-
-function parseTimestamp(tag: string): number {
-  // Parse [mm:ss], [mm:ss.xx], [mm:ss.xxx], [mm:ss:xx]
-  const m = tag.match(/(\d{1,2}):(\d{2})(?:[.:]([\d]{1,3}))?/);
-  if (!m) return 0;
-  const mins = parseInt(m[1], 10);
-  const secs = parseInt(m[2], 10);
-  let ms = 0;
-  if (m[3]) {
-    ms =
-      m[3].length === 1
-        ? parseInt(m[3], 10) * 100
-        : m[3].length === 2
-          ? parseInt(m[3], 10) * 10
-          : parseInt(m[3], 10);
-  }
-  return mins * 60 + secs + ms / 1000;
-}
-
-function parseLrc(subtitles: string): LrcLine[] {
-  const lines: LrcLine[] = [];
-  // Split into lines and process each
-  for (const raw of subtitles.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-
-    // Extract all [mm:ss.xx] timestamps from the line
-    const timestamps: number[] = [];
-    const stripped = line.replace(
-      /\[(\d{1,2}:\d{2}(?:[.:]\d{1,3})?)\]/g,
-      (_match, tag) => {
-        timestamps.push(parseTimestamp(tag));
-        return "";
-      },
-    );
-
-    const text = stripped.trim();
-    if (!text || timestamps.length === 0) continue;
-
-    // A line can have multiple timestamps (repeated lyrics)
-    for (const time of timestamps) {
-      lines.push({ time, text });
-    }
-  }
-
-  // Sort by time
-  lines.sort((a, b) => a.time - b.time);
-  return lines;
-}
-
 // ─── Lyrics Tab ──────────────────────────────────────────────────────────────
 
 // Memoized individual lyrics line — only re-renders when its own state changes
@@ -916,7 +908,7 @@ const LyricsLine = memo(function LyricsLine({
       ref={lineRef}
       className={`text-xl font-medium cursor-default leading-snug origin-left transition-[transform,color,opacity] duration-500 ease-out ${
         isActive
-          ? "scale-[1.22] font-bold text-white"
+          ? "scale-[1.22] font-bold text-th-text-primary"
           : isPast
             ? "text-th-text-disabled"
             : "text-th-text-faint"
@@ -931,7 +923,6 @@ const LyricsLine = memo(function LyricsLine({
 const LyricsTab = memo(function LyricsTab() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
-  const { getPlaybackPosition } = usePlaybackActions();
   const [lyrics, setLyrics] = useState<Lyrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -995,12 +986,13 @@ const LyricsTab = memo(function LyricsTab() {
     return () => el.removeEventListener("scroll", onScroll);
   }, [lrcLines]);
 
-  // Sync active line with playback position — ONLY when playing (tab unmounts when not visible)
+  // Sync active line with interpolated position — rAF loop, state update only on line change
   useEffect(() => {
     if (lrcLines.length === 0 || !isPlaying) return;
 
-    const sync = async () => {
-      const pos = await getPlaybackPosition();
+    let rafId: number;
+    const tick = () => {
+      const pos = getInterpolatedPosition();
       let idx = -1;
       for (let i = lrcLines.length - 1; i >= 0; i--) {
         if (pos >= lrcLines[i].time) {
@@ -1013,12 +1005,12 @@ const LyricsTab = memo(function LyricsTab() {
         activeLineRef.current = idx;
         setActiveLine(idx);
       }
+      rafId = requestAnimationFrame(tick);
     };
 
-    sync();
-    const interval = setInterval(sync, 300);
-    return () => clearInterval(interval);
-  }, [lrcLines, isPlaying, getPlaybackPosition]);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [lrcLines, isPlaying]);
 
   // Auto-scroll to active line (only if user hasn't scrolled)
   const scrollToLine = useCallback((idx: number) => {
@@ -1057,7 +1049,7 @@ const LyricsTab = memo(function LyricsTab() {
         {[72, 55, 85, 40, 68, 90, 50, 75, 60, 45, 80, 35].map((w, i) => (
           <div
             key={i}
-            className="h-[22px] rounded bg-white/[0.06] animate-pulse"
+            className="h-[22px] rounded bg-th-hl-med animate-pulse"
             style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
           />
         ))}
@@ -1133,14 +1125,14 @@ const LyricsTab = memo(function LyricsTab() {
 
 function SkeletonBar({ className = "" }: { className?: string }) {
   return (
-    <div className={`animate-pulse rounded bg-white/[0.06] ${className}`} />
+    <div className={`animate-pulse rounded bg-th-hl-med ${className}`} />
   );
 }
 
 function SkeletonRow({ first = false }: { first?: boolean }) {
   return (
     <div
-      className={`flex flex-col gap-1.5 py-4 ${first ? "" : "border-t border-white/[0.06]"}`}
+      className={`flex flex-col gap-1.5 py-4 ${first ? "" : "border-t border-th-border-subtle"}`}
     >
       <SkeletonBar className="h-3 w-20" />
       <SkeletonBar className="h-[18px] w-48" />
@@ -1239,10 +1231,10 @@ const CreditsTab = memo(function CreditsTab() {
       {/* Track metadata + credits — unified row list */}
       {currentTrack && (
         <>
-          <CreditRow label="Title" value={currentTrack.title} first />
+          <CreditRow label="Title" value={getTrackDisplayTitle(currentTrack)} first />
           <CreditRow
             label="Artists"
-            value={currentTrack.artist?.name || "Unknown"}
+            value={getTrackArtistDisplay(currentTrack)}
           />
           {currentTrack.album?.title && (
             <CreditRow label="Album" value={currentTrack.album.title} />
@@ -1283,11 +1275,11 @@ const CreditsTab = memo(function CreditsTab() {
       )}
       {!bioLoading && bio && (
         <div className="flex flex-col pt-6 mt-2">
-          <h3 className="text-[16px] font-bold text-white mb-3">Bio</h3>
+          <h3 className="text-[16px] font-bold text-th-text-primary mb-3">Bio</h3>
           <BioText
             bio={bio}
             onArtistClick={handleArtistLink}
-            className="text-white/80"
+            className="text-th-text-secondary"
           />
         </div>
       )}
@@ -1306,12 +1298,12 @@ function CreditRow({
 }) {
   return (
     <div
-      className={`flex flex-col gap-1 py-4 ${first ? "" : "border-t border-white/[0.06]"}`}
+      className={`flex flex-col gap-1 py-4 ${first ? "" : "border-t border-th-border-subtle"}`}
     >
-      <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">
+      <span className="text-[11px] font-bold text-th-text-faint uppercase tracking-widest">
         {label}
       </span>
-      <span className="text-[15px] text-white font-medium leading-relaxed">
+      <span className="text-[15px] text-th-text-primary font-medium leading-relaxed">
         {value}
       </span>
     </div>
@@ -1340,7 +1332,7 @@ function TrackRow({
   onRemove?: () => void;
   isFav?: boolean;
   onToggleFavorite?: () => void;
-  onArtistClick?: () => void;
+  onArtistClick?: (artist: ArtistInfo) => void;
   onAlbumClick?: () => void;
 }) {
   const [contextMenu, setContextMenu] = useState<{
@@ -1360,7 +1352,7 @@ function TrackRow({
           setContextMenu({ x: e.clientX, y: e.clientY });
         }}
         className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer group transition-[background-color] duration-150 ${
-          isActive ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"
+          isActive ? "bg-th-hl-med" : "hover:bg-th-hl-faint"
         } ${dimmed ? "opacity-50" : ""}`}
       >
         <div className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
@@ -1388,40 +1380,29 @@ function TrackRow({
         <div className="flex-1 min-w-0">
           <p
             className={`text-[13px] font-medium truncate ${
-              isActive ? "text-th-accent" : "text-white"
+              isActive ? "text-th-accent" : "text-th-text-primary"
             }`}
           >
-            {track.title}
+            {getTrackDisplayTitle(track)}
           </p>
           <p className="text-[11px] text-th-text-muted truncate">
-            {track.artist?.name ? (
-              <span
-                className={
-                  onArtistClick
-                    ? "hover:text-white hover:underline cursor-pointer"
-                    : ""
-                }
-                onClick={
-                  onArtistClick
-                    ? (e) => {
-                        e.stopPropagation();
-                        onArtistClick();
-                      }
-                    : undefined
-                }
-              >
-                {track.artist.name}
-              </span>
-            ) : (
-              "Unknown Artist"
-            )}
+            <TrackArtists
+              artists={track.artists}
+              artist={track.artist}
+              className={
+                onArtistClick
+                  ? "hover:text-th-text-primary hover:underline cursor-pointer"
+                  : ""
+              }
+              onArtistClick={onArtistClick}
+            />
             {track.album?.title && (
               <>
                 <span className="mx-1">&middot;</span>
                 <span
                   className={
                     onAlbumClick
-                      ? "hover:text-white hover:underline cursor-pointer"
+                      ? "hover:text-th-text-primary hover:underline cursor-pointer"
                       : ""
                   }
                   onClick={
@@ -1447,7 +1428,7 @@ function TrackRow({
               e.stopPropagation();
               setDotsMenuOpen(true);
             }}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-th-text-primary hover:bg-th-border-subtle transition-colors duration-150"
             title="More options"
           >
             <MoreHorizontal size={15} />
@@ -1468,7 +1449,7 @@ function TrackRow({
                 className={
                   isFav
                     ? "text-th-accent"
-                    : "text-th-text-disabled hover:text-white"
+                    : "text-th-text-disabled hover:text-th-text-primary"
                 }
                 fill={isFav ? "currentColor" : "none"}
               />
@@ -1481,7 +1462,7 @@ function TrackRow({
                 e.stopPropagation();
                 onRemove();
               }}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-white hover:bg-th-border-subtle transition-colors duration-150"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-disabled hover:text-th-text-primary hover:bg-th-border-subtle transition-colors duration-150"
               title="Remove"
             >
               <X size={14} />
@@ -1535,6 +1516,7 @@ function QueueTabWrapper() {
 export default function NowPlayingDrawer() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
+  const setMaximized = useSetAtom(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
 
@@ -1549,16 +1531,6 @@ export default function NowPlayingDrawer() {
     if (isNaN(r) || isNaN(g) || isNaN(b)) return "none";
     return `linear-gradient(rgba(${r}, ${g}, ${b}, 0.28) 0%, rgba(${r}, ${g}, ${b}, 0) 90%)`;
   }, [vibrantColor]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [drawerOpen, setDrawerOpen]);
 
   // Don't render anything until there's a track to show
   if (!currentTrack) return null;
@@ -1608,11 +1580,11 @@ export default function NowPlayingDrawer() {
             />
           </div>
           <div className="text-center w-full max-w-[520px]">
-            <h2 className="text-[22px] font-bold text-white truncate">
-              {currentTrack.title}
+            <h2 className="text-[22px] font-bold text-th-text-primary truncate">
+              {getTrackDisplayTitle(currentTrack)}
             </h2>
             <p className="text-[15px] text-th-text-muted truncate mt-1">
-              {currentTrack.artist?.name || "Unknown Artist"}
+              {getTrackArtistDisplay(currentTrack)}
             </p>
           </div>
         </div>
@@ -1628,8 +1600,8 @@ export default function NowPlayingDrawer() {
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-colors duration-150 ${
                     activeTab === tab.id
-                      ? "bg-white/12 text-white"
-                      : "text-th-text-muted hover:text-white hover:bg-white/5"
+                      ? "bg-th-hl-strong text-th-text-primary"
+                      : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-faint"
                   }`}
                 >
                   <tab.icon size={14} />
@@ -1637,12 +1609,21 @@ export default function NowPlayingDrawer() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setDrawerOpen(false)}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/8 transition-colors duration-150 shrink-0 ml-2"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              <button
+                onClick={() => setMaximized(true)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors duration-150"
+                title="Fullscreen player"
+              >
+                <Maximize2 size={18} />
+              </button>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors duration-150"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Tab content — only active tab mounted (Vaul pattern: always mounted, CSS-controlled visibility) */}

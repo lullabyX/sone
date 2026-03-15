@@ -1,6 +1,6 @@
 [package]
 name = "sone"
-version = "0.8.0"
+version = "0.11.0"
 description = "Native Linux client for TIDAL — lossless and bit-perfect audio streaming"
 authors = ["lullabyX"]
 license = "GPL-3.0-only"
@@ -19,7 +19,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["image-png", "tray-icon"] }
+tauri = { version = "2", features = ["image-png"] }
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
 image = "0.25"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
@@ -46,9 +48,11 @@ tauri-plugin-global-shortcut = "2"
 aes-gcm = "0.10"
 keyring = { version = "3", features = ["sync-secret-service"] }
 zeroize = "1"
+discord-rich-presence = "1.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "=2.0.1"
 mpris-server = "0.9"
 alsa = "0.10"
 libc = "0.2"
+ksni = "0.3"

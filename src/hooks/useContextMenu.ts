@@ -33,18 +33,21 @@ export function useContextMenu({
       const menu = menuRef.current;
       if (!menu) return;
 
+      const zoom = parseFloat(document.documentElement.style.zoom || "1");
       const menuRect = menu.getBoundingClientRect();
       const menuWidth = menuRect.width || 240;
       const menuHeight = menuRect.height || 300;
-      const viewW = window.innerWidth;
-      const viewH = window.innerHeight;
+      // window.innerWidth/Height are in visual viewport pixels;
+      // divide by zoom to match the CSS-zoom-pixel space used by
+      // getBoundingClientRect and position:fixed.
+      const viewW = window.innerWidth / zoom;
+      const viewH = window.innerHeight / zoom;
       const pad = 8;
 
       let top: number;
       let left: number;
 
       if (cursorPosition) {
-        const zoom = parseFloat(document.documentElement.style.zoom || "1");
         top = cursorPosition.y / zoom;
         left = cursorPosition.x / zoom;
       } else if (anchorRef?.current) {
@@ -62,7 +65,6 @@ export function useContextMenu({
       // Clamp vertically — flip upward if overflowing bottom
       if (top + menuHeight > viewH - pad) {
         if (cursorPosition) {
-          const zoom = parseFloat(document.documentElement.style.zoom || "1");
           top = cursorPosition.y / zoom - menuHeight;
         } else if (anchorRef?.current) {
           const rect = anchorRef.current.getBoundingClientRect();

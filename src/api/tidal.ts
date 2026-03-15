@@ -13,6 +13,9 @@ import type {
   Paginated,
   PaginatedTracks,
   Playlist,
+  PlaylistFolderItem,
+  PlaylistFoldersResponse,
+  PlaylistOrFolder,
   SearchResults,
   SuggestionsResponse,
   Track,
@@ -687,11 +690,54 @@ export async function getPlaylistTracksPage(
   );
 }
 
-export async function getMixItems(mixId: string): Promise<Track[]> {
+/** Fetch recommended tracks for a playlist. Can return empty items. */
+export async function getPlaylistRecommendations(
+  playlistId: string,
+  offset: number = 0,
+  limit: number = 50,
+): Promise<PaginatedTracks> {
   return cached(
-    `mix:${mixId}`,
-    ["mix"],
-    () => invoke<Track[]>("get_mix_items", { mixId }),
+    `playlist-recs:${playlistId}:${offset}:${limit}`,
+    [`playlist-recs:${playlistId}`],
+    async () => {
+      try {
+        return await invoke<PaginatedTracks>("get_playlist_recommendations", {
+          playlistId,
+          offset,
+          limit,
+        });
+      } catch {
+        // API can return empty or fail — return empty result
+        return { items: [], totalNumberOfItems: 0, offset: 0, limit };
+      }
+    },
+    TTL.MEDIUM,
+  );
+}
+
+export interface MixPageResult {
+  mixId: string;
+  mixType: string | null;
+  title: string | null;
+  subtitle: string | null;
+  image: string | null;
+  tracks: Track[];
+}
+
+export async function getMixItems(
+  mixId: string,
+): Promise<MixPageResult> {
+  return cached(
+    `mix-page:${mixId}`,
+    ["mix-page"],
+    async () => {
+      try {
+        return await invoke<MixPageResult>("get_mix_items", { mixId });
+      } catch (error: any) {
+        console.error("Failed to get mix items:", error);
+        throw error;
+      }
+    },
     TTL.MEDIUM,
   );
 }
@@ -707,7 +753,7 @@ export async function fetchMediaTracks(item: MediaItemType): Promise<Track[]> {
       return await getPlaylistTracks(item.uuid);
     }
     case "mix": {
-      return await getMixItems(item.mixId);
+      return (await getMixItems(item.mixId)).tracks;
     }
     case "artist": {
       return await getArtistTopTracks(item.id);
@@ -749,23 +795,12 @@ export async function getTrackCredits(trackId: number): Promise<Credit[]> {
   );
 }
 
-export async function getTrackRadio(
-  trackId: number,
-  limit: number = 20,
-): Promise<Track[]> {
-  return cached(
-    `track-radio:${trackId}:${limit}`,
-    ["track-radio"],
-    async () => {
-      try {
-        return await invoke<Track[]>("get_track_radio", { trackId, limit });
-      } catch (error: any) {
-        console.error("Failed to get track radio:", error);
-        throw error;
-      }
-    },
-    TTL.MEDIUM,
-  );
+export async function getPlaylistDetails(playlistId: string): Promise<Playlist> {
+  return invoke<Playlist>("get_playlist_details", { playlistId });
+}
+
+export async function getTrack(trackId: number): Promise<Track> {
+  return invoke<Track>("get_track", { trackId });
 }
 
 // ==================== Favorites (parameterised by userId) ====================
@@ -798,15 +833,19 @@ export async function getFavoriteArtists(
   userId: number,
   offset: number = 0,
   limit: number = 20,
+  order: string = "DATE",
+  orderDirection: string = "DESC",
 ): Promise<Paginated<ArtistDetail>> {
   return cached(
-    `fav-artists:${userId}:${offset}:${limit}`,
+    `fav-artists:${userId}:${offset}:${limit}:${order}:${orderDirection}`,
     ["fav-artists"],
     () =>
       invoke<Paginated<ArtistDetail>>("get_favorite_artists", {
         userId,
         offset,
         limit,
+        order,
+        orderDirection,
       }),
     TTL.MEDIUM,
   );
@@ -816,15 +855,19 @@ export async function getFavoriteAlbums(
   userId: number,
   offset: number = 0,
   limit: number = 50,
+  order: string = "DATE",
+  orderDirection: string = "DESC",
 ): Promise<Paginated<AlbumDetail>> {
   return cached(
-    `fav-albums:${userId}:${offset}:${limit}`,
+    `fav-albums:${userId}:${offset}:${limit}:${order}:${orderDirection}`,
     ["fav-albums"],
     () =>
       invoke<Paginated<AlbumDetail>>("get_favorite_albums", {
         userId,
         offset,
         limit,
+        order,
+        orderDirection,
       }),
     TTL.MEDIUM,
   );
@@ -833,52 +876,123 @@ export async function getFavoriteAlbums(
 export async function getFavoriteMixes(
   offset: number = 0,
   limit: number = 20,
+  order: string = "DATE",
+  orderDirection: string = "DESC",
 ): Promise<Paginated<FavoriteMix>> {
   return cached(
-    `fav-mixes:${offset}:${limit}`,
+    `fav-mixes:${offset}:${limit}:${order}:${orderDirection}`,
     ["fav-mixes"],
     () =>
-      invoke<Paginated<FavoriteMix>>("get_favorite_mixes", { offset, limit }),
-    TTL.MEDIUM,
-  );
-}
-
-// ==================== Playlists (paginated) ====================
-
-export async function getUserPlaylists(
-  userId: number,
-  offset: number = 0,
-  limit: number = 20,
-): Promise<Paginated<Playlist>> {
-  return cached(
-    `user-playlists:${userId}:${offset}:${limit}`,
-    ["user-playlists"],
-    () =>
-      invoke<Paginated<Playlist>>("get_user_playlists", {
-        userId,
+      invoke<Paginated<FavoriteMix>>("get_favorite_mixes", {
         offset,
         limit,
+        order,
+        orderDirection,
       }),
     TTL.MEDIUM,
   );
 }
 
-export async function getFavoritePlaylists(
-  userId: number,
+// ==================== Playlist Folders ====================
+
+export async function getPlaylistFolders(
+  folderId: string = "root",
   offset: number = 0,
-  limit: number = 20,
-): Promise<Paginated<Playlist>> {
-  return cached(
-    `fav-playlists:${userId}:${offset}:${limit}`,
-    ["fav-playlists"],
-    () =>
-      invoke<Paginated<Playlist>>("get_favorite_playlists", {
-        userId,
-        offset,
-        limit,
-      }),
-    TTL.MEDIUM,
-  );
+  limit: number = 50,
+  order: string = "DATE_UPDATED",
+  orderDirection: string = "DESC",
+  includeOnly?: string,
+  cursor?: string,
+): Promise<PlaylistFoldersResponse> {
+  return invoke<PlaylistFoldersResponse>("get_playlist_folders", {
+    folderId,
+    includeOnly: includeOnly ?? "",
+    offset,
+    limit,
+    order,
+    orderDirection,
+    cursor: cursor ?? "",
+  });
+}
+
+function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
+  if (item.itemType === "FOLDER") {
+    // totalNumberOfItems lives inside item.data for FOLDER items
+    const folderData = item.data as unknown as Record<string, unknown>;
+    return {
+      kind: "folder",
+      data: {
+        id: item.trn.replace("trn:folder:", ""),
+        name: item.name,
+        parent: item.parent,
+        addedAt: item.addedAt,
+        lastModifiedAt: item.lastModifiedAt,
+        totalNumberOfItems: typeof folderData.totalNumberOfItems === "number"
+          ? folderData.totalNumberOfItems
+          : undefined,
+      },
+    };
+  }
+  const d = item.data;
+  return {
+    kind: "playlist",
+    data: {
+      uuid: d.uuid,
+      title: d.title,
+      description: d.description,
+      image: d.squareImage || d.image,
+      squareImage: d.squareImage,
+      numberOfTracks: d.numberOfTracks,
+      creator: { id: d.creator.id, name: d.creator.name ?? undefined },
+      playlistType: d.type,
+      duration: d.duration,
+      lastUpdated: d.lastUpdated,
+      sharingLevel: d.sharingLevel,
+      addedAt: item.addedAt,
+    },
+  };
+}
+
+export function normalizePlaylistFolders(
+  response: PlaylistFoldersResponse,
+): { items: PlaylistOrFolder[]; totalNumberOfItems: number; cursor: string | null } {
+  return {
+    items: response.items.map(normalizeFolderItem),
+    totalNumberOfItems: response.totalNumberOfItems,
+    cursor: response.cursor,
+  };
+}
+
+export function getItemKey(item: PlaylistOrFolder): string {
+  return item.kind === "playlist" ? item.data.uuid : item.data.id;
+}
+
+export async function createPlaylistFolder(
+  folderId: string,
+  name: string,
+  trns: string = "",
+): Promise<any> {
+  return invoke("create_playlist_folder", { folderId, name, trns });
+}
+
+export async function renamePlaylistFolder(
+  folderTrn: string,
+  name: string,
+): Promise<void> {
+  return invoke("rename_playlist_folder", { folderTrn, name });
+}
+
+export async function deletePlaylistFolder(
+  folderTrn: string,
+): Promise<void> {
+  return invoke("delete_playlist_folder", { folderTrn });
+}
+
+export async function movePlaylistToFolder(
+  folderId: string,
+  playlistTrn: string,
+): Promise<void> {
+  return invoke("move_playlist_to_folder", { folderId, playlistTrn });
 }
 
 // ==================== Unified favorite IDs (one-shot init) ====================

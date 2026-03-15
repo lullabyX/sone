@@ -109,7 +109,7 @@ function Toaster({
           {/* Dismiss */}
           <button
             onClick={() => onDismiss(toast.id)}
-            className="shrink-0 p-0.5 text-th-text-faint hover:text-white transition-colors rounded"
+            className="shrink-0 p-0.5 text-th-text-faint hover:text-th-text-primary transition-colors rounded"
           >
             <X size={14} />
           </button>

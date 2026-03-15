@@ -1,7 +1,9 @@
 import { Plus, Search, X, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSetAtom } from "jotai";
 import { useToast } from "../contexts/ToastContext";
 import { usePlaylists } from "../hooks/usePlaylists";
+import { addedToFolderAtom } from "../atoms/playlists";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { type Playlist, getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
@@ -118,11 +120,11 @@ export function CreatePlaylistModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
-          <h2 className="text-[18px] font-semibold text-white">
+          <h2 className="text-[18px] font-semibold text-th-text-primary">
             Create playlist
           </h2>
           <button
-            className="p-1 text-th-text-muted hover:text-white rounded-full transition-colors"
+            className="p-1 text-th-text-muted hover:text-th-text-primary rounded-full transition-colors"
             onClick={onClose}
           >
             <X size={20} />
@@ -140,7 +142,7 @@ export function CreatePlaylistModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={saving}
-              className="w-full bg-transparent text-white text-[15px] px-4 py-3.5 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint transition-colors"
+              className="w-full bg-transparent text-th-text-primary text-[15px] px-4 py-3.5 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint transition-colors"
             />
           </div>
 
@@ -155,7 +157,7 @@ export function CreatePlaylistModal({
               }}
               disabled={saving}
               rows={4}
-              className="w-full bg-transparent text-white text-[14px] px-4 py-3 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint resize-none transition-colors"
+              className="w-full bg-transparent text-th-text-primary text-[14px] px-4 py-3 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint resize-none transition-colors"
             />
             <div className="text-right mt-1">
               <span className="text-[12px] text-th-text-faint">
@@ -193,6 +195,7 @@ export default function AddToPlaylistMenu({
 }: AddToPlaylistMenuProps) {
   const { userPlaylists, addTracksToPlaylist } = usePlaylists();
   const { showToast } = useToast();
+  const setAddedToFolder = useSetAtom(addedToFolderAtom);
 
   const [showAll, setShowAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -290,11 +293,11 @@ export default function AddToPlaylistMenu({
 
     return (
       <button
-        className="w-full flex items-center justify-between px-5 py-3 hover:bg-white/[0.04] transition-colors text-left group/row"
+        className="w-full flex items-center justify-between px-5 py-3 hover:bg-th-hl-faint transition-colors text-left group/row"
         onClick={() => handleAddToPlaylist(playlist)}
         disabled={isAdding || isAdded}
       >
-        <span className="text-[14px] text-th-text-secondary truncate pr-3 group-hover/row:text-white transition-colors">
+        <span className="text-[14px] text-th-text-secondary truncate pr-3 group-hover/row:text-th-text-primary transition-colors">
           {playlist.title}
         </span>
         <div className="shrink-0 w-5 flex items-center justify-center">
@@ -307,7 +310,7 @@ export default function AddToPlaylistMenu({
           ) : (
             <Plus
               size={18}
-              className="text-th-text-faint group-hover/row:text-white transition-colors"
+              className="text-th-text-faint group-hover/row:text-th-text-primary transition-colors"
             />
           )}
         </div>
@@ -322,7 +325,7 @@ export default function AddToPlaylistMenu({
 
     return (
       <button
-        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left group/row"
+        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left group/row"
         onClick={() => handleAddToPlaylist(playlist)}
         disabled={isAdding || isAdded}
       >
@@ -338,7 +341,7 @@ export default function AddToPlaylistMenu({
 
         {/* Title + track count */}
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[14px] text-th-text-secondary truncate group-hover/row:text-white transition-colors leading-snug">
+          <span className="text-[14px] text-th-text-secondary truncate group-hover/row:text-th-text-primary transition-colors leading-snug">
             {playlist.title}
           </span>
           <span className="text-[12px] text-th-text-faint leading-snug">
@@ -359,7 +362,7 @@ export default function AddToPlaylistMenu({
           ) : (
             <Plus
               size={18}
-              className="text-th-text-faint group-hover/row:text-white transition-colors"
+              className="text-th-text-faint group-hover/row:text-th-text-primary transition-colors"
             />
           )}
         </div>
@@ -394,11 +397,11 @@ export default function AddToPlaylistMenu({
                   placeholder="Find a playlist"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-th-inset text-white text-[13px] pl-9 pr-8 py-2 rounded-md focus:outline-none placeholder-th-text-disabled"
+                  className="w-full bg-th-inset text-th-text-primary text-[13px] pl-9 pr-8 py-2 rounded-md focus:outline-none placeholder-th-text-disabled"
                 />
                 {searchQuery && (
                   <button
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-th-text-faint hover:text-white"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-th-text-faint hover:text-th-text-primary"
                     onClick={() => setSearchQuery("")}
                   >
                     <X size={14} />
@@ -409,7 +412,7 @@ export default function AddToPlaylistMenu({
 
             {/* Back link */}
             <button
-              className="px-5 py-2 text-[12px] text-white hover:text-th-accent text-left transition-colors"
+              className="px-5 py-2 text-[12px] text-th-text-primary hover:text-th-accent text-left transition-colors"
               onClick={() => {
                 setShowAll(false);
                 setSearchQuery("");
@@ -436,23 +439,23 @@ export default function AddToPlaylistMenu({
           <>
             {/* Create new playlist */}
             <button
-              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-white/[0.04] transition-colors"
+              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-th-hl-faint transition-colors"
               onClick={() => setShowCreateModal(true)}
             >
               <div className="w-8 h-8 rounded-full bg-th-inset flex items-center justify-center shrink-0">
-                <Plus size={18} className="text-white" />
+                <Plus size={18} className="text-th-text-primary" />
               </div>
-              <span className="text-[15px] text-white font-medium">
+              <span className="text-[15px] text-th-text-primary font-medium">
                 Create new playlist
               </span>
             </button>
 
             {/* Show all playlists */}
             <button
-              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/[0.04] transition-colors"
+              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-th-hl-faint transition-colors"
               onClick={() => setShowAll(true)}
             >
-              <span className="text-[14px] text-th-text-muted hover:text-white transition-colors">
+              <span className="text-[14px] text-th-text-muted hover:text-th-text-primary transition-colors">
                 Show all playlists
               </span>
             </button>
@@ -501,7 +504,16 @@ export default function AddToPlaylistMenu({
         <CreatePlaylistModal
           trackIds={trackIds}
           onClose={() => setShowCreateModal(false)}
-          onCreated={() => {
+          onCreated={(playlist) => {
+            setAddedToFolder((prev) => {
+              const next = new Map(prev);
+              const list = next.get("root") ?? [];
+              next.set("root", [...list, {
+                kind: "playlist" as const,
+                data: { ...playlist, numberOfTracks: trackIds.length },
+              }]);
+              return next;
+            });
             setShowCreateModal(false);
             onClose();
           }}
