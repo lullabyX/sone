@@ -1322,13 +1322,12 @@ impl AudioPlayer {
                                 if let Some(bus) = pipeline.bus() {
                                     bus.set_flushing(true);
                                 }
-                                pipeline
-                                    .set_state(gst::State::Null)
-                                    .map(|_| {
-                                        eos.store(false, Ordering::SeqCst);
-                                        has_uri.store(false, Ordering::SeqCst);
-                                    })
-                                    .map_err(|e| format!("Failed to stop: {e}"))
+                                eos.store(false, Ordering::SeqCst);
+                                has_uri.store(false, Ordering::SeqCst);
+                                std::thread::spawn(move || {
+                                    pipeline.set_state(gst::State::Null).ok();
+                                });
+                                Ok(())
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 // Bump generation so writer discards stale data,
