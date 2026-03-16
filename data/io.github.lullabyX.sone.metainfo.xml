@@ -24,7 +24,10 @@
       <li>Volume normalization (ReplayGain) with automatic album/track switching</li>
       <li>Scrobble to Last.fm, Libre.fm, and ListenBrainz with ISRC and MusicBrainz metadata</li>
       <li>Synced lyrics display</li>
-      <li>Full-screen player with album art, lyrics option and auto-hiding controls</li>
+      <li>Miniplayer — compact floating window with playback controls and resizable-adaptive layout</li>
+      <li>Full-screen player with album art, lyrics, and auto-hiding controls</li>
+      <li>Discord Rich Presence — show what you're listening to</li>
+      <li>Share and open tidal:// deep links for tracks, albums, playlists, artists, and mixes</li>
       <li>Custom themes with full color picker</li>
       <li>Queue persistence across restarts</li>
       <li>MPRIS media controls and system tray</li>
