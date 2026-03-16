@@ -8,6 +8,7 @@ import { useContextMenu } from "../hooks/useContextMenu";
 import { type Playlist, getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
 import MenuPortal from "./MenuPortal";
+import Toggle from "./Toggle";
 
 // ─── Public API ────────────────────────────────────────────────
 
@@ -39,22 +40,6 @@ function pushRecentPlaylistId(playlistId: string) {
     localStorage.setItem(RECENT_PLAYLISTS_KEY, JSON.stringify(ids));
   } catch {}
 }
-
-// ─── Toggle ────────────────────────────────────────────────────
-
-const Toggle = ({ on }: { on: boolean }) => (
-  <div
-    className={`w-8 h-[18px] rounded-full transition-colors shrink-0 ${
-      on ? "bg-th-accent" : "bg-th-border-subtle"
-    }`}
-  >
-    <div
-      className={`w-3.5 h-3.5 rounded-full bg-th-text-primary mt-[2px] transition-transform ${
-        on ? "translate-x-[16px]" : "translate-x-[2px]"
-      }`}
-    />
-  </div>
-);
 
 // ─── Create-playlist modal ─────────────────────────────────────
 
@@ -185,8 +170,8 @@ export function CreatePlaylistModal({
           </div>
 
           {/* Make it public */}
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between py-1">
+            <div className="min-w-0">
               <p className="text-[13px] font-semibold text-th-text-primary">
                 Make it public
               </p>
@@ -198,7 +183,6 @@ export function CreatePlaylistModal({
               type="button"
               onClick={() => setIsPublic(!isPublic)}
               disabled={saving}
-              className="ml-4 shrink-0"
             >
               <Toggle on={isPublic} />
             </button>
@@ -335,8 +319,8 @@ export function EditPlaylistModal({
           </div>
 
           {/* Make it public */}
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between py-1">
+            <div className="min-w-0">
               <p className="text-[13px] font-semibold text-th-text-primary">
                 Make it public
               </p>
@@ -348,7 +332,6 @@ export function EditPlaylistModal({
               type="button"
               onClick={() => setIsPublic(!isPublic)}
               disabled={saving}
-              className="ml-4 shrink-0"
             >
               <Toggle on={isPublic} />
             </button>

@@ -38,7 +38,7 @@ import {
   mixSortAtom,
   playlistSortAtom,
 } from "../atoms/favorites";
-import { deletedFolderIdsAtom, deletedPlaylistIdsAtom, movedPlaylistsAtom, folderCountAdjustmentsAtom, addedToFolderAtom, renamedFoldersAtom } from "../atoms/playlists";
+import { deletedFolderIdsAtom, deletedPlaylistIdsAtom, movedPlaylistsAtom, folderCountAdjustmentsAtom, addedToFolderAtom, renamedFoldersAtom, updatedPlaylistsAtom } from "../atoms/playlists";
 import { sidebarCollapsedAtom } from "../atoms/ui";
 
 export default function Sidebar() {
@@ -110,6 +110,7 @@ export default function Sidebar() {
   const addedToFolder = useAtomValue(addedToFolderAtom);
   const setAddedToFolder = useSetAtom(addedToFolderAtom);
   const renamedFolders = useAtomValue(renamedFoldersAtom);
+  const updatedPlaylists = useAtomValue(updatedPlaylistsAtom);
 
   const visiblePlaylistItems = useMemo(() => {
     const filtered = allPlaylistItems.filter((entry) => {
@@ -540,7 +541,10 @@ export default function Sidebar() {
                     );
                   }
 
-                  const playlist = entry.data;
+                  const playlistUpdate = updatedPlaylists.get(entry.data.uuid);
+                  const playlist = playlistUpdate
+                    ? { ...entry.data, title: playlistUpdate.title }
+                    : entry.data;
                   const own = isOwnPlaylist(playlist);
                   const trackCount = playlist.numberOfTracks;
                   const creatorLabel = own ? "You" : getCreatorName(playlist);

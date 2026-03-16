@@ -15,20 +15,7 @@ import { autoplayAtom, bitPerfectAtom } from "../atoms/playback";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import { useToast } from "../contexts/ToastContext";
 import { clearAllCache } from "../api/tidal";
-
-const Toggle = ({ on }: { on: boolean }) => (
-  <div
-    className={`w-8 h-[18px] rounded-full transition-colors shrink-0 ${
-      on ? "bg-th-accent" : "bg-th-border-subtle"
-    }`}
-  >
-    <div
-      className={`w-3.5 h-3.5 rounded-full bg-th-text-primary mt-[2px] transition-transform ${
-        on ? "translate-x-[16px]" : "translate-x-[2px]"
-      }`}
-    />
-  </div>
-);
+import Toggle from "./Toggle";
 
 interface SettingsModalProps {
   open: boolean;

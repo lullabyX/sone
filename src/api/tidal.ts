@@ -796,7 +796,12 @@ export async function getTrackCredits(trackId: number): Promise<Credit[]> {
 }
 
 export async function getPlaylistDetails(playlistId: string): Promise<Playlist> {
-  return invoke<Playlist>("get_playlist_details", { playlistId });
+  const raw = await invoke<Playlist & { publicPlaylist?: boolean }>("get_playlist_details", { playlistId });
+  // v1 API returns publicPlaylist (bool), map to accessType
+  if (raw.accessType === undefined && raw.publicPlaylist !== undefined) {
+    raw.accessType = raw.publicPlaylist ? "PUBLIC" : "UNLISTED";
+  }
+  return raw;
 }
 
 export async function getTrack(trackId: number): Promise<Track> {
@@ -934,6 +939,9 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
     };
   }
   const d = item.data;
+  // v1 folder API may include publicPlaylist (bool) — map to accessType
+  const rawData = d as unknown as Record<string, unknown>;
+  const publicPlaylist = rawData.publicPlaylist;
   return {
     kind: "playlist",
     data: {
@@ -949,6 +957,9 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
       lastUpdated: d.lastUpdated,
       sharingLevel: d.sharingLevel,
       addedAt: item.addedAt,
+      accessType: typeof publicPlaylist === "boolean"
+        ? (publicPlaylist ? "PUBLIC" : "UNLISTED")
+        : undefined,
     },
   };
 }

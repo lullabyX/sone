@@ -91,7 +91,10 @@ export default function PlaylistView({
       .catch(() => {});
   }, [playlistId, playlistInfo]);
 
-  const effectiveInfo = playlistInfo || fetchedInfo;
+  // fetchedInfo takes priority when set (e.g. after editing), otherwise use navigation prop
+  const effectiveInfo = fetchedInfo
+    ? { ...playlistInfo, ...fetchedInfo }
+    : playlistInfo;
 
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
@@ -106,7 +109,7 @@ export default function PlaylistView({
   const [recPageIndex, setRecPageIndex] = useState(0);
   const [recApiOffset, setRecApiOffset] = useState(0);
   const [loadingRecs, setLoadingRecs] = useState(false);
-  const { addTrackToPlaylist } = usePlaylists();
+  const { userPlaylists, addTrackToPlaylist } = usePlaylists();
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -741,17 +744,17 @@ export default function PlaylistView({
             uuid: playlistId,
             title: displayTitle,
             description: effectiveInfo.description,
-            accessType: undefined,
+            accessType: userPlaylists.find((p) => p.uuid === playlistId)?.accessType,
           }}
           onClose={() => setShowEditModal(false)}
           onUpdated={(updated) => {
             setShowEditModal(false);
-            setFetchedInfo((prev) => ({
-              ...prev,
+            setFetchedInfo({
+              ...playlistInfo,
               title: updated.title,
               description: updated.description,
               isUserPlaylist: true,
-            }));
+            });
           }}
         />
       )}

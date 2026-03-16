@@ -23,6 +23,7 @@ import { useToast } from "../contexts/ToastContext";
 import ThemeEditor from "./ThemeEditor";
 import SettingsModal from "./SettingsModal";
 import ScrobbleModal from "./ScrobbleModal";
+import Toggle from "./Toggle";
 
 const SHORTCUTS = [
   { keys: "Space", desc: "Play / Pause" },
@@ -107,21 +108,6 @@ export default function UserMenu() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [open]);
-
-  // Reusable toggle for dropdown items
-  const Toggle = ({ on }: { on: boolean }) => (
-    <div
-      className={`w-8 h-[18px] rounded-full transition-colors ${
-        on ? "bg-th-accent" : "bg-th-border-subtle"
-      }`}
-    >
-      <div
-        className={`w-3.5 h-3.5 rounded-full bg-th-text-primary mt-[2px] transition-transform ${
-          on ? "translate-x-[16px]" : "translate-x-[2px]"
-        }`}
-      />
-    </div>
-  );
 
   const menuItemClass =
     "w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle transition-colors";

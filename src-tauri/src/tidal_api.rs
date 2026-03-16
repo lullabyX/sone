@@ -420,7 +420,9 @@ impl From<TidalPlaylistRaw> for TidalPlaylist {
             playlist_type: raw.playlist_type,
             duration: raw.duration,
             last_updated: raw.last_updated,
-            access_type: None,
+            access_type: raw.public_playlist.map(|p| {
+                if p { "PUBLIC".to_string() } else { "UNLISTED".to_string() }
+            }),
         }
     }
 }
@@ -1347,13 +1349,21 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         let body = serde_json::json!({
-            "type": "playlists",
-            "attributes": {
-                "name": title,
-                "description": description,
-                "accessType": access_type
+            "data": {
+                "type": "playlists",
+                "attributes": {
+                    "name": title,
+                    "description": description,
+                    "accessType": access_type
+                }
             }
         });
+
+        log::debug!(
+            "[create_playlist]: url={}/playlists, body={}",
+            TIDAL_OPENAPI_URL,
+            body
+        );
 
         let response = self
             .client
@@ -1366,6 +1376,12 @@ impl TidalClient {
 
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[create_playlist]: status={}, response={}",
+            status,
+            &body_text[..body_text.len().min(500)]
+        );
 
         if !status.is_success() {
             return Err(SoneError::Api {
@@ -1390,19 +1406,29 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         let body = serde_json::json!({
-            "id": playlist_id,
-            "type": "playlists",
-            "attributes": {
-                "name": title,
-                "description": description,
-                "accessType": access_type
+            "data": {
+                "id": playlist_id,
+                "type": "playlists",
+                "attributes": {
+                    "name": title,
+                    "description": description,
+                    "accessType": access_type
+                }
             }
         });
+
+        log::debug!(
+            "[update_playlist]: url={}/playlists/{}, body={}",
+            TIDAL_OPENAPI_URL,
+            playlist_id,
+            body
+        );
 
         let response = self
             .client
             .patch(format!("{}/playlists/{}", TIDAL_OPENAPI_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/vnd.api+json")
             .query(&[("countryCode", self.country_code.as_str())])
             .json(&body)
             .send()
@@ -1411,10 +1437,32 @@ impl TidalClient {
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
 
+        log::debug!(
+            "[update_playlist]: status={}, response={}",
+            status,
+            &body_text[..body_text.len().min(500)]
+        );
+
         if !status.is_success() {
             return Err(SoneError::Api {
                 status: status.as_u16(),
                 body: body_text,
+            });
+        }
+
+        // 204 No Content — update succeeded but no body returned
+        if body_text.is_empty() {
+            return Ok(TidalPlaylist {
+                uuid: playlist_id.to_string(),
+                title: title.to_string(),
+                description: Some(description.to_string()),
+                image: None,
+                number_of_tracks: None,
+                creator: None,
+                playlist_type: Some("USER".to_string()),
+                duration: None,
+                last_updated: None,
+                access_type: Some(access_type.to_string()),
             });
         }
 

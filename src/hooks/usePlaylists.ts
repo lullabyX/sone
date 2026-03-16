@@ -5,6 +5,7 @@ import {
   userPlaylistsAtom,
   deletedPlaylistIdsAtom,
   addedToFolderAtom,
+  updatedPlaylistsAtom,
 } from "../atoms/playlists";
 import { authTokensAtom } from "../atoms/auth";
 import { invalidateCache, getPlaylistFolders, normalizePlaylistFolders } from "../api/tidal";
@@ -14,6 +15,7 @@ export function usePlaylists() {
   const [userPlaylists, setUserPlaylists] = useAtom(userPlaylistsAtom);
   const setDeletedPlaylistIds = useSetAtom(deletedPlaylistIdsAtom);
   const setAddedToFolder = useSetAtom(addedToFolderAtom);
+  const setUpdatedPlaylists = useSetAtom(updatedPlaylistsAtom);
   const authTokens = useAtomValue(authTokensAtom);
 
   const createPlaylist = useCallback(
@@ -45,9 +47,23 @@ export function usePlaylists() {
           description,
           accessType,
         });
+        // Merge only defined fields from the response to avoid overwriting
+        // existing data (image, numberOfTracks) with undefined from 204 response
+        const merged = { ...updated };
+        Object.keys(merged).forEach((k) => {
+          if ((merged as any)[k] === undefined || (merged as any)[k] === null) {
+            delete (merged as any)[k];
+          }
+        });
         setUserPlaylists((prev) =>
-          prev.map((p) => (p.uuid === playlistId ? { ...p, ...updated } : p)),
+          prev.map((p) => (p.uuid === playlistId ? { ...p, ...merged } : p)),
         );
+        // Update optimistic sidebar atom so infinite-scroll items reflect the change
+        setUpdatedPlaylists((prev) => {
+          const next = new Map(prev);
+          next.set(playlistId, { title, description });
+          return next;
+        });
         invalidateCache("user-playlists");
         return updated;
       } catch (error: any) {
@@ -55,7 +71,7 @@ export function usePlaylists() {
         throw error;
       }
     },
-    [setUserPlaylists],
+    [setUserPlaylists, setUpdatedPlaylists],
   );
 
   // Background re-fetch user playlists to pick up server-side changes (image, exact count)
