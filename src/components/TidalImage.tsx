@@ -160,7 +160,10 @@ function TidalImageComponent({
           isLoading ? "opacity-0" : "opacity-100"
         } transition-opacity`}
         onError={() => setHasError(true)}
-        onLoad={() => { setIsLoading(false); onLoad?.(); }}
+        onLoad={() => {
+          setIsLoading(false);
+          onLoad?.();
+        }}
       />
     </div>
   );

@@ -24,7 +24,13 @@ import {
   removeArtistFromFollowedCache,
   invalidateCache,
 } from "../api/tidal";
-import type { Track, AlbumDetail, Playlist, ArtistDetail, FavoriteMix } from "../types";
+import type {
+  Track,
+  AlbumDetail,
+  Playlist,
+  ArtistDetail,
+  FavoriteMix,
+} from "../types";
 
 export function useFavorites() {
   const [favoriteTrackIds, setFavoriteTrackIds] = useAtom(favoriteTrackIdsAtom);

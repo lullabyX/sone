@@ -117,79 +117,79 @@ export default function CardScrollSection({
       </div>
 
       <div className="card-scroll">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="card-scroll-track pb-2"
-      >
-        {section.items.map((item: any) => {
-          let isFavorited: boolean | undefined;
-          let onFavoriteToggle: ((e: React.MouseEvent) => void) | undefined;
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="card-scroll-track pb-2"
+        >
+          {section.items.map((item: any) => {
+            let isFavorited: boolean | undefined;
+            let onFavoriteToggle: ((e: React.MouseEvent) => void) | undefined;
 
-          if (sectionType === "ALBUM_LIST" && item.id) {
-            isFavorited = favoriteAlbumIds.has(item.id);
-            onFavoriteToggle = (e) => {
-              e.stopPropagation();
-              if (favoriteAlbumIds.has(item.id)) removeFavoriteAlbum(item.id);
-              else addFavoriteAlbum(item.id, item);
-            };
-          } else if (sectionType === "ARTIST_LIST" && item.id) {
-            isFavorited = followedArtistIds.has(item.id);
-            onFavoriteToggle = (e) => {
-              e.stopPropagation();
-              if (followedArtistIds.has(item.id)) unfollowArtist(item.id);
-              else
-                followArtist(item.id, {
-                  id: item.id,
-                  name: item.name,
-                  picture: item.picture,
-                });
-            };
-          } else if (sectionType === "PLAYLIST_LIST" && item.uuid) {
-            isFavorited = favoritePlaylistUuids.has(item.uuid);
-            onFavoriteToggle = (e) => {
-              e.stopPropagation();
-              if (favoritePlaylistUuids.has(item.uuid))
-                removeFavoritePlaylist(item.uuid);
-              else addFavoritePlaylist(item.uuid, item);
-            };
-          } else if (sectionType === "MIX_LIST") {
-            const mixId = item.mixId || item.id?.toString();
-            if (mixId) {
-              isFavorited = favoriteMixIds.has(mixId);
+            if (sectionType === "ALBUM_LIST" && item.id) {
+              isFavorited = favoriteAlbumIds.has(item.id);
               onFavoriteToggle = (e) => {
                 e.stopPropagation();
-                if (favoriteMixIds.has(mixId)) removeFavoriteMix(mixId);
-                else addFavoriteMix(mixId);
+                if (favoriteAlbumIds.has(item.id)) removeFavoriteAlbum(item.id);
+                else addFavoriteAlbum(item.id, item);
               };
-            }
-          }
-
-          const mediaItem = buildMediaItem(item, sectionType);
-
-          return (
-            <MediaCard
-              key={getItemId(item)}
-              item={item}
-              onClick={() => onCardClick(item, sectionType)}
-              onContextMenu={(e) => onContextMenu(e, item, sectionType)}
-              onPlay={
-                mediaItem
-                  ? (e) => {
-                      e.stopPropagation();
-                      playMedia(mediaItem);
-                    }
-                  : undefined
+            } else if (sectionType === "ARTIST_LIST" && item.id) {
+              isFavorited = followedArtistIds.has(item.id);
+              onFavoriteToggle = (e) => {
+                e.stopPropagation();
+                if (followedArtistIds.has(item.id)) unfollowArtist(item.id);
+                else
+                  followArtist(item.id, {
+                    id: item.id,
+                    name: item.name,
+                    picture: item.picture,
+                  });
+              };
+            } else if (sectionType === "PLAYLIST_LIST" && item.uuid) {
+              isFavorited = favoritePlaylistUuids.has(item.uuid);
+              onFavoriteToggle = (e) => {
+                e.stopPropagation();
+                if (favoritePlaylistUuids.has(item.uuid))
+                  removeFavoritePlaylist(item.uuid);
+                else addFavoritePlaylist(item.uuid, item);
+              };
+            } else if (sectionType === "MIX_LIST") {
+              const mixId = item.mixId || item.id?.toString();
+              if (mixId) {
+                isFavorited = favoriteMixIds.has(mixId);
+                onFavoriteToggle = (e) => {
+                  e.stopPropagation();
+                  if (favoriteMixIds.has(mixId)) removeFavoriteMix(mixId);
+                  else addFavoriteMix(mixId);
+                };
               }
-              isArtist={isArtistSection}
-              showPlayButton
-              isFavorited={isFavorited}
-              onFavoriteToggle={onFavoriteToggle}
-              widthClass="card-scroll-item"
-            />
-          );
-        })}
-      </div>
+            }
+
+            const mediaItem = buildMediaItem(item, sectionType);
+
+            return (
+              <MediaCard
+                key={getItemId(item)}
+                item={item}
+                onClick={() => onCardClick(item, sectionType)}
+                onContextMenu={(e) => onContextMenu(e, item, sectionType)}
+                onPlay={
+                  mediaItem
+                    ? (e) => {
+                        e.stopPropagation();
+                        playMedia(mediaItem);
+                      }
+                    : undefined
+                }
+                isArtist={isArtistSection}
+                showPlayButton
+                isFavorited={isFavorited}
+                onFavoriteToggle={onFavoriteToggle}
+                widthClass="card-scroll-item"
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );

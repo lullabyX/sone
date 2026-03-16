@@ -7,7 +7,11 @@ import {
   addedToFolderAtom,
 } from "../atoms/playlists";
 import { authTokensAtom } from "../atoms/auth";
-import { invalidateCache, getPlaylistFolders, normalizePlaylistFolders } from "../api/tidal";
+import {
+  invalidateCache,
+  getPlaylistFolders,
+  normalizePlaylistFolders,
+} from "../api/tidal";
 import type { Playlist, PlaylistOrFolder } from "../types";
 
 export function usePlaylists() {
@@ -42,7 +46,10 @@ export function usePlaylists() {
       .then((res) => {
         const normalized = normalizePlaylistFolders(res);
         const freshPlaylists = normalized.items
-          .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+          .filter(
+            (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+              i.kind === "playlist",
+          )
           .map((i) => i.data);
         if (!freshPlaylists.length) return;
         setUserPlaylists((prev) => {
@@ -60,7 +67,11 @@ export function usePlaylists() {
           const updated = rootList.map((entry) => {
             if (entry.kind !== "playlist") return entry;
             const fresh = freshMap.get(entry.data.uuid);
-            if (fresh && (fresh.image !== entry.data.image || fresh.numberOfTracks !== entry.data.numberOfTracks)) {
+            if (
+              fresh &&
+              (fresh.image !== entry.data.image ||
+                fresh.numberOfTracks !== entry.data.numberOfTracks)
+            ) {
               changed = true;
               return { ...entry, data: { ...entry.data, ...fresh } };
             }
@@ -134,9 +145,14 @@ export function usePlaylists() {
         removed = prev.find((p) => p.uuid === playlistId);
         return prev.filter((p) => p.uuid !== playlistId);
       });
-      setDeletedPlaylistIds((prev: Set<string>) => new Set(prev).add(playlistId));
+      setDeletedPlaylistIds((prev: Set<string>) =>
+        new Set(prev).add(playlistId),
+      );
       try {
-        await invoke("delete_playlist", { userId: authTokens.user_id, playlistId });
+        await invoke("delete_playlist", {
+          userId: authTokens.user_id,
+          playlistId,
+        });
         invalidateCache(`playlist:${playlistId}`);
         invalidateCache(`playlist-page:${playlistId}`);
         invalidateCache("user-playlists");

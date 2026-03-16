@@ -161,17 +161,17 @@ export default function ArtistTracksPage({
     return (
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto">
         <PageContainer>
-        <div className="px-8 pt-6 pb-4">
-          <div className="h-8 w-48 bg-th-surface-hover rounded animate-pulse mb-6" />
-        </div>
-        <div className="px-8 flex flex-col gap-1">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-14 bg-th-surface-hover/50 rounded animate-pulse"
-            />
-          ))}
-        </div>
+          <div className="px-8 pt-6 pb-4">
+            <div className="h-8 w-48 bg-th-surface-hover rounded animate-pulse mb-6" />
+          </div>
+          <div className="px-8 flex flex-col gap-1">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-14 bg-th-surface-hover/50 rounded animate-pulse"
+              />
+            ))}
+          </div>
         </PageContainer>
       </div>
     );
@@ -193,58 +193,58 @@ export default function ArtistTracksPage({
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
-      <div className="px-8 pt-6 pb-4">
-        <h1 className="text-[32px] font-extrabold text-th-text-primary leading-tight mb-1">
-          Popular tracks
-        </h1>
-        <p className="text-th-text-muted text-sm">{artistName}</p>
-      </div>
+        <div className="px-8 pt-6 pb-4">
+          <h1 className="text-[32px] font-extrabold text-th-text-primary leading-tight mb-1">
+            Popular tracks
+          </h1>
+          <p className="text-th-text-muted text-sm">{artistName}</p>
+        </div>
 
-      <div className="px-8 py-4 flex items-center gap-3">
-        <button
-          onClick={handlePlayAll}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
-        >
-          {allPlaying ? (
-            <Pause size={18} fill="black" className="text-black" />
+        <div className="px-8 py-4 flex items-center gap-3">
+          <button
+            onClick={handlePlayAll}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
+          >
+            {allPlaying ? (
+              <Pause size={18} fill="black" className="text-black" />
+            ) : (
+              <Play size={18} fill="black" className="text-black" />
+            )}
+            {allPlaying ? "Pause" : "Play"}
+          </button>
+          <button
+            onClick={handleShuffle}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          >
+            <Shuffle size={18} />
+            Shuffle
+          </button>
+        </div>
+
+        <div className="px-8 pb-8">
+          {tracks.length === 0 ? (
+            <div className="py-16 text-center">
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                No tracks available
+              </p>
+              <p className="text-th-text-muted text-sm">
+                This artist doesn't have any popular tracks yet.
+              </p>
+            </div>
           ) : (
-            <Play size={18} fill="black" className="text-black" />
+            <TrackList
+              tracks={tracks}
+              onPlay={handlePlayTrack}
+              showAlbum={true}
+              showArtist={true}
+              showCover={true}
+              showDateAdded={false}
+              onLoadMore={handleLoadMore}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+            />
           )}
-          {allPlaying ? "Pause" : "Play"}
-        </button>
-        <button
-          onClick={handleShuffle}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-        >
-          <Shuffle size={18} />
-          Shuffle
-        </button>
-      </div>
-
-      <div className="px-8 pb-8">
-        {tracks.length === 0 ? (
-          <div className="py-16 text-center">
-            <p className="text-th-text-primary font-semibold text-lg mb-2">
-              No tracks available
-            </p>
-            <p className="text-th-text-muted text-sm">
-              This artist doesn't have any popular tracks yet.
-            </p>
-          </div>
-        ) : (
-          <TrackList
-            tracks={tracks}
-            onPlay={handlePlayTrack}
-            showAlbum={true}
-            showArtist={true}
-            showCover={true}
-            showDateAdded={false}
-            onLoadMore={handleLoadMore}
-            hasMore={hasMore}
-            loadingMore={loadingMore}
-          />
-        )}
-      </div>
+        </div>
       </PageContainer>
     </div>
   );

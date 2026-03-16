@@ -109,7 +109,9 @@ export default function TrackContextMenu({
     if (!trackMixId) return;
     navigateToMix(trackMixId, {
       title: `${track.title} Radio`,
-      image: track.album?.cover ? getTidalImageUrl(track.album.cover, 640) : undefined,
+      image: track.album?.cover
+        ? getTidalImageUrl(track.album.cover, 640)
+        : undefined,
       subtitle: `Based on ${track.artist?.name ?? ""}`,
       mixType: "TRACK_MIX",
     });

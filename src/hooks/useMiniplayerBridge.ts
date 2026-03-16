@@ -18,31 +18,41 @@ export function useMiniplayerBridge() {
   });
 
   // Local position interpolation
-  const posAnchor = useRef({ position: 0, time: performance.now(), playing: false });
+  const posAnchor = useRef({
+    position: 0,
+    // eslint-disable-next-line react-hooks/purity
+    time: performance.now(),
+    playing: false,
+  });
   const seekUntil = useRef(0); // suppress incoming position updates until this timestamp
   const [displayPosition, setDisplayPosition] = useState(0);
 
   // Listen for state updates from main window
   useEffect(() => {
-    const unlisten = getCurrentWindow().listen<MiniplayerState>("miniplayer-state-update", (event) => {
-      const s = event.payload;
-      setState(s);
-      // Skip position update if we recently did an optimistic seek
-      if (performance.now() < seekUntil.current) {
-        posAnchor.current.playing = s.isPlaying;
-      } else {
-        posAnchor.current = {
-          position: s.position,
-          time: performance.now(),
-          playing: s.isPlaying,
-        };
-      }
-    });
+    const unlisten = getCurrentWindow().listen<MiniplayerState>(
+      "miniplayer-state-update",
+      (event) => {
+        const s = event.payload;
+        setState(s);
+        // Skip position update if we recently did an optimistic seek
+        if (performance.now() < seekUntil.current) {
+          posAnchor.current.playing = s.isPlaying;
+        } else {
+          posAnchor.current = {
+            position: s.position,
+            time: performance.now(),
+            playing: s.isPlaying,
+          };
+        }
+      },
+    );
 
     // Signal readiness — main window will respond with full state
     emitTo("main", "miniplayer-ready", {}).catch(() => {});
 
-    return () => { unlisten.then((fn) => fn()); };
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, []);
 
   // rAF loop for position interpolation
@@ -64,7 +74,9 @@ export function useMiniplayerBridge() {
 
   // Optimistic play/pause with revert timeout
   const optimisticPlayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [optimisticPlaying, setOptimisticPlaying] = useState<boolean | null>(null);
+  const [optimisticPlaying, setOptimisticPlaying] = useState<boolean | null>(
+    null,
+  );
 
   // Clear optimistic override when real state arrives
   useEffect(() => {
@@ -80,30 +92,27 @@ export function useMiniplayerBridge() {
   const optimisticRef = useRef(optimisticPlaying);
   optimisticRef.current = optimisticPlaying;
 
-  const sendCommand = useCallback(
-    (action: string, value?: number) => {
-      // Optimistic UI for toggle-play
-      if (action === "toggle-play") {
-        const newState = !(optimisticRef.current ?? isPlayingRef.current);
-        setOptimisticPlaying(newState);
-        optimisticPlayRef.current = setTimeout(() => {
-          setOptimisticPlaying(null);
-        }, 2000);
-      }
-      // Optimistic seek — update anchor + displayPosition immediately, suppress stale echoes for 500ms
-      if (action === "seek" && value !== undefined) {
-        posAnchor.current = {
-          position: value,
-          time: performance.now(),
-          playing: posAnchor.current.playing,
-        };
-        setDisplayPosition(value);
-        seekUntil.current = performance.now() + 500;
-      }
-      emitTo("main", "miniplayer-command", { action, value }).catch(() => {});
-    },
-    [],
-  );
+  const sendCommand = useCallback((action: string, value?: number) => {
+    // Optimistic UI for toggle-play
+    if (action === "toggle-play") {
+      const newState = !(optimisticRef.current ?? isPlayingRef.current);
+      setOptimisticPlaying(newState);
+      optimisticPlayRef.current = setTimeout(() => {
+        setOptimisticPlaying(null);
+      }, 2000);
+    }
+    // Optimistic seek — update anchor + displayPosition immediately, suppress stale echoes for 500ms
+    if (action === "seek" && value !== undefined) {
+      posAnchor.current = {
+        position: value,
+        time: performance.now(),
+        playing: posAnchor.current.playing,
+      };
+      setDisplayPosition(value);
+      seekUntil.current = performance.now() + 500;
+    }
+    emitTo("main", "miniplayer-command", { action, value }).catch(() => {});
+  }, []);
 
   // Debounced volume command
   const volumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

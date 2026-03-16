@@ -114,7 +114,9 @@ const FavoriteButton = memo(function FavoriteButton() {
     <button
       onClick={toggleLike}
       className={`ml-1 flex-shrink-0 transition-[color,transform] duration-200 active:scale-90 ${
-        isLiked ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+        isLiked
+          ? "text-th-accent"
+          : "text-th-text-faint hover:text-th-text-primary"
       }`}
     >
       <Heart
@@ -371,7 +373,11 @@ const TransportControls = memo(function TransportControls() {
           {isPlaying ? (
             <Pause size={17} fill="currentColor" className="text-th-base" />
           ) : (
-            <Play size={17} fill="currentColor" className="text-th-base ml-0.5" />
+            <Play
+              size={17}
+              fill="currentColor"
+              className="text-th-base ml-0.5"
+            />
           )}
         </button>
         <button
@@ -480,7 +486,9 @@ export default function PlayerBar() {
   const maximized = useAtomValue(maximizedPlayerAtom);
 
   return (
-    <div className={`player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none ${maximized ? "invisible" : ""}`}>
+    <div
+      className={`player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none ${maximized ? "invisible" : ""}`}
+    >
       {/* Left: Track Info */}
       <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
         <TrackInfoSection />

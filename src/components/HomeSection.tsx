@@ -225,114 +225,116 @@ export default function HomeSection({ section }: HomeSectionProps) {
 
       {/* Horizontal scroll row */}
       <div className="card-scroll">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="card-scroll-track pb-2"
-      >
-        {items.map((item: any) => {
-          const isArtist = isArtistItem(item, section.sectionType);
-          const isMix = isMixItem(item, section.sectionType);
-          const isTrack = isTrackItem(item, section.sectionType);
-          const isPlaylist = !isArtist && !isMix && !isTrack && !!item.uuid;
-          const isAlbum =
-            !isArtist && !isMix && !isTrack && !item.uuid && item.id;
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="card-scroll-track pb-2"
+        >
+          {items.map((item: any) => {
+            const isArtist = isArtistItem(item, section.sectionType);
+            const isMix = isMixItem(item, section.sectionType);
+            const isTrack = isTrackItem(item, section.sectionType);
+            const isPlaylist = !isArtist && !isMix && !isTrack && !!item.uuid;
+            const isAlbum =
+              !isArtist && !isMix && !isTrack && !item.uuid && item.id;
 
-          let isFavorited: boolean | undefined;
-          let onFavoriteToggle: ((e: React.MouseEvent) => void) | undefined;
+            let isFavorited: boolean | undefined;
+            let onFavoriteToggle: ((e: React.MouseEvent) => void) | undefined;
 
-          if (isAlbum) {
-            isFavorited = favoriteAlbumIds.has(item.id);
-            onFavoriteToggle = (e) => {
-              e.stopPropagation();
-              if (favoriteAlbumIds.has(item.id)) {
-                removeFavoriteAlbum(item.id);
-              } else {
-                addFavoriteAlbum(item.id, item);
-              }
-            };
-          } else if (isArtist && item.id) {
-            isFavorited = followedArtistIds.has(item.id);
-            onFavoriteToggle = (e) => {
-              e.stopPropagation();
-              if (followedArtistIds.has(item.id)) {
-                unfollowArtist(item.id);
-              } else {
-                followArtist(item.id, {
-                  id: item.id,
-                  name: item.name,
-                  picture: item.picture,
-                });
-              }
-            };
-          } else if (isPlaylist && item.uuid) {
-            isFavorited = favoritePlaylistUuids.has(item.uuid);
-            onFavoriteToggle = (e) => {
-              e.stopPropagation();
-              if (favoritePlaylistUuids.has(item.uuid)) {
-                removeFavoritePlaylist(item.uuid);
-              } else {
-                addFavoritePlaylist(item.uuid, item);
-              }
-            };
-          } else if (isMix) {
-            const mixId = item.mixId || item.id?.toString();
-            if (mixId) {
-              isFavorited = favoriteMixIds.has(mixId);
+            if (isAlbum) {
+              isFavorited = favoriteAlbumIds.has(item.id);
               onFavoriteToggle = (e) => {
                 e.stopPropagation();
-                if (favoriteMixIds.has(mixId)) {
-                  removeFavoriteMix(mixId);
+                if (favoriteAlbumIds.has(item.id)) {
+                  removeFavoriteAlbum(item.id);
                 } else {
-                  const img = getItemImage(item);
-                  addFavoriteMix(mixId, {
-                    id: mixId,
-                    title: getItemTitle(item),
-                    subTitle: getItemSubtitle(item),
-                    mixType: item.type || item.mixType,
-                    images: img ? { SMALL: { url: img }, MEDIUM: { url: img } } : undefined,
+                  addFavoriteAlbum(item.id, item);
+                }
+              };
+            } else if (isArtist && item.id) {
+              isFavorited = followedArtistIds.has(item.id);
+              onFavoriteToggle = (e) => {
+                e.stopPropagation();
+                if (followedArtistIds.has(item.id)) {
+                  unfollowArtist(item.id);
+                } else {
+                  followArtist(item.id, {
+                    id: item.id,
+                    name: item.name,
+                    picture: item.picture,
                   });
                 }
               };
+            } else if (isPlaylist && item.uuid) {
+              isFavorited = favoritePlaylistUuids.has(item.uuid);
+              onFavoriteToggle = (e) => {
+                e.stopPropagation();
+                if (favoritePlaylistUuids.has(item.uuid)) {
+                  removeFavoritePlaylist(item.uuid);
+                } else {
+                  addFavoritePlaylist(item.uuid, item);
+                }
+              };
+            } else if (isMix) {
+              const mixId = item.mixId || item.id?.toString();
+              if (mixId) {
+                isFavorited = favoriteMixIds.has(mixId);
+                onFavoriteToggle = (e) => {
+                  e.stopPropagation();
+                  if (favoriteMixIds.has(mixId)) {
+                    removeFavoriteMix(mixId);
+                  } else {
+                    const img = getItemImage(item);
+                    addFavoriteMix(mixId, {
+                      id: mixId,
+                      title: getItemTitle(item),
+                      subTitle: getItemSubtitle(item),
+                      mixType: item.type || item.mixType,
+                      images: img
+                        ? { SMALL: { url: img }, MEDIUM: { url: img } }
+                        : undefined,
+                    });
+                  }
+                };
+              }
             }
-          }
 
-          const mediaItem = buildMediaItem(item, section.sectionType);
-          const myTracks = isMyTracksItem(item);
+            const mediaItem = buildMediaItem(item, section.sectionType);
+            const myTracks = isMyTracksItem(item);
 
-          return (
-            <MediaCard
-              key={getItemId(item)}
-              item={item}
-              onClick={() => handleItemClick(item)}
-              onContextMenu={
-                myTracks ? undefined : (e) => handleContextMenu(e, item)
-              }
-              onPlay={
-                mediaItem
-                  ? (e) => {
-                      e.stopPropagation();
-                      playMedia(mediaItem);
-                    }
-                  : undefined
-              }
-              isArtist={isArtist}
-              isFavorited={isFavorited}
-              onFavoriteToggle={onFavoriteToggle}
-              widthClass="card-scroll-item"
-              {...(myTracks && {
-                titleOverride: "Loved Tracks",
-                imageOverride: (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff]">
-                    <Heart size={40} className="text-white" fill="white" />
-                  </div>
-                ),
-                showPlayButton: false,
-              })}
-            />
-          );
-        })}
-      </div>
+            return (
+              <MediaCard
+                key={getItemId(item)}
+                item={item}
+                onClick={() => handleItemClick(item)}
+                onContextMenu={
+                  myTracks ? undefined : (e) => handleContextMenu(e, item)
+                }
+                onPlay={
+                  mediaItem
+                    ? (e) => {
+                        e.stopPropagation();
+                        playMedia(mediaItem);
+                      }
+                    : undefined
+                }
+                isArtist={isArtist}
+                isFavorited={isFavorited}
+                onFavoriteToggle={onFavoriteToggle}
+                widthClass="card-scroll-item"
+                {...(myTracks && {
+                  titleOverride: "Loved Tracks",
+                  imageOverride: (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff]">
+                      <Heart size={40} className="text-white" fill="white" />
+                    </div>
+                  ),
+                  showPlayButton: false,
+                })}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {/* Media context menu */}
@@ -356,8 +358,7 @@ function TrackListSection({
   items: any[];
 }) {
   const { playFromSource } = usePlaybackActions();
-  const { navigateToAlbum, navigateToViewAll } =
-    useNavigation();
+  const { navigateToAlbum, navigateToViewAll } = useNavigation();
   const [trackContextMenu, setTrackContextMenu] = useState<{
     track: any;
     index: number;
@@ -496,8 +497,7 @@ function CompactGridSection({
   items: any[];
   onItemClick: (item: any) => void;
 }) {
-  const { navigateToViewAll, navigateToAlbum } =
-    useNavigation();
+  const { navigateToViewAll, navigateToAlbum } = useNavigation();
   const displayItems = items.slice(0, 16);
 
   // Track context menu (for track items)

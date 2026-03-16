@@ -339,209 +339,210 @@ export default function ArtistPage({
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
-      {/* Artist Header */}
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-full overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
-          {picture ? (
-            <img
-              src={getTidalImageUrl(picture, 640)}
-              alt={displayName}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                const img = e.target as HTMLImageElement;
-                const fallback = getTidalImageUrl(picture, 320);
-                if (img.src !== fallback) {
-                  img.src = fallback;
-                } else {
-                  img.style.display = "none";
-                }
-              }}
-            />
-          ) : (
-            <User size={72} className="text-th-text-faint" />
-          )}
-        </div>
-        <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-            Artist
-          </span>
-          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
-            {displayName}
-          </h1>
-          {bio && (
-            <div className="mt-1 max-w-[800px]">
-              <p className="text-[14px] text-th-text-muted line-clamp-2">
-                {stripBio(bio)}
-              </p>
-              <button
-                onClick={() => setShowBioModal(true)}
-                className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
-              >
-                Read more
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bio Modal */}
-      {showBioModal && bio && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowBioModal(false)}
-        >
-          <div
-            className="bg-th-elevated rounded-xl shadow-2xl max-w-[700px] w-[90%] max-h-[80vh] flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 px-6 pt-5 pb-4">
-              <div className="w-11 h-11 shrink-0 rounded-full overflow-hidden bg-th-surface-hover">
-                {picture ? (
-                  <img
-                    src={getTidalImageUrl(picture, 160)}
-                    alt={displayName}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <User size={20} className="text-th-text-faint" />
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-[15px] font-bold text-th-text-primary leading-tight">
-                  {displayName}
-                </h3>
-                <p className="text-[13px] text-th-text-muted">Biography</p>
-              </div>
-              <button
-                onClick={() => setShowBioModal(false)}
-                className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="px-6 pb-6 overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
-              <BioText
-                bio={bio}
-                onArtistClick={(id, name) => {
-                  setShowBioModal(false);
-                  navigateToArtist(id, { name });
+        {/* Artist Header */}
+        <div className="px-8 pb-8 pt-8 flex items-end gap-7">
+          <div className="w-[232px] h-[232px] shrink-0 rounded-full overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
+            {picture ? (
+              <img
+                src={getTidalImageUrl(picture, 640)}
+                alt={displayName}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  const fallback = getTidalImageUrl(picture, 320);
+                  if (img.src !== fallback) {
+                    img.src = fallback;
+                  } else {
+                    img.style.display = "none";
+                  }
                 }}
-                className="text-th-text-secondary"
               />
-              {bioSource && (
-                <p className="text-[12px] text-th-text-faint mt-6 italic">
-                  Artist bio from {bioSource}
+            ) : (
+              <User size={72} className="text-th-text-faint" />
+            )}
+          </div>
+          <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+              Artist
+            </span>
+            <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              {displayName}
+            </h1>
+            {bio && (
+              <div className="mt-1 max-w-[800px]">
+                <p className="text-[14px] text-th-text-muted line-clamp-2">
+                  {stripBio(bio)}
                 </p>
-              )}
-            </div>
+                <button
+                  onClick={() => setShowBioModal(true)}
+                  className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
+                >
+                  Read more
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center gap-3">
-        <button
-          onClick={handlePlayAll}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
-        >
-          {artistPlaying ? (
-            <Pause size={18} fill="black" className="text-black" />
-          ) : (
-            <Play size={18} fill="black" className="text-black" />
-          )}
-          {artistPlaying ? "Pause" : "Play"}
-        </button>
-        <button
-          onClick={handleShuffle}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-        >
-          <Shuffle size={18} />
-          Shuffle
-        </button>
-        <button
-          onClick={handleToggleFollow}
-          className={`flex items-center justify-center gap-2 min-w-[120px] px-5 py-2.5 font-bold text-sm rounded-full transition-[transform,filter,background-color] duration-150 hover:scale-[1.03] ${
-            isFollowed
-              ? "bg-th-accent/15 text-th-accent border border-th-accent/30 hover:brightness-110"
-              : "bg-th-button text-th-text-primary border border-transparent hover:bg-th-button-hover"
-          }`}
-        >
-          {isFollowed ? <UserCheck size={18} /> : <UserPlus size={18} />}
-          {isFollowed ? "Following" : "Follow"}
-        </button>
-      </div>
+        {/* Bio Modal */}
+        {showBioModal && bio && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowBioModal(false)}
+          >
+            <div
+              className="bg-th-elevated rounded-xl shadow-2xl max-w-[700px] w-[90%] max-h-[80vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 px-6 pt-5 pb-4">
+                <div className="w-11 h-11 shrink-0 rounded-full overflow-hidden bg-th-surface-hover">
+                  {picture ? (
+                    <img
+                      src={getTidalImageUrl(picture, 160)}
+                      alt={displayName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <User size={20} className="text-th-text-faint" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-[15px] font-bold text-th-text-primary leading-tight">
+                    {displayName}
+                  </h3>
+                  <p className="text-[13px] text-th-text-muted">Biography</p>
+                </div>
+                <button
+                  onClick={() => setShowBioModal(false)}
+                  className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-      {/* Dynamic Sections */}
-      {pageData?.sections.map((section, sectionIdx) => {
-        if (!section.items || section.items.length === 0) return null;
+              <div className="px-6 pb-6 overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+                <BioText
+                  bio={bio}
+                  onArtistClick={(id, name) => {
+                    setShowBioModal(false);
+                    navigateToArtist(id, { name });
+                  }}
+                  className="text-th-text-secondary"
+                />
+                {bioSource && (
+                  <p className="text-[12px] text-th-text-faint mt-6 italic">
+                    Artist bio from {bioSource}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
-        if (section.type === "TRACK_LIST") {
-          return (
-            <TrackSection
-              key={sectionIdx}
-              section={section}
-              onPlayTrack={handlePlayTrack}
-              onViewAll={() => navigateToArtistTracks(artistId, displayName)}
-            />
-          );
-        }
-
-        if (
-          ["ALBUM_LIST", "ARTIST_LIST", "PLAYLIST_LIST", "MIX_LIST"].includes(
-            section.type,
-          )
-        ) {
-          return (
-            <CardScrollSection
-              key={sectionIdx}
-              section={section}
-              onCardClick={handleCardClick}
-              onContextMenu={handleCardContextMenu}
-              onViewAll={
-                section.apiPath
-                  ? () =>
-                      navigateToViewAll(
-                        section.title,
-                        section.apiPath!,
-                        artistId,
-                      )
-                  : undefined
-              }
-              favoriteAlbumIds={favoriteAlbumIds}
-              addFavoriteAlbum={addFavoriteAlbum}
-              removeFavoriteAlbum={removeFavoriteAlbum}
-              favoritePlaylistUuids={favoritePlaylistUuids}
-              addFavoritePlaylist={addFavoritePlaylist}
-              removeFavoritePlaylist={removeFavoritePlaylist}
-              followedArtistIds={followedArtistIds}
-              followArtist={followArtist}
-              unfollowArtist={unfollowArtist}
-              favoriteMixIds={favoriteMixIds}
-              addFavoriteMix={addFavoriteMix}
-              removeFavoriteMix={removeFavoriteMix}
-            />
-          );
-        }
-
-        return null;
-      })}
-
-      {/* Empty state */}
-      {pageData && pageData.sections.length === 0 && topTracks.length === 0 && (
-        <div className="px-8 py-16 text-center">
-          <User size={48} className="text-th-text-disabled mx-auto mb-4" />
-          <p className="text-th-text-primary font-semibold text-lg mb-2">
-            No content available
-          </p>
-          <p className="text-th-text-muted text-sm">
-            This artist doesn't have any tracks or albums yet.
-          </p>
+        {/* Play Controls */}
+        <div className="px-8 py-5 flex items-center gap-3">
+          <button
+            onClick={handlePlayAll}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
+          >
+            {artistPlaying ? (
+              <Pause size={18} fill="black" className="text-black" />
+            ) : (
+              <Play size={18} fill="black" className="text-black" />
+            )}
+            {artistPlaying ? "Pause" : "Play"}
+          </button>
+          <button
+            onClick={handleShuffle}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          >
+            <Shuffle size={18} />
+            Shuffle
+          </button>
+          <button
+            onClick={handleToggleFollow}
+            className={`flex items-center justify-center gap-2 min-w-[120px] px-5 py-2.5 font-bold text-sm rounded-full transition-[transform,filter,background-color] duration-150 hover:scale-[1.03] ${
+              isFollowed
+                ? "bg-th-accent/15 text-th-accent border border-th-accent/30 hover:brightness-110"
+                : "bg-th-button text-th-text-primary border border-transparent hover:bg-th-button-hover"
+            }`}
+          >
+            {isFollowed ? <UserCheck size={18} /> : <UserPlus size={18} />}
+            {isFollowed ? "Following" : "Follow"}
+          </button>
         </div>
-      )}
 
+        {/* Dynamic Sections */}
+        {pageData?.sections.map((section, sectionIdx) => {
+          if (!section.items || section.items.length === 0) return null;
+
+          if (section.type === "TRACK_LIST") {
+            return (
+              <TrackSection
+                key={sectionIdx}
+                section={section}
+                onPlayTrack={handlePlayTrack}
+                onViewAll={() => navigateToArtistTracks(artistId, displayName)}
+              />
+            );
+          }
+
+          if (
+            ["ALBUM_LIST", "ARTIST_LIST", "PLAYLIST_LIST", "MIX_LIST"].includes(
+              section.type,
+            )
+          ) {
+            return (
+              <CardScrollSection
+                key={sectionIdx}
+                section={section}
+                onCardClick={handleCardClick}
+                onContextMenu={handleCardContextMenu}
+                onViewAll={
+                  section.apiPath
+                    ? () =>
+                        navigateToViewAll(
+                          section.title,
+                          section.apiPath!,
+                          artistId,
+                        )
+                    : undefined
+                }
+                favoriteAlbumIds={favoriteAlbumIds}
+                addFavoriteAlbum={addFavoriteAlbum}
+                removeFavoriteAlbum={removeFavoriteAlbum}
+                favoritePlaylistUuids={favoritePlaylistUuids}
+                addFavoritePlaylist={addFavoritePlaylist}
+                removeFavoritePlaylist={removeFavoritePlaylist}
+                followedArtistIds={followedArtistIds}
+                followArtist={followArtist}
+                unfollowArtist={unfollowArtist}
+                favoriteMixIds={favoriteMixIds}
+                addFavoriteMix={addFavoriteMix}
+                removeFavoriteMix={removeFavoriteMix}
+              />
+            );
+          }
+
+          return null;
+        })}
+
+        {/* Empty state */}
+        {pageData &&
+          pageData.sections.length === 0 &&
+          topTracks.length === 0 && (
+            <div className="px-8 py-16 text-center">
+              <User size={48} className="text-th-text-disabled mx-auto mb-4" />
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                No content available
+              </p>
+              <p className="text-th-text-muted text-sm">
+                This artist doesn't have any tracks or albums yet.
+              </p>
+            </div>
+          )}
       </PageContainer>
 
       {contextMenu && (

@@ -2494,6 +2494,7 @@ impl TidalClient {
 
     /// Fetch playlist folders from v2/my-collection/playlists/folders.
     /// Returns raw JSON so we can capture the full response shape.
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_playlist_folders(
         &mut self,
         folder_id: &str,

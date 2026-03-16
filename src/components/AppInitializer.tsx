@@ -22,10 +22,7 @@ import {
   authTokensAtom,
   userNameAtom,
 } from "../atoms/auth";
-import {
-  userPlaylistsAtom,
-  deletedPlaylistIdsAtom,
-} from "../atoms/playlists";
+import { userPlaylistsAtom, deletedPlaylistIdsAtom } from "../atoms/playlists";
 import {
   favoriteTrackIdsAtom,
   favoriteAlbumIdsAtom,
@@ -127,8 +124,16 @@ export function AppInitializer() {
   const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
-  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, toggleShuffle, seekTo } =
-    usePlaybackActions();
+  const {
+    playTrack,
+    playNext,
+    playPrevious,
+    pauseTrack,
+    resumeTrack,
+    setVolume,
+    toggleShuffle,
+    seekTo,
+  } = usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
@@ -200,7 +205,10 @@ export function AppInitializer() {
           const result = await getPlaylistFolders("root", 0, 50);
           const normalized = normalizePlaylistFolders(result);
           const playlists = normalized.items
-            .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+            .filter(
+              (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+                i.kind === "playlist",
+            )
             .map((i) => i.data);
           setUserPlaylists(playlists);
         } catch (playlistErr: any) {
@@ -226,7 +234,10 @@ export function AppInitializer() {
               const retryResult = await getPlaylistFolders("root", 0, 50);
               const retryNormalized = normalizePlaylistFolders(retryResult);
               const retryPlaylists = retryNormalized.items
-                .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+                .filter(
+                  (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+                    i.kind === "playlist",
+                )
                 .map((i) => i.data);
               setUserPlaylists(retryPlaylists);
             } catch (refreshErr) {
@@ -618,7 +629,10 @@ export function AppInitializer() {
         const { from, to } = event.payload;
         const fromKhz = from >= 1000 ? `${from / 1000}kHz` : `${from}Hz`;
         const toKhz = to >= 1000 ? `${to / 1000}kHz` : `${to}Hz`;
-        showToast(`DAC doesn't support ${fromKhz} — resampling to ${toKhz}`, "info");
+        showToast(
+          `DAC doesn't support ${fromKhz} — resampling to ${toKhz}`,
+          "info",
+        );
       },
     );
     return () => {
@@ -749,7 +763,9 @@ export function AppInitializer() {
   //  MPRIS — push metadata & playback status to backend for D-Bus
   // ================================================================
   useEffect(() => {
-    const formatQualityText = (info: import("../types").StreamInfo | null): string => {
+    const formatQualityText = (
+      info: import("../types").StreamInfo | null,
+    ): string => {
       if (!info) return "";
       const parts: string[] = [];
       if (info.bitDepth) parts.push(`${info.bitDepth}-BIT`);
@@ -787,7 +803,10 @@ export function AppInitializer() {
     pushMetadata();
     const unsubTrack = store.sub(currentTrackAtom, pushMetadata);
     const unsubStream = store.sub(streamInfoAtom, pushMetadata);
-    return () => { unsubTrack(); unsubStream(); };
+    return () => {
+      unsubTrack();
+      unsubStream();
+    };
   }, [store]);
 
   useEffect(() => {
@@ -806,7 +825,9 @@ export function AppInitializer() {
 
   useEffect(() => {
     const push = () => {
-      invoke("update_mpris_shuffle", { enabled: store.get(shuffleAtom) }).catch(() => {});
+      invoke("update_mpris_shuffle", { enabled: store.get(shuffleAtom) }).catch(
+        () => {},
+      );
     };
     push();
     return store.sub(shuffleAtom, push);
@@ -814,7 +835,9 @@ export function AppInitializer() {
 
   useEffect(() => {
     const push = () => {
-      invoke("update_mpris_loop_status", { mode: store.get(repeatAtom) }).catch(() => {});
+      invoke("update_mpris_loop_status", { mode: store.get(repeatAtom) }).catch(
+        () => {},
+      );
     };
     push();
     return store.sub(repeatAtom, push);
@@ -840,10 +863,13 @@ export function AppInitializer() {
     const unlistenLoop = listen<number>("mpris:set-loop-status", (event) => {
       store.set(repeatAtom, event.payload);
     });
-    const unlistenSetPosition = listen<number>("mpris:set-position", async (event) => {
-      const pos = Math.max(0, event.payload);
-      await seekTo(pos);
-    });
+    const unlistenSetPosition = listen<number>(
+      "mpris:set-position",
+      async (event) => {
+        const pos = Math.max(0, event.payload);
+        await seekTo(pos);
+      },
+    );
     return () => {
       unlistenSeek.then((fn) => fn());
       unlistenVolume.then((fn) => fn());

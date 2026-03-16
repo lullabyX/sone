@@ -149,7 +149,12 @@ const MaxTransportBar = memo(function MaxTransportBar({
   isDark,
   bgBaseRgb,
 }: {
-  currentTrack: { title: string; artist?: { name?: string }; artists?: { name: string }[]; album?: { cover?: string; title?: string } };
+  currentTrack: {
+    title: string;
+    artist?: { name?: string };
+    artists?: { name: string }[];
+    album?: { cover?: string; title?: string };
+  };
   controlsVisible: boolean;
   isDraggingRef: React.MutableRefObject<boolean>;
   resetHideTimer: () => void;
@@ -162,12 +167,15 @@ const MaxTransportBar = memo(function MaxTransportBar({
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
   const isShuffle = useAtomValue(shuffleAtom);
   const [showLyrics, setShowLyrics] = useAtom(maximizedLyricsAtom);
-  const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } = usePlaybackActions();
+  const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } =
+    usePlaybackActions();
 
   return (
     <div
       className={`absolute bottom-0 left-0 right-0 z-20 px-6 pb-4 pt-8 transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-      style={{ background: `linear-gradient(to top, rgba(${isDark ? "0,0,0,0.6" : `${bgBaseRgb},0.7`}), transparent)` }}
+      style={{
+        background: `linear-gradient(to top, rgba(${isDark ? "0,0,0,0.6" : `${bgBaseRgb},0.7`}), transparent)`,
+      }}
     >
       <div className="flex items-center justify-between">
         {/* Left: Track info */}
@@ -219,7 +227,11 @@ const MaxTransportBar = memo(function MaxTransportBar({
               {isPlaying ? (
                 <Pause size={19} fill="currentColor" className="text-th-base" />
               ) : (
-                <Play size={19} fill="currentColor" className="text-th-base ml-0.5" />
+                <Play
+                  size={19}
+                  fill="currentColor"
+                  className="text-th-base ml-0.5"
+                />
               )}
             </button>
             <button
@@ -261,7 +273,10 @@ const MaxTransportBar = memo(function MaxTransportBar({
               )}
             </button>
           </div>
-          <MaxProgressScrubber isDraggingRef={isDraggingRef} resetHideTimer={resetHideTimer} />
+          <MaxProgressScrubber
+            isDraggingRef={isDraggingRef}
+            resetHideTimer={resetHideTimer}
+          />
         </div>
 
         {/* Right: Quality + Lyrics toggle + Volume + Minimize */}
@@ -270,7 +285,9 @@ const MaxTransportBar = memo(function MaxTransportBar({
           <button
             onClick={() => setShowLyrics((v) => !v)}
             className={`relative transition-[color,transform] duration-150 active:scale-90 ${
-              showLyrics ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+              showLyrics
+                ? "text-th-accent"
+                : "text-th-text-faint hover:text-th-text-primary"
             }`}
             title="Lyrics"
           >
@@ -279,7 +296,11 @@ const MaxTransportBar = memo(function MaxTransportBar({
               <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
             )}
           </button>
-          <VolumeSlider widthClass="w-[130px]" isDraggingRef={isDraggingRef} onDragEnd={resetHideTimer} />
+          <VolumeSlider
+            widthClass="w-[130px]"
+            isDraggingRef={isDraggingRef}
+            onDragEnd={resetHideTimer}
+          />
           <button
             onClick={() => setMaximized(false)}
             className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150"
@@ -308,9 +329,42 @@ function getLyricsTier() {
 type Tier = "sm" | "md" | "lg";
 
 const TIER_CONFIG = {
-  sm: { lineHeight: 48, fontCls: "text-4xl", padding: 96, gap: 64, artSize: "55vmin", artSizeSolo: "65vmin", artMax: 500, titleSize: 20, artistSize: 14, iconSize: 20 },
-  md: { lineHeight: 80, fontCls: "text-6xl", padding: 208, gap: 160, artSize: "70vmin", artSizeSolo: "80vmin", artMax: 800, titleSize: 28, artistSize: 18, iconSize: 26 },
-  lg: { lineHeight: 112, fontCls: "text-8xl", padding: 288, gap: 224, artSize: "75vmin", artSizeSolo: "85vmin", artMax: 1200, titleSize: 38, artistSize: 24, iconSize: 34 },
+  sm: {
+    lineHeight: 48,
+    fontCls: "text-4xl",
+    padding: 96,
+    gap: 64,
+    artSize: "55vmin",
+    artSizeSolo: "65vmin",
+    artMax: 500,
+    titleSize: 20,
+    artistSize: 14,
+    iconSize: 20,
+  },
+  md: {
+    lineHeight: 80,
+    fontCls: "text-6xl",
+    padding: 208,
+    gap: 160,
+    artSize: "70vmin",
+    artSizeSolo: "80vmin",
+    artMax: 800,
+    titleSize: 28,
+    artistSize: 18,
+    iconSize: 26,
+  },
+  lg: {
+    lineHeight: 112,
+    fontCls: "text-8xl",
+    padding: 288,
+    gap: 224,
+    artSize: "75vmin",
+    artSizeSolo: "85vmin",
+    artMax: 1200,
+    titleSize: 38,
+    artistSize: 24,
+    iconSize: 34,
+  },
 } as const;
 
 const ACTIVE_CLS = "text-th-text-primary font-black";
@@ -328,7 +382,10 @@ function useLyricsTier() {
     window.addEventListener("resize", update);
     // Re-check when zoom changes via MutationObserver on style attribute
     const obs = new MutationObserver(update);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
     return () => {
       window.removeEventListener("resize", update);
       obs.disconnect();
@@ -337,7 +394,11 @@ function useLyricsTier() {
   return tier;
 }
 
-const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) {
+const MaximizedLyrics = memo(function MaximizedLyrics({
+  tier,
+}: {
+  tier: Tier;
+}) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
 
@@ -367,7 +428,8 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
     const idx = activeLineRef.current;
     if (container && idx >= 0 && idx < lineEls.current.length) {
       const el = lineEls.current[idx];
-      const scrollTarget = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+      const scrollTarget =
+        el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
       container.scrollTo({ top: scrollTarget });
     }
   }, [tier, baseCls, lh]);
@@ -404,7 +466,9 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
         if (active) setLoading(false);
       });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [currentTrack?.id]);
 
   // Sync active line — rAF loop with interpolated position, pure DOM updates
@@ -431,7 +495,8 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
       // Scroll active line to center
       if (container && idx >= 0 && idx < els.length) {
         const el = els[idx];
-        const scrollTarget = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+        const scrollTarget =
+          el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
         container.scrollTo({ top: scrollTarget, behavior: "smooth" });
       }
 
@@ -461,8 +526,10 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
       <div
         className="relative h-full overflow-hidden"
         style={{
-          maskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
-          WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+          maskImage:
+            "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
         }}
       >
         <div className="h-1/2 shrink-0" />
@@ -501,8 +568,10 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
       className="relative h-full overflow-y-auto pointer-events-none no-scrollbar"
       dir={isRtl ? "rtl" : "ltr"}
       style={{
-        maskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
-        WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+        maskImage:
+          "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
+        WebkitMaskImage:
+          "linear-gradient(to bottom, transparent 0%, black 50%, black 80%, transparent 100%)",
       }}
     >
       <div className="h-1/2 shrink-0" />
@@ -510,7 +579,9 @@ const MaximizedLyrics = memo(function MaximizedLyrics({ tier }: { tier: Tier }) 
         {lrcLines.map((line, i) => (
           <p
             key={i}
-            ref={(el) => { if (el) lineEls.current[i] = el; }}
+            ref={(el) => {
+              if (el) lineEls.current[i] = el;
+            }}
             className={`${baseCls} ${FUTURE_CLS}`}
             style={{ lineHeight: `${lh}px` }}
           >
@@ -542,7 +613,9 @@ export default function MaximizedPlayer() {
   const { isDark, bgBaseRgb } = useThemeContext();
 
   // Context menu state
-  const [contextMenuTrack, setContextMenuTrack] = useState<typeof currentTrack | null>(null);
+  const [contextMenuTrack, setContextMenuTrack] = useState<
+    typeof currentTrack | null
+  >(null);
   const contextMenuAnchorRef = useRef<HTMLButtonElement>(null);
 
   // Progressive album art: 160px instantly, upgrade to 1280 when ready
@@ -553,9 +626,13 @@ export default function MaximizedPlayer() {
     setHiResReady(false);
     let cancelled = false;
     fetchCachedImageUrl(getTidalImageUrl(coverKey, 1280))
-      .then(() => { if (!cancelled) setHiResReady(true); })
+      .then(() => {
+        if (!cancelled) setHiResReady(true);
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [coverKey]);
 
   // All hooks MUST be above the early return (Rules of Hooks).
@@ -577,16 +654,26 @@ export default function MaximizedPlayer() {
           return next;
         });
         removeTrackFromFavoritesCache(userId, currentTrack.id);
-        await invoke("remove_favorite_track", { userId, trackId: currentTrack.id });
+        await invoke("remove_favorite_track", {
+          userId,
+          trackId: currentTrack.id,
+        });
       } else {
-        setFavoriteTrackIds((prev: Set<number>) => new Set([...prev, currentTrack.id]));
+        setFavoriteTrackIds(
+          (prev: Set<number>) => new Set([...prev, currentTrack.id]),
+        );
         addTrackToFavoritesCache(userId, currentTrack);
-        await invoke("add_favorite_track", { userId, trackId: currentTrack.id });
+        await invoke("add_favorite_track", {
+          userId,
+          trackId: currentTrack.id,
+        });
       }
     } catch (err) {
       // Rollback optimistic update
       if (isLiked) {
-        setFavoriteTrackIds((prev: Set<number>) => new Set([...prev, currentTrack.id]));
+        setFavoriteTrackIds(
+          (prev: Set<number>) => new Set([...prev, currentTrack.id]),
+        );
         addTrackToFavoritesCache(userId, currentTrack);
       } else {
         setFavoriteTrackIds((prev: Set<number>) => {
@@ -643,7 +730,9 @@ export default function MaximizedPlayer() {
   useEffect(() => {
     const appWindow = getCurrentWindow();
     appWindow.setFullscreen(true);
-    return () => { appWindow.setFullscreen(false); };
+    return () => {
+      appWindow.setFullscreen(false);
+    };
   }, []);
 
   // Hide miniplayer during fullscreen to avoid always-on-top conflict
@@ -691,7 +780,14 @@ export default function MaximizedPlayer() {
       {/* Blurred album art background — pre-rendered to canvas once, zero per-frame cost */}
       <div className="absolute inset-0 overflow-hidden">
         <BlurredBackground coverUrl={currentTrack.album?.cover} />
-        <div className={`absolute inset-0 ${!isDark ? "backdrop-brightness-[1.6] backdrop-saturate-50" : ""}`} style={{ backgroundColor: isDark ? "rgba(0,0,0,0.6)" : `rgba(${bgBaseRgb},0.45)` }} />
+        <div
+          className={`absolute inset-0 ${!isDark ? "backdrop-brightness-[1.6] backdrop-saturate-50" : ""}`}
+          style={{
+            backgroundColor: isDark
+              ? "rgba(0,0,0,0.6)"
+              : `rgba(${bgBaseRgb},0.45)`,
+          }}
+        />
       </div>
 
       {/* Center content — single column (art centered) or two-column (art + lyrics) */}
@@ -699,23 +795,31 @@ export default function MaximizedPlayer() {
         className={`relative z-10 flex items-center ${
           showLyrics ? "w-full" : "flex-col gap-5"
         }`}
-        style={showLyrics ? {
-          paddingLeft: TIER_CONFIG[lyricsTier].padding,
-          paddingRight: TIER_CONFIG[lyricsTier].padding,
-          gap: TIER_CONFIG[lyricsTier].gap,
-        } : undefined}
+        style={
+          showLyrics
+            ? {
+                paddingLeft: TIER_CONFIG[lyricsTier].padding,
+                paddingRight: TIER_CONFIG[lyricsTier].padding,
+                gap: TIER_CONFIG[lyricsTier].gap,
+              }
+            : undefined
+        }
       >
         {/* Left: album art + track info + actions */}
-        <div className={`flex flex-col items-center gap-5 ${
-          showLyrics ? "flex-shrink-0" : ""
-        }`}>
+        <div
+          className={`flex flex-col items-center gap-5 ${
+            showLyrics ? "flex-shrink-0" : ""
+          }`}
+        >
           {/* Large album art */}
           <div
             className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${
               hiResReady ? "" : "blur-[12px]"
             }`}
             style={{
-              width: showLyrics ? TIER_CONFIG[lyricsTier].artSize : TIER_CONFIG[lyricsTier].artSizeSolo,
+              width: showLyrics
+                ? TIER_CONFIG[lyricsTier].artSize
+                : TIER_CONFIG[lyricsTier].artSizeSolo,
               maxWidth: TIER_CONFIG[lyricsTier].artMax,
             }}
           >
@@ -730,14 +834,22 @@ export default function MaximizedPlayer() {
           <div
             className="flex flex-col items-center gap-1 w-full"
             style={{
-              width: showLyrics ? TIER_CONFIG[lyricsTier].artSize : TIER_CONFIG[lyricsTier].artSizeSolo,
+              width: showLyrics
+                ? TIER_CONFIG[lyricsTier].artSize
+                : TIER_CONFIG[lyricsTier].artSizeSolo,
               maxWidth: TIER_CONFIG[lyricsTier].artMax,
             }}
           >
-            <span className="text-th-text-primary font-bold truncate max-w-full" style={{ fontSize: TIER_CONFIG[lyricsTier].titleSize }}>
+            <span
+              className="text-th-text-primary font-bold truncate max-w-full"
+              style={{ fontSize: TIER_CONFIG[lyricsTier].titleSize }}
+            >
               {getTrackDisplayTitle(currentTrack)}
             </span>
-            <span className={`${isDark ? "text-th-text-muted" : "text-th-text-secondary"} truncate max-w-full`} style={{ fontSize: TIER_CONFIG[lyricsTier].artistSize }}>
+            <span
+              className={`${isDark ? "text-th-text-muted" : "text-th-text-secondary"} truncate max-w-full`}
+              style={{ fontSize: TIER_CONFIG[lyricsTier].artistSize }}
+            >
               {getTrackArtistDisplay(currentTrack)}
             </span>
           </div>
@@ -747,7 +859,9 @@ export default function MaximizedPlayer() {
             <button
               onClick={toggleLike}
               className={`transition-[color,transform] duration-200 active:scale-90 ${
-                isLiked ? "text-th-accent" : `${isDark ? "text-th-text-faint" : "text-th-text-secondary"} hover:text-th-text-primary`
+                isLiked
+                  ? "text-th-accent"
+                  : `${isDark ? "text-th-text-faint" : "text-th-text-secondary"} hover:text-th-text-primary`
               }`}
             >
               <Heart

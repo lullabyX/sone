@@ -175,8 +175,8 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     tracks.forEach((t, i) => {
       if (
         t.title.toLowerCase().includes(q) ||
-        (t.artist?.name?.toLowerCase().includes(q) ||
-          t.artists?.some((a) => a.name?.toLowerCase().includes(q))) ||
+        t.artist?.name?.toLowerCase().includes(q) ||
+        t.artists?.some((a) => a.name?.toLowerCase().includes(q)) ||
         t.album?.title?.toLowerCase().includes(q)
       ) {
         filtered.push(t);
@@ -254,71 +254,75 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
-      {/* Favorites Header */}
-      <div className="px-8 py-8 flex items-end gap-7">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
-          <Heart size={80} className="text-white drop-shadow-lg" fill="white" />
-        </div>
-        <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-            Collection
-          </span>
-          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight">
-            Loved Tracks
-          </h1>
-          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-            <span>
-              {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+        {/* Favorites Header */}
+        <div className="px-8 py-8 flex items-end gap-7">
+          <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
+            <Heart
+              size={80}
+              className="text-white drop-shadow-lg"
+              fill="white"
+            />
+          </div>
+          <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+              Collection
             </span>
+            <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight">
+              Loved Tracks
+            </h1>
+            <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
+              <span>
+                {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Search / Filter bar */}
-      <div className="px-8 pb-4">
-        <DebouncedFilterInput
-          placeholder="Filter on title, artist or album"
-          onChange={setSearchQuery}
-          onFocus={handleSearchFocus}
-        />
-      </div>
+        {/* Search / Filter bar */}
+        <div className="px-8 pb-4">
+          <DebouncedFilterInput
+            placeholder="Filter on title, artist or album"
+            onChange={setSearchQuery}
+            onFocus={handleSearchFocus}
+          />
+        </div>
 
-      {/* Track List */}
-      <div className="px-8 pb-8">
-        <TrackList
-          tracks={filteredTracks}
-          onPlay={handlePlayTrack}
-          onLoadMore={isFiltering ? undefined : loadMore}
-          hasMore={isFiltering ? false : hasMore}
-          loadingMore={isFiltering ? false : loadingMore}
-          trackDisplayNumbers={displayNumbers}
-          showDateAdded={true}
-          showArtist={true}
-          showAlbum={true}
-          showCover={true}
-          context="favorites"
-        />
+        {/* Track List */}
+        <div className="px-8 pb-8">
+          <TrackList
+            tracks={filteredTracks}
+            onPlay={handlePlayTrack}
+            onLoadMore={isFiltering ? undefined : loadMore}
+            hasMore={isFiltering ? false : hasMore}
+            loadingMore={isFiltering ? false : loadingMore}
+            trackDisplayNumbers={displayNumbers}
+            showDateAdded={true}
+            showArtist={true}
+            showAlbum={true}
+            showCover={true}
+            context="favorites"
+          />
 
-        {/* End of list */}
-        {tracks.length > 0 && (
-          <div className="py-6 text-center text-[13px] text-th-text-disabled">
-            {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
-          </div>
-        )}
+          {/* End of list */}
+          {tracks.length > 0 && (
+            <div className="py-6 text-center text-[13px] text-th-text-disabled">
+              {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+            </div>
+          )}
 
-        {/* Empty state */}
-        {tracks.length === 0 && (
-          <div className="py-16 text-center">
-            <Heart size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-th-text-primary font-semibold text-lg mb-2">
-              No loved tracks yet
-            </p>
-            <p className="text-th-text-muted text-sm">
-              Heart tracks on TIDAL to see them here.
-            </p>
-          </div>
-        )}
-      </div>
+          {/* Empty state */}
+          {tracks.length === 0 && (
+            <div className="py-16 text-center">
+              <Heart size={48} className="text-th-text-disabled mx-auto mb-4" />
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                No loved tracks yet
+              </p>
+              <p className="text-th-text-muted text-sm">
+                Heart tracks on TIDAL to see them here.
+              </p>
+            </div>
+          )}
+        </div>
       </PageContainer>
     </div>
   );

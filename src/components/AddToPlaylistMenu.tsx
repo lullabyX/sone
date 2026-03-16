@@ -508,10 +508,13 @@ export default function AddToPlaylistMenu({
             setAddedToFolder((prev) => {
               const next = new Map(prev);
               const list = next.get("root") ?? [];
-              next.set("root", [...list, {
-                kind: "playlist" as const,
-                data: { ...playlist, numberOfTracks: trackIds.length },
-              }]);
+              next.set("root", [
+                ...list,
+                {
+                  kind: "playlist" as const,
+                  data: { ...playlist, numberOfTracks: trackIds.length },
+                },
+              ]);
               return next;
             });
             setShowCreateModal(false);

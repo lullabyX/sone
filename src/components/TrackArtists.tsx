@@ -32,11 +32,7 @@ export const TrackArtists = memo(function TrackArtists({
 
   // Build the list: prefer artists[], fall back to singular artist
   const list: ArtistInfo[] =
-    artists && artists.length > 0
-      ? artists
-      : artist
-        ? [artist]
-        : [];
+    artists && artists.length > 0 ? artists : artist ? [artist] : [];
 
   if (list.length === 0) return <>{fallback}</>;
 
