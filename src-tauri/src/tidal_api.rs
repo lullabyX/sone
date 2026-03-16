@@ -1380,6 +1380,50 @@ impl TidalClient {
         Ok(resp.into())
     }
 
+    pub async fn update_playlist(
+        &self,
+        playlist_id: &str,
+        title: &str,
+        description: &str,
+        access_type: &str,
+    ) -> Result<TidalPlaylist, SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        let body = serde_json::json!({
+            "id": playlist_id,
+            "type": "playlists",
+            "attributes": {
+                "name": title,
+                "description": description,
+                "accessType": access_type
+            }
+        });
+
+        let response = self
+            .client
+            .patch(format!("{}/playlists/{}", TIDAL_OPENAPI_URL, playlist_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        let resp = serde_json::from_str::<OpenApiPlaylistResponse>(&body_text)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body_text)))?;
+
+        Ok(resp.into())
+    }
+
     pub async fn add_track_to_playlist(
         &self,
         playlist_id: &str,
