@@ -134,6 +134,10 @@ export function useMiniplayerEmitter() {
       emitTo("miniplayer", "miniplayer-state-update", state).catch(() => {});
     });
 
+    // Listen for seek events and relay updated position to miniplayer
+    const onSeeked = () => scheduleEmit();
+    window.addEventListener("playback-seeked", onSeeked);
+
     // Listen for playback errors (DOM CustomEvent) and relay to miniplayer
     const onPlaybackError = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -150,6 +154,7 @@ export function useMiniplayerEmitter() {
     return () => {
       unsubs.forEach((fn) => fn());
       unlistenReady.then((fn) => fn());
+      window.removeEventListener("playback-seeked", onSeeked);
       window.removeEventListener("playback-error", onPlaybackError);
     };
   }, [miniplayerOpen, store, scheduleEmit, buildState]);

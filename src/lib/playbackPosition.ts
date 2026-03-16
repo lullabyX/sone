@@ -58,6 +58,9 @@ export function notifySeek(targetSecs: number) {
   lastKnownPosition = targetSecs;
   lastFetchTime = performance.now();
 
+  // Notify miniplayer emitter of position change
+  window.dispatchEvent(new CustomEvent("playback-seeked", { detail: targetSecs }));
+
   // Cancel any pending correction from a previous seek
   if (seekCorrectionTimer !== null) {
     clearTimeout(seekCorrectionTimer);
