@@ -40,6 +40,22 @@ function pushRecentPlaylistId(playlistId: string) {
   } catch {}
 }
 
+// ─── Toggle ────────────────────────────────────────────────────
+
+const Toggle = ({ on }: { on: boolean }) => (
+  <div
+    className={`w-8 h-[18px] rounded-full transition-colors shrink-0 ${
+      on ? "bg-th-accent" : "bg-th-border-subtle"
+    }`}
+  >
+    <div
+      className={`w-3.5 h-3.5 rounded-full bg-th-text-primary mt-[2px] transition-transform ${
+        on ? "translate-x-[16px]" : "translate-x-[2px]"
+      }`}
+    />
+  </div>
+);
+
 // ─── Create-playlist modal ─────────────────────────────────────
 
 export function CreatePlaylistModal({
@@ -56,6 +72,7 @@ export function CreatePlaylistModal({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -79,7 +96,7 @@ export function CreatePlaylistModal({
     setError(null);
     setSaving(true);
     try {
-      const playlist = await createPlaylist(title.trim(), description.trim());
+      const playlist = await createPlaylist(title.trim(), description.trim(), isPublic ? "PUBLIC" : "UNLISTED");
       if (trackIds.length > 0) {
         await addTracksToPlaylist(playlist.uuid, trackIds);
       }
@@ -93,6 +110,7 @@ export function CreatePlaylistModal({
   }, [
     title,
     description,
+    isPublic,
     saving,
     createPlaylist,
     addTracksToPlaylist,
@@ -164,6 +182,26 @@ export function CreatePlaylistModal({
                 {description.length}/{DESC_MAX_LEN} characters
               </span>
             </div>
+          </div>
+
+          {/* Make it public */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[13px] font-semibold text-th-text-primary">
+                Make it public
+              </p>
+              <p className="text-[11px] text-th-text-muted">
+                Your playlist will be visible on your Profile and accessible by anyone.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPublic(!isPublic)}
+              disabled={saving}
+              className="ml-4 shrink-0"
+            >
+              <Toggle on={isPublic} />
+            </button>
           </div>
 
           {/* Error */}
