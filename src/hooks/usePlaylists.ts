@@ -17,13 +17,13 @@ export function usePlaylists() {
   const authTokens = useAtomValue(authTokensAtom);
 
   const createPlaylist = useCallback(
-    async (title: string, description: string = ""): Promise<Playlist> => {
+    async (title: string, description: string = "", accessType: string = "UNLISTED"): Promise<Playlist> => {
       if (!authTokens?.user_id) throw new Error("Not authenticated");
       try {
         const playlist = await invoke<Playlist>("create_playlist", {
-          userId: authTokens.user_id,
           title,
           description,
+          accessType,
         });
         setUserPlaylists((prev) => [playlist, ...prev]);
         invalidateCache("user-playlists");
@@ -34,6 +34,28 @@ export function usePlaylists() {
       }
     },
     [authTokens?.user_id, setUserPlaylists],
+  );
+
+  const updatePlaylist = useCallback(
+    async (playlistId: string, title: string, description: string, accessType: string): Promise<Playlist> => {
+      try {
+        const updated = await invoke<Playlist>("update_playlist", {
+          playlistId,
+          title,
+          description,
+          accessType,
+        });
+        setUserPlaylists((prev) =>
+          prev.map((p) => (p.uuid === playlistId ? { ...p, ...updated } : p)),
+        );
+        invalidateCache("user-playlists");
+        return updated;
+      } catch (error: any) {
+        console.error("Failed to update playlist:", error);
+        throw error;
+      }
+    },
+    [setUserPlaylists],
   );
 
   // Background re-fetch user playlists to pick up server-side changes (image, exact count)
@@ -182,6 +204,7 @@ export function usePlaylists() {
   return {
     userPlaylists,
     createPlaylist,
+    updatePlaylist,
     deletePlaylist,
     addTrackToPlaylist,
     removeTrackFromPlaylist,
