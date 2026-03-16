@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AlbumDetail,
   AlbumPageCached,
+  AllPlaylistsResponse,
   ArtistDetail,
   ArtistPageData,
   Credit,
@@ -917,6 +918,22 @@ export async function getPlaylistFolders(
     order,
     orderDirection,
     cursor: cursor ?? "",
+  });
+}
+
+export async function getAllPlaylists(
+  userId: number,
+  offset: number = 0,
+  limit: number = 50,
+  order: string = "DATE_UPDATED",
+  orderDirection: string = "DESC",
+): Promise<AllPlaylistsResponse> {
+  return invoke<AllPlaylistsResponse>("get_all_playlists", {
+    userId,
+    offset,
+    limit,
+    order,
+    orderDirection,
   });
 }
 

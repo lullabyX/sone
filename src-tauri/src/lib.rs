@@ -591,6 +591,7 @@ pub fn run() {
             commands::auth::get_user_profile,
             // library
             commands::library::get_user_playlists,
+            commands::library::get_all_playlists,
             commands::library::get_playlist_tracks,
             commands::library::get_playlist_tracks_page,
             commands::library::get_favorite_playlists,

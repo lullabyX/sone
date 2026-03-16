@@ -254,6 +254,13 @@ export interface Playlist {
   addedAt?: string;
 }
 
+export interface AllPlaylistsResponse {
+  items: Playlist[];
+  totalNumberOfItems: number;
+  offset: number;
+  limit: number;
+}
+
 export interface PkceAuthParams {
   authorizeUrl: string;
   codeVerifier: string;

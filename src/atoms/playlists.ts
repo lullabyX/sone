@@ -2,6 +2,8 @@ import { atom } from "jotai";
 import type { Folder, Playlist, PlaylistOrFolder } from "../types";
 
 export const userPlaylistsAtom = atom<Playlist[]>([]);
+/** Flat list of ALL user playlists (across all folders), from v1 /users/{id}/playlists */
+export const allPlaylistsAtom = atom<Playlist[]>([]);
 export const deletedPlaylistIdsAtom = atom<Set<string>>(new Set<string>());
 export const deletedFolderIdsAtom = atom<Set<string>>(new Set<string>());
 /** Maps playlistUuid -> sourceFolderId (the folder it was moved FROM) */

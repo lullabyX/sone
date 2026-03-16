@@ -1340,6 +1340,51 @@ impl TidalClient {
         })
     }
 
+    /// Fetch a flat list of ALL user playlists (v1 endpoint, ignores folder nesting).
+    pub async fn get_all_playlists(
+        &mut self,
+        user_id: u64,
+        offset: u32,
+        limit: u32,
+        order: &str,
+        order_direction: &str,
+    ) -> Result<PaginatedResponse<TidalPlaylist>, SoneError> {
+        let cc = self.country_code.clone();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        let body = self
+            .api_get_body(
+                &format!("/users/{}/playlists", user_id),
+                &[
+                    ("offset", &offset_str),
+                    ("limit", &limit_str),
+                    ("order", order),
+                    ("orderDirection", order_direction),
+                    ("countryCode", &cc),
+                    ("locale", "en_US"),
+                    ("deviceType", "BROWSER"),
+                ],
+            )
+            .await?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Resp {
+            items: Vec<TidalPlaylistRaw>,
+            total_number_of_items: u32,
+        }
+
+        let data: Resp = serde_json::from_str(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)])))?;
+        let playlists: Vec<TidalPlaylist> = data.items.into_iter().map(|p| p.into()).collect();
+        Ok(PaginatedResponse {
+            items: playlists,
+            total_number_of_items: data.total_number_of_items,
+            offset,
+            limit,
+        })
+    }
+
     pub async fn create_playlist(
         &self,
         title: &str,

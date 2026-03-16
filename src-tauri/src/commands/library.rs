@@ -93,6 +93,110 @@ pub async fn get_user_playlists(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn get_all_playlists(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    user_id: u64,
+    offset: u32,
+    limit: u32,
+    order: String,
+    order_direction: String,
+) -> Result<crate::tidal_api::PaginatedResponse<TidalPlaylist>, SoneError> {
+    log::debug!(
+        "[get_all_playlists]: user_id={}, offset={}, limit={}",
+        user_id, offset, limit
+    );
+
+    let cache_key = format!(
+        "all-playlists:{}:{}:{}:{}:{}",
+        user_id, offset, limit, order, order_direction
+    );
+    match state
+        .disk_cache
+        .get(&cache_key, CacheTier::UserContent)
+        .await
+    {
+        CacheResult::Fresh(bytes) => {
+            if let Ok(data) = serde_json::from_slice(&bytes) {
+                return Ok(data);
+            }
+        }
+        CacheResult::Stale(bytes) => {
+            if let Ok(data) =
+                serde_json::from_slice::<crate::tidal_api::PaginatedResponse<TidalPlaylist>>(
+                    &bytes,
+                )
+            {
+                if state.disk_cache.mark_in_flight(&cache_key).await {
+                    if state
+                        .disk_cache
+                        .should_retry_refresh(&cache_key, 300)
+                        .await
+                    {
+                        state.disk_cache.mark_refresh_attempt(&cache_key).await;
+                        let handle = app_handle.clone();
+                        let key = cache_key.clone();
+                        let o = order.clone();
+                        let od = order_direction.clone();
+                        tokio::spawn(async move {
+                            let st = handle.state::<AppState>();
+                            let result = {
+                                let mut client = st.tidal_client.lock().await;
+                                client
+                                    .get_all_playlists(user_id, offset, limit, &o, &od)
+                                    .await
+                            };
+                            if let Ok(fresh) = result {
+                                if let Ok(json) = serde_json::to_vec(&fresh) {
+                                    st.disk_cache
+                                        .put(
+                                            &key,
+                                            &json,
+                                            CacheTier::UserContent,
+                                            &[
+                                                "all-playlists",
+                                                &format!("user:{}", user_id),
+                                            ],
+                                        )
+                                        .await
+                                        .ok();
+                                }
+                            }
+                            st.disk_cache.clear_in_flight(&key).await;
+                        });
+                    } else {
+                        state.disk_cache.clear_in_flight(&cache_key).await;
+                    }
+                }
+                return Ok(data);
+            }
+        }
+        CacheResult::Miss => {}
+    }
+
+    let data = {
+        let mut client = state.tidal_client.lock().await;
+        client
+            .get_all_playlists(user_id, offset, limit, &order, &order_direction)
+            .await?
+    };
+
+    if let Ok(json) = serde_json::to_vec(&data) {
+        state
+            .disk_cache
+            .put(
+                &cache_key,
+                &json,
+                CacheTier::UserContent,
+                &["all-playlists", &format!("user:{}", user_id)],
+            )
+            .await
+            .ok();
+    }
+    Ok(data)
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_playlist_tracks(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,

@@ -1,9 +1,11 @@
 import { Plus, Search, X, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useToast } from "../contexts/ToastContext";
 import { usePlaylists } from "../hooks/usePlaylists";
-import { addedToFolderAtom } from "../atoms/playlists";
+import { allPlaylistsAtom, addedToFolderAtom } from "../atoms/playlists";
+import { authTokensAtom } from "../atoms/auth";
+import { getAllPlaylists } from "../api/tidal";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { type Playlist, getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
@@ -363,9 +365,11 @@ export default function AddToPlaylistMenu({
   anchorRef,
   onClose,
 }: AddToPlaylistMenuProps) {
-  const { userPlaylists, addTracksToPlaylist } = usePlaylists();
+  const { addTracksToPlaylist } = usePlaylists();
   const { showToast } = useToast();
   const setAddedToFolder = useSetAtom(addedToFolderAtom);
+  const [allPlaylists, setAllPlaylists] = useAtom(allPlaylistsAtom);
+  const authTokens = useAtomValue(authTokensAtom);
 
   const [showAll, setShowAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -375,6 +379,35 @@ export default function AddToPlaylistMenu({
   const [error, setError] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Lazy-fetch all playlists on first open
+  useEffect(() => {
+    if (allPlaylists.length > 0 || !authTokens?.user_id) return;
+    let cancelled = false;
+    const userId = authTokens.user_id;
+    const PAGE = 500;
+
+    getAllPlaylists(userId, 0, PAGE)
+      .then(async (first) => {
+        if (cancelled) return;
+        setAllPlaylists(first.items);
+
+        const total = first.totalNumberOfItems;
+        if (total > PAGE) {
+          const pages = [];
+          for (let offset = PAGE; offset < total; offset += PAGE) {
+            pages.push(getAllPlaylists(userId, offset, PAGE));
+          }
+          const results = await Promise.all(pages);
+          if (cancelled) return;
+          const rest = results.flatMap((r) => r.items);
+          setAllPlaylists((prev) => [...prev, ...rest]);
+        }
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [allPlaylists.length, authTokens?.user_id, setAllPlaylists]);
 
   const { menuRef, style } = useContextMenu({
     anchorRef,
@@ -393,15 +426,15 @@ export default function AddToPlaylistMenu({
   // Recent playlists
   const recentIds = getRecentPlaylistIds();
   const recentPlaylists = recentIds
-    .map((id) => userPlaylists.find((p) => p.uuid === id))
+    .map((id) => allPlaylists.find((p) => p.uuid === id))
     .filter((p): p is Playlist => !!p);
 
   // Filtered playlists for "show all" view
   const filteredPlaylists = searchQuery
-    ? userPlaylists.filter((p) =>
+    ? allPlaylists.filter((p) =>
         p.title.toLowerCase().includes(searchQuery.toLowerCase()),
       )
-    : userPlaylists;
+    : allPlaylists;
 
   const handleAddToPlaylist = useCallback(
     async (playlist: Playlist) => {
@@ -421,6 +454,8 @@ export default function AddToPlaylistMenu({
             : `Added to "${label}"`,
         );
         setTimeout(onClose, 500);
+        // Reset so next open re-fetches all playlists
+        setAllPlaylists([]);
       } catch (err: any) {
         const isDuplicateError = (e: unknown): boolean => {
           try {
@@ -644,7 +679,7 @@ export default function AddToPlaylistMenu({
                   ))}
                 </div>
               </div>
-            ) : userPlaylists.length > 0 ? (
+            ) : allPlaylists.length > 0 ? (
               <div className="flex flex-col mt-1">
                 <div className="px-5 pt-2 pb-1">
                   <span className="text-[11px] font-bold text-th-text-muted uppercase tracking-[0.12em]">
@@ -652,7 +687,7 @@ export default function AddToPlaylistMenu({
                   </span>
                 </div>
                 <div className="overflow-y-auto custom-scrollbar max-h-[240px] pb-2">
-                  {userPlaylists.slice(0, MAX_RECENT).map((p) => (
+                  {allPlaylists.slice(0, MAX_RECENT).map((p) => (
                     <CompactPlaylistRow key={p.uuid} playlist={p} />
                   ))}
                 </div>
@@ -685,6 +720,8 @@ export default function AddToPlaylistMenu({
               return next;
             });
             setShowCreateModal(false);
+            // Reset so next open re-fetches all playlists
+            setAllPlaylists([]);
             onClose();
           }}
         />
