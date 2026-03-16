@@ -245,6 +245,8 @@ export interface Playlist {
   creator?: { id: number; name?: string };
   /** "USER" | "EDITORIAL" | "ARTIST" */
   playlistType?: string;
+  /** "PUBLIC" | "UNLISTED" */
+  accessType?: string;
   duration?: number;
   lastUpdated?: string;
   squareImage?: string;
