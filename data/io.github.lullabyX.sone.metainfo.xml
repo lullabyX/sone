@@ -75,6 +75,41 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.12.0" date="2026-03-16">
+      <description>
+        <p>Miniplayer</p>
+        <ul>
+          <li>Compact floating miniplayer with album art, playback controls, and vibrant color background</li>
+          <li>Responsive layout that adapts as you resize — drag and resize freely</li>
+        </ul>
+        <p>Discord Rich Presence</p>
+        <ul>
+          <li>Show what you're listening to on Discord — album art, track info, and a direct TIDAL link</li>
+        </ul>
+        <p>Playlist Management</p>
+        <ul>
+          <li>Organize playlists into folders — create, rename, move, and delete</li>
+          <li>Edit playlist name, description, and toggle public/private visibility</li>
+          <li>Discover new music with recommended tracks at the bottom of playlists</li>
+        </ul>
+        <p>Playback</p>
+        <ul>
+          <li>"Playing from" label in the player bar shows your current listening source</li>
+          <li>Open tidal:// links directly in SONE with deep link support</li>
+          <li>Share tracks from the context menu</li>
+        </ul>
+        <p>Audio</p>
+        <ul>
+          <li>Bit-depth promotion in bit-perfect mode — lossless streams play at your DAC's native depth</li>
+          <li>Ctrl+E and Ctrl+B shortcuts to toggle exclusive and bit-perfect mode</li>
+        </ul>
+        <p>System</p>
+        <ul>
+          <li>MPRIS shuffle, repeat, and absolute seek support</li>
+          <li>Settings moved to a dedicated modal</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-03-12">
       <description>
         <p>Light Theme</p>
