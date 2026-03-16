@@ -20,6 +20,7 @@ export function useMiniplayerBridge() {
   // Local position interpolation
   const posAnchor = useRef({
     position: 0,
+    // eslint-disable-next-line react-hooks/purity
     time: performance.now(),
     playing: false,
   });

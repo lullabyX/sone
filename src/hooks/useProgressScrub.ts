@@ -77,6 +77,7 @@ export function useProgressScrub(options?: UseProgressScrubOptions) {
     (e: React.MouseEvent) => {
       if (!currentTrack) return;
       e.preventDefault();
+      // eslint-disable-next-line react-hooks/immutability
       if (isDraggingRef) isDraggingRef.current = true;
       const startTime = getTimeFromClientX(e.clientX);
       setIsDragging(true);

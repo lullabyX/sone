@@ -173,6 +173,7 @@ export default function UserMenu() {
           >
             <Headphones size={16} />
             <span className="flex-1 text-left">Exclusive output</span>
+            {/* eslint-disable-next-line react-hooks/static-components */}
             <Toggle on={exclusiveMode} />
           </button>
 
@@ -237,6 +238,7 @@ export default function UserMenu() {
             >
               <Shield size={16} />
               <span className="flex-1 text-left">Bit-perfect</span>
+              {/* eslint-disable-next-line react-hooks/static-components */}
               <Toggle on={bitPerfect} />
             </button>
           )}

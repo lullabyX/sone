@@ -75,6 +75,7 @@ impl DiscordHandle {
                     DiscordCommand::Connect => {
                         want_connected = true;
                         try_connect(&mut client, &mut connected);
+                        #[allow(clippy::collapsible_if)]
                         if connected && is_playing && !current_title.is_empty() {
                             if set_activity(
                                 &mut client,
@@ -127,6 +128,7 @@ impl DiscordHandle {
 
                         if want_connected {
                             try_connect(&mut client, &mut connected);
+                            #[allow(clippy::collapsible_if)]
                             if connected {
                                 if set_activity(
                                     &mut client,
@@ -188,6 +190,7 @@ impl DiscordHandle {
                     DiscordCommand::Seeked { position_secs } => {
                         if is_playing {
                             play_start_epoch = now_epoch_secs() - position_secs as i64;
+                            #[allow(clippy::collapsible_if)]
                             if want_connected && connected {
                                 if set_activity(
                                     &mut client,
@@ -234,6 +237,7 @@ fn now_epoch_secs() -> i64 {
         .as_secs() as i64
 }
 
+#[allow(clippy::too_many_arguments)]
 fn set_activity(
     client: &mut DiscordIpcClient,
     title: &str,

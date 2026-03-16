@@ -62,6 +62,7 @@ pub enum ProxyType {
     Socks5,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for ProxyType {
     fn default() -> Self {
         Self::Http

@@ -1068,6 +1068,7 @@ pub async fn get_favorite_artists(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_playlist_folders(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,

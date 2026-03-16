@@ -176,8 +176,7 @@ pub fn setup(app: &tauri::App) {
         // In Flatpak/Snap sandbox, ksni can't own a well-known D-Bus name
         // (would need --own-name with a dynamic PID-based name).
         // disable_dbus_name makes it register via the unique connection name instead.
-        let is_sandboxed =
-            std::env::var("FLATPAK_ID").is_ok() || std::env::var("SNAP").is_ok();
+        let is_sandboxed = std::env::var("FLATPAK_ID").is_ok() || std::env::var("SNAP").is_ok();
         match tray.disable_dbus_name(is_sandboxed).spawn().await {
             Ok(handle) => {
                 app_handle.manage(TrayHandle(handle));

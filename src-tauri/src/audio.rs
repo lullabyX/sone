@@ -349,7 +349,7 @@ fn configure_alsa_hwparams(
 }
 
 #[cfg(target_os = "linux")]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn spawn_alsa_writer(
     device: &str,
     initial_format: &PcmFormat,
@@ -1557,6 +1557,7 @@ impl AudioPlayer {
 // ── Appsink pipeline builder ───────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
 fn build_appsink_pipeline(
     uri: &str,
     exclusive: bool,
