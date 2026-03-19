@@ -7,6 +7,7 @@ interface UseInfiniteScrollOptions<T> {
   ) => Promise<{ items: T[]; totalNumberOfItems: number }>;
   pageSize?: number;
   enabled?: boolean;
+  resetKey?: string;
 }
 
 interface UseInfiniteScrollResult<T> {
@@ -22,6 +23,7 @@ export function useInfiniteScroll<T>({
   fetchPage,
   pageSize = 20,
   enabled = true,
+  resetKey,
 }: UseInfiniteScrollOptions<T>): UseInfiniteScrollResult<T> {
   const [items, setItems] = useState<T[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -32,6 +34,7 @@ export function useInfiniteScroll<T>({
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
   const enabledPrevRef = useRef(false);
+  const prevResetKeyRef = useRef(resetKey);
 
   const loadPage = useCallback(
     async (currentOffset: number, isInitial: boolean) => {
@@ -63,6 +66,20 @@ export function useInfiniteScroll<T>({
     },
     [fetchPage, pageSize],
   );
+
+  // Reset when resetKey changes (e.g. sort order changed)
+  useEffect(() => {
+    if (!enabled) return;
+    if (resetKey !== undefined && resetKey !== prevResetKeyRef.current) {
+      prevResetKeyRef.current = resetKey;
+      setItems([]);
+      offsetRef.current = 0;
+      hasMoreRef.current = true;
+      setHasMore(true);
+      loadingRef.current = false;
+      loadPage(0, true);
+    }
+  }, [resetKey, enabled, loadPage]);
 
   // Initial load when enabled changes to true
   useEffect(() => {

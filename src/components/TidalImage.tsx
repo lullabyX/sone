@@ -29,27 +29,41 @@ function evictBlobsIfNeeded(requiredBytes: number): void {
   }
 }
 
-function fetchCachedImageUrl(src: string): Promise<string> {
+const inflight = new Map<string, Promise<string>>();
+
+export function fetchCachedImageUrl(src: string): Promise<string> {
   const entry = blobCache.get(src);
   if (entry) {
     entry.accessOrder = ++blobAccessCounter;
     return Promise.resolve(entry.url);
   }
 
-  return invoke<number[]>("get_image_bytes", { url: src }).then((bytes) => {
-    const arr = new Uint8Array(bytes);
-    const blob = new Blob([arr], { type: "image/jpeg" });
-    const blobUrl = URL.createObjectURL(blob);
-    const size = arr.byteLength;
-    evictBlobsIfNeeded(size);
-    blobCache.set(src, {
-      url: blobUrl,
-      size,
-      accessOrder: ++blobAccessCounter,
+  const existing = inflight.get(src);
+  if (existing) return existing;
+
+  const promise = invoke<ArrayBuffer>("get_image_bytes", { url: src })
+    .then((buffer) => {
+      const arr = new Uint8Array(buffer);
+      const blob = new Blob([arr], { type: "image/jpeg" });
+      const blobUrl = URL.createObjectURL(blob);
+      const size = arr.byteLength;
+      evictBlobsIfNeeded(size);
+      blobCache.set(src, {
+        url: blobUrl,
+        size,
+        accessOrder: ++blobAccessCounter,
+      });
+      blobTotalBytes += size;
+      inflight.delete(src);
+      return blobUrl;
+    })
+    .catch((err) => {
+      inflight.delete(src);
+      throw err;
     });
-    blobTotalBytes += size;
-    return blobUrl;
-  });
+
+  inflight.set(src, promise);
+  return promise;
 }
 
 interface TidalImageProps {
@@ -57,6 +71,7 @@ interface TidalImageProps {
   alt: string;
   className?: string;
   type?: "album" | "playlist" | "artist";
+  onLoad?: () => void;
 }
 
 function TidalImageComponent({
@@ -64,18 +79,36 @@ function TidalImageComponent({
   alt,
   className = "",
   type = "album",
+  onLoad,
 }: TidalImageProps) {
   const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [blobUrl, setBlobUrl] = useState<string | undefined>(undefined);
+  // Synchronous cache check — if the blob is already in memory, skip loading entirely
+  const [blobUrl, setBlobUrl] = useState<string | undefined>(() => {
+    if (!src) return undefined;
+    const entry = blobCache.get(src);
+    if (entry) {
+      entry.accessOrder = ++blobAccessCounter;
+      return entry.url;
+    }
+    return undefined;
+  });
+  const [isLoading, setIsLoading] = useState(blobUrl === undefined);
 
   useEffect(() => {
     if (!src) return;
 
-    // Reset state when src changes
+    // Sync cache hit — skip loading shimmer
+    const cached = blobCache.get(src);
+    if (cached) {
+      cached.accessOrder = ++blobAccessCounter;
+      setBlobUrl(cached.url);
+      setIsLoading(false);
+      setHasError(false);
+      return;
+    }
+
+    // Not cached — fetch silently, keep old image visible until ready
     setHasError(false);
-    setIsLoading(true);
-    setBlobUrl(undefined);
 
     let cancelled = false;
     fetchCachedImageUrl(src)
@@ -127,8 +160,7 @@ function TidalImageComponent({
           isLoading ? "opacity-0" : "opacity-100"
         } transition-opacity`}
         onError={() => setHasError(true)}
-        onLoad={() => setIsLoading(false)}
-        loading="lazy"
+        onLoad={() => { setIsLoading(false); onLoad?.(); }}
       />
     </div>
   );
@@ -138,3 +170,8 @@ const TidalImage = memo(TidalImageComponent);
 TidalImage.displayName = "TidalImage";
 
 export default TidalImage;
+
+export function preloadImage(url: string): void {
+  if (!url) return;
+  fetchCachedImageUrl(url).catch(() => {});
+}

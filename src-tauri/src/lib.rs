@@ -2,13 +2,17 @@ mod audio;
 pub mod cache;
 mod commands;
 mod crypto;
+mod discord;
 mod embedded_config;
 mod embedded_lastfm;
 mod embedded_librefm;
 mod error;
+mod idle_inhibit;
 #[cfg(target_os = "linux")]
 mod mpris;
 mod scrobble;
+#[cfg(target_os = "linux")]
+mod tray;
 mod tidal_api;
 
 pub use error::SoneError;
@@ -22,9 +26,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::{Emitter, Listener, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 use tidal_api::{AuthTokens, TidalClient};
 use tokio::sync::Mutex;
@@ -108,6 +111,8 @@ pub struct Settings {
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
     pub proxy: ProxySettings,
+    #[serde(default = "defaults::yes")]
+    pub discord_rpc: bool,
 }
 
 impl Default for Settings {
@@ -126,6 +131,7 @@ impl Default for Settings {
             bit_perfect: false,
             scrobble: Default::default(),
             proxy: Default::default(),
+            discord_rpc: true,
         }
     }
 }
@@ -153,6 +159,8 @@ pub struct AppState {
     #[cfg(target_os = "linux")]
     pub mpris: mpris::MprisHandle,
     pub scrobble_manager: scrobble::ScrobbleManager,
+    pub discord: discord::DiscordHandle,
+    pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
 }
 
 pub fn now_secs() -> u64 {
@@ -235,6 +243,12 @@ impl AppState {
             scrobble_http_client,
         );
 
+        let discord_rpc_enabled = saved.as_ref().map(|s| s.discord_rpc).unwrap_or(true);
+        let discord_handle = discord::DiscordHandle::new();
+        if discord_rpc_enabled {
+            discord_handle.send(discord::DiscordCommand::Connect);
+        }
+
         Self {
             audio_player: AudioPlayer::new(app_handle.clone()),
             tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
@@ -254,6 +268,8 @@ impl AppState {
             #[cfg(target_os = "linux")]
             mpris: mpris::MprisHandle::new(app_handle),
             scrobble_manager,
+            discord: discord_handle,
+            idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
         }
     }
 
@@ -315,12 +331,29 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::all()
-                        & !tauri_plugin_window_state::StateFlags::DECORATIONS,
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE,
                 )
                 .build(),
         )
         .setup(|app| {
+            // Single-instance: focus existing window if launched again
+            app.handle().plugin(
+                tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }),
+            )?;
+            // Deep link: register tidal:// scheme handler
+            app.handle().plugin(tauri_plugin_deep_link::init())?;
+            #[cfg(target_os = "linux")]
+            if let Err(e) = app.deep_link().register_all() {
+                log::warn!("Deep link registration failed: {e}");
+            }
+
             app.manage(AppState::new(app.handle().clone()));
 
             // Apply saved audio mode to audio thread
@@ -481,89 +514,9 @@ pub fn run() {
                 let _ = window.show();
             }
 
-            // System tray icon (non-fatal — app should start even if tray fails)
-            match (|| -> Result<(), Box<dyn std::error::Error>> {
-                let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
-                let play_pause =
-                    MenuItemBuilder::with_id("play-pause", "Play / Pause").build(app)?;
-                let next_track =
-                    MenuItemBuilder::with_id("next-track", "Next Track").build(app)?;
-                let prev_track =
-                    MenuItemBuilder::with_id("prev-track", "Previous Track").build(app)?;
-                let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-                let menu = MenuBuilder::new(app)
-                    .item(&show_item)
-                    .separator()
-                    .item(&play_pause)
-                    .item(&next_track)
-                    .item(&prev_track)
-                    .separator()
-                    .item(&quit_item)
-                    .build()?;
-
-                let icon_bytes = include_bytes!("../icons/icon.png");
-                let tray_icon = if let Ok(image) = image::load_from_memory(icon_bytes) {
-                    let rgba = image.to_rgba8();
-                    let (width, height) = rgba.dimensions();
-                    let icon = tauri::image::Image::new(rgba.as_raw(), width, height);
-                    TrayIconBuilder::with_id("main-tray")
-                        .icon(icon)
-                        .menu(&menu)
-                        .tooltip("Sone")
-                        .on_tray_icon_event(|tray, event| {
-                            if let TrayIconEvent::Click {
-                                button: MouseButton::Left,
-                                button_state: MouseButtonState::Up,
-                                ..
-                            } = event
-                            {
-                                let app = tray.app_handle();
-                                if let Some(window) = app.get_webview_window("main") {
-                                    let _ = window.show();
-                                    let _ = window.unminimize();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        })
-                        .on_menu_event(|app, event| match event.id().as_ref() {
-                            "show" => {
-                                if let Some(window) = app.get_webview_window("main") {
-                                    let _ = window.show();
-                                    let _ = window.unminimize();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                            "play-pause" => {
-                                app.emit("tray:toggle-play", ()).ok();
-                            }
-                            "next-track" => {
-                                app.emit("tray:next-track", ()).ok();
-                            }
-                            "prev-track" => {
-                                app.emit("tray:prev-track", ()).ok();
-                            }
-                            "quit" => {
-                                app.exit(0);
-                            }
-                            _ => {}
-                        })
-                        .build(app)?
-                } else {
-                    TrayIconBuilder::with_id("main-tray")
-                        .menu(&menu)
-                        .tooltip("Sone")
-                        .build(app)?
-                };
-                app.manage(tray_icon);
-                Ok(())
-            })() {
-                Ok(()) => {}
-                Err(e) => {
-                    log::warn!("Failed to create system tray icon: {e}");
-                    let state = app.state::<AppState>();
-                    state.minimize_to_tray.store(false, Ordering::Relaxed);
-                }
-            }
+            // System tray icon (ksni — native D-Bus StatusNotifierItem)
+            #[cfg(target_os = "linux")]
+            tray::setup(app);
 
             // Global media key shortcuts (non-fatal)
             if let Err(e) = app.handle().plugin(
@@ -604,13 +557,41 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
-                let state = app.state::<AppState>();
-                if state.minimize_to_tray.load(Ordering::Relaxed) {
-                    api.prevent_close();
-                    let _ = window.hide();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() == "main" {
+                        let app = window.app_handle();
+                        let state = app.state::<AppState>();
+                        if state.minimize_to_tray.load(Ordering::Relaxed) {
+                            api.prevent_close();
+                            let _ = window.hide();
+                        }
+                    } else if window.label() == "miniplayer" {
+                        let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
+                    }
                 }
+                tauri::WindowEvent::Destroyed => {
+                    if window.label() == "miniplayer" {
+                        let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
+                    }
+                }
+                #[cfg(target_os = "linux")]
+                tauri::WindowEvent::Focused(true) => {
+                    if window.label() == "miniplayer" {
+                        if let Some(ww) = window.app_handle().get_webview_window("miniplayer") {
+                            let _ = ww.with_webview(|webview| {
+                                use gtk::prelude::WidgetExt;
+                                let wv: webkit2gtk::WebView = webview.inner();
+                                if let Some(toplevel) = wv.toplevel() {
+                                    if let Some(gdk_win) = toplevel.window() {
+                                        gdk_win.set_shadow_width(36, 36, 28, 48);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -631,11 +612,13 @@ pub fn run() {
             commands::auth::get_user_profile,
             // library
             commands::library::get_user_playlists,
+            commands::library::get_all_playlists,
             commands::library::get_playlist_tracks,
             commands::library::get_playlist_tracks_page,
             commands::library::get_favorite_playlists,
             commands::library::get_favorite_albums,
             commands::library::create_playlist,
+            commands::library::update_playlist,
             commands::library::add_track_to_playlist,
             commands::library::remove_track_from_playlist,
             commands::library::delete_playlist,
@@ -661,6 +644,12 @@ pub fn run() {
             commands::library::get_favorite_mix_ids,
             commands::library::get_favorite_mixes,
             commands::library::get_favorite_artists,
+            commands::library::get_playlist_folders,
+            commands::library::create_playlist_folder,
+            commands::library::rename_playlist_folder,
+            commands::library::delete_playlist_folder,
+            commands::library::move_playlist_to_folder,
+            commands::library::get_playlist_recommendations,
             // pages
             commands::pages::get_album_detail,
             commands::pages::get_album_page,
@@ -683,9 +672,10 @@ pub fn run() {
             commands::search::get_suggestions,
             // metadata
             commands::metadata::get_stream_url,
+            commands::metadata::get_playlist_details,
+            commands::metadata::get_track,
             commands::metadata::get_track_lyrics,
             commands::metadata::get_track_credits,
-            commands::metadata::get_track_radio,
             // playback
             commands::playback::play_tidal_track,
             commands::playback::pause_track,
@@ -699,6 +689,8 @@ pub fn run() {
             commands::playback::load_playback_queue,
             commands::playback::update_mpris_metadata,
             commands::playback::update_mpris_playback_status,
+            commands::playback::update_mpris_shuffle,
+            commands::playback::update_mpris_loop_status,
             // scrobble
             commands::scrobble::notify_track_started,
             commands::scrobble::notify_track_paused,
@@ -730,16 +722,22 @@ pub fn run() {
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
+            commands::utility::get_discord_rpc,
+            commands::utility::set_discord_rpc,
             commands::utility::get_proxy_settings,
             commands::utility::set_proxy_settings,
             commands::utility::test_proxy_connection,
+            commands::utility::inhibit_idle,
+            commands::utility::uninhibit_idle,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppState>();
+                state.discord.send(crate::discord::DiscordCommand::Disconnect);
                 tauri::async_runtime::block_on(async {
+                    state.idle_inhibitor.lock().await.uninhibit().await;
                     state.scrobble_manager.flush().await;
                 });
             }

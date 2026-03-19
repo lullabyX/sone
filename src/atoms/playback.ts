@@ -19,6 +19,9 @@ export const shuffleAtom = atomWithStorage("sone.shuffle.v1", false);
 export const manualQueueAtom = atom<Track[]>([]);
 export const originalQueueAtom = atom<Track[] | null>(null);
 export const playbackSourceAtom = atom<PlaybackSource | null>(null);
+export const contextSourceAtom = atom<PlaybackSource | null>(null);
+
+export const allowExplicitAtom = atomWithStorage("sone.allowExplicit.v1", true);
 
 export const exclusiveModeAtom = atom(false);
 export const bitPerfectAtom = atom(false);

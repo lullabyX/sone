@@ -159,6 +159,7 @@ pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     let result = state.audio_player.stop().map_err(SoneError::Audio);
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::Stop);
+    state.discord.send(crate::discord::DiscordCommand::Stop);
     state.scrobble_manager.on_track_stopped().await;
     result
 }
@@ -200,6 +201,9 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
     state.mpris.send(crate::mpris::MprisCommand::Seeked {
         position_secs: position_secs as f64,
     });
+    state.discord.send(crate::discord::DiscordCommand::Seeked {
+        position_secs: position_secs as f64,
+    });
     state.scrobble_manager.on_seek().await;
     result
 }
@@ -228,11 +232,16 @@ pub fn load_playback_queue(state: State<'_, AppState>) -> Result<Option<String>,
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MprisMetadata {
+    pub track_id: u64,
     pub title: String,
     pub artist: String,
     pub album: String,
     pub art_url: String,
     pub duration_secs: f64,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub quality_text: String,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -243,12 +252,24 @@ pub fn update_mpris_metadata(
 ) -> Result<(), SoneError> {
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::SetMetadata {
-        title: metadata.title,
-        artist: metadata.artist,
-        album: metadata.album,
-        art_url: metadata.art_url,
+        track_id: metadata.track_id,
+        title: metadata.title.clone(),
+        artist: metadata.artist.clone(),
+        album: metadata.album.clone(),
+        art_url: metadata.art_url.clone(),
         duration_secs: metadata.duration_secs,
     });
+    state
+        .discord
+        .send(crate::discord::DiscordCommand::SetMetadata {
+            title: metadata.title,
+            artist: metadata.artist,
+            album: metadata.album,
+            art_url: metadata.art_url,
+            duration_secs: metadata.duration_secs,
+            url: metadata.url,
+            quality_text: metadata.quality_text,
+        });
     Ok(())
 }
 
@@ -257,10 +278,43 @@ pub fn update_mpris_metadata(
 pub fn update_mpris_playback_status(
     state: State<'_, AppState>,
     is_playing: bool,
+    position_secs: Option<f64>,
 ) -> Result<(), SoneError> {
     #[cfg(target_os = "linux")]
     state
         .mpris
         .send(crate::mpris::MprisCommand::SetPlaybackStatus { is_playing });
+    state
+        .discord
+        .send(crate::discord::DiscordCommand::SetPlaying {
+            is_playing,
+            position_secs: position_secs.unwrap_or(0.0),
+        });
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
+pub fn update_mpris_shuffle(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), SoneError> {
+    #[cfg(target_os = "linux")]
+    state
+        .mpris
+        .send(crate::mpris::MprisCommand::SetShuffle { enabled });
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
+pub fn update_mpris_loop_status(
+    state: State<'_, AppState>,
+    mode: u8,
+) -> Result<(), SoneError> {
+    #[cfg(target_os = "linux")]
+    state
+        .mpris
+        .send(crate::mpris::MprisCommand::SetLoopStatus { mode });
     Ok(())
 }

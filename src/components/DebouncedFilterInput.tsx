@@ -35,7 +35,7 @@ export default memo(function DebouncedFilterInput({
         onChange={(e) => setValue(e.target.value)}
         onFocus={onFocus}
         placeholder={placeholder}
-        className="w-full bg-th-surface-hover/60 text-[13px] text-white placeholder:text-th-text-disabled rounded-md py-2 pl-9 pr-3 outline-none border border-transparent focus:border-th-border-subtle transition-colors"
+        className="w-full bg-th-surface-hover/60 text-[13px] text-th-text-primary placeholder:text-th-text-disabled rounded-md py-2 pl-9 pr-3 outline-none border border-transparent focus:border-th-border-subtle transition-colors"
       />
     </div>
   );

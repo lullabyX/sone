@@ -9,7 +9,6 @@ import ViewAllPage from "./components/ViewAllPage";
 import ArtistPage from "./components/ArtistPage";
 import ArtistTracksPage from "./components/ArtistTracksPage";
 import MixPage from "./components/MixPage";
-import TrackRadioPage from "./components/TrackRadioPage";
 import ExplorePage from "./components/ExplorePage";
 import ExploreSubPage from "./components/ExploreSubPage";
 import LibraryViewAll from "./components/LibraryViewAll";
@@ -43,6 +42,7 @@ function useZoom() {
 
   useEffect(() => {
     document.documentElement.style.zoom = String(zoom);
+    document.documentElement.style.setProperty("--zoom", String(zoom));
   }, [zoom]);
 
   useEffect(() => {
@@ -160,15 +160,6 @@ function AppContent() {
             onBack={navigateHome}
           />
         );
-      case "trackRadio":
-        return (
-          <TrackRadioPage
-            key={currentView.trackId}
-            trackId={currentView.trackId}
-            trackInfo={currentView.trackInfo}
-            onBack={navigateHome}
-          />
-        );
       case "explore":
         return <ExplorePage />;
       case "explorePage":
@@ -183,8 +174,10 @@ function AppContent() {
       case "libraryViewAll":
         return (
           <LibraryViewAll
-            key={currentView.libraryType}
+            key={`${currentView.libraryType}:${currentView.folderId ?? "root"}`}
             libraryType={currentView.libraryType}
+            folderId={currentView.folderId}
+            folderName={currentView.folderName}
           />
         );
       case "home":

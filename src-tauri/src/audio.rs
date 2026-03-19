@@ -41,6 +41,7 @@ enum WriterCommand {
     },
     FormatHint(PcmFormat),
     Resampling { from: u32, to: u32 },
+    BitDepthChanged { from: String, to: String },
     Flush,
     Shutdown,
 }
@@ -288,6 +289,35 @@ fn configure_alsa_hwparams(
         .map_err(|e| format!("set_period_time: {e}"))?;
     pcm.hw_params(&hwp).map_err(|e| format!("hw_params: {e}"))?;
 
+    // Configure sw_params: pre-fill buffer before DMA starts.
+    // snd_pcm_hw_params() resets start_threshold to 1 (immediate start on first
+    // writei), which causes underruns when the writer can't keep up from frame one.
+    // Match GStreamer alsasink: start_threshold = buffer_size (full pre-fill).
+    {
+        let swp = pcm.sw_params_current()
+            .map_err(|e| format!("sw_params_current: {e}"))?;
+        let hwp_active = pcm.hw_params_current()
+            .map_err(|e| format!("hw_params_current for sw: {e}"))?;
+        let buffer_frames = hwp_active.get_buffer_size()
+            .map_err(|e| format!("get_buffer_size: {e}"))?;
+        let period_frames = hwp_active.get_period_size()
+            .map_err(|e| format!("get_period_size: {e}"))?;
+        // start_threshold: largest period-aligned value ≤ buffer_size.
+        // With our time-near requests this equals buffer_size, but the
+        // rounding guards against odd driver negotiations.
+        let start = (buffer_frames / period_frames) * period_frames;
+        swp.set_start_threshold(start as alsa::pcm::Frames)
+            .map_err(|e| format!("set_start_threshold: {e}"))?;
+        swp.set_avail_min(period_frames as alsa::pcm::Frames)
+            .map_err(|e| format!("set_avail_min: {e}"))?;
+        pcm.sw_params(&swp)
+            .map_err(|e| format!("sw_params: {e}"))?;
+        log::debug!(
+            "[audio] sw_params committed: start_threshold={}, avail_min={}",
+            start, period_frames
+        );
+    }
+
     // Log final negotiated hw_params
     if let Ok(active) = pcm.hw_params_current() {
         let rate = active.get_rate().unwrap_or(0);
@@ -351,6 +381,32 @@ fn spawn_alsa_writer(
 
     let supported_rates = probe_supported_rates(&pcm);
     log::debug!("[alsa-writer] DAC supported rates: {:?}", supported_rates);
+
+    // Adjust initial format to something the DAC actually supports.
+    // This is a placeholder — the real format arrives via FormatHint/pad_added
+    // once GStreamer decodes the stream. We just need the DAC to accept it.
+    let initial_format = {
+        let mut fmt = initial_format;
+        if !supported_gst_formats.contains(&fmt.gst_format.as_str()) {
+            let best = supported_gst_formats[0]; // probe orders by quality (S32>S24>S16)
+            let (_, bps) = alsa_format_to_gst(gst_format_to_alsa(best));
+            log::info!(
+                "[alsa-writer] DAC doesn't support {}, using {} for initial config",
+                fmt.gst_format, best
+            );
+            fmt.gst_format = best.to_string();
+            fmt.bytes_per_sample = bps;
+        }
+        if !supported_rates.is_empty() && !supported_rates.contains(&fmt.sample_rate) {
+            let fallback = supported_rates[0]; // first probed rate (44100 typically)
+            log::info!(
+                "[alsa-writer] DAC doesn't support {}Hz, using {}Hz for initial config",
+                fmt.sample_rate, fallback
+            );
+            fmt.sample_rate = fallback;
+        }
+        fmt
+    };
 
     let initial_format = configure_alsa_hwparams(&pcm, &initial_format, bit_perfect)?;
     pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
@@ -631,6 +687,12 @@ fn spawn_alsa_writer(
                             serde_json::json!({ "from": from, "to": to })).ok();
                     }
 
+                    Ok(WriterCommand::BitDepthChanged { from, to }) => {
+                        log::info!("[alsa-writer] bit-depth promotion: {} -> {}", from, to);
+                        app_handle.emit("audio-bit-depth-changed",
+                            serde_json::json!({ "from": from, "to": to })).ok();
+                    }
+
                     Ok(WriterCommand::EndOfTrack { emit_finished, generation }) => {
                         if generation < writer_gen.load(Ordering::Acquire) {
                             continue; // stale EOS from old pipeline
@@ -721,6 +783,11 @@ fn spawn_alsa_writer(
                                     }
                                 }
                                 Ok(WriterCommand::Resampling { .. }) => {}
+                                Ok(WriterCommand::BitDepthChanged { from, to }) => {
+                                    log::info!("[alsa-writer] bit-depth promotion: {} -> {}", from, to);
+                                    app_handle.emit("audio-bit-depth-changed",
+                                        serde_json::json!({ "from": from, "to": to })).ok();
+                                }
                                 Ok(_) => {}
                                 Err(crossbeam_channel::TryRecvError::Empty) => {}
                                 Err(crossbeam_channel::TryRecvError::Disconnected) => break 'main,
@@ -1101,6 +1168,10 @@ impl AudioPlayer {
                                     udb = udb
                                         .property("buffer-duration", 15_000_000_000i64)
                                         .property("use-buffering", true);
+                                } else {
+                                    udb = udb
+                                        .property("buffer-duration", 5_000_000_000i64)
+                                        .property("use-buffering", true);
                                 }
                                 let uridecodebin = udb
                                     .build()
@@ -1277,13 +1348,12 @@ impl AudioPlayer {
                                 if let Some(bus) = pipeline.bus() {
                                     bus.set_flushing(true);
                                 }
-                                pipeline
-                                    .set_state(gst::State::Null)
-                                    .map(|_| {
-                                        eos.store(false, Ordering::SeqCst);
-                                        has_uri.store(false, Ordering::SeqCst);
-                                    })
-                                    .map_err(|e| format!("Failed to stop: {e}"))
+                                eos.store(false, Ordering::SeqCst);
+                                has_uri.store(false, Ordering::SeqCst);
+                                std::thread::spawn(move || {
+                                    pipeline.set_state(gst::State::Null).ok();
+                                });
+                                Ok(())
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 // Bump generation so writer discards stale data,
@@ -1532,6 +1602,10 @@ fn build_appsink_pipeline(
         udb = udb
             .property("buffer-duration", 15_000_000_000i64)
             .property("use-buffering", true);
+    } else {
+        udb = udb
+            .property("buffer-duration", 5_000_000_000i64)
+            .property("use-buffering", true);
     }
     let uridecodebin = udb
         .build()
@@ -1545,16 +1619,20 @@ fn build_appsink_pipeline(
         .sync(false)
         .build();
 
-    // DASH + bit-perfect: constrain appsink to ALSA-safe formats.
-    // No rate/channel constraint — allows mid-stream renegotiation.
-    // Capsfilter is omitted for DASH; appsink caps negotiate without blocking renegotiation.
+    // DASH + bit-perfect: constrain appsink to ALSA-safe formats and rates.
+    // This prevents mid-stream renegotiation to a rate the DAC can't handle.
     if is_dash && bit_perfect {
-        appsink.set_caps(Some(
-            &gst::Caps::builder("audio/x-raw")
-                .field("format", gst::List::new(supported_gst_formats.iter().copied()))
-                .build(),
-        ));
-        log::debug!("[audio] bit-perfect DASH: appsink caps = {:?}", supported_gst_formats);
+        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
+        let mut caps_builder = gst::Caps::builder("audio/x-raw")
+            .field("format", gst::List::new(supported_gst_formats.iter().copied()));
+        if !rate_list.is_empty() {
+            caps_builder = caps_builder.field("rate", gst::List::new(rate_list));
+        }
+        appsink.set_caps(Some(&caps_builder.build()));
+        log::debug!(
+            "[audio] bit-perfect DASH: appsink caps = formats:{:?} rates:{:?}",
+            supported_gst_formats, supported_rates
+        );
     }
 
     log::debug!(
@@ -1691,50 +1769,65 @@ fn build_appsink_pipeline(
             }
         }
 
-        // Bit-perfect: lock capsfilter to decoded format
-        if let Some(ref cf_weak) = capsfilter_weak {
-            if let Some(cf) = cf_weak.upgrade() {
-                let caps = src_pad.current_caps().or_else(|| {
-                    let query = src_pad.query_caps(None);
-                    if query.is_fixed() {
-                        Some(query)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(caps) = caps {
-                    if let Some(s) = caps.structure(0) {
-                        if let (Ok(rate), Ok(channels), Ok(format)) = (
-                            s.get::<i32>("rate"),
-                            s.get::<i32>("channels"),
-                            s.get::<&str>("format"),
-                        ) {
-                            let locked = if format.starts_with("S24") {
-                                // Filter to S24/S32 formats the DAC actually supports
-                                let s24_candidates: Vec<&str> = supported_fmts_for_closure
-                                    .iter()
-                                    .map(|s| s.as_str())
-                                    .filter(|f| *f == "S24LE" || *f == "S24_32LE" || *f == "S32LE")
-                                    .collect();
-                                let fmts = if s24_candidates.is_empty() {
-                                    vec!["S32LE"] // safe fallback
-                                } else {
-                                    s24_candidates
-                                };
-                                gst::Caps::builder("audio/x-raw")
+        // Bit-perfect: detect format promotion and lock capsfilter.
+        // Runs for both DASH and non-DASH — notification is independent of capsfilter.
+        if is_bit_perfect {
+            let caps = src_pad.current_caps().or_else(|| {
+                let query = src_pad.query_caps(None);
+                if query.is_fixed() {
+                    Some(query)
+                } else {
+                    None
+                }
+            });
+            if let Some(caps) = caps {
+                if let Some(s) = caps.structure(0) {
+                    if let (Ok(rate), Ok(channels), Ok(format)) = (
+                        s.get::<i32>("rate"),
+                        s.get::<i32>("channels"),
+                        s.get::<&str>("format"),
+                    ) {
+                        // Lossless-compatible formats: source format + wider
+                        // integer containers that can represent it via zero-padding.
+                        // audioconvert (dithering=none) handles this as a pure bit op.
+                        let compatible: &[&str] = match format {
+                            "S16LE" => &["S16LE", "S24LE", "S24_32LE", "S32LE"],
+                            "S24LE" | "S24_32LE" => &["S24LE", "S24_32LE", "S32LE"],
+                            "S32LE" => &["S32LE"],
+                            "F32LE" => &["F32LE"],
+                            _ => &["S32LE"],
+                        };
+                        let candidates: Vec<&str> = supported_fmts_for_closure
+                            .iter()
+                            .map(|s| s.as_str())
+                            .filter(|f| compatible.contains(f))
+                            .collect();
+                        let fmts = if candidates.is_empty() {
+                            vec!["S32LE"] // safe fallback
+                        } else {
+                            // Notify if source format needs promotion
+                            if !candidates.contains(&format) {
+                                let _ = resample_tx.try_send(
+                                    WriterCommand::BitDepthChanged {
+                                        from: format.to_string(),
+                                        to: candidates[0].to_string(),
+                                    },
+                                );
+                            }
+                            candidates
+                        };
+
+                        // Lock capsfilter (non-DASH only — DASH uses appsink caps instead)
+                        if let Some(ref cf_weak) = capsfilter_weak {
+                            if let Some(cf) = cf_weak.upgrade() {
+                                let locked = gst::Caps::builder("audio/x-raw")
                                     .field("format", gst::List::new(fmts.iter().copied()))
                                     .field("rate", rate)
                                     .field("channels", channels)
-                                    .build()
-                            } else {
-                                gst::Caps::builder("audio/x-raw")
-                                    .field("format", format)
-                                    .field("rate", rate)
-                                    .field("channels", channels)
-                                    .build()
-                            };
-                            log::info!("[audio] bit-perfect: locking capsfilter to {locked}");
-                            cf.set_property("caps", &locked);
+                                    .build();
+                                log::info!("[audio] bit-perfect: locking capsfilter to {locked}");
+                                cf.set_property("caps", &locked);
+                            }
                         }
                     }
                 }

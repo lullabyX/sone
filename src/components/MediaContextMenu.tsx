@@ -8,6 +8,8 @@ import {
   UserPlus,
   UserCheck,
   Trash2,
+  FolderInput,
+  Link,
 } from "lucide-react";
 import {
   useState,
@@ -26,18 +28,22 @@ import { usePlaylists } from "../hooks/usePlaylists";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { userPlaylistsAtom } from "../atoms/playlists";
 import { currentViewAtom } from "../atoms/navigation";
+import { getShareUrl } from "../utils/itemHelpers";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
+import MoveToFolderMenu from "./MoveToFolderMenu";
 import MenuPortal from "./MenuPortal";
 
 interface MediaContextMenuProps {
   item: MediaItemType;
   cursorPosition: { x: number; y: number };
+  sourceFolderId?: string;
   onClose: () => void;
 }
 
 export default function MediaContextMenu({
   item,
   cursorPosition,
+  sourceFolderId,
   onClose,
 }: MediaContextMenuProps) {
   const { playTrack, setQueueTracks, addToQueue, playNextInQueue } =
@@ -75,6 +81,10 @@ export default function MediaContextMenu({
   // Delete playlist confirmation state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // "Move to folder" sub-menu state
+  const [showMoveToFolder, setShowMoveToFolder] = useState(false);
+  const moveFolderBtnRef = useRef<HTMLButtonElement | null>(null);
+
   // Library favorite state
   const [isFav, setIsFav] = useState<boolean | null>(null);
   const [checkingFav, setCheckingFav] = useState(false);
@@ -107,7 +117,7 @@ export default function MediaContextMenu({
 
   const { menuRef, style } = useContextMenu({
     cursorPosition,
-    suppressClose: showPlaylistSubmenu || showDeleteConfirm,
+    suppressClose: showPlaylistSubmenu || showDeleteConfirm || showMoveToFolder,
     onClose,
   });
 
@@ -115,6 +125,17 @@ export default function MediaContextMenu({
   const rawLabel = item.type === "artist" ? item.name : item.title;
   const itemLabel =
     rawLabel.length > 30 ? rawLabel.slice(0, 28) + "…" : rawLabel;
+
+  // Lightweight source tag for manual queue items
+  const manualSource = (() => {
+    if (item.type === "album")
+      return { type: "album" as const, id: item.id, name: item.title, image: item.cover };
+    if (item.type === "playlist")
+      return { type: "playlist" as const, id: item.uuid, name: item.title, image: item.image };
+    if (item.type === "mix")
+      return { type: "mix" as const, id: item.mixId, name: item.title, image: item.image, subtitle: item.subtitle };
+    return undefined;
+  })();
 
   // Helper: fetch tracks and perform an action
   const withTracks = useCallback(
@@ -144,12 +165,48 @@ export default function MediaContextMenu({
       "play",
       (tracks) => {
         const [first, ...rest] = tracks;
-        setQueueTracks(rest);
+        let source:
+          | {
+              type: string;
+              id: string | number;
+              name: string;
+              image?: string;
+              subtitle?: string;
+              allTracks: Track[];
+            }
+          | undefined;
+        if (item.type === "album") {
+          source = {
+            type: "album",
+            id: item.id,
+            name: item.title,
+            image: item.cover,
+            allTracks: tracks,
+          };
+        } else if (item.type === "playlist") {
+          source = {
+            type: "playlist",
+            id: item.uuid,
+            name: item.title,
+            image: item.image,
+            allTracks: tracks,
+          };
+        } else if (item.type === "mix") {
+          source = {
+            type: "mix",
+            id: item.mixId,
+            name: item.title,
+            image: item.image,
+            subtitle: item.subtitle,
+            allTracks: tracks,
+          };
+        }
+        setQueueTracks(rest, source ? { source } : undefined);
         playTrack(first);
       },
       `Now playing "${itemLabel}"`,
     );
-  }, [withTracks, playTrack, setQueueTracks, itemLabel]);
+  }, [withTracks, playTrack, setQueueTracks, itemLabel, item]);
 
   const handlePlayNext = useCallback(() => {
     withTracks(
@@ -158,22 +215,22 @@ export default function MediaContextMenu({
         // Insert tracks at the front of the queue in reverse order
         // so the first track of the album/playlist appears first
         for (let i = tracks.length - 1; i >= 0; i--) {
-          playNextInQueue(tracks[i]);
+          playNextInQueue(tracks[i], manualSource);
         }
       },
       `"${itemLabel}" will play next`,
     );
-  }, [withTracks, playNextInQueue, itemLabel]);
+  }, [withTracks, playNextInQueue, itemLabel, manualSource]);
 
   const handleAddToQueue = useCallback(() => {
     withTracks(
       "add to queue",
       (tracks) => {
-        tracks.forEach((t) => addToQueue(t));
+        tracks.forEach((t) => addToQueue(t, manualSource));
       },
       `Added "${itemLabel}" to queue`,
     );
-  }, [withTracks, addToQueue, itemLabel]);
+  }, [withTracks, addToQueue, itemLabel, manualSource]);
 
   const handleAddToPlaylist = useCallback(async () => {
     if (playlistTrackIds) {
@@ -225,7 +282,12 @@ export default function MediaContextMenu({
           await removeFavoriteMix(item.mixId);
           showToast(`Removed "${itemLabel}" from library`);
         } else {
-          await addFavoriteMix(item.mixId);
+          await addFavoriteMix(item.mixId, {
+            id: item.mixId,
+            title: item.title,
+            subTitle: item.subtitle || "",
+            images: item.image ? { SMALL: { url: item.image }, MEDIUM: { url: item.image } } : undefined,
+          });
           showToast(`Added "${itemLabel}" to library`);
         }
       }
@@ -252,7 +314,7 @@ export default function MediaContextMenu({
   ]);
 
   const menuItemClass =
-    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-text-secondary hover:text-white";
+    "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left text-[14px] text-th-text-secondary hover:text-th-text-primary";
 
   const isLoading = (action: string) => loadingAction === action;
 
@@ -286,6 +348,16 @@ export default function MediaContextMenu({
     onClose,
     showToast,
   ]);
+
+  const handleShare = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(getShareUrl(item));
+      showToast("Copied share link to clipboard");
+    } catch {
+      showToast("Failed to copy link", "error");
+    }
+    onClose();
+  }, [item, showToast, onClose]);
 
   // Whether "Add to library" / "Follow" is supported for this item type
   const canFavorite =
@@ -375,6 +447,18 @@ export default function MediaContextMenu({
           <span>Add to playlist</span>
         </button>
 
+        {/* Move to folder */}
+        {item.type === "playlist" && (
+          <button
+            ref={moveFolderBtnRef}
+            className={menuItemClass}
+            onClick={() => setShowMoveToFolder(true)}
+          >
+            <FolderInput size={18} className="shrink-0 text-th-text-muted" />
+            <span>Move to folder</span>
+          </button>
+        )}
+
         {/* Add to / Remove from library / Follow artist */}
         {canFavorite && (
           <>
@@ -415,12 +499,19 @@ export default function MediaContextMenu({
           </>
         )}
 
+        {/* Share */}
+        <div className="my-1 border-t border-th-inset" />
+        <button className={menuItemClass} onClick={handleShare}>
+          <Link size={18} className="shrink-0 text-th-text-muted" />
+          <span>Share</span>
+        </button>
+
         {/* Delete playlist (only for user-created playlists) */}
         {isUserPlaylist && (
           <>
             <div className="my-1 border-t border-th-inset" />
             <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left text-[14px] text-th-error hover:text-th-error"
+              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left text-[14px] text-th-error hover:text-th-error"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={!!loadingAction}
             >
@@ -441,7 +532,7 @@ export default function MediaContextMenu({
             className="bg-th-elevated rounded-xl shadow-2xl max-w-[400px] w-[90%] p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold text-white mb-2">
+            <h3 className="text-lg font-semibold text-th-text-primary mb-2">
               Delete playlist?
             </h3>
             <p className="text-sm text-th-text-secondary mb-6">
@@ -450,7 +541,7 @@ export default function MediaContextMenu({
             </p>
             <div className="flex justify-end gap-3">
               <button
-                className="px-4 py-2 rounded-lg text-sm font-medium text-th-text-secondary hover:text-white hover:bg-white/[0.06] transition-colors"
+                className="px-4 py-2 rounded-lg text-sm font-medium text-th-text-secondary hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
                 onClick={() => setShowDeleteConfirm(false)}
               >
                 Cancel
@@ -474,6 +565,22 @@ export default function MediaContextMenu({
           anchorRef={playlistBtnRef}
           onClose={() => {
             setShowPlaylistSubmenu(false);
+            onClose();
+          }}
+        />
+      )}
+
+      {/* Move to folder submenu */}
+      {showMoveToFolder && item.type === "playlist" && (
+        <MoveToFolderMenu
+          playlistUuid={item.uuid}
+          playlistTitle={item.title}
+          playlistImage={item.image}
+          playlistCreatorName={item.creatorName}
+          anchorRef={moveFolderBtnRef}
+          sourceFolderId={sourceFolderId}
+          onClose={() => {
+            setShowMoveToFolder(false);
             onClose();
           }}
         />

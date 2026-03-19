@@ -72,9 +72,9 @@ export function getItemSubtitle(item: any, userId?: number): string {
   if (item.subtitleTextInfo?.text) return item.subtitleTextInfo.text;
   if (item.subTitleTextInfo?.text) return item.subTitleTextInfo.text;
   if (item.shortSubtitleTextInfo?.text) return item.shortSubtitleTextInfo.text;
-  if (item.artist?.name) return item.artist.name;
   if (item.artists && item.artists.length > 0)
     return item.artists.map((a: any) => a.name).join(", ");
+  if (item.artist?.name) return item.artist.name;
   if (item.creator) {
     const creatorLabel =
       userId != null && item.creator.id === userId
@@ -195,4 +195,71 @@ export function buildMediaItem(
     };
   }
   return null;
+}
+
+/** Return comma-separated artist names for a track (plain text, no links). */
+export function getTrackArtistDisplay(track: { artist?: { name?: string }; artists?: { name: string }[] }): string {
+  if (track.artists && track.artists.length > 0) {
+    return track.artists.map((a) => a.name).join(", ");
+  }
+  return track.artist?.name || "Unknown Artist";
+}
+
+/** Format artists with "ft." notation for Discord Rich Presence. */
+export function getTrackArtistDiscordDisplay(track: {
+  artist?: { name?: string };
+  artists?: { name: string; artistType?: string }[];
+}): string {
+  if (!track.artists || track.artists.length === 0) {
+    return track.artist?.name || "Unknown Artist";
+  }
+  if (track.artists.length === 1) {
+    return track.artists[0].name;
+  }
+  const main = track.artists.filter((a) => a.artistType === "MAIN");
+  const featured = track.artists.filter((a) => a.artistType !== "MAIN");
+
+  if (main.length === 0) {
+    // No type info — fall back to comma-separated
+    return track.artists.map((a) => a.name).join(", ");
+  }
+
+  const mainStr = main.map((a) => a.name).join(", ");
+  if (featured.length === 0) return mainStr;
+
+  const featStr =
+    featured.length === 1
+      ? featured[0].name
+      : featured.slice(0, -1).map((a) => a.name).join(", ") +
+        " & " +
+        featured[featured.length - 1].name;
+
+  return `${mainStr} ft. ${featStr}`;
+}
+
+const TIDAL_SHARE_BASE = "https://tidal.com";
+
+/** Build a Tidal share URL for a track. */
+export function getTrackShareUrl(trackId: number): string {
+  return `${TIDAL_SHARE_BASE}/track/${trackId}/u`;
+}
+
+/** Build a Tidal share URL for a media item (album/playlist/mix/artist). */
+export function getShareUrl(item: MediaItemType): string {
+  switch (item.type) {
+    case "album":
+      return `${TIDAL_SHARE_BASE}/album/${item.id}`;
+    case "playlist":
+      return `${TIDAL_SHARE_BASE}/playlist/${item.uuid}`;
+    case "mix":
+      return `${TIDAL_SHARE_BASE}/mix/${item.mixId}`;
+    case "artist":
+      return `${TIDAL_SHARE_BASE}/artist/${item.id}`;
+  }
+}
+
+export function folderSubtitle(count: number | undefined | null): string {
+  if (count == null) return "Folder";
+  const n = Math.max(0, count);
+  return `${n} playlist${n !== 1 ? "s" : ""}`;
 }

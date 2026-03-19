@@ -18,6 +18,7 @@ import {
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
 import MediaCard from "./MediaCard";
+import { TrackArtists } from "./TrackArtists";
 import {
   getItemImage,
   getItemTitle,
@@ -97,7 +98,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
   const scroll = (direction: "left" | "right") => {
     const el = scrollRef.current;
     if (!el) return;
-    const scrollAmount = el.clientWidth * 0.8;
+    const scrollAmount = el.clientWidth + 16; // one full page + gap for exact card alignment
     el.scrollBy({
       left: direction === "left" ? -scrollAmount : scrollAmount,
       behavior: "smooth",
@@ -129,6 +130,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           title: getItemTitle(item),
           image: getItemImage(item),
           subtitle: getItemSubtitle(item),
+          mixType: item.type || item.mixType,
         });
       }
     } else if (isArtistItem(item, section.sectionType)) {
@@ -183,7 +185,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
     <section className="mb-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[22px] font-bold text-white tracking-tight hover:underline cursor-pointer">
+        <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight hover:underline cursor-pointer">
           {section.title}
         </h2>
         <div className="flex items-center gap-2">
@@ -192,7 +194,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
             onClick={() => scroll("left")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollLeft
-                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
                 : "text-th-text-disabled cursor-default"
             }`}
             disabled={!canScrollLeft}
@@ -203,7 +205,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
             onClick={() => scroll("right")}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
               canScrollRight
-                ? "bg-th-inset hover:bg-th-inset-hover text-white"
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
                 : "text-th-text-disabled cursor-default"
             }`}
             disabled={!canScrollRight}
@@ -213,7 +215,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           {section.hasMore && section.apiPath && (
             <button
               onClick={() => navigateToViewAll(section.title, section.apiPath!)}
-              className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors ml-2"
+              className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors ml-2"
             >
               View all
             </button>
@@ -222,10 +224,11 @@ export default function HomeSection({ section }: HomeSectionProps) {
       </div>
 
       {/* Horizontal scroll row */}
+      <div className="card-scroll">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2"
+        className="card-scroll-track pb-2"
       >
         {items.map((item: any) => {
           const isArtist = isArtistItem(item, section.sectionType);
@@ -281,7 +284,14 @@ export default function HomeSection({ section }: HomeSectionProps) {
                 if (favoriteMixIds.has(mixId)) {
                   removeFavoriteMix(mixId);
                 } else {
-                  addFavoriteMix(mixId);
+                  const img = getItemImage(item);
+                  addFavoriteMix(mixId, {
+                    id: mixId,
+                    title: getItemTitle(item),
+                    subTitle: getItemSubtitle(item),
+                    mixType: item.type || item.mixType,
+                    images: img ? { SMALL: { url: img }, MEDIUM: { url: img } } : undefined,
+                  });
                 }
               };
             }
@@ -309,7 +319,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
               isArtist={isArtist}
               isFavorited={isFavorited}
               onFavoriteToggle={onFavoriteToggle}
-              widthClass="w-[180px] flex-shrink-0"
+              widthClass="card-scroll-item"
               {...(myTracks && {
                 titleOverride: "Loved Tracks",
                 imageOverride: (
@@ -322,6 +332,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
             />
           );
         })}
+      </div>
       </div>
 
       {/* Media context menu */}
@@ -345,7 +356,7 @@ function TrackListSection({
   items: any[];
 }) {
   const { playFromSource } = usePlaybackActions();
-  const { navigateToAlbum, navigateToArtist, navigateToViewAll } =
+  const { navigateToAlbum, navigateToViewAll } =
     useNavigation();
   const [trackContextMenu, setTrackContextMenu] = useState<{
     track: any;
@@ -380,13 +391,13 @@ function TrackListSection({
   return (
     <section className="mb-8">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[22px] font-bold text-white tracking-tight hover:underline cursor-pointer">
+        <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight hover:underline cursor-pointer">
           {section.title}
         </h2>
         {section.hasMore && section.apiPath && (
           <button
             onClick={() => navigateToViewAll(section.title, section.apiPath!)}
-            className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+            className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
           >
             View all
           </button>
@@ -410,7 +421,7 @@ function TrackListSection({
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <Music size={16} className="text-gray-600" />
+                  <Music size={16} className="text-th-text-faint" />
                 </div>
               )}
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -418,7 +429,7 @@ function TrackListSection({
               </div>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[14px] text-white truncate font-medium">
+              <p className="text-[14px] text-th-text-primary truncate font-medium">
                 {item.album ? (
                   <span
                     className="hover:underline"
@@ -438,20 +449,12 @@ function TrackListSection({
               </p>
               <p className="text-[12px] text-th-text-muted truncate">
                 {(item.artist || item.artists?.[0]) && (
-                  <span
+                  <TrackArtists
+                    artists={item.artists}
+                    artist={item.artist}
                     className="hover:underline cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const artistId = item.artist?.id || item.artists?.[0]?.id;
-                      const artistName =
-                        item.artist?.name || item.artists?.[0]?.name;
-                      if (artistId) {
-                        navigateToArtist(artistId, { name: artistName });
-                      }
-                    }}
-                  >
-                    {item.artist?.name || item.artists?.[0]?.name || ""}
-                  </span>
+                    fallback=""
+                  />
                 )}
                 {item.followInfo && (
                   <span className="ml-1 text-th-accent">+</span>
@@ -461,7 +464,7 @@ function TrackListSection({
             {/* Three-dots on hover */}
             <button
               onClick={(e) => openTrackMenu(e, item, idx)}
-              className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
+              className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-strong opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
             >
               <MoreHorizontal size={16} />
             </button>
@@ -493,7 +496,7 @@ function CompactGridSection({
   items: any[];
   onItemClick: (item: any) => void;
 }) {
-  const { navigateToViewAll, navigateToAlbum, navigateToArtist } =
+  const { navigateToViewAll, navigateToAlbum } =
     useNavigation();
   const displayItems = items.slice(0, 16);
 
@@ -573,13 +576,13 @@ function CompactGridSection({
   return (
     <section className="mb-8">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[22px] font-bold text-white tracking-tight hover:underline cursor-pointer">
+        <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight hover:underline cursor-pointer">
           {section.title}
         </h2>
         {section.hasMore && section.apiPath && (
           <button
             onClick={() => navigateToViewAll(section.title, section.apiPath!)}
-            className="text-[13px] font-bold text-th-text-muted hover:text-white uppercase tracking-wider transition-colors"
+            className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
           >
             View all
           </button>
@@ -612,7 +615,7 @@ function CompactGridSection({
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <Music size={16} className="text-gray-600" />
+                    <Music size={16} className="text-th-text-faint" />
                   </div>
                 )}
                 {!myTracks && (
@@ -626,7 +629,7 @@ function CompactGridSection({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-white truncate font-medium">
+                <p className="text-[14px] text-th-text-primary truncate font-medium">
                   {myTracks ? (
                     "Loved Tracks"
                   ) : isTrack && item.album ? (
@@ -650,21 +653,12 @@ function CompactGridSection({
                   {myTracks ? (
                     "Collection"
                   ) : isTrack && (item.artist || item.artists?.[0]) ? (
-                    <span
+                    <TrackArtists
+                      artists={item.artists}
+                      artist={item.artist}
                       className="hover:underline cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const artistId =
-                          item.artist?.id || item.artists?.[0]?.id;
-                        const artistName =
-                          item.artist?.name || item.artists?.[0]?.name;
-                        if (artistId) {
-                          navigateToArtist(artistId, { name: artistName });
-                        }
-                      }}
-                    >
-                      {item.artist?.name || item.artists?.[0]?.name || ""}
-                    </span>
+                      fallback=""
+                    />
                   ) : (
                     getItemSubtitle(item)
                   )}
@@ -674,7 +668,7 @@ function CompactGridSection({
               {!myTracks && (
                 <button
                   onClick={(e) => openMenu(e, item, idx)}
-                  className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
+                  className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-strong opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
                 >
                   <MoreHorizontal size={16} />
                 </button>

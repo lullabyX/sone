@@ -102,11 +102,11 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-th-border-subtle">
           <div className="flex items-center gap-2.5">
             <Palette size={18} className="text-th-accent" />
-            <h2 className="text-[16px] font-bold text-white">Theme</h2>
+            <h2 className="text-[16px] font-bold text-th-text-primary">Theme</h2>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-white hover:bg-th-border-subtle transition-colors"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-border-subtle transition-colors"
           >
             <X size={16} />
           </button>
@@ -136,11 +136,11 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
                     {/* Color swatch */}
                     <div className="flex items-center gap-1">
                       <div
-                        className="w-5 h-5 rounded-full border border-white/10"
+                        className="w-5 h-5 rounded-full border border-th-border-subtle"
                         style={{ backgroundColor: preset.accent }}
                       />
                       <div
-                        className="w-5 h-5 rounded-full border border-white/10"
+                        className="w-5 h-5 rounded-full border border-th-border-subtle"
                         style={{ backgroundColor: presetDerived.bgSurface }}
                       />
                     </div>
@@ -175,7 +175,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
                       type="color"
                       value={localAccent}
                       onChange={(e) => handleAccentChange(e.target.value)}
-                      className="w-9 h-9 rounded-lg cursor-pointer border border-white/10 bg-transparent appearance-none [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-none"
+                      className="w-9 h-9 rounded-lg cursor-pointer border border-th-border-subtle bg-transparent appearance-none [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-none"
                     />
                   </div>
                   <input
@@ -191,7 +191,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
                         }
                       }
                     }}
-                    className="flex-1 px-3 py-1.5 text-[13px] font-mono bg-th-inset border border-th-border-subtle rounded-lg text-white focus:outline-none focus:border-th-accent transition-colors"
+                    className="flex-1 px-3 py-1.5 text-[13px] font-mono bg-th-inset border border-th-border-subtle rounded-lg text-th-text-primary focus:outline-none focus:border-th-accent transition-colors"
                     maxLength={7}
                     spellCheck={false}
                   />
@@ -209,7 +209,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
                       type="color"
                       value={localBg}
                       onChange={(e) => handleBgChange(e.target.value)}
-                      className="w-9 h-9 rounded-lg cursor-pointer border border-white/10 bg-transparent appearance-none [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-none"
+                      className="w-9 h-9 rounded-lg cursor-pointer border border-th-border-subtle bg-transparent appearance-none [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-md [&::-webkit-color-swatch]:border-none"
                     />
                   </div>
                   <input
@@ -225,7 +225,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
                         }
                       }
                     }}
-                    className="flex-1 px-3 py-1.5 text-[13px] font-mono bg-th-inset border border-th-border-subtle rounded-lg text-white focus:outline-none focus:border-th-accent transition-colors"
+                    className="flex-1 px-3 py-1.5 text-[13px] font-mono bg-th-inset border border-th-border-subtle rounded-lg text-th-text-primary focus:outline-none focus:border-th-accent transition-colors"
                     maxLength={7}
                     spellCheck={false}
                   />
@@ -240,14 +240,14 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
               Preview
             </h3>
             <div
-              className="rounded-xl border border-white/10 overflow-hidden"
+              className="rounded-xl border border-th-border-subtle overflow-hidden"
               style={{ backgroundColor: derived.bgBase }}
             >
               {/* Mini sidebar + content mockup */}
               <div className="flex h-[120px]">
                 {/* Mini sidebar */}
                 <div
-                  className="w-12 flex flex-col items-center gap-2 py-3 border-r border-white/5"
+                  className="w-12 flex flex-col items-center gap-2 py-3 border-r border-th-border-subtle"
                   style={{ backgroundColor: derived.bgSidebar }}
                 >
                   <div
@@ -308,7 +308,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
               </div>
               {/* Mini player bar */}
               <div
-                className="flex items-center gap-2 px-3 py-2 border-t border-white/5"
+                className="flex items-center gap-2 px-3 py-2 border-t border-th-border-subtle"
                 style={{ backgroundColor: derived.bgElevated }}
               >
                 <div
@@ -335,7 +335,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
         <div className="flex items-center justify-between px-6 py-4 border-t border-th-border-subtle">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-th-text-muted hover:text-white transition-colors rounded-lg hover:bg-th-border-subtle"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-th-text-muted hover:text-th-text-primary transition-colors rounded-lg hover:bg-th-border-subtle"
           >
             <RotateCcw size={13} />
             Reset

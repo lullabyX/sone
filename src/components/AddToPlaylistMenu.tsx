@@ -1,11 +1,16 @@
 import { Plus, Search, X, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useToast } from "../contexts/ToastContext";
 import { usePlaylists } from "../hooks/usePlaylists";
+import { allPlaylistsAtom, addedToFolderAtom } from "../atoms/playlists";
+import { authTokensAtom } from "../atoms/auth";
+import { getAllPlaylists } from "../api/tidal";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { type Playlist, getTidalImageUrl } from "../types";
 import TidalImage from "./TidalImage";
 import MenuPortal from "./MenuPortal";
+import Toggle from "./Toggle";
 
 // ─── Public API ────────────────────────────────────────────────
 
@@ -54,6 +59,7 @@ export function CreatePlaylistModal({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -77,7 +83,7 @@ export function CreatePlaylistModal({
     setError(null);
     setSaving(true);
     try {
-      const playlist = await createPlaylist(title.trim(), description.trim());
+      const playlist = await createPlaylist(title.trim(), description.trim(), isPublic ? "PUBLIC" : "UNLISTED");
       if (trackIds.length > 0) {
         await addTracksToPlaylist(playlist.uuid, trackIds);
       }
@@ -91,6 +97,7 @@ export function CreatePlaylistModal({
   }, [
     title,
     description,
+    isPublic,
     saving,
     createPlaylist,
     addTracksToPlaylist,
@@ -118,11 +125,11 @@ export function CreatePlaylistModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
-          <h2 className="text-[18px] font-semibold text-white">
+          <h2 className="text-[18px] font-semibold text-th-text-primary">
             Create playlist
           </h2>
           <button
-            className="p-1 text-th-text-muted hover:text-white rounded-full transition-colors"
+            className="p-1 text-th-text-muted hover:text-th-text-primary rounded-full transition-colors"
             onClick={onClose}
           >
             <X size={20} />
@@ -140,7 +147,7 @@ export function CreatePlaylistModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={saving}
-              className="w-full bg-transparent text-white text-[15px] px-4 py-3.5 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint transition-colors"
+              className="w-full bg-transparent text-th-text-primary text-[15px] px-4 py-3.5 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint transition-colors"
             />
           </div>
 
@@ -155,7 +162,7 @@ export function CreatePlaylistModal({
               }}
               disabled={saving}
               rows={4}
-              className="w-full bg-transparent text-white text-[14px] px-4 py-3 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint resize-none transition-colors"
+              className="w-full bg-transparent text-th-text-primary text-[14px] px-4 py-3 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint resize-none transition-colors"
             />
             <div className="text-right mt-1">
               <span className="text-[12px] text-th-text-faint">
@@ -164,7 +171,174 @@ export function CreatePlaylistModal({
             </div>
           </div>
 
+          {/* Make it public */}
+          <div className="flex items-center justify-between py-1">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-th-text-primary">
+                Make it public
+              </p>
+              <p className="text-[11px] text-th-text-muted">
+                Your playlist will be visible on your Profile and accessible by anyone.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPublic(!isPublic)}
+              disabled={saving}
+            >
+              <Toggle on={isPublic} />
+            </button>
+          </div>
+
           {/* Error */}
+          {error && <p className="text-[13px] text-th-error">{error}</p>}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end px-6 pt-2 pb-6">
+          <button
+            onClick={handleSave}
+            disabled={!title.trim() || saving}
+            className="px-6 py-2.5 bg-th-accent text-black text-[14px] font-semibold rounded-full hover:bg-th-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            {saving && <Loader2 size={16} className="animate-spin" />}
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit-playlist modal ──────────────────────────────────────
+
+export function EditPlaylistModal({
+  playlist,
+  onClose,
+  onUpdated,
+}: {
+  playlist: { uuid: string; title: string; description?: string; accessType?: string };
+  onClose: () => void;
+  onUpdated: (playlist: Playlist) => void;
+}) {
+  const { updatePlaylist } = usePlaylists();
+  const { showToast } = useToast();
+
+  const [title, setTitle] = useState(playlist.title);
+  const [description, setDescription] = useState(playlist.description || "");
+  const [isPublic, setIsPublic] = useState(playlist.accessType === "PUBLIC");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handleSave = useCallback(async () => {
+    if (!title.trim() || saving) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const updated = await updatePlaylist(
+        playlist.uuid,
+        title.trim(),
+        description.trim(),
+        isPublic ? "PUBLIC" : "UNLISTED",
+      );
+      showToast(`Updated playlist "${title.trim()}"`);
+      onUpdated(updated);
+    } catch {
+      setError("Failed to update playlist");
+      setSaving(false);
+    }
+  }, [title, description, isPublic, saving, updatePlaylist, playlist.uuid, showToast, onUpdated]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center"
+      style={{ animation: "fadeIn 0.15s ease-out" }}
+    >
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div
+        className="relative w-full max-w-[520px] bg-th-surface rounded-xl shadow-2xl overflow-hidden mx-4"
+        style={{ animation: "slideUp 0.2s ease-out" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4">
+          <h2 className="text-[18px] font-semibold text-th-text-primary">
+            Edit playlist
+          </h2>
+          <button
+            className="p-1 text-th-text-muted hover:text-th-text-primary rounded-full transition-colors"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 pb-2 flex flex-col gap-4">
+          <div>
+            <input
+              ref={titleRef}
+              type="text"
+              placeholder="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={saving}
+              className="w-full bg-transparent text-th-text-primary text-[15px] px-4 py-3.5 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint transition-colors"
+            />
+          </div>
+          <div>
+            <textarea
+              placeholder="Write a description"
+              value={description}
+              onChange={(e) => {
+                if (e.target.value.length <= 500) setDescription(e.target.value);
+              }}
+              disabled={saving}
+              rows={4}
+              className="w-full bg-transparent text-th-text-primary text-[14px] px-4 py-3 rounded-lg border border-th-inset-hover focus:border-th-text-faint focus:outline-none placeholder-th-text-faint resize-none transition-colors"
+            />
+            <div className="text-right mt-1">
+              <span className="text-[12px] text-th-text-faint">
+                {description.length}/500 characters
+              </span>
+            </div>
+          </div>
+
+          {/* Make it public */}
+          <div className="flex items-center justify-between py-1">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-th-text-primary">
+                Make it public
+              </p>
+              <p className="text-[11px] text-th-text-muted">
+                Your playlist will be visible on your Profile and accessible by anyone.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPublic(!isPublic)}
+              disabled={saving}
+            >
+              <Toggle on={isPublic} />
+            </button>
+          </div>
+
           {error && <p className="text-[13px] text-th-error">{error}</p>}
         </div>
 
@@ -191,8 +365,11 @@ export default function AddToPlaylistMenu({
   anchorRef,
   onClose,
 }: AddToPlaylistMenuProps) {
-  const { userPlaylists, addTracksToPlaylist } = usePlaylists();
+  const { addTracksToPlaylist } = usePlaylists();
   const { showToast } = useToast();
+  const setAddedToFolder = useSetAtom(addedToFolderAtom);
+  const [allPlaylists, setAllPlaylists] = useAtom(allPlaylistsAtom);
+  const authTokens = useAtomValue(authTokensAtom);
 
   const [showAll, setShowAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,6 +379,35 @@ export default function AddToPlaylistMenu({
   const [error, setError] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Lazy-fetch all playlists on first open
+  useEffect(() => {
+    if (allPlaylists.length > 0 || !authTokens?.user_id) return;
+    let cancelled = false;
+    const userId = authTokens.user_id;
+    const PAGE = 500;
+
+    getAllPlaylists(userId, 0, PAGE)
+      .then(async (first) => {
+        if (cancelled) return;
+        setAllPlaylists(first.items);
+
+        const total = first.totalNumberOfItems;
+        if (total > PAGE) {
+          const pages = [];
+          for (let offset = PAGE; offset < total; offset += PAGE) {
+            pages.push(getAllPlaylists(userId, offset, PAGE));
+          }
+          const results = await Promise.all(pages);
+          if (cancelled) return;
+          const rest = results.flatMap((r) => r.items);
+          setAllPlaylists((prev) => [...prev, ...rest]);
+        }
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [allPlaylists.length, authTokens?.user_id, setAllPlaylists]);
 
   const { menuRef, style } = useContextMenu({
     anchorRef,
@@ -220,15 +426,15 @@ export default function AddToPlaylistMenu({
   // Recent playlists
   const recentIds = getRecentPlaylistIds();
   const recentPlaylists = recentIds
-    .map((id) => userPlaylists.find((p) => p.uuid === id))
+    .map((id) => allPlaylists.find((p) => p.uuid === id))
     .filter((p): p is Playlist => !!p);
 
   // Filtered playlists for "show all" view
   const filteredPlaylists = searchQuery
-    ? userPlaylists.filter((p) =>
+    ? allPlaylists.filter((p) =>
         p.title.toLowerCase().includes(searchQuery.toLowerCase()),
       )
-    : userPlaylists;
+    : allPlaylists;
 
   const handleAddToPlaylist = useCallback(
     async (playlist: Playlist) => {
@@ -248,6 +454,8 @@ export default function AddToPlaylistMenu({
             : `Added to "${label}"`,
         );
         setTimeout(onClose, 500);
+        // Reset so next open re-fetches all playlists
+        setAllPlaylists([]);
       } catch (err: any) {
         const isDuplicateError = (e: unknown): boolean => {
           try {
@@ -290,11 +498,11 @@ export default function AddToPlaylistMenu({
 
     return (
       <button
-        className="w-full flex items-center justify-between px-5 py-3 hover:bg-white/[0.04] transition-colors text-left group/row"
+        className="w-full flex items-center justify-between px-5 py-3 hover:bg-th-hl-faint transition-colors text-left group/row"
         onClick={() => handleAddToPlaylist(playlist)}
         disabled={isAdding || isAdded}
       >
-        <span className="text-[14px] text-th-text-secondary truncate pr-3 group-hover/row:text-white transition-colors">
+        <span className="text-[14px] text-th-text-secondary truncate pr-3 group-hover/row:text-th-text-primary transition-colors">
           {playlist.title}
         </span>
         <div className="shrink-0 w-5 flex items-center justify-center">
@@ -307,7 +515,7 @@ export default function AddToPlaylistMenu({
           ) : (
             <Plus
               size={18}
-              className="text-th-text-faint group-hover/row:text-white transition-colors"
+              className="text-th-text-faint group-hover/row:text-th-text-primary transition-colors"
             />
           )}
         </div>
@@ -322,7 +530,7 @@ export default function AddToPlaylistMenu({
 
     return (
       <button
-        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.04] transition-colors text-left group/row"
+        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left group/row"
         onClick={() => handleAddToPlaylist(playlist)}
         disabled={isAdding || isAdded}
       >
@@ -338,7 +546,7 @@ export default function AddToPlaylistMenu({
 
         {/* Title + track count */}
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[14px] text-th-text-secondary truncate group-hover/row:text-white transition-colors leading-snug">
+          <span className="text-[14px] text-th-text-secondary truncate group-hover/row:text-th-text-primary transition-colors leading-snug">
             {playlist.title}
           </span>
           <span className="text-[12px] text-th-text-faint leading-snug">
@@ -359,7 +567,7 @@ export default function AddToPlaylistMenu({
           ) : (
             <Plus
               size={18}
-              className="text-th-text-faint group-hover/row:text-white transition-colors"
+              className="text-th-text-faint group-hover/row:text-th-text-primary transition-colors"
             />
           )}
         </div>
@@ -394,11 +602,11 @@ export default function AddToPlaylistMenu({
                   placeholder="Find a playlist"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-th-inset text-white text-[13px] pl-9 pr-8 py-2 rounded-md focus:outline-none placeholder-th-text-disabled"
+                  className="w-full bg-th-inset text-th-text-primary text-[13px] pl-9 pr-8 py-2 rounded-md focus:outline-none placeholder-th-text-disabled"
                 />
                 {searchQuery && (
                   <button
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-th-text-faint hover:text-white"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-th-text-faint hover:text-th-text-primary"
                     onClick={() => setSearchQuery("")}
                   >
                     <X size={14} />
@@ -409,7 +617,7 @@ export default function AddToPlaylistMenu({
 
             {/* Back link */}
             <button
-              className="px-5 py-2 text-[12px] text-white hover:text-th-accent text-left transition-colors"
+              className="px-5 py-2 text-[12px] text-th-text-primary hover:text-th-accent text-left transition-colors"
               onClick={() => {
                 setShowAll(false);
                 setSearchQuery("");
@@ -436,23 +644,23 @@ export default function AddToPlaylistMenu({
           <>
             {/* Create new playlist */}
             <button
-              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-white/[0.04] transition-colors"
+              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-th-hl-faint transition-colors"
               onClick={() => setShowCreateModal(true)}
             >
               <div className="w-8 h-8 rounded-full bg-th-inset flex items-center justify-center shrink-0">
-                <Plus size={18} className="text-white" />
+                <Plus size={18} className="text-th-text-primary" />
               </div>
-              <span className="text-[15px] text-white font-medium">
+              <span className="text-[15px] text-th-text-primary font-medium">
                 Create new playlist
               </span>
             </button>
 
             {/* Show all playlists */}
             <button
-              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/[0.04] transition-colors"
+              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-th-hl-faint transition-colors"
               onClick={() => setShowAll(true)}
             >
-              <span className="text-[14px] text-th-text-muted hover:text-white transition-colors">
+              <span className="text-[14px] text-th-text-muted hover:text-th-text-primary transition-colors">
                 Show all playlists
               </span>
             </button>
@@ -471,7 +679,7 @@ export default function AddToPlaylistMenu({
                   ))}
                 </div>
               </div>
-            ) : userPlaylists.length > 0 ? (
+            ) : allPlaylists.length > 0 ? (
               <div className="flex flex-col mt-1">
                 <div className="px-5 pt-2 pb-1">
                   <span className="text-[11px] font-bold text-th-text-muted uppercase tracking-[0.12em]">
@@ -479,7 +687,7 @@ export default function AddToPlaylistMenu({
                   </span>
                 </div>
                 <div className="overflow-y-auto custom-scrollbar max-h-[240px] pb-2">
-                  {userPlaylists.slice(0, MAX_RECENT).map((p) => (
+                  {allPlaylists.slice(0, MAX_RECENT).map((p) => (
                     <CompactPlaylistRow key={p.uuid} playlist={p} />
                   ))}
                 </div>
@@ -501,8 +709,19 @@ export default function AddToPlaylistMenu({
         <CreatePlaylistModal
           trackIds={trackIds}
           onClose={() => setShowCreateModal(false)}
-          onCreated={() => {
+          onCreated={(playlist) => {
+            setAddedToFolder((prev) => {
+              const next = new Map(prev);
+              const list = next.get("root") ?? [];
+              next.set("root", [...list, {
+                kind: "playlist" as const,
+                data: { ...playlist, numberOfTracks: trackIds.length },
+              }]);
+              return next;
+            });
             setShowCreateModal(false);
+            // Reset so next open re-fetches all playlists
+            setAllPlaylists([]);
             onClose();
           }}
         />

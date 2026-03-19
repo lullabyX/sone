@@ -23,6 +23,14 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
   <img src="data/sone_theme_readme.png" width="32%" alt="SONE custom theme — native Linux music player with full color customization" />
 </p>
 
+## The Vision
+
+The Linux desktop app TIDAL never built. 
+
+SONE finally gives Linux users a first-class streaming client. It delivers the complete, fully-featured experience you expect with seamless library management and a sleek, familiar workflow—and then supercharges it. 
+
+We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizable-adaptive floating miniplayer, custom themes, Discord Rich Presence, and multi-service scrobbling (Last.fm, Libre.fm, ListenBrainz)—all wrapped in a fast, native Linux app.
+
 <details>
 <summary>Table of Contents</summary>
 
@@ -51,14 +59,23 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 
 ### Interface
 
-- **Custom themes** — 9 presets and a full color picker for accent and background
+- **Custom themes** — 12 presets and a full color picker for accent and background with both light/dark mode
 - **Lyrics** — synced lyrics display for supported tracks
+- **Miniplayer** — compact floating window with album art, playback controls, and resizable-adaptive layout
+- **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
 - **Queue persistence** — picks up where you left off across restarts
-- **MPRIS integration** — media keys, desktop taskbar widgets, and system media controls
+- **MPRIS integration** — media keys, shuffle, repeat, seek, and desktop widget support
 - **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
 - **Proxy support** — route traffic through HTTP, HTTPS, or SOCKS5 proxies
+- **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 - **System tray** with playback controls and minimize-to-tray
 - **Keyboard shortcuts** for all common actions with a built-in shortcut overlay
+
+### Library
+
+- **Library management** — browse and sort your playlists, albums, artists, and mixes with playlist folder support
+- **Share** — share tracks, albums, playlists, artists, and mixes with your friends via a direct TIDAL link
+- **Deep links** — open `tidal://` URLs directly in SONE
 
 ## Why SONE?
 
@@ -90,8 +107,11 @@ Pre-built packages for Ubuntu/Debian (.deb), Fedora (.rpm), openSUSE (.rpm), and
   <a href="https://github.com/lullabyX/sone/releases/latest">
     <img src="https://img.shields.io/badge/Arch%20Linux-PKGBUILD-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Download SONE PKGBUILD for Arch Linux and Manjaro" />
   </a>
+  <a href="https://aur.archlinux.org/packages/sone">
+    <img src="https://img.shields.io/badge/AUR-sone-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Install SONE from AUR (build from source)" />
+  </a>
   <a href="https://aur.archlinux.org/packages/sone-bin">
-    <img src="https://img.shields.io/badge/AUR-sone--bin-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Install SONE from AUR" />
+    <img src="https://img.shields.io/badge/AUR-sone--bin-1793D1?style=for-the-badge&logo=archlinux" height="60" alt="Install SONE from AUR (pre-built binary)" />
   </a>
 </p>
 
@@ -168,13 +188,16 @@ sudo dnf install -y gstreamer1-plugins-base-tools
 
 #### AUR
 
-SONE is available on the [AUR](https://aur.archlinux.org/packages/sone-bin) as `sone-bin` — a pre-built binary package, no compilation required.
+SONE is available on the AUR in two variants:
+
+- [`sone`](https://aur.archlinux.org/packages/sone) — builds from source
+- [`sone-bin`](https://aur.archlinux.org/packages/sone-bin) — pre-built binary, no compilation required
 
 **Install with your AUR helper:**
 ```bash
-yay -S sone-bin
+yay -S sone       # build from source
 # or
-paru -S sone-bin
+yay -S sone-bin   # pre-built binary
 ```
 
 #### Manual Install
@@ -298,7 +321,7 @@ If you enjoy using SONE, consider giving the project a star to help others find 
 
 ## Disclaimer
 
-SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content.
+SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content. As with any third-party client, please be aware of TIDAL's terms of use.
 
 All trademarks belong to their respective owners.
 

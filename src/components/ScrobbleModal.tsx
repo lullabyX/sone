@@ -179,7 +179,7 @@ export default function ScrobbleModal({ open, onClose }: ScrobbleModalProps) {
     return (
       <div className="rounded-lg bg-th-surface border border-th-border-subtle p-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-[14px] font-semibold text-white">
+          <h3 className="text-[14px] font-semibold text-th-text-primary">
             {displayName}
           </h3>
           {connected && (
@@ -264,10 +264,10 @@ export default function ScrobbleModal({ open, onClose }: ScrobbleModalProps) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-[16px] font-bold text-white">Scrobbling</h2>
+          <h2 className="text-[16px] font-bold text-th-text-primary">Scrobbling</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-white"
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
           >
             <X size={18} />
           </button>
@@ -302,7 +302,7 @@ export default function ScrobbleModal({ open, onClose }: ScrobbleModalProps) {
               {/* ListenBrainz */}
               <div className="rounded-lg bg-th-surface border border-th-border-subtle p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-[14px] font-semibold text-white">
+                  <h3 className="text-[14px] font-semibold text-th-text-primary">
                     ListenBrainz
                   </h3>
                   {lbConnected && (
@@ -348,7 +348,7 @@ export default function ScrobbleModal({ open, onClose }: ScrobbleModalProps) {
                         }
                         placeholder="User token"
                         disabled={listenbrainz.step === "submitting"}
-                        className="flex-1 px-3 py-1.5 text-[13px] bg-th-inset border border-th-border-subtle rounded-lg text-white placeholder:text-th-text-muted focus:outline-none focus:border-th-accent transition-colors disabled:opacity-50"
+                        className="flex-1 px-3 py-1.5 text-[13px] bg-th-inset border border-th-border-subtle rounded-lg text-th-text-primary placeholder:text-th-text-muted focus:outline-none focus:border-th-accent transition-colors disabled:opacity-50"
                       />
                       <button
                         onClick={handleListenBrainzConnect}

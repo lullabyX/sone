@@ -60,7 +60,7 @@ interface BioTextProps {
 export default function BioText({
   bio,
   onArtistClick,
-  className = "text-white/80",
+  className = "text-th-text-secondary",
 }: BioTextProps) {
   const paragraphs = parseBio(bio);
 

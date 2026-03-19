@@ -6,7 +6,7 @@ import {
   authTokensAtom,
   userNameAtom,
 } from "../atoms/auth";
-import { userPlaylistsAtom, favoritePlaylistsAtom } from "../atoms/playlists";
+import { userPlaylistsAtom } from "../atoms/playlists";
 import {
   isPlayingAtom,
   currentTrackAtom,
@@ -16,13 +16,15 @@ import {
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import {
   clearCache,
-  getUserPlaylists as fetchUserPlaylists,
+  getPlaylistFolders,
+  normalizePlaylistFolders,
 } from "../api/tidal";
 import type {
   AuthTokens,
   PkceAuthParams,
   DeviceAuthResponse,
   Playlist,
+  PlaylistOrFolder,
 } from "../types";
 
 const PLAYBACK_STATE_KEY = "sone.playback-state.v1";
@@ -35,7 +37,6 @@ export function useAuth() {
 
   // Cross-domain setters for logout
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
-  const setFavoritePlaylists = useSetAtom(favoritePlaylistsAtom);
   const setIsPlaying = useSetAtom(isPlayingAtom);
   const setCurrentTrack = useSetAtom(currentTrackAtom);
   const setQueue = useSetAtom(queueAtom);
@@ -191,7 +192,6 @@ export function useAuth() {
       setAuthTokens(null);
       setIsAuthenticated(false);
       setUserPlaylists([]);
-      setFavoritePlaylists([]);
       setCurrentTrack(null);
       setIsPlaying(false);
       setQueue([]);
@@ -210,7 +210,6 @@ export function useAuth() {
     setAuthTokens,
     setIsAuthenticated,
     setUserPlaylists,
-    setFavoritePlaylists,
     setCurrentTrack,
     setIsPlaying,
     setQueue,
@@ -219,10 +218,13 @@ export function useAuth() {
   ]);
 
   const getUserPlaylists = useCallback(
-    async (userId: number): Promise<Playlist[]> => {
+    async (_userId: number): Promise<Playlist[]> => {
       try {
-        const result = await fetchUserPlaylists(userId, 0, 50);
-        const playlists = result.items || [];
+        const result = await getPlaylistFolders("root", 0, 50);
+        const normalized = normalizePlaylistFolders(result);
+        const playlists = normalized.items
+          .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+          .map((i) => i.data);
         setUserPlaylists(playlists);
         return playlists;
       } catch (error) {

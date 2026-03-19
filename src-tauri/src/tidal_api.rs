@@ -38,6 +38,7 @@ pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error
 const TIDAL_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2";
 const TIDAL_API_URL: &str = "https://api.tidal.com/v1";
 const TIDAL_API_V2_URL: &str = "https://api.tidal.com/v2";
+const TIDAL_OPENAPI_URL: &str = "https://openapi.tidal.com/v2";
 const TIDAL_CLIENT_VERSION: &str = "2025.11.3";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -68,8 +69,8 @@ pub struct TidalTrack {
     #[serde(default)]
     pub artist: Option<TidalArtist>,
     /// Some endpoints return `artists` (plural array) instead of / in addition to `artist`.
-    #[serde(default, skip_serializing)]
-    artists: Option<Vec<TidalArtist>>,
+    #[serde(default)]
+    pub artists: Option<Vec<TidalArtist>>,
     #[serde(default)]
     pub album: Option<TidalAlbum>,
     #[serde(default)]
@@ -109,6 +110,17 @@ pub struct TidalTrack {
     /// Present on track detail responses — contains mix IDs like `TRACK_MIX`.
     #[serde(default)]
     pub mixes: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MixPageResult {
+    pub mix_id: String,
+    pub mix_type: Option<String>,
+    pub title: Option<String>,
+    pub subtitle: Option<String>,
+    pub image: Option<String>,
+    pub tracks: Vec<TidalTrack>,
 }
 
 impl TidalTrack {
@@ -324,6 +336,57 @@ pub struct TidalPlaylistRaw {
     pub last_item_added_at: Option<String>,
 }
 
+/// OpenAPI v2 playlist response envelope
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenApiPlaylistResponse {
+    pub data: OpenApiPlaylistData,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenApiPlaylistData {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub data_type: String,
+    pub attributes: OpenApiPlaylistAttributes,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenApiPlaylistAttributes {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub access_type: Option<String>,
+    #[serde(default)]
+    pub playlist_type: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub last_modified_at: Option<String>,
+}
+
+impl From<OpenApiPlaylistResponse> for TidalPlaylist {
+    fn from(resp: OpenApiPlaylistResponse) -> Self {
+        let d = resp.data;
+        let a = d.attributes;
+        TidalPlaylist {
+            uuid: d.id,
+            title: a.name,
+            description: a.description,
+            image: None,
+            number_of_tracks: Some(0),
+            creator: None,
+            playlist_type: a.playlist_type,
+            duration: Some(0),
+            last_updated: a.last_modified_at,
+            access_type: a.access_type,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TidalPlaylist {
@@ -340,6 +403,8 @@ pub struct TidalPlaylist {
     pub duration: Option<u32>,
     #[serde(default)]
     pub last_updated: Option<String>,
+    #[serde(default)]
+    pub access_type: Option<String>,
 }
 
 impl From<TidalPlaylistRaw> for TidalPlaylist {
@@ -355,6 +420,9 @@ impl From<TidalPlaylistRaw> for TidalPlaylist {
             playlist_type: raw.playlist_type,
             duration: raw.duration,
             last_updated: raw.last_updated,
+            access_type: raw.public_playlist.map(|p| {
+                if p { "PUBLIC".to_string() } else { "UNLISTED".to_string() }
+            }),
         }
     }
 }
@@ -1272,37 +1340,181 @@ impl TidalClient {
         })
     }
 
+    /// Fetch a flat list of ALL user playlists (v1 endpoint, ignores folder nesting).
+    pub async fn get_all_playlists(
+        &mut self,
+        user_id: u64,
+        offset: u32,
+        limit: u32,
+        order: &str,
+        order_direction: &str,
+    ) -> Result<PaginatedResponse<TidalPlaylist>, SoneError> {
+        let cc = self.country_code.clone();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        let body = self
+            .api_get_body(
+                &format!("/users/{}/playlists", user_id),
+                &[
+                    ("offset", &offset_str),
+                    ("limit", &limit_str),
+                    ("order", order),
+                    ("orderDirection", order_direction),
+                    ("countryCode", &cc),
+                    ("locale", "en_US"),
+                    ("deviceType", "BROWSER"),
+                ],
+            )
+            .await?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Resp {
+            items: Vec<TidalPlaylistRaw>,
+            total_number_of_items: u32,
+        }
+
+        let data: Resp = serde_json::from_str(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)])))?;
+        let playlists: Vec<TidalPlaylist> = data.items.into_iter().map(|p| p.into()).collect();
+        Ok(PaginatedResponse {
+            items: playlists,
+            total_number_of_items: data.total_number_of_items,
+            offset,
+            limit,
+        })
+    }
+
     pub async fn create_playlist(
         &self,
-        user_id: u64,
         title: &str,
         description: &str,
+        access_type: &str,
     ) -> Result<TidalPlaylist, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
+        let body = serde_json::json!({
+            "data": {
+                "type": "playlists",
+                "attributes": {
+                    "name": title,
+                    "description": description,
+                    "accessType": access_type
+                }
+            }
+        });
+
+        log::debug!(
+            "[create_playlist]: url={}/playlists, body={}",
+            TIDAL_OPENAPI_URL,
+            body
+        );
+
         let response = self
             .client
-            .post(format!("{}/users/{}/playlists", TIDAL_API_URL, user_id))
+            .post(format!("{}/playlists", TIDAL_OPENAPI_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
-            .form(&[("title", title), ("description", description)])
+            .json(&body)
             .send()
             .await?;
 
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        let body_text = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[create_playlist]: status={}, response={}",
+            status,
+            &body_text[..body_text.len().min(500)]
+        );
 
         if !status.is_success() {
             return Err(SoneError::Api {
                 status: status.as_u16(),
-                body,
+                body: body_text,
             });
         }
 
-        let raw = serde_json::from_str::<TidalPlaylistRaw>(&body)
-            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body)))?;
+        let resp = serde_json::from_str::<OpenApiPlaylistResponse>(&body_text)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body_text)))?;
 
-        Ok(raw.into())
+        Ok(resp.into())
+    }
+
+    pub async fn update_playlist(
+        &self,
+        playlist_id: &str,
+        title: &str,
+        description: &str,
+        access_type: &str,
+    ) -> Result<TidalPlaylist, SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        let body = serde_json::json!({
+            "data": {
+                "id": playlist_id,
+                "type": "playlists",
+                "attributes": {
+                    "name": title,
+                    "description": description,
+                    "accessType": access_type
+                }
+            }
+        });
+
+        log::debug!(
+            "[update_playlist]: url={}/playlists/{}, body={}",
+            TIDAL_OPENAPI_URL,
+            playlist_id,
+            body
+        );
+
+        let response = self
+            .client
+            .patch(format!("{}/playlists/{}", TIDAL_OPENAPI_URL, playlist_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/vnd.api+json")
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[update_playlist]: status={}, response={}",
+            status,
+            &body_text[..body_text.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        // 204 No Content — update succeeded but no body returned
+        if body_text.is_empty() {
+            return Ok(TidalPlaylist {
+                uuid: playlist_id.to_string(),
+                title: title.to_string(),
+                description: Some(description.to_string()),
+                image: None,
+                number_of_tracks: None,
+                creator: None,
+                playlist_type: Some("USER".to_string()),
+                duration: None,
+                last_updated: None,
+                access_type: Some(access_type.to_string()),
+            });
+        }
+
+        let resp = serde_json::from_str::<OpenApiPlaylistResponse>(&body_text)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body_text)))?;
+
+        Ok(resp.into())
     }
 
     pub async fn add_track_to_playlist(
@@ -1622,6 +1834,63 @@ impl TidalClient {
         }
         Ok(PaginatedTracks {
             items: data.items,
+            total_number_of_items: data.total_number_of_items,
+            offset: data.offset,
+            limit: data.limit,
+        })
+    }
+
+    /// Fetch playlist recommendations. The API wraps each track in `{ item, type }`.
+    pub async fn get_playlist_recommendations(
+        &mut self,
+        playlist_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<PaginatedTracks, SoneError> {
+        let cc = self.country_code.clone();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        let body = self
+            .api_get_body(
+                &format!("/playlists/{}/recommendations/items", playlist_id),
+                &[
+                    ("countryCode", &cc),
+                    ("limit", &limit_str),
+                    ("offset", &offset_str),
+                    ("locale", "en_US"),
+                    ("deviceType", "BROWSER"),
+                ],
+            )
+            .await?;
+
+        #[derive(Deserialize)]
+        struct WrappedItem {
+            item: TidalTrack,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RecommendationsResponse {
+            #[serde(default)]
+            items: Vec<WrappedItem>,
+            #[serde(default)]
+            total_number_of_items: u32,
+            #[serde(default)]
+            offset: u32,
+            #[serde(default)]
+            limit: u32,
+        }
+
+        let data: RecommendationsResponse = serde_json::from_str(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)])))?;
+
+        let mut tracks: Vec<TidalTrack> = data.items.into_iter().map(|w| w.item).collect();
+        for t in &mut tracks {
+            t.backfill_artist();
+        }
+
+        Ok(PaginatedTracks {
+            items: tracks,
             total_number_of_items: data.total_number_of_items,
             offset: data.offset,
             limit: data.limit,
@@ -2346,7 +2615,7 @@ impl TidalClient {
 
     /// Fetch favorite mix IDs from api.tidal.com/v2/favorites/mixes.
     pub async fn get_favorite_mix_ids(&mut self) -> Result<Vec<String>, SoneError> {
-        let response = self.get_favorite_mixes(0, 50).await?;
+        let response = self.get_favorite_mixes(0, 50, "DATE", "DESC").await?;
         let ids: Vec<String> = response.items.iter().map(|m| m.id.clone()).collect();
         log::debug!("[get_favorite_mix_ids]: found {} mix IDs", ids.len());
         Ok(ids)
@@ -2357,6 +2626,8 @@ impl TidalClient {
         &mut self,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedResponse<TidalFavoriteMix>, SoneError> {
         let url = format!("{}/favorites/mixes", TIDAL_API_V2_URL);
         let cc = self.country_code.clone();
@@ -2371,6 +2642,8 @@ impl TidalClient {
                     ("deviceType", "BROWSER"),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;
@@ -2418,6 +2691,246 @@ impl TidalClient {
             offset,
             limit,
         })
+    }
+
+    /// Fetch playlist folders from v2/my-collection/playlists/folders.
+    /// Returns raw JSON so we can capture the full response shape.
+    pub async fn get_playlist_folders(
+        &mut self,
+        folder_id: &str,
+        include_only: &str,
+        offset: u32,
+        limit: u32,
+        order: &str,
+        order_direction: &str,
+        cursor: &str,
+    ) -> Result<serde_json::Value, SoneError> {
+        let url = format!("{}/my-collection/playlists/folders", TIDAL_API_V2_URL);
+        let cc = self.country_code.clone();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        let mut params: Vec<(&str, &str)> = vec![
+            ("folderId", folder_id),
+            ("offset", &offset_str),
+            ("limit", &limit_str),
+            ("order", order),
+            ("orderDirection", order_direction),
+            ("countryCode", &cc),
+            ("locale", "en_US"),
+            ("deviceType", "BROWSER"),
+        ];
+        if !include_only.is_empty() {
+            params.push(("includeOnly", include_only));
+        }
+        if !cursor.is_empty() {
+            params.push(("cursor", cursor));
+        }
+        let body = self
+            .api_get_body(&url, &params)
+            .await?;
+
+        log::debug!(
+            "[get_playlist_folders]: body_preview={}",
+            &body[..body.len().min(1000)]
+        );
+
+        serde_json::from_str(&body).map_err(|e| {
+            SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)]))
+        })
+    }
+
+    pub async fn create_playlist_folder(
+        &self,
+        folder_id: &str,
+        name: &str,
+        trns: &str,
+    ) -> Result<serde_json::Value, SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        log::debug!(
+            "[create_playlist_folder]: folder_id={}, name={}, trns={}",
+            folder_id,
+            name,
+            trns
+        );
+
+        let mut params: Vec<(&str, &str)> = vec![
+            ("folderId", folder_id),
+            ("name", name),
+            ("countryCode", self.country_code.as_str()),
+            ("locale", "en_US"),
+            ("deviceType", "BROWSER"),
+        ];
+        if !trns.is_empty() {
+            params.push(("trns", trns));
+        }
+
+        let response = self
+            .client
+            .put(format!(
+                "{}/my-collection/playlists/folders/create-folder",
+                TIDAL_API_V2_URL
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&params)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[create_playlist_folder]: status={}, body={}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(serde_json::from_str(&body).unwrap_or(serde_json::Value::Null))
+    }
+
+    pub async fn rename_playlist_folder(
+        &self,
+        folder_trn: &str,
+        name: &str,
+    ) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        log::debug!(
+            "[rename_playlist_folder]: folder_trn={}, name={}",
+            folder_trn,
+            name
+        );
+
+        let response = self
+            .client
+            .put(format!(
+                "{}/my-collection/playlists/folders/rename",
+                TIDAL_API_V2_URL
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("trn", folder_trn),
+                ("name", name),
+                ("countryCode", self.country_code.as_str()),
+                ("locale", "en_US"),
+                ("deviceType", "BROWSER"),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[rename_playlist_folder]: status={}, body={}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_playlist_folder(&self, folder_trn: &str) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        log::debug!("[delete_playlist_folder]: folder_trn={}", folder_trn);
+
+        let response = self
+            .client
+            .put(format!(
+                "{}/my-collection/playlists/folders/remove",
+                TIDAL_API_V2_URL
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("trns", folder_trn),
+                ("countryCode", self.country_code.as_str()),
+                ("locale", "en_US"),
+                ("deviceType", "BROWSER"),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[delete_playlist_folder]: status={}, body={}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub async fn move_playlist_to_folder(
+        &self,
+        folder_id: &str,
+        playlist_trn: &str,
+    ) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        log::debug!(
+            "[move_playlist_to_folder]: folder_id={}, playlist_trn={}",
+            folder_id,
+            playlist_trn
+        );
+
+        let response = self
+            .client
+            .put(format!(
+                "{}/my-collection/playlists/folders/move",
+                TIDAL_API_V2_URL
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("folderId", folder_id),
+                ("trns", playlist_trn),
+                ("countryCode", self.country_code.as_str()),
+                ("locale", "en_US"),
+                ("deviceType", "BROWSER"),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[move_playlist_to_folder]: status={}, body={}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
     }
 
     pub async fn add_tracks_to_playlist(
@@ -2635,6 +3148,27 @@ impl TidalClient {
         .await
     }
 
+    pub async fn get_playlist_details(
+        &mut self,
+        playlist_id: &str,
+    ) -> Result<serde_json::Value, SoneError> {
+        let cc = self.country_code.clone();
+        self.api_get(
+            &format!("/playlists/{}", playlist_id),
+            &[("countryCode", &cc)],
+        )
+        .await
+    }
+
+    pub async fn get_track(&mut self, track_id: u64) -> Result<serde_json::Value, SoneError> {
+        let cc = self.country_code.clone();
+        self.api_get(
+            &format!("/tracks/{}", track_id),
+            &[("countryCode", &cc)],
+        )
+        .await
+    }
+
     pub async fn get_track_credits(
         &mut self,
         track_id: u64,
@@ -2645,73 +3179,6 @@ impl TidalClient {
             &[("countryCode", &cc)],
         )
         .await
-    }
-
-    pub async fn get_track_radio(
-        &mut self,
-        track_id: u64,
-        limit: u32,
-    ) -> Result<Vec<TidalTrack>, SoneError> {
-        let cc = self.country_code.clone();
-
-        // Step 1: Fetch track detail to get mixes.TRACK_MIX
-        if let Ok(detail_body) = self
-            .api_get_body(&format!("/tracks/{}", track_id), &[("countryCode", &cc)])
-            .await
-        {
-            if let Ok(detail) = serde_json::from_str::<Value>(&detail_body) {
-                if let Some(track_mix_id) = detail
-                    .get("mixes")
-                    .and_then(|m| m.get("TRACK_MIX"))
-                    .and_then(|v| v.as_str())
-                {
-                    // Step 2: Use get_mix_items (pages/mix with legacy fallback)
-                    if let Ok(tracks) = self.get_mix_items(track_mix_id).await {
-                        if !tracks.is_empty() {
-                            return Ok(tracks);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Step 3: Fall back to legacy /tracks/{id}/radio
-        // 4xx errors mean "no radio available" — return empty vec instead of error.
-        match self.get_track_radio_legacy(track_id, limit).await {
-            Ok(tracks) => Ok(tracks),
-            Err(SoneError::Api { status, .. }) if (400..500).contains(&status) => Ok(vec![]),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Legacy track radio endpoint: `/tracks/{id}/radio`
-    async fn get_track_radio_legacy(
-        &mut self,
-        track_id: u64,
-        limit: u32,
-    ) -> Result<Vec<TidalTrack>, SoneError> {
-        let cc = self.country_code.clone();
-        let limit_str = limit.to_string();
-        let body = self
-            .api_get_body(
-                &format!("/tracks/{}/radio", track_id),
-                &[("countryCode", &cc), ("limit", &limit_str)],
-            )
-            .await?;
-
-        #[derive(Deserialize)]
-        struct RadioResponse {
-            items: Vec<TidalTrack>,
-        }
-
-        if let Ok(mut data) = serde_json::from_str::<RadioResponse>(&body) {
-            for t in &mut data.items {
-                t.backfill_artist();
-            }
-            return Ok(data.items);
-        }
-        serde_json::from_str::<Vec<TidalTrack>>(&body)
-            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body)))
     }
 
     pub async fn search(
@@ -3603,6 +4070,8 @@ impl TidalClient {
         user_id: u64,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedResponse<TidalArtistDetail>, SoneError> {
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
@@ -3614,8 +4083,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
-                    ("order", "DATE"),
-                    ("orderDirection", "DESC"),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;
@@ -3654,6 +4123,8 @@ impl TidalClient {
         user_id: u64,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedResponse<TidalAlbumDetail>, SoneError> {
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
@@ -3665,8 +4136,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
-                    ("order", "DATE"),
-                    ("orderDirection", "DESC"),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;
@@ -3712,36 +4183,80 @@ impl TidalClient {
 
     // ==================== Mix / Radio Items ====================
 
-    /// Parse tracks from a `pages/mix` JSON response body.
-    /// Finds the first `TRACK_LIST` module and extracts `pagedList.items`.
-    fn parse_mix_page_tracks(body: &str) -> Option<Vec<TidalTrack>> {
+    /// Parse a `pages/mix` JSON response body into a `MixPageResult`.
+    /// Extracts mix metadata from `MIX_HEADER` and tracks from `TRACK_LIST`.
+    fn parse_mix_page(mix_id: &str, body: &str) -> Option<MixPageResult> {
         let json: Value = serde_json::from_str(body).ok()?;
         let rows = json.get("rows")?.as_array()?;
+
+        let mut title: Option<String> = None;
+        let mut subtitle: Option<String> = None;
+        let mut mix_type: Option<String> = None;
+        let mut image: Option<String> = None;
+        let mut tracks: Vec<TidalTrack> = Vec::new();
+
         for row in rows {
-            let modules = row.get("modules")?.as_array()?;
+            let modules = row.get("modules").and_then(|m| m.as_array());
+            let Some(modules) = modules else { continue };
             for module in modules {
-                if module.get("type").and_then(|t| t.as_str()) == Some("TRACK_LIST") {
-                    let items = module.get("pagedList")?.get("items")?.as_array()?;
-                    let mut tracks: Vec<TidalTrack> = items
-                        .iter()
-                        .filter_map(|item| serde_json::from_value::<TidalTrack>(item.clone()).ok())
-                        .collect();
-                    for t in &mut tracks {
-                        t.backfill_artist();
+                let mod_type = module.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                match mod_type {
+                    "MIX_HEADER" => {
+                        if let Some(mix) = module.get("mix") {
+                            title = mix.get("title").and_then(|t| t.as_str()).map(String::from);
+                            subtitle = mix.get("subTitle").and_then(|s| s.as_str()).map(String::from);
+                            mix_type = mix.get("mixType").and_then(|t| t.as_str()).map(String::from);
+                            // Extract image URL from images.LARGE.url (or MEDIUM, SMALL)
+                            if let Some(images) = mix.get("images") {
+                                image = images
+                                    .get("LARGE")
+                                    .or_else(|| images.get("MEDIUM"))
+                                    .or_else(|| images.get("SMALL"))
+                                    .and_then(|img| img.get("url"))
+                                    .and_then(|u| u.as_str())
+                                    .map(String::from);
+                            }
+                        }
                     }
-                    return Some(tracks);
+                    "TRACK_LIST" => {
+                        if let Some(items) = module.get("pagedList")
+                            .and_then(|p| p.get("items"))
+                            .and_then(|i| i.as_array())
+                        {
+                            tracks = items
+                                .iter()
+                                .filter_map(|item| serde_json::from_value::<TidalTrack>(item.clone()).ok())
+                                .collect();
+                            for t in &mut tracks {
+                                t.backfill_artist();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
-        None
+
+        if tracks.is_empty() {
+            return None;
+        }
+
+        Some(MixPageResult {
+            mix_id: mix_id.to_string(),
+            mix_type,
+            title,
+            subtitle,
+            image,
+            tracks,
+        })
     }
 
     /// Fetch the tracks in a mix (custom mixes, radio stations, etc.)
     /// Tries `pages/mix` first, falls back to legacy `/mixes/{id}/items`.
-    pub async fn get_mix_items(&mut self, mix_id: &str) -> Result<Vec<TidalTrack>, SoneError> {
+    pub async fn get_mix_items(&mut self, mix_id: &str) -> Result<MixPageResult, SoneError> {
         let cc = self.country_code.clone();
 
-        // Primary: pages/mix endpoint (returns richer data, up to 100 tracks)
+        // Primary: pages/mix endpoint
         if let Ok(body) = self
             .api_get_body(
                 "/pages/mix",
@@ -3754,15 +4269,21 @@ impl TidalClient {
             )
             .await
         {
-            if let Some(tracks) = Self::parse_mix_page_tracks(&body) {
-                if !tracks.is_empty() {
-                    return Ok(tracks);
-                }
+            if let Some(result) = Self::parse_mix_page(mix_id, &body) {
+                return Ok(result);
             }
         }
 
-        // Fallback: legacy /mixes/{id}/items
-        self.get_mix_items_legacy(mix_id).await
+        // Fallback: legacy /mixes/{id}/items (no metadata available)
+        let tracks = self.get_mix_items_legacy(mix_id).await?;
+        Ok(MixPageResult {
+            mix_id: mix_id.to_string(),
+            mix_type: None,
+            title: None,
+            subtitle: None,
+            image: None,
+            tracks,
+        })
     }
 
     /// Legacy mix endpoint: `/mixes/{id}/items`

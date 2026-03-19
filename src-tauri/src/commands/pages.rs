@@ -4,8 +4,8 @@ use tauri::{Manager, State};
 
 use crate::cache::{CacheResult, CacheTier};
 use crate::tidal_api::{
-    AlbumPageResponse, HomePageResponse, PaginatedTracks, TidalAlbumDetail, TidalArtistDetail,
-    TidalTrack,
+    AlbumPageResponse, HomePageResponse, MixPageResult, PaginatedTracks, TidalAlbumDetail,
+    TidalArtistDetail, TidalTrack,
 };
 use crate::AppState;
 use crate::SoneError;
@@ -385,31 +385,31 @@ pub async fn get_page_section(
 pub async fn get_mix_items(
     state: State<'_, AppState>,
     mix_id: String,
-) -> Result<Vec<TidalTrack>, SoneError> {
+) -> Result<MixPageResult, SoneError> {
     log::debug!("[get_mix_items]: mix_id={}", mix_id);
 
-    let cache_key = format!("mix:{}", mix_id);
+    let cache_key = format!("mix-page:{}", mix_id);
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
         CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
-            if let Ok(items) = serde_json::from_slice(&bytes) {
-                return Ok(items);
+            if let Ok(result) = serde_json::from_slice(&bytes) {
+                return Ok(result);
             }
         }
         CacheResult::Miss => {}
     }
 
     let mut client = state.tidal_client.lock().await;
-    let items = client.get_mix_items(&mix_id).await?;
+    let result = client.get_mix_items(&mix_id).await?;
     drop(client);
 
-    if let Ok(json) = serde_json::to_vec(&items) {
+    if let Ok(json) = serde_json::to_vec(&result) {
         state
             .disk_cache
-            .put(&cache_key, &json, CacheTier::Dynamic, &["mix"])
+            .put(&cache_key, &json, CacheTier::Dynamic, &["mix-page"])
             .await
             .ok();
     }
-    Ok(items)
+    Ok(result)
 }
 
 #[tauri::command(rename_all = "camelCase")]
