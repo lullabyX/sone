@@ -671,9 +671,12 @@ export async function getPlaylistTracksPage(
   playlistId: string,
   offset: number = 0,
   limit: number = 50,
+  order?: string,
+  orderDirection?: string,
 ): Promise<PaginatedTracks> {
+  const sortKey = order ? `:${order}:${orderDirection}` : "";
   return cached(
-    `playlist-page:${playlistId}:${offset}:${limit}`,
+    `playlist-page:${playlistId}:${offset}:${limit}${sortKey}`,
     [`playlist:${playlistId}`],
     async () => {
       try {
@@ -681,6 +684,8 @@ export async function getPlaylistTracksPage(
           playlistId,
           offset,
           limit,
+          order: order || null,
+          orderDirection: orderDirection || null,
         });
       } catch (error: any) {
         console.error("Failed to get playlist tracks page:", error);
@@ -815,9 +820,11 @@ export async function getFavoriteTracks(
   userId: number,
   offset: number = 0,
   limit: number = 50,
+  order: string = "DATE",
+  orderDirection: string = "DESC",
 ): Promise<PaginatedTracks> {
   return cached(
-    `fav-tracks:${userId}:${offset}:${limit}`,
+    `fav-tracks:${userId}:${offset}:${limit}:${order}:${orderDirection}`,
     ["fav-tracks"],
     async () => {
       try {
@@ -825,6 +832,8 @@ export async function getFavoriteTracks(
           userId,
           offset,
           limit,
+          order,
+          orderDirection,
         });
       } catch (error: any) {
         console.error("Failed to get favorite tracks:", error);

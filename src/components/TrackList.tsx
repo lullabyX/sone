@@ -1,11 +1,11 @@
-import { Play, Heart, MoreHorizontal, Plus, ListPlus } from "lucide-react";
+import { Play, Heart, MoreHorizontal, Plus, ListPlus, ChevronUp, ChevronDown } from "lucide-react";
 import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import TrackContextMenu from "./TrackContextMenu";
-import { useRef, useEffect, useState, memo } from "react";
-import { useAtomValue } from "jotai";
+import { useRef, useEffect, useState, memo, useMemo } from "react";
+import { useAtomValue, atom } from "jotai";
 import { currentTrackAtom, isPlayingAtom, allowExplicitAtom } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
@@ -31,6 +31,11 @@ interface TrackListProps {
   onTrackRemoved?: (index: number) => void;
   /** When provided, shows a dedicated "add to this playlist" button (immediate action, no menu) */
   onAddToCurrentPlaylist?: (track: Track) => void;
+  sortable?: boolean;
+  sortColumn?: string | null;
+  sortDirection?: "ASC" | "DESC" | null;
+  onSort?: (column: string | null, direction: "ASC" | "DESC" | null) => void;
+  sortLoading?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -70,8 +75,6 @@ interface TrackRowProps {
   showDateAdded: boolean;
   context: string;
   onPlay: (track: Track, index: number) => void;
-  currentTrackId: number | null;
-  isCurrentlyPlaying: boolean;
   playlistId?: string;
   isUserPlaylist?: boolean;
   onTrackRemoved?: (index: number) => void;
@@ -89,8 +92,6 @@ const TrackRow = memo(function TrackRow({
   showDateAdded,
   context,
   onPlay,
-  currentTrackId,
-  isCurrentlyPlaying,
   playlistId,
   isUserPlaylist,
   onTrackRemoved,
@@ -110,8 +111,19 @@ const TrackRow = memo(function TrackRow({
 
   const allowExplicit = useAtomValue(allowExplicitAtom);
   const isBlocked = !allowExplicit && !!track.explicit;
-  const isActive = currentTrackId === track.id;
-  const playing = isActive && isCurrentlyPlaying;
+
+  const isActiveAtom = useMemo(
+    () => atom((get) => (get(currentTrackAtom)?.id ?? null) === track.id),
+    [track.id],
+  );
+  const isActive = useAtomValue(isActiveAtom);
+
+  const isPlayingHereAtom = useMemo(
+    () => atom((get) => (get(currentTrackAtom)?.id ?? null) === track.id && get(isPlayingAtom)),
+    [track.id],
+  );
+  const playing = useAtomValue(isPlayingHereAtom);
+
   const isFav = favoriteTrackIds.has(track.id);
 
   const toggleFavorite = async (e: React.MouseEvent) => {
@@ -352,6 +364,14 @@ const TrackRow = memo(function TrackRow({
   );
 });
 
+// ─── SortIndicator ─────────────────────────────────────────────────────────
+
+function SortIndicator({ direction }: { direction: "ASC" | "DESC" }) {
+  return direction === "ASC"
+    ? <ChevronUp size={14} className="inline ml-0.5" />
+    : <ChevronDown size={14} className="inline ml-0.5" />;
+}
+
 // ─── TrackList ─────────────────────────────────────────────────────────────
 
 export default memo(function TrackList({
@@ -370,10 +390,12 @@ export default memo(function TrackList({
   isUserPlaylist,
   onTrackRemoved,
   onAddToCurrentPlaylist,
+  sortable = false,
+  sortColumn,
+  sortDirection,
+  onSort,
+  sortLoading = false,
 }: TrackListProps) {
-  const currentTrack = useAtomValue(currentTrackAtom);
-  const isPlaying = useAtomValue(isPlayingAtom);
-  const currentTrackId = currentTrack?.id ?? null;
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -401,15 +423,29 @@ export default memo(function TrackList({
   }, [hasMore, onLoadMore]);
 
   // Build grid columns string
-  const gridCols = [
-    "36px", // #
-    showCover ? "minmax(200px, 4fr)" : "minmax(200px, 4fr)", // Title (with or without cover)
-    ...(showArtist ? ["minmax(120px, 2fr)"] : []),
-    ...(showAlbum ? ["minmax(120px, 2fr)"] : []),
-    ...(showDateAdded ? ["minmax(100px, 1fr)"] : []),
-    "72px", // Time
-    "100px", // Actions (always present for + and heart)
-  ].join(" ");
+  const gridCols = useMemo(
+    () =>
+      [
+        "36px", // #
+        showCover ? "minmax(200px, 4fr)" : "minmax(200px, 4fr)", // Title (with or without cover)
+        ...(showArtist ? ["minmax(120px, 2fr)"] : []),
+        ...(showAlbum ? ["minmax(120px, 2fr)"] : []),
+        ...(showDateAdded ? ["minmax(100px, 1fr)"] : []),
+        "72px", // Time
+        "100px", // Actions (always present for + and heart)
+      ].join(" "),
+    [showCover, showArtist, showAlbum, showDateAdded],
+  );
+
+  const handleHeaderClick = (column: string) => {
+    if (!onSort) return;
+    if (sortColumn === column) {
+      // Toggle direction
+      onSort(column, sortDirection === "ASC" ? "DESC" : "ASC");
+    } else {
+      onSort(column, "ASC");
+    }
+  };
 
   return (
     <div className="flex flex-col w-full">
@@ -419,37 +455,113 @@ export default memo(function TrackList({
         style={{ gridTemplateColumns: gridCols }}
       >
         <span className="text-right">#</span>
-        <span>Title</span>
-        {showArtist && <span>Artist</span>}
-        {showAlbum && <span>Album</span>}
-        {showDateAdded && <span>Date Added</span>}
-        <span className="text-right">Time</span>
+        <span>
+          {sortable ? (
+            <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("NAME")}>
+              Title{sortColumn === "NAME" && sortDirection && <SortIndicator direction={sortDirection} />}
+            </span>
+          ) : "Title"}
+        </span>
+        {showArtist && (
+          <span>
+            {sortable ? (
+              <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("ARTIST")}>
+                Artist{sortColumn === "ARTIST" && sortDirection && <SortIndicator direction={sortDirection} />}
+              </span>
+            ) : "Artist"}
+          </span>
+        )}
+        {showAlbum && (
+          <span>
+            {sortable ? (
+              <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("ALBUM")}>
+                Album{sortColumn === "ALBUM" && sortDirection && <SortIndicator direction={sortDirection} />}
+              </span>
+            ) : "Album"}
+          </span>
+        )}
+        {showDateAdded && (
+          <span>
+            {sortable ? (
+              <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("DATE")}>
+                Date Added{sortColumn === "DATE" && sortDirection && <SortIndicator direction={sortDirection} />}
+              </span>
+            ) : "Date Added"}
+          </span>
+        )}
+        <span className="text-right">
+          {sortable ? (
+            <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("LENGTH")}>
+              Time{sortColumn === "LENGTH" && sortDirection && <SortIndicator direction={sortDirection} />}
+            </span>
+          ) : "Time"}
+        </span>
         <span /> {/* Actions column header */}
       </div>
 
       {/* Track Rows */}
       <div className="flex flex-col">
-        {tracks.map((track, index) => (
-          <TrackRow
-            key={`${track.id}-${index}`}
-            track={track}
-            index={index}
-            displayNumber={trackDisplayNumbers?.[index]}
-            gridCols={gridCols}
-            showCover={showCover}
-            showArtist={showArtist}
-            showAlbum={showAlbum}
-            showDateAdded={showDateAdded}
-            context={context}
-            onPlay={onPlay}
-            currentTrackId={currentTrackId}
-            isCurrentlyPlaying={isPlaying}
-            playlistId={playlistId}
-            isUserPlaylist={isUserPlaylist}
-            onTrackRemoved={onTrackRemoved}
-            onAddToCurrentPlaylist={onAddToCurrentPlaylist}
-          />
-        ))}
+        {sortLoading ? (
+          Array.from({ length: 20 }).map((_, i) => (
+            <div
+              key={i}
+              className="grid gap-4 px-4 py-2.5"
+              style={{ gridTemplateColumns: gridCols }}
+            >
+              <div className="flex items-center justify-end">
+                <div className="h-4 w-5 bg-th-surface-hover rounded animate-pulse" />
+              </div>
+              <div className="flex items-center gap-3 min-w-0">
+                {showCover && (
+                  <div className="w-10 h-10 shrink-0 rounded bg-th-surface-hover animate-pulse" />
+                )}
+                <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                  <div className="h-4 w-3/5 bg-th-surface-hover rounded animate-pulse" />
+                  <div className="h-3 w-2/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              </div>
+              {showArtist && (
+                <div className="flex items-center">
+                  <div className="h-3.5 w-3/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              )}
+              {showAlbum && (
+                <div className="flex items-center">
+                  <div className="h-3.5 w-3/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              )}
+              {showDateAdded && (
+                <div className="flex items-center">
+                  <div className="h-3.5 w-2/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              )}
+              <div className="flex items-center justify-end">
+                <div className="h-3.5 w-8 bg-th-surface-hover/60 rounded animate-pulse" />
+              </div>
+              <div />
+            </div>
+          ))
+        ) : (
+          tracks.map((track, index) => (
+            <TrackRow
+              key={`${track.id}-${index}`}
+              track={track}
+              index={index}
+              displayNumber={trackDisplayNumbers?.[index]}
+              gridCols={gridCols}
+              showCover={showCover}
+              showArtist={showArtist}
+              showAlbum={showAlbum}
+              showDateAdded={showDateAdded}
+              context={context}
+              onPlay={onPlay}
+              playlistId={playlistId}
+              isUserPlaylist={isUserPlaylist}
+              onTrackRemoved={onTrackRemoved}
+              onAddToCurrentPlaylist={onAddToCurrentPlaylist}
+            />
+          ))
+        )}
       </div>
 
       {/* Infinite Scroll Sentinel */}

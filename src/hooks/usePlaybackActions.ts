@@ -88,6 +88,7 @@ function fisherYatesShuffle<T>(arr: T[]): T[] {
 
 const DEVICE_RETRY_DELAY = 500;
 const DEVICE_MAX_RETRIES = 10;
+const MAX_HISTORY_TRACKS = 500;
 
 /** Invoke play_tidal_track with automatic device-busy retry.
  *  When PipeWire holds the ALSA device after pipeline teardown, this retries
@@ -139,7 +140,13 @@ export function usePlaybackActions() {
 
       // Eagerly update UI so album art / blur transitions start immediately
       if (previousTrack && !opts?.skipHistoryPush) {
-        store.set(historyAtom, [...previousHistory, previousTrack]);
+        const nextHistory = [...previousHistory, previousTrack];
+        store.set(
+          historyAtom,
+          nextHistory.length > MAX_HISTORY_TRACKS
+            ? nextHistory.slice(nextHistory.length - MAX_HISTORY_TRACKS)
+            : nextHistory,
+        );
       }
       // Store source context on track for history-based prev navigation
       (stamped as any)._playingFrom = store.get(playbackSourceAtom);
@@ -344,6 +351,43 @@ export function usePlaybackActions() {
           : null,
       );
       store.set(queueAtom, stampQids(eligible.map(normalizeTrack)));
+    },
+    [store],
+  );
+
+  const appendToQueue = useCallback(
+    (newTracks: Track[]) => {
+      const filterExplicit = !store.get(allowExplicitAtom);
+      const eligible = filterExplicit ? newTracks.filter(t => !t.explicit) : newTracks;
+      if (eligible.length === 0) return;
+      const stamped = stampQids(eligible.map(normalizeTrack));
+
+      // Append to playbackSourceAtom.tracks
+      const source = store.get(playbackSourceAtom);
+      if (source) {
+        store.set(playbackSourceAtom, {
+          ...source,
+          tracks: [...source.tracks, ...stamped],
+        });
+      }
+
+      if (store.get(shuffleAtom)) {
+        // Append to originalQueueAtom in order
+        const orig = store.get(originalQueueAtom);
+        if (orig) {
+          store.set(originalQueueAtom, [...orig, ...stamped]);
+        }
+        // Insert into queueAtom at random positions
+        const queue = [...store.get(queueAtom)];
+        for (const track of stamped) {
+          const idx = Math.floor(Math.random() * (queue.length + 1));
+          queue.splice(idx, 0, track);
+        }
+        store.set(queueAtom, queue);
+      } else {
+        // Append to end of queueAtom
+        store.set(queueAtom, [...store.get(queueAtom), ...stamped]);
+      }
     },
     [store],
   );
@@ -968,6 +1012,7 @@ export function usePlaybackActions() {
     addToQueue,
     playNextInQueue,
     setQueueTracks,
+    appendToQueue,
     removeFromQueue,
     playFromQueue,
     clearQueue,

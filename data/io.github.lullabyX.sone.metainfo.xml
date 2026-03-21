@@ -78,6 +78,29 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.14.1" date="2026-03-21">
+      <description>
+        <p>Track Sorting</p>
+        <ul>
+          <li>Sort tracks in playlists and favorites by date added, name, or artist</li>
+          <li>Sortable column headers with loading skeleton</li>
+          <li>Sort preferences persist per playlist</li>
+        </ul>
+        <p>Queue</p>
+        <ul>
+          <li>Append to queue for incremental queue growth</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Source-aware play/pause/resume button on playlist, album, and mix pages</li>
+          <li>Non-blocking play handlers prevent UI freezes on large playlists</li>
+          <li>Batch persister with queueMicrotask to avoid redundant writes</li>
+          <li>Prevented double-fetch on playlist navigation</li>
+          <li>Fixed long history performance</li>
+          <li>Extracted SourcePlayButton to prevent full-page re-renders</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-03-19">
       <description>
         <p>Explicit Content</p>

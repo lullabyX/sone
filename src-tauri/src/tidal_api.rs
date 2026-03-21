@@ -1801,18 +1801,27 @@ impl TidalClient {
         playlist_id: &str,
         offset: u32,
         limit: u32,
+        order: Option<&str>,
+        order_direction: Option<&str>,
     ) -> Result<PaginatedTracks, SoneError> {
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
         let offset_str = offset.to_string();
+        let mut params: Vec<(&str, &str)> = vec![
+            ("countryCode", &cc),
+            ("limit", &limit_str),
+            ("offset", &offset_str),
+        ];
+        if let Some(o) = order {
+            params.push(("order", o));
+        }
+        if let Some(od) = order_direction {
+            params.push(("orderDirection", od));
+        }
         let body = self
             .api_get_body(
                 &format!("/playlists/{}/tracks", playlist_id),
-                &[
-                    ("countryCode", &cc),
-                    ("limit", &limit_str),
-                    ("offset", &offset_str),
-                ],
+                &params,
             )
             .await?;
 
@@ -1952,6 +1961,8 @@ impl TidalClient {
         user_id: u64,
         offset: u32,
         limit: u32,
+        order: &str,
+        order_direction: &str,
     ) -> Result<PaginatedTracks, SoneError> {
         let cc = self.country_code.clone();
         let limit_str = limit.to_string();
@@ -1963,8 +1974,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("limit", &limit_str),
                     ("offset", &offset_str),
-                    ("order", "DATE"),
-                    ("orderDirection", "DESC"),
+                    ("order", order),
+                    ("orderDirection", order_direction),
                 ],
             )
             .await?;

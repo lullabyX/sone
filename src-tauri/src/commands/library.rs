@@ -281,6 +281,8 @@ pub async fn get_playlist_tracks_page(
     playlist_id: String,
     offset: u32,
     limit: u32,
+    order: Option<String>,
+    order_direction: Option<String>,
 ) -> Result<PaginatedTracks, SoneError> {
     log::debug!(
         "[get_playlist_tracks_page]: playlist_id={}, offset={}, limit={}",
@@ -289,7 +291,18 @@ pub async fn get_playlist_tracks_page(
         limit
     );
 
-    let cache_key = format!("playlist-page:{}:{}:{}", playlist_id, offset, limit);
+    let cache_key = if order.is_some() && order_direction.is_some() {
+        format!(
+            "playlist-page:{}:{}:{}:{}:{}",
+            playlist_id,
+            offset,
+            limit,
+            order.as_deref().unwrap_or(""),
+            order_direction.as_deref().unwrap_or("")
+        )
+    } else {
+        format!("playlist-page:{}:{}:{}", playlist_id, offset, limit)
+    };
     match state
         .disk_cache
         .get(&cache_key, CacheTier::UserContent)
@@ -309,11 +322,21 @@ pub async fn get_playlist_tracks_page(
                         let handle = app_handle.clone();
                         let key = cache_key.clone();
                         let pid = playlist_id.clone();
+                        let ord = order.clone();
+                        let ord_dir = order_direction.clone();
                         tokio::spawn(async move {
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_playlist_tracks_page(&pid, offset, limit).await
+                                client
+                                    .get_playlist_tracks_page(
+                                        &pid,
+                                        offset,
+                                        limit,
+                                        ord.as_deref(),
+                                        ord_dir.as_deref(),
+                                    )
+                                    .await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -342,7 +365,13 @@ pub async fn get_playlist_tracks_page(
 
     let mut client = state.tidal_client.lock().await;
     let tracks = client
-        .get_playlist_tracks_page(&playlist_id, offset, limit)
+        .get_playlist_tracks_page(
+            &playlist_id,
+            offset,
+            limit,
+            order.as_deref(),
+            order_direction.as_deref(),
+        )
         .await?;
     drop(client);
 
@@ -662,6 +691,8 @@ pub async fn get_favorite_tracks(
     user_id: u64,
     offset: u32,
     limit: u32,
+    order: String,
+    order_direction: String,
 ) -> Result<PaginatedTracks, SoneError> {
     log::debug!(
         "[get_favorite_tracks]: user_id={}, offset={}, limit={}",
@@ -670,7 +701,10 @@ pub async fn get_favorite_tracks(
         limit
     );
 
-    let cache_key = format!("fav-tracks:{}:{}:{}", user_id, offset, limit);
+    let cache_key = format!(
+        "fav-tracks:{}:{}:{}:{}:{}",
+        user_id, offset, limit, order, order_direction
+    );
     match state
         .disk_cache
         .get(&cache_key, CacheTier::UserContent)
@@ -689,11 +723,15 @@ pub async fn get_favorite_tracks(
                         state.disk_cache.mark_refresh_attempt(&cache_key).await;
                         let handle = app_handle.clone();
                         let key = cache_key.clone();
+                        let ord = order.clone();
+                        let ord_dir = order_direction.clone();
                         tokio::spawn(async move {
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_favorite_tracks(user_id, offset, limit).await
+                                client
+                                    .get_favorite_tracks(user_id, offset, limit, &ord, &ord_dir)
+                                    .await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -721,7 +759,9 @@ pub async fn get_favorite_tracks(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let tracks = client.get_favorite_tracks(user_id, offset, limit).await?;
+    let tracks = client
+        .get_favorite_tracks(user_id, offset, limit, &order, &order_direction)
+        .await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&tracks) {

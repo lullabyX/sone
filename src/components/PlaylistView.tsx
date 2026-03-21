@@ -1,6 +1,4 @@
 import {
-  Play,
-  Pause,
   Music,
   X,
   Shuffle,
@@ -19,12 +17,8 @@ import {
   useRef,
   startTransition,
 } from "react";
-import { useStore } from "jotai";
-import {
-  isPlayingAtom,
-  currentTrackAtom,
-  shuffleAtom,
-} from "../atoms/playback";
+import { useAtom } from "jotai";
+import { trackSortPrefsAtom } from "../atoms/favorites";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
@@ -38,6 +32,7 @@ import DebouncedFilterInput from "./DebouncedFilterInput";
 import PageContainer from "./PageContainer";
 import { EditPlaylistModal } from "./AddToPlaylistMenu";
 import { DetailPageSkeleton } from "./PageSkeleton";
+import SourcePlayButton from "./SourcePlayButton";
 
 interface PlaylistViewProps {
   playlistId: string;
@@ -57,13 +52,11 @@ export default function PlaylistView({
   playlistInfo,
   onBack,
 }: PlaylistViewProps) {
-  const store = useStore();
+  const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const {
     playTrack,
-    setQueueTracks,
-    pauseTrack,
-    resumeTrack,
     setShuffledQueue,
+    appendToQueue,
     playFromSource,
     playAllFromSource,
   } = usePlaybackActions();
@@ -77,6 +70,14 @@ export default function PlaylistView({
   const [error, setError] = useState<string | null>(null);
   const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
   const [resolvedAccessType, setResolvedAccessType] = useState<string | undefined>();
+  const savedSort = trackSortPrefs[playlistId];
+  const [sortColumn, setSortColumn] = useState<string | null>(savedSort?.order ?? null);
+  const [sortDirection, setSortDirection] = useState<"ASC" | "DESC" | null>(
+    (savedSort?.direction as "ASC" | "DESC") ?? null,
+  );
+  const [sortLoading, setSortLoading] = useState(false);
+  const generationRef = useRef(0);
+  const prevPlaylistIdRef = useRef(playlistId);
 
   // Fetch playlist metadata when playlistInfo is not provided (e.g. deep link)
   useEffect(() => {
@@ -114,7 +115,6 @@ export default function PlaylistView({
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
   const bgFetchingRef = useRef(false);
-  const cancelledRef = useRef(false);
   const allTracksRef = useRef<Track[]>([]);
 
   // Recommendations state
@@ -193,40 +193,58 @@ export default function PlaylistView({
 
   // Load first page only
   useEffect(() => {
-    cancelledRef.current = false;
+    const gen = ++generationRef.current;
     bgFetchingRef.current = false;
 
-    const loadFirstPage = async () => {
+    const isNewPlaylist = prevPlaylistIdRef.current !== playlistId;
+    prevPlaylistIdRef.current = playlistId;
+
+    if (isNewPlaylist) {
+      // Full page skeleton for playlist navigation
       setLoading(true);
       setError(null);
       setAllTracks([]);
-      offsetRef.current = 0;
-      hasMoreRef.current = true;
+      // Load saved sort preference for the new playlist
+      const newSort = trackSortPrefs[playlistId];
+      const newCol = newSort?.order ?? null;
+      const newDir = (newSort?.direction as "ASC" | "DESC") ?? null;
+      if (sortColumn !== newCol) setSortColumn(newCol);
+      if (sortDirection !== newDir) setSortDirection(newDir);
+      // If sort state changed, skip this fetch — the state update will trigger a new effect run
+      if (sortColumn !== newCol || sortDirection !== newDir) return;
+    } else {
+      // Track-list skeleton for sort change
+      setSortLoading(true);
+    }
 
+    offsetRef.current = 0;
+    hasMoreRef.current = true;
+
+    const loadFirstPage = async () => {
       try {
-        const firstPage = await getPlaylistTracksPage(playlistId, 0, PAGE_SIZE);
-        if (cancelledRef.current) return;
+        const firstPage = await getPlaylistTracksPage(
+          playlistId, 0, PAGE_SIZE,
+          sortColumn ?? undefined, sortDirection ?? undefined,
+        );
+        if (generationRef.current !== gen) return;
 
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
         offsetRef.current = firstPage.items.length;
-        hasMoreRef.current =
-          firstPage.items.length < firstPage.totalNumberOfItems;
+        hasMoreRef.current = firstPage.items.length < firstPage.totalNumberOfItems;
       } catch (err: any) {
-        if (!cancelledRef.current) {
-          console.error("Failed to load playlist:", err);
-          setError(err?.message || String(err));
-        }
+        if (generationRef.current !== gen) return;
+        console.error("Failed to load playlist:", err);
+        setError(err?.message || String(err));
       } finally {
-        if (!cancelledRef.current) setLoading(false);
+        if (generationRef.current !== gen) return;
+        setLoading(false);
+        setSortLoading(false);
       }
     };
 
     loadFirstPage();
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [playlistId]);
+  }, [playlistId, sortColumn, sortDirection]);
 
   // Fetch initial batch of recommendations when playlist changes
   useEffect(() => {
@@ -239,47 +257,54 @@ export default function PlaylistView({
   }, [playlistId, fetchRecBatch]);
 
   // Fetch all remaining pages in the background
-  const fetchRemaining = useCallback(async () => {
+  const fetchRemaining = useCallback(async (onPageFetched?: (items: Track[]) => void) => {
     if (bgFetchingRef.current || !hasMoreRef.current) return;
+    const gen = generationRef.current;
 
     bgFetchingRef.current = true;
     try {
-      while (hasMoreRef.current && !cancelledRef.current) {
+      while (hasMoreRef.current && generationRef.current === gen) {
         const page = await getPlaylistTracksPage(
-          playlistId,
-          offsetRef.current,
-          PAGE_SIZE,
+          playlistId, offsetRef.current, PAGE_SIZE,
+          sortColumn ?? undefined, sortDirection ?? undefined,
         );
-        if (cancelledRef.current) return;
+        if (generationRef.current !== gen) return;
 
+        const newItems = page.items;
         startTransition(() => {
           setAllTracks((prev) => {
             const seen = new Set(prev.map((t) => t.id));
-            return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
+            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
           });
           setTotalTracks(page.totalNumberOfItems);
         });
-        offsetRef.current += page.items.length;
+        offsetRef.current += newItems.length;
         hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+
+        if (onPageFetched) {
+          onPageFetched(newItems);
+        }
       }
     } catch (err) {
       console.error("Failed to background-fetch playlist tracks:", err);
     } finally {
       bgFetchingRef.current = false;
     }
-  }, [playlistId]);
+  }, [playlistId, sortColumn, sortDirection]);
 
   // Manual load-more for infinite scroll
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMoreRef.current || bgFetchingRef.current) return;
+    const gen = generationRef.current;
 
     setLoadingMore(true);
     try {
       const page = await getPlaylistTracksPage(
-        playlistId,
-        offsetRef.current,
-        PAGE_SIZE,
+        playlistId, offsetRef.current, PAGE_SIZE,
+        sortColumn ?? undefined, sortDirection ?? undefined,
       );
+      if (generationRef.current !== gen) return;
+
       setAllTracks((prev) => {
         const seen = new Set(prev.map((t) => t.id));
         return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
@@ -292,7 +317,7 @@ export default function PlaylistView({
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, playlistId]);
+  }, [loadingMore, playlistId, sortColumn, sortDirection]);
 
   const tracks = allTracks;
   const hasMore = allTracks.length < totalTracks;
@@ -326,9 +351,21 @@ export default function PlaylistView({
     }
   }, [fetchRemaining]);
 
-  const trackIds = useMemo(
-    () => new Set(tracks.map((track) => track.id)),
-    [tracks],
+  const handleSort = useCallback(
+    (column: string | null, direction: "ASC" | "DESC" | null) => {
+      setSortColumn(column);
+      setSortDirection(direction);
+      setTrackSortPrefs((prev) => {
+        const next = { ...prev };
+        if (column === null) {
+          delete next[playlistId];
+        } else {
+          next[playlistId] = { order: column, direction: direction! };
+        }
+        return next;
+      });
+    },
+    [playlistId, setTrackSortPrefs],
   );
 
   const playlistSource = (allTracks: Track[]) => ({
@@ -339,65 +376,26 @@ export default function PlaylistView({
     allTracks,
   });
 
-  const handlePlayTrack = async (track: Track, _index: number) => {
+  const handlePlayTrack = useCallback(async (track: Track, _index: number) => {
     try {
       await playFromSource(track, tracks, { source: playlistSource(tracks) });
 
-      // Kick off background fetch for the rest if needed
+      // Fire-and-forget: append remaining pages to queue as they arrive
       if (hasMoreRef.current && !bgFetchingRef.current) {
-        await fetchRemaining();
-        const full = allTracksRef.current;
-        const playedIndex = full.findIndex((t) => t.id === track.id);
-        if (playedIndex >= 0) {
-          const rest = [
-            ...full.slice(playedIndex + 1),
-            ...full.slice(0, playedIndex),
-          ];
-          if (store.get(shuffleAtom)) {
-            setShuffledQueue(rest, { source: playlistSource(full) });
-          } else {
-            setQueueTracks(rest, { source: playlistSource(full) });
-          }
-        }
+        fetchRemaining(appendToQueue);
       }
     } catch (err) {
       console.error("Failed to play playlist track:", err);
     }
-  };
+  }, [tracks, playlistSource, fetchRemaining, appendToQueue, playFromSource]);
 
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
-
-    const currentTrack = store.get(currentTrackAtom);
-    const isPlaying = store.get(isPlayingAtom);
-    if (currentTrack && trackIds.has(currentTrack.id)) {
-      if (isPlaying) {
-        await pauseTrack();
-      } else {
-        await resumeTrack();
-      }
-      return;
-    }
-
     try {
       await playAllFromSource(tracks, { source: playlistSource(tracks) });
 
       if (hasMoreRef.current && !bgFetchingRef.current) {
-        await fetchRemaining();
-        const full = allTracksRef.current;
-        const current = store.get(currentTrackAtom);
-        if (full.length > 1 && current) {
-          const idx = full.findIndex((t) => t.id === current.id);
-          const rest =
-            idx >= 0
-              ? [...full.slice(idx + 1), ...full.slice(0, idx)]
-              : full.filter((t) => t.id !== current.id);
-          if (store.get(shuffleAtom)) {
-            setShuffledQueue(rest, { source: playlistSource(full) });
-          } else {
-            setQueueTracks(rest, { source: playlistSource(full) });
-          }
-        }
+        fetchRemaining(appendToQueue);
       }
     } catch (err) {
       console.error("Failed to play playlist:", err);
@@ -423,11 +421,6 @@ export default function PlaylistView({
       console.error("Failed to shuffle play:", err);
     }
   };
-
-  const playlistPlaying = (() => {
-    const ct = store.get(currentTrackAtom);
-    return !!(ct && trackIds.has(ct.id) && store.get(isPlayingAtom));
-  })();
 
   // Favorite state — driven by atom for instant updates everywhere
   const { favoritePlaylistUuids, addFavoritePlaylist, removeFavoritePlaylist } =
@@ -568,17 +561,11 @@ export default function PlaylistView({
       <div className="px-8 py-5 flex items-center justify-between">
         {/* Left — Play & Shuffle buttons */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={handlePlayAll}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
-          >
-            {playlistPlaying ? (
-              <Pause size={18} fill="black" className="text-black" />
-            ) : (
-              <Play size={18} fill="black" className="text-black" />
-            )}
-            {playlistPlaying ? "Pause" : "Play"}
-          </button>
+          <SourcePlayButton
+            sourceType="playlist"
+            sourceId={playlistId}
+            onPlay={handlePlayAll}
+          />
           <button
             onClick={handleShuffle}
             className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
@@ -678,6 +665,11 @@ export default function PlaylistView({
           context="playlist"
           playlistId={playlistId}
           isUserPlaylist={effectiveInfo?.isUserPlaylist}
+          sortable
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          onSort={handleSort}
+          sortLoading={sortLoading}
           onTrackRemoved={(index) => {
             setAllTracks((prev) => prev.filter((_, i) => i !== index));
           }}

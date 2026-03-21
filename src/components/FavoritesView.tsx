@@ -7,12 +7,11 @@ import {
   useMemo,
   startTransition,
 } from "react";
-import { useAtomValue, useStore } from "jotai";
+import { useAtomValue, useAtom } from "jotai";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useAuth } from "../hooks/useAuth";
 import { getFavoriteTracks } from "../api/tidal";
-import { favoriteTrackIdsAtom } from "../atoms/favorites";
-import { shuffleAtom } from "../atoms/playback";
+import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
 import DebouncedFilterInput from "./DebouncedFilterInput";
@@ -26,9 +25,9 @@ interface FavoritesViewProps {
 const PAGE_SIZE = 100;
 
 export default function FavoritesView({ onBack }: FavoritesViewProps) {
-  const store = useStore();
+  const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const { authTokens } = useAuth();
-  const { playFromSource, setQueueTracks, setShuffledQueue } =
+  const { playFromSource, appendToQueue } =
     usePlaybackActions();
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
 
@@ -38,109 +37,145 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const savedSort = trackSortPrefs["__favorites__"];
+  const [sortColumn, setSortColumn] = useState<string | null>(savedSort?.order ?? "DATE");
+  const [sortDirection, setSortDirection] = useState<"ASC" | "DESC" | null>(
+    (savedSort?.direction as "ASC" | "DESC") ?? "DESC",
+  );
+  const [sortLoading, setSortLoading] = useState(false);
+  const generationRef = useRef(0);
+  const isFirstLoadRef = useRef(true);
+
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
 
   const bgFetchingRef = useRef(false);
-  const cancelledRef = useRef(false);
-  const allTracksRef = useRef<Track[]>([]);
 
-  // Keep ref in sync with state so async callbacks read the latest value
-  useEffect(() => {
-    allTracksRef.current = allTracks;
-  }, [allTracks]);
+  const handleSort = useCallback(
+    (column: string | null, direction: "ASC" | "DESC" | null) => {
+      if (column === null) {
+        setSortColumn("DATE");
+        setSortDirection("DESC");
+        setTrackSortPrefs((prev) => {
+          const next = { ...prev };
+          delete next["__favorites__"];
+          return next;
+        });
+      } else {
+        setSortColumn(column);
+        setSortDirection(direction);
+        setTrackSortPrefs((prev) => ({
+          ...prev,
+          __favorites__: { order: column, direction: direction! },
+        }));
+      }
+    },
+    [setTrackSortPrefs],
+  );
 
-  // Load first page only
+  // Load first page only (re-runs on sort change)
   useEffect(() => {
-    cancelledRef.current = false;
+    const gen = ++generationRef.current;
     bgFetchingRef.current = false;
 
-    const loadFavorites = async () => {
-      const userId = authTokens?.user_id;
-      if (userId == null) {
-        setLoading(false);
-        setError("Not authenticated");
-        return;
-      }
+    const userId = authTokens?.user_id;
+    if (userId == null) {
+      setLoading(false);
+      setError("Not authenticated");
+      return;
+    }
 
+    if (isFirstLoadRef.current) {
+      isFirstLoadRef.current = false;
       setLoading(true);
       setError(null);
       setAllTracks([]);
-      offsetRef.current = 0;
-      hasMoreRef.current = true;
+    } else {
+      setSortLoading(true);
+    }
 
+    offsetRef.current = 0;
+    hasMoreRef.current = true;
+
+    const loadFavorites = async () => {
       try {
-        const firstPage = await getFavoriteTracks(userId, 0, PAGE_SIZE);
-        if (cancelledRef.current) return;
+        const firstPage = await getFavoriteTracks(
+          userId, 0, PAGE_SIZE,
+          sortColumn ?? "DATE", sortDirection ?? "DESC",
+        );
+        if (generationRef.current !== gen) return;
 
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
         offsetRef.current = firstPage.items.length;
-        hasMoreRef.current =
-          firstPage.items.length < firstPage.totalNumberOfItems;
+        hasMoreRef.current = firstPage.items.length < firstPage.totalNumberOfItems;
       } catch (err: any) {
-        if (!cancelledRef.current) {
-          console.error("Failed to load favorites:", err);
-          setError(err?.message || String(err));
-        }
+        if (generationRef.current !== gen) return;
+        console.error("Failed to load favorites:", err);
+        setError(err?.message || String(err));
       } finally {
-        if (!cancelledRef.current) setLoading(false);
+        if (generationRef.current !== gen) return;
+        setLoading(false);
+        setSortLoading(false);
       }
     };
 
     loadFavorites();
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [authTokens?.user_id]);
+  }, [authTokens?.user_id, sortColumn, sortDirection]);
 
   // Fetch all remaining pages in the background, appending to state as they arrive
-  const fetchRemaining = useCallback(async () => {
+  const fetchRemaining = useCallback(async (onPageFetched?: (items: Track[]) => void) => {
     if (bgFetchingRef.current || !hasMoreRef.current) return;
     const userId = authTokens?.user_id;
     if (userId == null) return;
+    const gen = generationRef.current;
 
     bgFetchingRef.current = true;
     try {
-      while (hasMoreRef.current && !cancelledRef.current) {
+      while (hasMoreRef.current && generationRef.current === gen) {
         const page = await getFavoriteTracks(
-          userId,
-          offsetRef.current,
-          PAGE_SIZE,
+          userId, offsetRef.current, PAGE_SIZE,
+          sortColumn ?? "DATE", sortDirection ?? "DESC",
         );
-        if (cancelledRef.current) return;
+        if (generationRef.current !== gen) return;
 
+        const newItems = page.items;
         startTransition(() => {
           setAllTracks((prev) => {
             const seen = new Set(prev.map((t) => t.id));
-            return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
+            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
           });
           setTotalTracks(page.totalNumberOfItems);
         });
-        offsetRef.current += page.items.length;
+        offsetRef.current += newItems.length;
         hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+
+        if (onPageFetched) {
+          onPageFetched(newItems);
+        }
       }
     } catch (err) {
       console.error("Failed to background-fetch favorites:", err);
     } finally {
       bgFetchingRef.current = false;
     }
-  }, [authTokens?.user_id]);
+  }, [authTokens?.user_id, sortColumn, sortDirection]);
 
   // Manual load-more (infinite scroll trigger) — also kicks off full background fetch
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMoreRef.current) return;
     if (bgFetchingRef.current) return; // background fetch already running
 
+    const gen = generationRef.current;
     setLoadingMore(true);
     try {
       const userId = authTokens?.user_id;
       if (userId == null) return;
       const page = await getFavoriteTracks(
-        userId,
-        offsetRef.current,
-        PAGE_SIZE,
+        userId, offsetRef.current, PAGE_SIZE,
+        sortColumn ?? "DATE", sortDirection ?? "DESC",
       );
+      if (generationRef.current !== gen) return;
       setAllTracks((prev) => {
         const seen = new Set(prev.map((t) => t.id));
         return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
@@ -153,7 +188,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, authTokens?.user_id]);
+  }, [loadingMore, authTokens?.user_id, sortColumn, sortDirection]);
 
   const hasMore = allTracks.length < totalTracks;
 
@@ -199,33 +234,18 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     allTracks,
   });
 
-  const handlePlayTrack = async (track: Track, _index: number) => {
+  const handlePlayTrack = useCallback(async (track: Track, _index: number) => {
     try {
       await playFromSource(track, tracks, { source: favoritesSource(tracks) });
 
-      // Kick off background fetch for the rest if needed
+      // Fire-and-forget: append remaining pages to queue as they arrive
       if (hasMoreRef.current && !bgFetchingRef.current) {
-        await fetchRemaining();
-        const full = allTracksRef.current.filter((t) =>
-          favoriteTrackIds.has(t.id),
-        );
-        const playedIndex = full.findIndex((t) => t.id === track.id);
-        if (playedIndex >= 0) {
-          const rest = [
-            ...full.slice(playedIndex + 1),
-            ...full.slice(0, playedIndex),
-          ];
-          if (store.get(shuffleAtom)) {
-            setShuffledQueue(rest, { source: favoritesSource(full) });
-          } else {
-            setQueueTracks(rest, { source: favoritesSource(full) });
-          }
-        }
+        fetchRemaining(appendToQueue);
       }
     } catch (err) {
       console.error("Failed to play track:", err);
     }
-  };
+  }, [tracks, favoritesSource, fetchRemaining, appendToQueue, playFromSource]);
 
   if (loading) {
     return <DetailPageSkeleton type="favorites" />;
@@ -297,6 +317,11 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           showAlbum={true}
           showCover={true}
           context="favorites"
+          sortable
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          onSort={handleSort}
+          sortLoading={sortLoading}
         />
 
         {/* End of list */}

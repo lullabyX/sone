@@ -96,9 +96,34 @@ import {
 } from "../lib/playbackPosition";
 
 const PLAYBACK_STATE_KEY = "sone.playback-state.v1";
+const MAX_HISTORY_TRACKS = 500;
+
+type RuntimeTrackFields = {
+  _playingFrom?: unknown;
+  _contextFrom?: unknown;
+};
 
 function isValidTrack(t: unknown): t is Track {
   return !!t && typeof (t as Track).id === "number";
+}
+
+function stripRuntimeTrackFields(track: Track): Track {
+  const runtimeTrack = track as Track & RuntimeTrackFields;
+  delete runtimeTrack._playingFrom;
+  delete runtimeTrack._contextFrom;
+  return track;
+}
+
+function sanitizeTrackForPersistence(track: Track): Track {
+  const sanitized = { ...track } as Track & RuntimeTrackFields;
+  delete sanitized._playingFrom;
+  delete sanitized._contextFrom;
+  return sanitized;
+}
+
+function sanitizeTracksForPersistence(tracks: Track[] | null | undefined): Track[] {
+  if (!Array.isArray(tracks) || tracks.length === 0) return [];
+  return tracks.map(sanitizeTrackForPersistence);
 }
 
 export function AppInitializer() {
@@ -399,71 +424,86 @@ export function AppInitializer() {
     const restoreSnapshot = (raw: string) => {
       const parsed = JSON.parse(raw) as Partial<PlaybackSnapshot>;
 
-      if (parsed.currentTrack && typeof parsed.currentTrack.id === "number") {
-        setCurrentTrack(parsed.currentTrack as Track);
-      }
+      const restoredCurrentTrack =
+        parsed.currentTrack && typeof parsed.currentTrack.id === "number"
+          ? stripRuntimeTrackFields(parsed.currentTrack as Track)
+          : null;
 
-      if (Array.isArray(parsed.queue)) {
-        setQueue(
-          parsed.queue.filter(
-            (t): t is Track => !!t && typeof t.id === "number",
-          ),
-        );
-      }
+      const restoredQueue = Array.isArray(parsed.queue)
+        ? parsed.queue
+            .filter((t): t is Track => !!t && typeof t.id === "number")
+            .map(stripRuntimeTrackFields)
+        : [];
 
-      if (Array.isArray(parsed.history)) {
-        setHistory(
-          parsed.history.filter(
-            (t): t is Track => !!t && typeof t.id === "number",
-          ),
-        );
-      }
+      const restoredHistory = Array.isArray(parsed.history)
+        ? parsed.history
+            .filter((t): t is Track => !!t && typeof t.id === "number")
+            .map(stripRuntimeTrackFields)
+        : [];
+      const cappedHistory =
+        restoredHistory.length > MAX_HISTORY_TRACKS
+          ? restoredHistory.slice(restoredHistory.length - MAX_HISTORY_TRACKS)
+          : restoredHistory;
 
-      if (Array.isArray(parsed.originalQueue)) {
-        setOriginalQueue(
-          parsed.originalQueue
+      const restoredOriginalQueue = Array.isArray(parsed.originalQueue)
+        ? parsed.originalQueue
             .filter(isValidTrack)
-            .map((t) => ensureQid(t as QueuedTrack)),
-        );
+            .map((t) =>
+              ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+            )
+        : null;
+
+      const restoredManualQueue = Array.isArray(parsed.manualQueue)
+        ? parsed.manualQueue
+            .filter(isValidTrack)
+            .map((t) =>
+              ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+            )
+        : [];
+
+      const restoredPlaybackSource = parsed.playbackSource
+        ? {
+            ...parsed.playbackSource,
+            tracks: parsed.playbackSource.tracks
+              .filter(isValidTrack)
+              .map((t) =>
+                ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+              ),
+          }
+        : null;
+
+      const restoredContextSource = parsed.contextSource
+        ? {
+            ...parsed.contextSource,
+            tracks: parsed.contextSource.tracks
+              .filter(isValidTrack)
+              .map((t) =>
+                ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+              ),
+          }
+        : null;
+
+      if (restoredCurrentTrack) setCurrentTrack(restoredCurrentTrack);
+      if (Array.isArray(parsed.queue)) setQueue(restoredQueue);
+      if (Array.isArray(parsed.history)) setHistory(cappedHistory);
+      if (Array.isArray(parsed.originalQueue)) {
+        setOriginalQueue(restoredOriginalQueue);
       } else {
         setOriginalQueue(null);
       }
-
-      if (Array.isArray(parsed.manualQueue)) {
-        setManualQueue(
-          parsed.manualQueue
-            .filter(isValidTrack)
-            .map((t) => ensureQid(t as QueuedTrack)),
-        );
-      }
-
-      if (parsed.playbackSource) {
-        setPlaybackSource({
-          ...parsed.playbackSource,
-          tracks: parsed.playbackSource.tracks
-            .filter(isValidTrack)
-            .map((t) => ensureQid(t as QueuedTrack)),
-        });
-      }
-
-      if (parsed.contextSource) {
-        setContextSource({
-          ...parsed.contextSource,
-          tracks: parsed.contextSource.tracks
-            .filter(isValidTrack)
-            .map((t) => ensureQid(t as QueuedTrack)),
-        });
-      }
+      if (Array.isArray(parsed.manualQueue)) setManualQueue(restoredManualQueue);
+      if (restoredPlaybackSource) setPlaybackSource(restoredPlaybackSource);
+      if (restoredContextSource) setContextSource(restoredContextSource);
 
       // Advance QID counter past all restored _qid values to prevent collisions
       const allRestored = [
-        ...(parsed.queue || []),
-        ...(parsed.history || []),
-        ...(parsed.manualQueue || []),
-        ...(parsed.originalQueue || []),
-        ...(parsed.playbackSource?.tracks || []),
-        ...(parsed.contextSource?.tracks || []),
-        ...(parsed.currentTrack ? [parsed.currentTrack] : []),
+        ...restoredQueue,
+        ...cappedHistory,
+        ...restoredManualQueue,
+        ...(restoredOriginalQueue || []),
+        ...(restoredPlaybackSource?.tracks || []),
+        ...(restoredContextSource?.tracks || []),
+        ...(restoredCurrentTrack ? [restoredCurrentTrack] : []),
       ]
         .filter(isValidTrack)
         .map((t) => ensureQid(t as QueuedTrack));
@@ -490,15 +530,46 @@ export function AppInitializer() {
     };
 
     const setupPersistence = () => {
-      const persist = () => {
+      let dirty = false;
+      let queued = false;
+
+      const flush = () => {
+        queued = false;
+        if (!dirty) return;
+        dirty = false;
+
+        const currentTrack = store.get(currentTrackAtom);
+        const history = store.get(historyAtom);
+        const cappedHistory =
+          history.length > MAX_HISTORY_TRACKS
+            ? history.slice(history.length - MAX_HISTORY_TRACKS)
+            : history;
+        const originalQueue = store.get(originalQueueAtom);
+        const playbackSource = store.get(playbackSourceAtom);
+        const contextSource = store.get(contextSourceAtom);
+
         const snapshot: PlaybackSnapshot = {
-          currentTrack: store.get(currentTrackAtom),
-          queue: store.get(queueAtom),
-          history: store.get(historyAtom),
-          manualQueue: store.get(manualQueueAtom),
-          originalQueue: store.get(originalQueueAtom),
-          playbackSource: store.get(playbackSourceAtom),
-          contextSource: store.get(contextSourceAtom),
+          currentTrack: currentTrack
+            ? sanitizeTrackForPersistence(currentTrack)
+            : null,
+          queue: sanitizeTracksForPersistence(store.get(queueAtom)),
+          history: sanitizeTracksForPersistence(cappedHistory),
+          manualQueue: sanitizeTracksForPersistence(store.get(manualQueueAtom)),
+          originalQueue: originalQueue
+            ? sanitizeTracksForPersistence(originalQueue)
+            : null,
+          playbackSource: playbackSource
+            ? {
+                ...playbackSource,
+                tracks: sanitizeTracksForPersistence(playbackSource.tracks),
+              }
+            : null,
+          contextSource: contextSource
+            ? {
+                ...contextSource,
+                tracks: sanitizeTracksForPersistence(contextSource.tracks),
+              }
+            : null,
         };
         const json = JSON.stringify(snapshot);
         latestJson = json;
@@ -521,13 +592,21 @@ export function AppInitializer() {
         }, 2000);
       };
 
-      unsub1 = store.sub(currentTrackAtom, persist);
-      unsub2 = store.sub(queueAtom, persist);
-      unsub3 = store.sub(historyAtom, persist);
-      unsub4 = store.sub(manualQueueAtom, persist);
-      unsub5 = store.sub(originalQueueAtom, persist);
-      unsub6 = store.sub(playbackSourceAtom, persist);
-      unsub7 = store.sub(contextSourceAtom, persist);
+      const markDirty = () => {
+        dirty = true;
+        if (!queued) {
+          queued = true;
+          queueMicrotask(flush);
+        }
+      };
+
+      unsub1 = store.sub(currentTrackAtom, markDirty);
+      unsub2 = store.sub(queueAtom, markDirty);
+      unsub3 = store.sub(historyAtom, markDirty);
+      unsub4 = store.sub(manualQueueAtom, markDirty);
+      unsub5 = store.sub(originalQueueAtom, markDirty);
+      unsub6 = store.sub(playbackSourceAtom, markDirty);
+      unsub7 = store.sub(contextSourceAtom, markDirty);
     };
 
     restore().finally(() => {

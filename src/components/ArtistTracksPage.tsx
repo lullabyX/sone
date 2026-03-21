@@ -1,7 +1,6 @@
-import { Play, Pause, Shuffle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
-import { isPlayingAtom, currentTrackAtom } from "../atoms/playback";
+import { Shuffle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import SourcePlayButton from "./SourcePlayButton";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { getArtistTopTracksAll } from "../api/tidal";
 import type { Track } from "../types";
@@ -19,12 +18,8 @@ export default function ArtistTracksPage({
   artistId,
   artistName,
 }: ArtistTracksPageProps) {
-  const isPlaying = useAtomValue(isPlayingAtom);
-  const currentTrack = useAtomValue(currentTrackAtom);
   const {
     playTrack,
-    pauseTrack,
-    resumeTrack,
     setShuffledQueue,
     playFromSource,
     playAllFromSource,
@@ -104,11 +99,6 @@ export default function ArtistTracksPage({
     }
   }, [artistId, tracks.length, hasMore]);
 
-  const trackIds = useMemo(
-    () => new Set(tracks.map((t) => t.id).filter(Boolean)),
-    [tracks],
-  );
-
   const artistSource = {
     type: "artist-tracks" as const,
     id: artistId,
@@ -126,11 +116,6 @@ export default function ArtistTracksPage({
 
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
-    if (currentTrack && trackIds.has(currentTrack.id)) {
-      if (isPlaying) await pauseTrack();
-      else await resumeTrack();
-      return;
-    }
     try {
       await playAllFromSource(tracks, { source: artistSource });
     } catch (err) {
@@ -151,11 +136,6 @@ export default function ArtistTracksPage({
     }
   };
 
-  const allPlaying = !!(
-    currentTrack &&
-    trackIds.has(currentTrack.id) &&
-    isPlaying
-  );
 
   if (loading) {
     return (
@@ -201,17 +181,11 @@ export default function ArtistTracksPage({
       </div>
 
       <div className="px-8 py-4 flex items-center gap-3">
-        <button
-          onClick={handlePlayAll}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
-        >
-          {allPlaying ? (
-            <Pause size={18} fill="black" className="text-black" />
-          ) : (
-            <Play size={18} fill="black" className="text-black" />
-          )}
-          {allPlaying ? "Pause" : "Play"}
-        </button>
+        <SourcePlayButton
+          sourceType="artist-tracks"
+          sourceId={artistId}
+          onPlay={handlePlayAll}
+        />
         <button
           onClick={handleShuffle}
           className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
