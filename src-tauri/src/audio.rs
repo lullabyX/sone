@@ -186,6 +186,24 @@ fn probe_supported_rates(pcm: &alsa::PCM) -> Vec<u32> {
     }
 }
 
+/// Probe the native channel count of an ALSA device.
+/// USB audio interfaces (e.g. Focusrite Scarlett) often expose a fixed
+/// channel count that differs from stereo (2ch).  Returns the device's
+/// minimum supported channels — for USB audio this equals the maximum
+/// (the descriptor specifies a single channel count).
+#[cfg(target_os = "linux")]
+fn probe_native_channels(pcm: &alsa::PCM) -> u32 {
+    use alsa::pcm::HwParams;
+
+    let Ok(hwp) = HwParams::any(pcm) else {
+        return 2;
+    };
+    let ch_min = hwp.get_channels_min().unwrap_or(2);
+    let ch_max = hwp.get_channels_max().unwrap_or(2);
+    log::debug!("[audio] DAC channel range: {ch_min}-{ch_max}");
+    ch_min
+}
+
 // ── ALSA writer thread ─────────────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
@@ -281,8 +299,18 @@ fn configure_alsa_hwparams(
             ));
         }
     }
-    hwp.set_channels(fmt.channels)
-        .map_err(|e| format!("set_channels({}): {e}", fmt.channels))?;
+    let hw_channels = if hwp.test_channels(fmt.channels).is_ok() {
+        fmt.channels
+    } else {
+        let native = hwp.get_channels_min().unwrap_or(fmt.channels);
+        log::info!(
+            "[audio] DAC doesn't support {}ch, using {}ch",
+            fmt.channels, native
+        );
+        native
+    };
+    hwp.set_channels(hw_channels)
+        .map_err(|e| format!("set_channels({hw_channels}): {e}"))?;
     hwp.set_buffer_time_near(500_000, ValueOr::Nearest)
         .map_err(|e| format!("set_buffer_time: {e}"))?;
     hwp.set_period_time_near(50_000, ValueOr::Nearest)
@@ -342,7 +370,7 @@ fn configure_alsa_hwparams(
         .unwrap_or(fmt.sample_rate);
     Ok(PcmFormat {
         sample_rate: actual_rate,
-        channels: fmt.channels,
+        channels: hw_channels,
         gst_format: gst_fmt_str.to_string(),
         bytes_per_sample: bps,
     })
@@ -382,6 +410,9 @@ fn spawn_alsa_writer(
     let supported_rates = probe_supported_rates(&pcm);
     log::debug!("[alsa-writer] DAC supported rates: {:?}", supported_rates);
 
+    let native_channels = probe_native_channels(&pcm);
+    log::debug!("[alsa-writer] DAC native channels: {}", native_channels);
+
     // Adjust initial format to something the DAC actually supports.
     // This is a placeholder — the real format arrives via FormatHint/pad_added
     // once GStreamer decodes the stream. We just need the DAC to accept it.
@@ -404,6 +435,13 @@ fn spawn_alsa_writer(
                 fmt.sample_rate, fallback
             );
             fmt.sample_rate = fallback;
+        }
+        if fmt.channels != native_channels {
+            log::info!(
+                "[alsa-writer] DAC native channels={}, adjusting from {}ch",
+                native_channels, fmt.channels
+            );
+            fmt.channels = native_channels;
         }
         fmt
     };
