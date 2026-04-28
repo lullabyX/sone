@@ -78,6 +78,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [bitPerfect] = useAtom(bitPerfectAtom);
   const [volumeNormalization, setVolumeNormalization] = useState(false);
   const [discordRpc, setDiscordRpc] = useState(false);
+  const [discordStatusText, setDiscordStatusText] = useState("");
   const [decorations, setDecorations] = useAtom(decorationsAtom);
   const [hideTitleBar, setHideTitleBar] = useAtom(hideTitleBarAtom);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
@@ -89,6 +90,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const { showToast } = useToast();
   const panelRef = useRef<HTMLDivElement>(null);
   const proxySaveTimer = useRef<number | undefined>(undefined);
+  const discordStatusSaveTimer = useRef<number | undefined>(undefined);
 
   // Load backend-synced preferences when modal opens
   useEffect(() => {
@@ -104,7 +106,17 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     invoke<boolean>("get_discord_rpc")
       .then(setDiscordRpc)
       .catch(() => {});
+    invoke<string>("get_discord_status_text")
+      .then(setDiscordStatusText)
+      .catch(() => {});
   }, [open]);
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(proxySaveTimer.current);
+      clearTimeout(discordStatusSaveTimer.current);
+    };
+  }, []);
 
   // Close on click outside
   useEffect(() => {
@@ -135,6 +147,14 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     clearTimeout(proxySaveTimer.current);
     proxySaveTimer.current = window.setTimeout(() => {
       invoke("set_proxy_settings", { settings: next }).catch(() => {});
+    }, 500);
+  };
+
+  const updateDiscordStatusText = (text: string) => {
+    setDiscordStatusText(text);
+    clearTimeout(discordStatusSaveTimer.current);
+    discordStatusSaveTimer.current = window.setTimeout(() => {
+      invoke("set_discord_status_text", { text }).catch(() => {});
     }, 500);
   };
 
@@ -275,6 +295,18 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 >
                   <Toggle on={discordRpc} />
                 </button>
+              </div>
+              <div className="pl-7 pb-2 space-y-1.5">
+                <label className="block text-[11px] text-th-text-muted">
+                  Status text
+                </label>
+                <input
+                  type="text"
+                  value={discordStatusText}
+                  onChange={(e) => updateDiscordStatusText(e.target.value)}
+                  placeholder="{track} by {artist} on {album}"
+                  className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-th-text-primary placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
+                />
               </div>
             </div>
 
