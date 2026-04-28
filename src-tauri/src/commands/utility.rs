@@ -252,6 +252,26 @@ pub fn set_discord_rpc(state: State<'_, AppState>, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn get_discord_status_text(state: State<'_, AppState>) -> String {
+    state
+        .load_settings()
+        .map(|s| s.discord_status_text)
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn set_discord_status_text(state: State<'_, AppState>, text: String) -> Result<(), SoneError> {
+    state
+        .discord
+        .send(crate::discord::DiscordCommand::SetStatusText { text: text.clone() });
+
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.discord_status_text = text;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_proxy_settings(state: State<'_, AppState>) -> crate::ProxySettings {
     state
         .load_settings()

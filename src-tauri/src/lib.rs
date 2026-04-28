@@ -118,6 +118,8 @@ pub struct Settings {
     pub proxy: ProxySettings,
     #[serde(default = "defaults::yes")]
     pub discord_rpc: bool,
+    #[serde(default)]
+    pub discord_status_text: String,
 }
 
 impl Default for Settings {
@@ -138,6 +140,7 @@ impl Default for Settings {
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
+            discord_status_text: String::new(),
         }
     }
 }
@@ -271,7 +274,14 @@ impl AppState {
         );
 
         let discord_rpc_enabled = saved.as_ref().map(|s| s.discord_rpc).unwrap_or(true);
+        let discord_status_text = saved
+            .as_ref()
+            .map(|s| s.discord_status_text.clone())
+            .unwrap_or_default();
         let discord_handle = discord::DiscordHandle::new();
+        discord_handle.send(discord::DiscordCommand::SetStatusText {
+            text: discord_status_text,
+        });
         if discord_rpc_enabled {
             discord_handle.send(discord::DiscordCommand::Connect);
         }
@@ -754,6 +764,8 @@ pub fn run() {
             commands::utility::list_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
+            commands::utility::get_discord_status_text,
+            commands::utility::set_discord_status_text,
             commands::utility::get_proxy_settings,
             commands::utility::set_proxy_settings,
             commands::utility::test_proxy_connection,
