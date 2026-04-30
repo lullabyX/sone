@@ -2,7 +2,13 @@ import { memo } from "react";
 import { useAtomValue } from "jotai";
 import { currentTrackAtom, streamInfoAtom } from "../atoms/playback";
 
-const QualityBadge = memo(function QualityBadge() {
+interface QualityBadgeProps {
+  onClick?: () => void;
+}
+
+const QualityBadge = memo(function QualityBadge({
+  onClick,
+}: QualityBadgeProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const streamInfo = useAtomValue(streamInfoAtom);
 
@@ -27,8 +33,8 @@ const QualityBadge = memo(function QualityBadge() {
 
   const label = isMax ? "HI-RES LOSSLESS" : isHiFi ? "LOSSLESS" : "HIGH";
 
-  return (
-    <div className="flex flex-col items-end gap-0.5">
+  const content = (
+    <>
       {detail && (
         <span className="text-[9px] text-th-text-faint font-medium tracking-wide inline">
           {detail}
@@ -45,8 +51,23 @@ const QualityBadge = memo(function QualityBadge() {
       >
         {label}
       </span>
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title="Show signal path"
+        className="flex flex-col items-end gap-0.5 cursor-pointer hover:opacity-80 transition-opacity"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="flex flex-col items-end gap-0.5">{content}</div>;
 });
 
 export default QualityBadge;

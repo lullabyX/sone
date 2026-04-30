@@ -12,12 +12,14 @@ pub mod logging;
 #[cfg(target_os = "linux")]
 mod mpris;
 mod scrobble;
+mod signal_path;
 #[cfg(target_os = "linux")]
 mod tray;
 mod tidal_api;
 pub mod mcp;
 
 pub use error::SoneError;
+pub use signal_path::{SignalPath, SignalPathTracker};
 
 use audio::{AudioDevice, AudioPlayer};
 use cache::DiskCache;
@@ -214,6 +216,7 @@ pub struct AppState {
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
     pub mcp_state: crate::mcp::McpStateRef,
     pub mcp_handle: Mutex<Option<crate::mcp::McpHandle>>,
+    pub signal_path: Arc<SignalPathTracker>,
 }
 
 pub fn now_secs() -> u64 {
@@ -330,8 +333,12 @@ impl AppState {
             discord_handle.send(discord::DiscordCommand::Connect);
         }
 
+        let signal_path = Arc::new(SignalPathTracker::new(app_handle.clone()));
+        signal_path.set_audio_modes(exclusive_mode, bit_perfect);
+        signal_path.set_normalization_enabled(volume_normalization);
+
         Self {
-            audio_player: AudioPlayer::new(app_handle.clone()),
+            audio_player: AudioPlayer::new(app_handle.clone(), Arc::clone(&signal_path)),
             tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
             settings_path,
             cache_dir,
@@ -353,6 +360,7 @@ impl AppState {
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
             mcp_state: crate::mcp::new_state(),
             mcp_handle: Mutex::new(None),
+            signal_path,
         }
     }
 
@@ -878,6 +886,7 @@ pub fn run() {
             commands::mcp::mcp_publish_state,
             commands::mcp::mcp_set_enabled,
             commands::mcp::mcp_regenerate_token,
+            commands::utility::get_signal_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

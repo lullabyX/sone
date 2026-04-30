@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { SignalPath } from "../atoms/playback";
 import type {
   AlbumDetail,
   AlbumPageCached,
@@ -1128,4 +1129,10 @@ export async function savePlaybackQueue(snapshotJson: string): Promise<void> {
 
 export async function loadPlaybackQueue(): Promise<string | null> {
   return invoke("load_playback_queue");
+}
+
+// ==================== Signal path transparency ====================
+
+export async function getSignalPath(): Promise<SignalPath> {
+  return invoke<SignalPath>("get_signal_path");
 }

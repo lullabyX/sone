@@ -36,6 +36,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { formatTime } from "../lib/format";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
 import QualityBadge from "./QualityBadge";
+import SignalPathPanel from "./SignalPathPanel";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
 import VolumeSlider from "./VolumeSlider";
 import {
@@ -163,6 +164,7 @@ const MaxTransportBar = memo(function MaxTransportBar({
 
   const isShuffle = useAtomValue(shuffleAtom);
   const [showLyrics, setShowLyrics] = useAtom(maximizedLyricsAtom);
+  const [signalPathOpen, setSignalPathOpen] = useState(false);
   const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } = usePlaybackActions();
 
   return (
@@ -256,7 +258,8 @@ const MaxTransportBar = memo(function MaxTransportBar({
 
         {/* Right: Quality + Lyrics toggle + Volume + Minimize */}
         <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
-          <QualityBadge />
+          <QualityBadge onClick={() => setSignalPathOpen(true)} />
+          <SignalPathPanel open={signalPathOpen} onClose={() => setSignalPathOpen(false)} />
           <button
             onClick={() => setShowLyrics((v) => !v)}
             className={`relative transition-[color,transform] duration-150 active:scale-90 ${
