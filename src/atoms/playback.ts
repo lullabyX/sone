@@ -2,6 +2,30 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Track, StreamInfo, PlaybackSource } from "../types";
 
+export interface SignalPath {
+  backend: string | null;
+  decodedFormat: string | null;
+  decodedRate: number | null;
+  decodedChannels: number | null;
+  outputFormat: string | null;
+  outputRate: number | null;
+  outputChannels: number | null;
+  outputDevice: string | null;
+  exclusiveMode: boolean;
+  bitPerfect: boolean;
+  volumeNormalization: boolean;
+  userVolume: number;
+  normGainFactor: number;
+  resampledFrom: number | null;
+  resampledTo: number | null;
+  promotedFrom: string | null;
+  promotedTo: string | null;
+  formatFallbackFrom: string | null;
+  formatFallbackTo: string | null;
+}
+
+export const signalPathAtom = atom<SignalPath | null>(null);
+
 export const isPlayingAtom = atom(false);
 export const currentTrackAtom = atom<Track | null>(null);
 export const volumeAtom = atomWithStorage("sone.volume.v1", 1.0, undefined, {

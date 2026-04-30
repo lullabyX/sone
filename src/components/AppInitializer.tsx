@@ -52,6 +52,8 @@ import {
   shuffleAtom,
   repeatAtom,
   streamInfoAtom,
+  signalPathAtom,
+  type SignalPath,
 } from "../atoms/playback";
 import { decorationsAtom, drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
@@ -75,6 +77,7 @@ import {
   getPlaylistFolders,
   normalizePlaylistFolders,
   getTrack,
+  getSignalPath,
 } from "../api/tidal";
 
 import type {
@@ -688,6 +691,23 @@ export function AppInitializer() {
       unlisten.then((fn) => fn());
     };
   }, [playNext]);
+
+  // ================================================================
+  //  SIGNAL PATH (transparency panel)
+  //  Initial snapshot + reactive updates whenever the audio thread
+  //  records a change in mode / format / output / alterations.
+  // ================================================================
+  useEffect(() => {
+    getSignalPath()
+      .then((sp) => store.set(signalPathAtom, sp))
+      .catch(() => {});
+    const unlisten = listen<SignalPath>("signal-path-changed", (e) => {
+      store.set(signalPathAtom, e.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [store]);
 
   // ================================================================
   //  AUDIO ERROR HANDLING

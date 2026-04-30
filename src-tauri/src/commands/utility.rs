@@ -5,7 +5,13 @@ use super::playback::compute_norm_gain;
 use crate::audio::AudioDevice;
 use crate::cache::{CacheResult, CacheTier};
 use crate::AppState;
+use crate::SignalPath;
 use crate::SoneError;
+
+#[tauri::command]
+pub fn get_signal_path(state: State<'_, AppState>) -> SignalPath {
+    state.signal_path.snapshot()
+}
 
 #[tauri::command]
 pub async fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String, SoneError> {
@@ -122,6 +128,7 @@ pub fn set_volume_normalization(
         .audio_player
         .set_normalization_gain(norm_gain)
         .map_err(SoneError::Audio)?;
+    state.signal_path.set_normalization_enabled(enabled);
     let mut settings = state.load_settings().unwrap_or_default();
     settings.volume_normalization = enabled;
     state.save_settings(&settings)?;

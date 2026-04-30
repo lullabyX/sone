@@ -1,3 +1,4 @@
+use crate::signal_path::SignalPathTracker;
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
@@ -402,6 +403,7 @@ fn spawn_alsa_writer(
     paused: Arc<AtomicBool>,
     bit_perfect: bool,
     combined_vol: Arc<AtomicU32>,
+    signal_path: Arc<SignalPathTracker>,
 ) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>, PcmFormat, Vec<&'static str>, Vec<u32>), String> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
@@ -449,14 +451,29 @@ fn spawn_alsa_writer(
         fmt
     };
 
+    let requested_for_fallback = initial_format.clone();
     let initial_format = configure_alsa_hwparams(&pcm, &initial_format, bit_perfect)?;
     pcm.prepare().map_err(|e| format!("pcm.prepare: {e}"))?;
     current_sample_rate.store(initial_format.sample_rate, Ordering::Relaxed);
     let negotiated_fmt = initial_format.clone();
 
+    signal_path.set_output(
+        &initial_format.gst_format,
+        initial_format.sample_rate,
+        initial_format.channels,
+    );
+    if !bit_perfect && requested_for_fallback.gst_format != initial_format.gst_format {
+        signal_path.record_format_fallback(
+            &requested_for_fallback.gst_format,
+            &initial_format.gst_format,
+        );
+    }
+
+    let signal_path_thread = Arc::clone(&signal_path);
     let handle = std::thread::Builder::new()
         .name("alsa-writer".into())
         .spawn(move || {
+            let sp = signal_path_thread;
             let mut pcm = pcm; // rebind as mutable for format-change reopen
             let mut current_fmt = initial_format;
             let period_duration = std::time::Duration::from_millis(50);
@@ -471,6 +488,7 @@ fn spawn_alsa_writer(
                 if let Some(from) = pending.take() {
                     if from != current.gst_format {
                         log::info!("[alsa-writer] bit-depth promotion: {from} -> {}", current.gst_format);
+                        sp.record_bit_depth_promotion(&from, &current.gst_format);
                         app_handle.emit(
                             "audio-bit-depth-changed",
                             serde_json::json!({ "from": from, "to": current.gst_format }),
@@ -687,6 +705,7 @@ fn spawn_alsa_writer(
 
                         if chunk.format != current_fmt {
                             log::info!("[alsa-writer] format change: {current_fmt:?} -> {:?}", chunk.format);
+                            sp.set_decoded(&chunk.format.gst_format, chunk.format.sample_rate, chunk.format.channels);
                             drop(pcm);
                             match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                 Ok((new_pcm, negotiated)) => {
@@ -700,6 +719,10 @@ fn spawn_alsa_writer(
                                             serde_json::json!({ "kind": "device_changed" })).ok();
                                         tearing_down.store(true, Ordering::SeqCst);
                                         return;
+                                    }
+                                    sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
+                                    if !bit_perfect && chunk.format.gst_format != negotiated.gst_format {
+                                        sp.record_format_fallback(&chunk.format.gst_format, &negotiated.gst_format);
                                     }
                                     current_fmt = negotiated;
                                 }
@@ -722,12 +745,18 @@ fn spawn_alsa_writer(
                     }
 
                     Ok(WriterCommand::FormatHint(new_fmt)) => {
+                        sp.set_decoded(&new_fmt.gst_format, new_fmt.sample_rate, new_fmt.channels);
                         if new_fmt != current_fmt {
                             log::info!("[alsa-writer] format hint: {current_fmt:?} -> {new_fmt:?}");
+                            let requested = new_fmt.clone();
                             drop(pcm);
                             match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                 Ok((new_pcm, negotiated)) => {
                                     pcm = new_pcm;
+                                    sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
+                                    if !bit_perfect && requested.gst_format != negotiated.gst_format {
+                                        sp.record_format_fallback(&requested.gst_format, &negotiated.gst_format);
+                                    }
                                     current_fmt = negotiated;
                                 }
                                 Err(e) => {
@@ -743,6 +772,7 @@ fn spawn_alsa_writer(
 
                     Ok(WriterCommand::Resampling { from, to }) => {
                         log::info!("[alsa-writer] resampling: {}kHz -> {}kHz", from / 1000, to / 1000);
+                        sp.record_resample(from, to);
                         app_handle.emit("audio-resampled",
                             serde_json::json!({ "from": from, "to": to })).ok();
                     }
@@ -752,6 +782,8 @@ fn spawn_alsa_writer(
                             continue; // stale promotion from old pipeline
                         }
                         // Last-write-wins: overwrites any prior unresolved pending.
+                        // resolve_pending will fire sp.record_bit_depth_promotion()
+                        // once the actually-negotiated format is known.
                         pending_promotion_from = Some(from);
                     }
 
@@ -789,6 +821,7 @@ fn spawn_alsa_writer(
                                         continue; // discard stale data, stay in idle
                                     }
                                     if chunk.format != current_fmt {
+                                        sp.set_decoded(&chunk.format.gst_format, chunk.format.sample_rate, chunk.format.channels);
                                         // reopen_alsa drops old PCM — buffer cleared implicitly
                                         drop(pcm);
                                         match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
@@ -803,6 +836,10 @@ fn spawn_alsa_writer(
                                                         serde_json::json!({ "kind": "device_changed" })).ok();
                                                     tearing_down.store(true, Ordering::SeqCst);
                                                     return;
+                                                }
+                                                sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
+                                                if !bit_perfect && chunk.format.gst_format != negotiated.gst_format {
+                                                    sp.record_format_fallback(&chunk.format.gst_format, &negotiated.gst_format);
                                                 }
                                                 current_fmt = negotiated;
                                             }
@@ -829,12 +866,18 @@ fn spawn_alsa_writer(
                                 Ok(WriterCommand::Shutdown) => break 'main,
                                 Ok(WriterCommand::Flush) => { drain_writer_rx(&rx); pcm.drop().ok(); pcm.prepare().ok(); pending_promotion_from = None; break; }
                                 Ok(WriterCommand::FormatHint(new_fmt)) => {
+                                    sp.set_decoded(&new_fmt.gst_format, new_fmt.sample_rate, new_fmt.channels);
                                     if new_fmt != current_fmt {
                                         log::info!("[alsa-writer] format hint (idle): {current_fmt:?} -> {new_fmt:?}");
+                                        let requested = new_fmt.clone();
                                         drop(pcm);
                                         match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                             Ok((new_pcm, negotiated)) => {
                                                 pcm = new_pcm;
+                                                sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
+                                                if !bit_perfect && requested.gst_format != negotiated.gst_format {
+                                                    sp.record_format_fallback(&requested.gst_format, &negotiated.gst_format);
+                                                }
                                                 current_fmt = negotiated;
                                             }
                                             Err(e) => {
@@ -846,7 +889,9 @@ fn spawn_alsa_writer(
                                     }
                                     resolve_pending(&mut pending_promotion_from, &current_fmt);
                                 }
-                                Ok(WriterCommand::Resampling { .. }) => {}
+                                Ok(WriterCommand::Resampling { from, to }) => {
+                                    sp.record_resample(from, to);
+                                }
                                 Ok(WriterCommand::PendingPromotion { from, generation }) => {
                                     if generation < writer_gen.load(Ordering::Acquire) {
                                         continue;
@@ -953,7 +998,7 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
-    pub fn new(app_handle: tauri::AppHandle) -> Self {
+    pub fn new(app_handle: tauri::AppHandle, signal_path: Arc<SignalPathTracker>) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AudioCommand>();
 
         std::thread::spawn(move || {
@@ -1061,6 +1106,13 @@ impl AudioPlayer {
                             has_uri.store(true, Ordering::SeqCst);
                             frames_written.store(0, Ordering::Relaxed);
 
+                            signal_path.reset_for_track();
+                            if exclusive || bit_perfect {
+                                signal_path.set_backend("DirectAlsa", device.clone());
+                            } else {
+                                signal_path.set_backend("Normal", None);
+                            }
+
                             if exclusive || bit_perfect {
                                 // ── DirectAlsa path ──
                                 #[cfg(not(target_os = "linux"))]
@@ -1114,6 +1166,7 @@ impl AudioPlayer {
                                             Arc::clone(&paused),
                                             bit_perfect,
                                             Arc::clone(&combined_vol),
+                                            Arc::clone(&signal_path),
                                         )?;
                                         writer_tx = Some(tx);
                                         writer_thread = Some(handle);
@@ -1470,6 +1523,7 @@ impl AudioPlayer {
                             ((amplitude * current_norm_gain) as f32).to_bits(),
                             Ordering::Relaxed,
                         );
+                        signal_path.set_user_volume(level);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1482,6 +1536,7 @@ impl AudioPlayer {
                             ((slider_to_amplitude(current_volume) * current_norm_gain) as f32).to_bits(),
                             Ordering::Relaxed,
                         );
+                        signal_path.set_norm_gain_factor(gain as f32);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1570,6 +1625,7 @@ impl AudioPlayer {
                         if !enabled {
                             bit_perfect = false;
                         }
+                        signal_path.set_audio_modes(exclusive, bit_perfect);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1578,6 +1634,7 @@ impl AudioPlayer {
                         if enabled {
                             exclusive = true;
                         }
+                        signal_path.set_audio_modes(exclusive, bit_perfect);
                         reply.send(Ok(())).ok();
                     }
 
