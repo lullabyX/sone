@@ -134,6 +134,13 @@ fn alsa_format_to_gst(alsa_fmt: alsa::pcm::Format) -> (&'static str, u32) {
     }
 }
 
+/// Converts perceptual linear volume (0.0 to 1.0 from the UI) 
+/// into an audio amplitude curve (cubic taper).
+#[inline]
+fn slider_to_amplitude(slider_val: f64) -> f64 {
+    slider_val.powi(3)
+}
+
 /// Probe which GStreamer format strings an ALSA device supports.
 /// Returns a list like `["S32LE", "S24_32LE", "S16LE"]`.
 #[cfg(target_os = "linux")]
@@ -959,7 +966,7 @@ impl AudioPlayer {
                                             // Fade out
                                             if let Some(ref vol) = user_volume_el {
                                                 for i in (0..=10).rev() {
-                                                    vol.set_property("volume", current_volume * (i as f64 / 10.0));
+                                                    vol.set_property("volume", slider_to_amplitude(current_volume) * (i as f64 / 10.0));
                                                     std::thread::sleep(std::time::Duration::from_millis(10));
                                                 }
                                             }
@@ -1187,7 +1194,7 @@ impl AudioPlayer {
                                     .build()
                                     .map_err(|e| format!("Failed to create norm volume: {e}"))?;
                                 let user_vol = gst::ElementFactory::make("volume")
-                                    .property("volume", current_volume)
+                                    .property("volume", slider_to_amplitude(current_volume))
                                     .build()
                                     .map_err(|e| format!("Failed to create user volume: {e}"))?;
                                 let sink = gst::ElementFactory::make("autoaudiosink")
@@ -1396,11 +1403,12 @@ impl AudioPlayer {
 
                     AudioCommand::SetVolume { level, reply } => {
                         current_volume = level as f64;
+                        let amplitude = slider_to_amplitude(current_volume); 
                         if let Some(vol) = backend.as_ref().and_then(|b| b.user_volume_el()) {
-                            vol.set_property("volume", current_volume);
+                            vol.set_property("volume", amplitude);
                         }
                         combined_vol.store(
-                            ((current_volume * current_norm_gain) as f32).to_bits(),
+                            ((amplitude * current_norm_gain) as f32).to_bits(),
                             Ordering::Relaxed,
                         );
                         reply.send(Ok(())).ok();
@@ -1412,7 +1420,7 @@ impl AudioPlayer {
                             vol.set_property("volume", gain);
                         }
                         combined_vol.store(
-                            ((current_volume * current_norm_gain) as f32).to_bits(),
+                            ((slider_to_amplitude(current_volume) * current_norm_gain) as f32).to_bits(),
                             Ordering::Relaxed,
                         );
                         reply.send(Ok(())).ok();
