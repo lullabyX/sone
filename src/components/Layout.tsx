@@ -2,10 +2,16 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import PlayerBar from "./PlayerBar";
 import NowPlayingDrawer from "./NowPlayingDrawer";
+import TitleBar from "./TitleBar";
+import ResizeEdges from "./ResizeEdges";
 import { ReactNode, useRef, useEffect, useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
-import { maximizedPlayerAtom } from "../atoms/ui";
+import {
+  decorationsAtom,
+  hideTitleBarAtom,
+  maximizedPlayerAtom,
+} from "../atoms/ui";
 import MaximizedPlayer from "./MaximizedPlayer";
 import { useMiniplayerEmitter } from "../hooks/useMiniplayerEmitter";
 
@@ -17,6 +23,9 @@ export default function Layout({ children }: LayoutProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentView = useAtomValue(currentViewAtom);
   const maximized = useAtomValue(maximizedPlayerAtom);
+  // `false` = custom titlebar shown; `true` = native OS chrome (escape hatch)
+  const nativeChrome = useAtomValue(decorationsAtom);
+  const hideTitleBar = useAtomValue(hideTitleBarAtom);
 
   useMiniplayerEmitter();
 
@@ -80,7 +89,8 @@ export default function Layout({ children }: LayoutProps) {
   }, []);
 
   return (
-    <div className="flex flex-col h-full w-full bg-th-overlay text-th-text-primary overflow-hidden">
+    <div className="relative flex flex-col h-full w-full bg-th-overlay text-th-text-primary overflow-hidden">
+      {!nativeChrome && !hideTitleBar && <TitleBar />}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0 bg-th-base">
@@ -97,6 +107,7 @@ export default function Layout({ children }: LayoutProps) {
       <NowPlayingDrawer />
       {maximized && <MaximizedPlayer />}
       <PlayerBar />
+      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={4} />}
     </div>
   );
 }

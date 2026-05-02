@@ -63,6 +63,7 @@ function ExplicitContentToggle() {
   );
 }
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
+import { decorationsAtom, hideTitleBarAtom } from "../atoms/ui";
 import { useToast } from "../contexts/ToastContext";
 import { clearAllCache } from "../api/tidal";
 import Toggle from "./Toggle";
@@ -77,7 +78,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [bitPerfect] = useAtom(bitPerfectAtom);
   const [volumeNormalization, setVolumeNormalization] = useState(false);
   const [discordRpc, setDiscordRpc] = useState(false);
-  const [decorations, setDecorations] = useState(true);
+  const [decorations, setDecorations] = useAtom(decorationsAtom);
+  const [hideTitleBar, setHideTitleBar] = useAtom(hideTitleBarAtom);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
   const [proxySettings, setProxySettings] = useAtom(proxySettingsAtom);
   const [proxyTestStatus, setProxyTestStatus] = useState<
@@ -94,9 +96,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     invoke<boolean>("get_volume_normalization")
       .then(setVolumeNormalization)
       .catch(() => {});
-    invoke<boolean>("get_decorations")
-      .then(setDecorations)
-      .catch(() => {});
+    // decorations atom is hydrated globally on app boot via AppInitializer;
+    // no per-modal-open re-fetch needed.
     invoke<boolean>("get_minimize_to_tray")
       .then(setMinimizeToTray)
       .catch(() => {});
@@ -283,7 +284,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 General
               </h3>
 
-              {/* Window decorations */}
+              {/* Use native window controls (escape hatch from custom titlebar) */}
               <div className="flex items-center justify-between py-3 border-b border-th-border-subtle">
                 <div className="flex items-center gap-3 min-w-0">
                   <AppWindow
@@ -307,9 +308,47 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       setDecorations(!next);
                       showToast("Failed to update window decorations");
                     });
+                    // Turning system bar ON clears the "hide" override
+                    if (next && hideTitleBar) setHideTitleBar(false);
                   }}
                 >
                   <Toggle on={decorations} />
+                </button>
+              </div>
+
+              {/* Hide title bar entirely */}
+              <div className="flex items-center justify-between py-3 border-b border-th-border-subtle">
+                <div className="flex items-center gap-3 min-w-0">
+                  <AppWindow
+                    size={16}
+                    className="text-th-text-muted shrink-0"
+                  />
+                  <div>
+                    <p className="text-[13px] text-th-text-secondary">
+                      Hide window decorations
+                    </p>
+                    <p className="text-[11px] text-th-text-muted">
+                      Hide title bar and window controls
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !hideTitleBar;
+                    setHideTitleBar(next);
+                    // Turning hide ON also disables the system bar
+                    if (next && decorations) {
+                      setDecorations(false);
+                      invoke("set_decorations", { enabled: false }).catch(
+                        () => {
+                          setDecorations(true);
+                          showToast("Failed to update window decorations");
+                        },
+                      );
+                    }
+                  }}
+                >
+                  <Toggle on={hideTitleBar} />
                 </button>
               </div>
 
