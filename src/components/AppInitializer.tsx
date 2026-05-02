@@ -52,7 +52,7 @@ import {
   repeatAtom,
   streamInfoAtom,
 } from "../atoms/playback";
-import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
+import { decorationsAtom, drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 
 // Stable action callbacks (no atom subscriptions)
@@ -157,6 +157,7 @@ export function AppInitializer() {
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
+  const setDecorations = useSetAtom(decorationsAtom);
   const { showToast } = useToast();
 
   // ---- Store for one-time reads (volume, queue, history, etc.) — no subscription ----
@@ -170,6 +171,17 @@ export function AppInitializer() {
 
   // ---- Refs ----
   const volumeSyncedRef = useRef(false);
+
+  // ================================================================
+  //  WINDOW DECORATIONS — hydrate atom from backend on mount
+  //  (independent of auth — needed for the titlebar to render correctly)
+  // ================================================================
+  useEffect(() => {
+    invoke<boolean>("get_decorations")
+      .then(setDecorations)
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ================================================================
   //  AUTH LOADING (one-time)

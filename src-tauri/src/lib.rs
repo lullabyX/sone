@@ -97,8 +97,13 @@ pub struct Settings {
     pub client_secret: String,
     #[serde(default)]
     pub minimize_to_tray: bool,
-    #[serde(default = "defaults::yes")]
+    #[serde(default)]
     pub decorations: bool,
+    /// One-shot flag: was the user migrated from native chrome to the
+    /// custom React titlebar? `false` (or missing) on existing installs
+    /// triggers a silent flip of `decorations` to `false` at startup.
+    #[serde(default)]
+    pub titlebar_migration_v1: bool,
     #[serde(default)]
     pub volume_normalization: bool,
     #[serde(default)]
@@ -124,7 +129,8 @@ impl Default for Settings {
             client_id: String::new(),
             client_secret: String::new(),
             minimize_to_tray: false,
-            decorations: true,
+            decorations: false,
+            titlebar_migration_v1: true,
             volume_normalization: false,
             exclusive_mode: false,
             exclusive_device: None,
@@ -193,11 +199,32 @@ impl AppState {
         let disk_cache = DiskCache::new(&cache_dir, crypto.clone());
 
         // Load preferences from saved settings (decrypt if needed)
-        let saved = fs::read(&settings_path)
+        let mut saved = fs::read(&settings_path)
             .ok()
             .and_then(|data| crypto.decrypt(&data).ok())
             .and_then(|plain| String::from_utf8(plain).ok())
             .and_then(|s| serde_json::from_str::<Settings>(&s).ok());
+
+        // One-shot custom-titlebar migration: existing installs had
+        // `decorations: true` (native GTK chrome); silent-flip to false so
+        // the custom React titlebar is shown by default. The toggle in
+        // Settings remains as an escape hatch.
+        if let Some(ref mut s) = saved {
+            if !s.titlebar_migration_v1 {
+                log::info!("[migration] custom-titlebar v1: flipping decorations to false");
+                s.decorations = false;
+                s.titlebar_migration_v1 = true;
+                if let Ok(json) = serde_json::to_string_pretty(s) {
+                    if let Ok(encrypted) = crypto.encrypt(json.as_bytes()) {
+                        if let Err(e) = fs::write(&settings_path, encrypted) {
+                            log::warn!(
+                                "[migration] failed to persist titlebar_migration_v1: {e}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // Eager migration: if settings exist but aren't encrypted, re-save encrypted
         if settings_path.exists() {
@@ -219,7 +246,7 @@ impl AppState {
         }
 
         let minimize_to_tray = saved.as_ref().map(|s| s.minimize_to_tray).unwrap_or(false);
-        let decorations = saved.as_ref().map(|s| s.decorations).unwrap_or(true);
+        let decorations = saved.as_ref().map(|s| s.decorations).unwrap_or(false);
         let volume_normalization = saved
             .as_ref()
             .map(|s| s.volume_normalization)
@@ -505,10 +532,13 @@ pub fn run() {
                         .ok();
                 }
                 
+                // tauri.conf.json sets decorations: false, so the window is
+                // born without GTK CSD. Only re-enable native chrome if the
+                // user has explicitly opted in via the escape-hatch toggle.
                 let decorations = state.decorations.load(Ordering::Relaxed);
 
-                if !decorations {
-                    window.set_decorations(false).ok();
+                if decorations {
+                    window.set_decorations(true).ok();
                 }
 
                 let _ = window.show();
