@@ -269,7 +269,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               </h3>
 
               {/* Discord Rich Presence */}
-              <div className="flex items-center justify-between py-3">
+            <div className="flex items-center justify-between pt-3"
+                style={{ paddingBottom: discordRpc ? "6px" : "12px" }}  // Adjust padding based on Discord RPC status
+              >
                 <div className="flex items-center gap-3 min-w-0">
                   <MessageSquare
                     size={16}
@@ -296,18 +298,20 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                   <Toggle on={discordRpc} />
                 </button>
               </div>
-              <div className="pl-7 pb-2 space-y-1.5">
-                <label className="block text-[11px] text-th-text-muted">
-                  Status text
-                </label>
-                <input
-                  type="text"
-                  value={discordStatusText}
-                  onChange={(e) => updateDiscordStatusText(e.target.value)}
-                  placeholder="{track} by {artist} on {album}"
-                  className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-th-text-primary placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
-                />
-              </div>
+              {discordRpc && (
+                <div className="pl-7 pb-2 space-y-1.5">
+                  <label className="block text-[11px] text-th-text-muted">
+                    Status text
+                  </label>
+                  <input
+                    type="text"
+                    value={discordStatusText}
+                    onChange={(e) => updateDiscordStatusText(e.target.value)}
+                    placeholder="{track} by {artist} on {album}"
+                    className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-th-text-primary placeholder:text-th-text-disabled focus:border-th-accent/50 focus:outline-none"
+                  />
+                </div>
+              )}
             </div>
 
             {/* ── General ── */}
