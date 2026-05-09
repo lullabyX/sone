@@ -1080,6 +1080,37 @@ export async function getDefaultCredentials(): Promise<{
   }
 }
 
+export async function hasPkceDefaults(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("has_pkce_defaults");
+  } catch (error) {
+    console.error("Failed to check PKCE defaults:", error);
+    return false;
+  }
+}
+
+export async function startPkceLoginWindow(): Promise<void> {
+  return invoke("start_pkce_login_window");
+}
+
+export async function startPkceBrowserLogin(): Promise<
+  import("../types").PkceAuthParams
+> {
+  return invoke("start_pkce_browser_login");
+}
+
+export async function completePkceBrowserLogin(
+  code: string,
+  codeVerifier: string,
+  clientUniqueKey: string,
+): Promise<import("../types").AuthTokens> {
+  return invoke("complete_pkce_browser_login", {
+    code,
+    codeVerifier,
+    clientUniqueKey,
+  });
+}
+
 export async function parseTokenData(rawText: string): Promise<{
   clientId?: string;
   clientSecret?: string;

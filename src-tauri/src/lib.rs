@@ -56,6 +56,22 @@ pub struct ScrobbleSettings {
     pub listenbrainz: Option<ListenBrainzCredentials>,
 }
 
+/// Tracks which embedded credential pair the saved tokens belong to,
+/// so refresh-token requests use the matching client_id/secret.
+/// Only relevant when the user has not provided custom credentials.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    LoginCode,
+    Pkce,
+}
+
+impl Default for AuthMethod {
+    fn default() -> Self {
+        Self::LoginCode
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProxyType {
@@ -95,6 +111,11 @@ pub struct Settings {
     pub client_id: String,
     #[serde(default)]
     pub client_secret: String,
+    /// Which embedded credential pair to use for refresh when `client_id`
+    /// is empty. Defaults to LoginCode for backward compatibility with
+    /// existing installs.
+    #[serde(default)]
+    pub auth_method: AuthMethod,
     #[serde(default)]
     pub minimize_to_tray: bool,
     #[serde(default)]
@@ -130,6 +151,7 @@ impl Default for Settings {
             last_track_id: None,
             client_id: String::new(),
             client_secret: String::new(),
+            auth_method: AuthMethod::default(),
             minimize_to_tray: false,
             decorations: false,
             titlebar_migration_v1: true,
@@ -613,6 +635,8 @@ pub fn run() {
                 tauri::WindowEvent::Destroyed => {
                     if window.label() == "miniplayer" {
                         let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
+                    } else if window.label() == "pkce-login" {
+                        commands::auth::on_pkce_window_closed(window.app_handle());
                     }
                 }
                 #[cfg(target_os = "linux")]
@@ -647,6 +671,10 @@ pub fn run() {
             commands::auth::refresh_tidal_auth,
             commands::auth::start_pkce_auth,
             commands::auth::complete_pkce_auth,
+            commands::auth::has_pkce_defaults,
+            commands::auth::start_pkce_login_window,
+            commands::auth::start_pkce_browser_login,
+            commands::auth::complete_pkce_browser_login,
             commands::auth::logout,
             commands::auth::get_session_user_id,
             commands::auth::get_user_profile,

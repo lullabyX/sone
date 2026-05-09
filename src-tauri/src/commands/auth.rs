@@ -3,33 +3,46 @@ use rand::RngExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs;
-use tauri::State;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::tidal_api::{AuthTokens, DeviceAuthResponse};
 use crate::AppState;
+use crate::AuthMethod;
 use crate::Settings;
 use crate::SoneError;
 
-/// Check if the given credentials match the embedded defaults.
+/// Check if the given credentials match the embedded device-code defaults.
 fn are_embedded_defaults(id: &str, secret: &str) -> bool {
     crate::embedded_config::has_stream_keys()
         && id == crate::embedded_config::stream_key_a()
         && secret == crate::embedded_config::stream_key_b()
 }
 
-/// Resolve credentials from saved settings, falling back to embedded defaults.
+/// Check if the given credentials match the embedded PKCE defaults.
+fn are_embedded_pkce_defaults(id: &str, secret: &str) -> bool {
+    crate::embedded_config::has_pkce_keys()
+        && id == crate::embedded_config::stream_key_c()
+        && secret == crate::embedded_config::stream_key_d()
+}
+
+/// Resolve credentials from saved settings, falling back to embedded defaults
+/// matching the saved auth_method (LoginCode → device-code pair, Pkce → PKCE pair).
 fn resolve_credentials(settings: &Settings) -> (String, String) {
-    let id = if settings.client_id.is_empty() {
-        crate::embedded_config::stream_key_a()
-    } else {
-        settings.client_id.clone()
-    };
-    let secret = if settings.client_secret.is_empty() {
-        crate::embedded_config::stream_key_b()
-    } else {
-        settings.client_secret.clone()
-    };
-    (id, secret)
+    if !settings.client_id.is_empty() {
+        return (settings.client_id.clone(), settings.client_secret.clone());
+    }
+    match settings.auth_method {
+        AuthMethod::Pkce if crate::embedded_config::has_pkce_keys() => (
+            crate::embedded_config::stream_key_c(),
+            crate::embedded_config::stream_key_d(),
+        ),
+        _ => (
+            crate::embedded_config::stream_key_a(),
+            crate::embedded_config::stream_key_b(),
+        ),
+    }
 }
 
 /// Extract a value for `key=<value>` from URL-encoded / form-data text.
@@ -156,6 +169,12 @@ pub fn get_default_credentials() -> Result<(String, String), SoneError> {
     }
 }
 
+/// Whether embedded PKCE credentials are compiled in.
+#[tauri::command]
+pub fn has_pkce_defaults() -> Result<bool, SoneError> {
+    Ok(crate::embedded_config::has_pkce_keys())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub fn parse_token_data(raw_text: String) -> Result<ParsedTokens, SoneError> {
     let text = raw_text.trim();
@@ -268,10 +287,14 @@ pub async fn poll_device_auth(
             // Save tokens and credentials
             let mut settings = state.load_settings().unwrap_or_default();
             settings.auth_tokens = Some(tokens.clone());
+            settings.auth_method = AuthMethod::LoginCode;
             // Only persist user-provided credentials, not embedded defaults
             if !are_embedded_defaults(&client_id, &client_secret) {
                 settings.client_id = client_id;
                 settings.client_secret = client_secret;
+            } else {
+                settings.client_id = String::new();
+                settings.client_secret = String::new();
             }
             state.save_settings(&settings)?;
 
@@ -295,14 +318,7 @@ pub async fn refresh_tidal_auth(state: State<'_, AppState>) -> Result<AuthTokens
     Ok(new_tokens)
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub fn start_pkce_auth(client_id: String) -> Result<PkceAuthParams, SoneError> {
-    log::debug!("[start_pkce_auth]");
-    if client_id.is_empty() {
-        return Err(SoneError::NotConfigured("Client ID is required".into()));
-    }
-
-    // Generate PKCE values
+fn build_pkce_params(client_id: &str) -> PkceAuthParams {
     let mut rng = rand::rng();
     let random_bytes: [u8; 32] = rng.random();
     let code_verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random_bytes);
@@ -321,11 +337,20 @@ pub fn start_pkce_auth(client_id: String) -> Result<PkceAuthParams, SoneError> {
         code_challenge,
     );
 
-    Ok(PkceAuthParams {
+    PkceAuthParams {
         authorize_url,
         code_verifier,
         client_unique_key,
-    })
+    }
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn start_pkce_auth(client_id: String) -> Result<PkceAuthParams, SoneError> {
+    log::debug!("[start_pkce_auth]");
+    if client_id.is_empty() {
+        return Err(SoneError::NotConfigured("Client ID is required".into()));
+    }
+    Ok(build_pkce_params(&client_id))
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -347,10 +372,16 @@ pub async fn complete_pkce_auth(
     // Save tokens and credentials
     let mut settings = state.load_settings().unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
+    settings.auth_method = AuthMethod::Pkce;
     // Only persist user-provided credentials, not embedded defaults
-    if !are_embedded_defaults(&client_id, &client_secret) {
+    if !are_embedded_pkce_defaults(&client_id, &client_secret)
+        && !are_embedded_defaults(&client_id, &client_secret)
+    {
         settings.client_id = client_id;
         settings.client_secret = client_secret;
+    } else {
+        settings.client_id = String::new();
+        settings.client_secret = String::new();
     }
     state.save_settings(&settings)?;
 
@@ -384,6 +415,179 @@ pub async fn get_session_user_id(state: State<'_, AppState>) -> Result<u64, Sone
     log::debug!("[get_session_user_id]");
     let mut client = state.tidal_client.lock().await;
     client.get_session_info().await
+}
+
+// ==================== Embedded-credential PKCE flow ====================
+//
+// `start_pkce_auth` / `complete_pkce_auth` above are for the user-supplied
+// custom-credentials path. The commands below use the embedded PKCE
+// credentials (`stream_key_c/d`) and never expose them to the frontend.
+
+/// In-flight PKCE state shared between the navigation handler and the
+/// window-close handler, so we can distinguish "user closed window before
+/// completing" from "callback fired and consumed the params".
+struct PendingPkce {
+    code_verifier: String,
+    client_unique_key: String,
+}
+
+fn pending_pkce_slot() -> &'static Mutex<Option<PendingPkce>> {
+    static SLOT: OnceLock<Mutex<Option<PendingPkce>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Called by `on_window_event` in lib.rs when the PKCE login window closes.
+/// If params are still pending, emit a cancel event; otherwise no-op.
+pub fn on_pkce_window_closed(app: &AppHandle) {
+    let still_pending = pending_pkce_slot().lock().unwrap().take().is_some();
+    if still_pending {
+        let _ = app.emit("pkce-login-cancelled", ());
+    }
+}
+
+async fn finish_embedded_pkce(
+    app: AppHandle,
+    code: String,
+    code_verifier: String,
+    client_unique_key: String,
+) -> Result<AuthTokens, SoneError> {
+    let state = app.state::<AppState>();
+    let client_id = crate::embedded_config::stream_key_c();
+    let client_secret = crate::embedded_config::stream_key_d();
+
+    let mut client = state.tidal_client.lock().await;
+    client.set_credentials(&client_id, &client_secret);
+    let tokens = client
+        .exchange_pkce_code(&code, &code_verifier, PKCE_REDIRECT_URI, &client_unique_key)
+        .await?;
+
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.auth_tokens = Some(tokens.clone());
+    settings.auth_method = AuthMethod::Pkce;
+    settings.client_id = String::new();
+    settings.client_secret = String::new();
+    state.save_settings(&settings)?;
+
+    Ok(tokens)
+}
+
+/// Open an embedded webview window pointed at Tidal's PKCE login. The
+/// navigation handler intercepts the redirect to
+/// `https://tidal.com/android/login/auth?code=...`, exchanges the code
+/// for tokens using embedded credentials, persists them, closes the
+/// window, and emits `pkce-login-success` (or `pkce-login-error` /
+/// `pkce-login-cancelled` on failure paths).
+#[tauri::command]
+pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
+    log::debug!("[start_pkce_login_window]");
+    if !crate::embedded_config::has_pkce_keys() {
+        return Err(SoneError::NotConfigured(
+            "PKCE credentials are not embedded in this build".into(),
+        ));
+    }
+    let client_id = crate::embedded_config::stream_key_c();
+    let params = build_pkce_params(&client_id);
+
+    // Park the verifier+key for the navigation handler (and for the
+    // close-event handler to detect cancellation).
+    {
+        let mut slot = pending_pkce_slot().lock().unwrap();
+        *slot = Some(PendingPkce {
+            code_verifier: params.code_verifier.clone(),
+            client_unique_key: params.client_unique_key.clone(),
+        });
+    }
+
+    // Replace any pre-existing window with the same label.
+    if let Some(existing) = app.get_webview_window("pkce-login") {
+        let _ = existing.close();
+    }
+
+    let url: tauri::Url = params
+        .authorize_url
+        .parse()
+        .map_err(|e| SoneError::Parse(format!("invalid authorize URL: {}", e)))?;
+
+    let app_for_handler = app.clone();
+    let _window = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(url))
+        .title("Sign in to TIDAL")
+        .inner_size(1024.0, 768.0)
+        .center()
+        .resizable(true)
+        .always_on_top(true)
+        .on_navigation(move |url: &tauri::Url| -> bool {
+            if url.host_str() == Some("tidal.com") && url.path() == "/android/login/auth" {
+                let code = url
+                    .query_pairs()
+                    .find(|(k, _)| k == "code")
+                    .map(|(_, v)| v.into_owned());
+                let pending = pending_pkce_slot().lock().unwrap().take();
+                if let (Some(code), Some(p)) = (code, pending) {
+                    let app = app_for_handler.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let result = finish_embedded_pkce(
+                            app.clone(),
+                            code,
+                            p.code_verifier,
+                            p.client_unique_key,
+                        )
+                        .await;
+                        if let Some(win) = app.get_webview_window("pkce-login") {
+                            let _ = win.close();
+                        }
+                        match result {
+                            Ok(tokens) => {
+                                let _ = app.emit("pkce-login-success", &tokens);
+                            }
+                            Err(e) => {
+                                let _ = app.emit("pkce-login-error", format!("{}", e));
+                            }
+                        }
+                    });
+                    return false;
+                }
+                // Code missing — surface an error and let nav happen so
+                // the user can see what TIDAL returned.
+                let _ = app_for_handler.emit(
+                    "pkce-login-error",
+                    "Tidal redirect did not include an authorization code".to_string(),
+                );
+            }
+            true
+        })
+        .build()
+        .map_err(|e| SoneError::NotConfigured(format!("Failed to create login window: {}", e)))?;
+
+    Ok(())
+}
+
+/// Failsafe: open the PKCE auth URL in the user's default browser using
+/// embedded credentials. The frontend later submits the redirect URL via
+/// `complete_pkce_browser_login`. The client_id is never returned to the
+/// frontend — it lives only inside the URL.
+#[tauri::command]
+pub fn start_pkce_browser_login() -> Result<PkceAuthParams, SoneError> {
+    log::debug!("[start_pkce_browser_login]");
+    if !crate::embedded_config::has_pkce_keys() {
+        return Err(SoneError::NotConfigured(
+            "PKCE credentials are not embedded in this build".into(),
+        ));
+    }
+    let client_id = crate::embedded_config::stream_key_c();
+    Ok(build_pkce_params(&client_id))
+}
+
+/// Failsafe completion: exchange a PKCE code obtained via the user's
+/// default browser, using embedded credentials.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn complete_pkce_browser_login(
+    app: AppHandle,
+    code: String,
+    code_verifier: String,
+    client_unique_key: String,
+) -> Result<AuthTokens, SoneError> {
+    log::debug!("[complete_pkce_browser_login]");
+    finish_embedded_pkce(app, code, code_verifier, client_unique_key).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
