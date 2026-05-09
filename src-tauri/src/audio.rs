@@ -134,11 +134,11 @@ fn alsa_format_to_gst(alsa_fmt: alsa::pcm::Format) -> (&'static str, u32) {
     }
 }
 
-/// Converts perceptual linear volume (0.0 to 1.0 from the UI) 
-/// into an audio amplitude curve (cubic taper).
+/// Converts perceptual linear volume (0.0 to 1.0 from the UI)
+/// into an audio amplitude curve (cubic taper, ~50 dB range).
 #[inline]
 fn slider_to_amplitude(slider_val: f64) -> f64 {
-    slider_val.powi(3)
+    slider_val.clamp(0.0, 1.0).powi(3)
 }
 
 /// Probe which GStreamer format strings an ALSA device supports.
@@ -1403,7 +1403,7 @@ impl AudioPlayer {
 
                     AudioCommand::SetVolume { level, reply } => {
                         current_volume = level as f64;
-                        let amplitude = slider_to_amplitude(current_volume); 
+                        let amplitude = slider_to_amplitude(current_volume);
                         if let Some(vol) = backend.as_ref().and_then(|b| b.user_volume_el()) {
                             vol.set_property("volume", amplitude);
                         }
