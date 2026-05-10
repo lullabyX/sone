@@ -27,6 +27,7 @@ import {
   shuffleAtom,
   repeatAtom,
   allowExplicitAtom,
+  bitPerfectAtom,
 } from "../atoms/playback";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
@@ -265,6 +266,7 @@ export function usePlaybackActions() {
 
   const setVolume = useCallback(
     async (level: number) => {
+      if (store.get(bitPerfectAtom)) return;
       store.set(volumeAtom, level);
       try {
         await invoke("set_volume", { level });
