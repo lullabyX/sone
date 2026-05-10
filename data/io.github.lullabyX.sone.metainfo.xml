@@ -78,6 +78,34 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.15.0" date="2026-05-11">
+      <description>
+        <p>Sign-In</p>
+        <ul>
+          <li>New PKCE login flow with an embedded webview — sign in directly inside SONE</li>
+        </ul>
+        <p>Audio</p>
+        <ul>
+          <li>Logarithmic volume control with a cubic taper for smoother, more natural changes across the slider's range</li>
+          <li>Keyboard volume shortcuts now respect bit-perfect mode</li>
+          <li>Persisted volume is read on launch so the backend syncs to the correct level</li>
+        </ul>
+        <p>Discord Rich Presence</p>
+        <ul>
+          <li>Customizable status text — set your own line shown on Discord</li>
+        </ul>
+        <p>Title Bar</p>
+        <ul>
+          <li>Custom title bar with a setting to hide native window decorations</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>404 page and global error boundary handle missing routes and unexpected errors gracefully</li>
+          <li>Disabled WebKitGTK DMA-BUF renderer on NVIDIA under Wayland to fix rendering glitches</li>
+          <li>Clamped volume slider input to prevent out-of-range values</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.1" date="2026-03-21">
       <description>
         <p>Track Sorting</p>
