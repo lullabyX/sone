@@ -141,6 +141,10 @@ pub struct Settings {
     pub discord_rpc: bool,
     #[serde(default)]
     pub discord_status_text: String,
+    /// How many times we've shown the "legacy sign-in" notice to users still
+    /// on the device-code (LoginCode) auth method. Caps at 5; never resets.
+    #[serde(default)]
+    pub legacy_auth_notice_count: u8,
 }
 
 impl Default for Settings {
@@ -163,6 +167,7 @@ impl Default for Settings {
             proxy: Default::default(),
             discord_rpc: true,
             discord_status_text: String::new(),
+            legacy_auth_notice_count: 0,
         }
     }
 }
@@ -676,6 +681,7 @@ pub fn run() {
             commands::auth::start_pkce_browser_login,
             commands::auth::complete_pkce_browser_login,
             commands::auth::logout,
+            commands::auth::consume_legacy_auth_notice,
             commands::auth::get_session_user_id,
             commands::auth::get_user_profile,
             // library

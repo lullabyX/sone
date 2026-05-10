@@ -16,7 +16,11 @@ interface Toast {
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: "success" | "error" | "info") => void;
+  showToast: (
+    message: string,
+    type?: "success" | "error" | "info",
+    duration?: number,
+  ) => void;
 }
 
 // ─── Context ───────────────────────────────────────────────────
@@ -37,12 +41,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const showToast = useCallback(
-    (message: string, type: "success" | "error" | "info" = "success") => {
+    (
+      message: string,
+      type: "success" | "error" | "info" = "success",
+      duration: number = TOAST_DURATION,
+    ) => {
       const id = Math.random().toString(36).slice(2, 10);
       setToasts((prev) => [...prev, { id, message, type }]);
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, TOAST_DURATION);
+      }, duration);
     },
     [],
   );

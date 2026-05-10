@@ -373,6 +373,7 @@ pub async fn complete_pkce_auth(
     let mut settings = state.load_settings().unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
     settings.auth_method = AuthMethod::Pkce;
+    settings.legacy_auth_notice_count = 0;
     // Only persist user-provided credentials, not embedded defaults
     if !are_embedded_pkce_defaults(&client_id, &client_secret)
         && !are_embedded_defaults(&client_id, &client_secret)
@@ -408,6 +409,28 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
     state.disk_cache.clear().await;
 
     Ok(())
+}
+
+/// Returns `true` and increments the persisted counter when the user is on
+/// the legacy device-code auth and we've shown the notice fewer than 5
+/// times. Returns `false` otherwise (PKCE users, unauthenticated, cap hit).
+/// Atomic: callers can show the toast unconditionally on a `true` return.
+const LEGACY_AUTH_NOTICE_LIMIT: u8 = 3;
+
+#[tauri::command]
+pub fn consume_legacy_auth_notice(state: State<'_, AppState>) -> Result<bool, SoneError> {
+    let Some(mut settings) = state.load_settings() else {
+        return Ok(false);
+    };
+    if settings.auth_tokens.is_none()
+        || settings.auth_method != AuthMethod::LoginCode
+        || settings.legacy_auth_notice_count >= LEGACY_AUTH_NOTICE_LIMIT
+    {
+        return Ok(false);
+    }
+    settings.legacy_auth_notice_count = settings.legacy_auth_notice_count.saturating_add(1);
+    state.save_settings(&settings)?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -464,6 +487,7 @@ async fn finish_embedded_pkce(
     let mut settings = state.load_settings().unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
     settings.auth_method = AuthMethod::Pkce;
+    settings.legacy_auth_notice_count = 0;
     settings.client_id = String::new();
     settings.client_secret = String::new();
     state.save_settings(&settings)?;

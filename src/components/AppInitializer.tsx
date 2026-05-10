@@ -209,6 +209,19 @@ export function AppInitializer() {
         setIsAuthenticated(true);
         setIsAuthChecking(false); // show home immediately, playlists load in background
 
+        // Nudge legacy device-code users to re-sign-in via PKCE (max 5 shows).
+        invoke<boolean>("consume_legacy_auth_notice")
+          .then((shouldShow) => {
+            if (shouldShow) {
+              showToast(
+                "Old sign-in detection, logout and sign in again with PKCE for lossless quality",
+                "info",
+                10000,
+              );
+            }
+          })
+          .catch(() => {});
+
         if (!userId) return;
 
         // User name (non-blocking)
