@@ -11,6 +11,7 @@ import { useAtomValue, useAtom } from "jotai";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useAuth } from "../hooks/useAuth";
 import { getFavoriteTracks } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
@@ -112,7 +113,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load favorites:", err);
-        setError(err?.message || String(err));
+        setError(safeErrorMessage(err, "Failed to load favorites"));
       } finally {
         if (generationRef.current !== gen) return;
         setLoading(false);

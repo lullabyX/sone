@@ -4,6 +4,7 @@ import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
 import { getPageSection, getArtistViewAll } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { type MediaItemType } from "../types";
 import MediaContextMenu from "./MediaContextMenu";
 import MediaCard from "./MediaCard";
@@ -100,7 +101,7 @@ export default function ViewAllPage({
         }
       } catch (err: any) {
         console.error("Failed to load page section:", err);
-        setError(err.toString());
+        setError(safeErrorMessage(err, "Failed to load page"));
       }
       setLoading(false);
     };

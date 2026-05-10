@@ -24,6 +24,8 @@ import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useToast } from "../contexts/ToastContext";
 import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache, getPlaylistDetails } from "../api/tidal";
+import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import NotFoundPage from "./NotFoundPage";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
 import TrackList from "./TrackList";
@@ -68,6 +70,7 @@ export default function PlaylistView({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
   const [resolvedAccessType, setResolvedAccessType] = useState<string | undefined>();
   const savedSort = trackSortPrefs[playlistId];
@@ -203,6 +206,7 @@ export default function PlaylistView({
       // Full page skeleton for playlist navigation
       setLoading(true);
       setError(null);
+      setNotFound(false);
       setAllTracks([]);
       // Load saved sort preference for the new playlist
       const newSort = trackSortPrefs[playlistId];
@@ -235,7 +239,11 @@ export default function PlaylistView({
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load playlist:", err);
-        setError(err?.message || String(err));
+        if (getApiStatus(err) === 404) {
+          setNotFound(true);
+        } else {
+          setError(safeErrorMessage(err, "Failed to load playlist"));
+        }
       } finally {
         if (generationRef.current !== gen) return;
         setLoading(false);
@@ -481,6 +489,10 @@ export default function PlaylistView({
 
   if (loading) {
     return <DetailPageSkeleton type="playlist" />;
+  }
+
+  if (notFound) {
+    return <NotFoundPage />;
   }
 
   if (error) {

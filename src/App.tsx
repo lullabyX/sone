@@ -20,6 +20,7 @@ import { useAtomValue } from "jotai";
 import { isAuthCheckingAtom } from "./atoms/auth";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
+import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
 
 const ZOOM_KEY = "sone.zoom.v1";
@@ -186,7 +187,15 @@ function AppContent() {
     }
   };
 
-  return <Layout>{renderView()}</Layout>;
+  const resetKey = JSON.stringify(currentView);
+
+  return (
+    <Layout>
+      <ErrorBoundary resetKey={resetKey} onGoHome={navigateHome}>
+        {renderView()}
+      </ErrorBoundary>
+    </Layout>
+  );
 }
 
 function App() {

@@ -11,6 +11,8 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { getAlbumPage } from "../api/tidal";
+import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import NotFoundPage from "./NotFoundPage";
 import {
   getTidalImageUrl,
   type Track,
@@ -102,6 +104,7 @@ export default function AlbumView({
   const [loading, setLoading] = useState(true);
   const [favoritePending, setFavoritePending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   const albumFavorited = favoriteAlbumIds.has(albumId);
 
@@ -111,6 +114,7 @@ export default function AlbumView({
     const loadAlbum = async () => {
       setLoading(true);
       setError(null);
+      setNotFound(false);
 
       try {
         const { page } = await getAlbumPage(albumId);
@@ -120,8 +124,11 @@ export default function AlbumView({
       } catch (err: any) {
         if (!cancelled) {
           console.error("Failed to load album:", err);
-          const msg = err?.message;
-          setError(typeof msg === "string" ? msg : "Failed to load album");
+          if (getApiStatus(err) === 404) {
+            setNotFound(true);
+          } else {
+            setError(safeErrorMessage(err, "Failed to load album"));
+          }
         }
       } finally {
         if (!cancelled) {
@@ -318,6 +325,10 @@ export default function AlbumView({
 
   if (loading) {
     return <DetailPageSkeleton type="album" />;
+  }
+
+  if (notFound) {
+    return <NotFoundPage />;
   }
 
   if (error) {

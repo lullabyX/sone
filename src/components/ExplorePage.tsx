@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useNavigation } from "../hooks/useNavigation";
 import { getPageSection } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { getItemTitle, getItemId } from "../utils/itemHelpers";
 import type { HomeSection } from "../types";
 import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
@@ -62,7 +63,7 @@ export default function ExplorePage() {
       } catch (err: any) {
         console.error("[ExplorePage] Failed:", err);
         if (!active) return;
-        setError(err.toString());
+        setError(safeErrorMessage(err, "Failed to load explore"));
       }
       if (active) setLoading(false);
     };

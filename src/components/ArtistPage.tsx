@@ -14,6 +14,8 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { getArtistPage } from "../api/tidal";
+import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import NotFoundPage from "./NotFoundPage";
 import {
   getTidalImageUrl,
   type ArtistPageData,
@@ -81,6 +83,7 @@ export default function ArtistPage({
   const [pageData, setPageData] = useState<ArtistPageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [showBioModal, setShowBioModal] = useState(false);
 
   const [contextMenu, setContextMenu] = useState<{
@@ -100,6 +103,7 @@ export default function ArtistPage({
     const loadArtist = async () => {
       setLoading(true);
       setError(null);
+      setNotFound(false);
 
       try {
         const data = await getArtistPage(artistId);
@@ -109,8 +113,11 @@ export default function ArtistPage({
       } catch (err: any) {
         if (!cancelled) {
           console.error("Failed to load artist:", err);
-          const msg = err?.message;
-          setError(typeof msg === "string" ? msg : "Failed to load artist");
+          if (getApiStatus(err) === 404) {
+            setNotFound(true);
+          } else {
+            setError(safeErrorMessage(err, "Failed to load artist"));
+          }
         }
       } finally {
         if (!cancelled) {
@@ -314,6 +321,10 @@ export default function ArtistPage({
 
   if (loading) {
     return <ArtistPageSkeleton />;
+  }
+
+  if (notFound) {
+    return <NotFoundPage />;
   }
 
   if (error) {

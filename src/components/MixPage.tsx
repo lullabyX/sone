@@ -10,6 +10,8 @@ import SourcePlayButton from "./SourcePlayButton";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { getMixItems } from "../api/tidal";
+import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import NotFoundPage from "./NotFoundPage";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
 import MediaContextMenu from "./MediaContextMenu";
@@ -33,6 +35,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [mixType, setMixType] = useState<string | null>(mixInfo?.mixType ?? null);
   const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
   const [fetchedSubtitle, setFetchedSubtitle] = useState<string | null>(null);
@@ -44,6 +47,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
     const loadMix = async () => {
       setLoading(true);
       setError(null);
+      setNotFound(false);
 
       try {
         const result = await getMixItems(mixId);
@@ -57,13 +61,11 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
       } catch (err: any) {
         if (!cancelled) {
           console.error("Failed to load mix:", err);
-          const msg =
-            typeof err === "string"
-              ? err
-              : typeof err?.message === "string"
-                ? err.message
-                : "Failed to load mix";
-          setError(msg);
+          if (getApiStatus(err) === 404) {
+            setNotFound(true);
+          } else {
+            setError(safeErrorMessage(err, "Failed to load mix"));
+          }
         }
       } finally {
         if (!cancelled) {
@@ -152,6 +154,10 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const displayTitle = mixInfo?.title || fetchedTitle || "Mix";
   const displaySubtitle = mixInfo?.subtitle || fetchedSubtitle;
   const displayImage = mixInfo?.image || fetchedImage;
+
+  if (notFound) {
+    return <NotFoundPage />;
+  }
 
   if (loading) {
     return <DetailPageSkeleton type="mix" />;

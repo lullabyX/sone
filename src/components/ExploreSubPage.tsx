@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getPageSection } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { useNavigation } from "../hooks/useNavigation";
 import { getItemTitle, getItemId } from "../utils/itemHelpers";
 import type { HomeSection as HomeSectionType } from "../types";
@@ -49,7 +50,7 @@ export default function ExploreSubPage({
       } catch (err: any) {
         if (!active) return;
         console.error("Failed to load explore sub-page:", err);
-        setError(err.toString());
+        setError(safeErrorMessage(err, "Failed to load page"));
       }
       if (active) setLoading(false);
     };
