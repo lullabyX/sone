@@ -6,7 +6,7 @@ RUN zypper --non-interactive refresh && \
     zypper --non-interactive install \
     gcc gcc-c++ make pkgconf-pkg-config \
     curl file wget \
-    webkit2gtk3-devel \
+    webkitgtk3-devel \
     gtk3-devel \
     libayatana-appindicator3-devel \
     librsvg-devel \
