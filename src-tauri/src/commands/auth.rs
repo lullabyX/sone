@@ -533,7 +533,7 @@ pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
         .map_err(|e| SoneError::Parse(format!("invalid authorize URL: {}", e)))?;
 
     let app_for_handler = app.clone();
-    let _window = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(url))
+    let window = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(url))
         .title("Sign in to TIDAL")
         .inner_size(1024.0, 768.0)
         .center()
@@ -581,6 +581,20 @@ pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
         })
         .build()
         .map_err(|e| SoneError::NotConfigured(format!("Failed to create login window: {}", e)))?;
+
+    // Deny all WebKit permission prompts (camera/mic/geolocation/notifications).
+    // Tidal's Turnstile human-check can request the camera; login works fine without it.
+    #[cfg(target_os = "linux")]
+    {
+        use webkit2gtk::{PermissionRequestExt, WebViewExt};
+        let _ = window.with_webview(|webview| {
+            let wv: webkit2gtk::WebView = webview.inner();
+            wv.connect_permission_request(|_wv, request| {
+                request.deny();
+                true
+            });
+        });
+    }
 
     Ok(())
 }
