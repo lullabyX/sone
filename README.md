@@ -151,10 +151,10 @@ source "$HOME/.cargo/env"
 ```bash
 sudo apt install -y \
     build-essential curl wget file patchelf \
-    libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev \
+    libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libdbus-1-dev \
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav \
-    libsecret-1-dev
+    libsecret-1-dev libasound2-dev xdg-utils
 ```
 
 Optional (for exclusive ALSA output):
@@ -170,10 +170,10 @@ sudo apt install -y gstreamer1.0-alsa
 ```bash
 sudo dnf install -y \
     gcc gcc-c++ make curl wget file patchelf \
-    webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel openssl-devel \
+    webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel openssl-devel dbus-devel \
     gstreamer1-devel gstreamer1-plugins-base-devel \
-    gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav \
-    libsecret-devel
+    gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugin-libav \
+    libsecret-devel alsa-lib-devel xdg-utils
 ```
 
 Optional (for exclusive ALSA output):
@@ -205,9 +205,9 @@ yay -S sone-bin   # pre-built binary
 ```bash
 sudo pacman -S --needed \
     base-devel curl wget file patchelf \
-    webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg openssl \
+    webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg openssl dbus \
     gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav \
-    libsecret
+    libsecret alsa-lib xdg-utils
 ```
 
 Optional (for exclusive ALSA output):
