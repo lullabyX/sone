@@ -16,6 +16,7 @@ import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
+import { useShortcuts } from "./hooks/useShortcuts";
 import { useAtomValue } from "jotai";
 import { isAuthCheckingAtom } from "./atoms/auth";
 import { ToastProvider } from "./contexts/ToastContext";
@@ -52,30 +53,17 @@ function useZoom() {
     } catch {}
   }, [zoom]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      if (!e.ctrlKey && !e.metaKey) return;
-
-      if (e.key === "+" || e.key === "=") {
-        e.preventDefault();
-        setZoom((z) =>
-          Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100),
-        );
-      } else if (e.key === "-") {
-        e.preventDefault();
-        setZoom((z) =>
-          Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 100) / 100),
-        );
-      } else if (e.key === "0") {
-        e.preventDefault();
-        setZoom(1.0);
-      }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  useShortcuts({
+    zoomIn: () =>
+      setZoom((z) =>
+        Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100),
+      ),
+    zoomOut: () =>
+      setZoom((z) =>
+        Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 100) / 100),
+      ),
+    zoomReset: () => setZoom(1.0),
+  });
 }
 
 function AppContent() {

@@ -58,6 +58,7 @@ import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
+import { useShortcuts } from "../hooks/useShortcuts";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -979,178 +980,104 @@ export function AppInitializer() {
 
   // ================================================================
   //  KEYBOARD SHORTCUTS
-  //  All action callbacks are stable (from usePlaybackActions).
-  //  Volume / isPlaying are read from store at call-time.
+  //  Configurable via shortcutsAtom (see src/lib/shortcuts.ts).
+  //  Action callbacks are stable; store.get() reads at call-time.
   // ================================================================
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const inInput =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement;
-
-      // ── Ctrl / Cmd combos (work even when inside an input) ──
-      const mod = e.ctrlKey || e.metaKey;
-
-      if (mod) {
-        switch (e.code) {
-          case "ArrowRight":
-            if (e.repeat) return;
-            e.preventDefault();
-            playNext({ explicit: true });
-            return;
-          case "ArrowLeft":
-            if (e.repeat) return;
-            e.preventDefault();
-            playPrevious();
-            return;
-          case "KeyS":
-            e.preventDefault();
-            window.dispatchEvent(new CustomEvent("focus-search"));
-            return;
-          case "KeyR":
-            e.preventDefault();
-            clearCache();
-            window.location.reload();
-            return;
-          case "KeyE":
-            if (e.repeat) return;
-            e.preventDefault();
-            {
-              const isExclusive = store.get(exclusiveModeAtom);
-              if (isExclusive) {
-                // Exclusive on → turn off (bit-perfect follows)
-                store.set(exclusiveModeAtom, false);
-                store.set(bitPerfectAtom, false);
-                invoke("set_exclusive_mode", { enabled: false }).catch(() => {});
-                showToast("Exclusive output off — takes effect next track");
-              } else {
-                // Exclusive off → turn on, auto-select device if needed
-                store.set(exclusiveModeAtom, true);
-                invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
-                invoke<Array<{ id: string; name: string }>>("list_audio_devices")
-                  .then((devices) => {
-                    if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
-                      store.set(exclusiveDeviceAtom, devices[0].id);
-                      invoke("set_exclusive_device", { device: devices[0].id }).catch(() => {});
-                    }
-                  })
-                  .catch(() => {});
-                showToast("Exclusive output on — takes effect next track");
-              }
+  useShortcuts({
+    playPause: () => {
+      if (store.get(isPlayingAtom)) {
+        pauseTrack();
+      } else {
+        resumeTrack();
+      }
+    },
+    nextTrack: () => playNext({ explicit: true }),
+    prevTrack: () => playPrevious(),
+    volumeUp: () => setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1)),
+    volumeDown: () => setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1)),
+    muteToggle: () => {
+      const vol = store.get(volumeAtom);
+      if (vol > 0) {
+        store.set(preMuteVolumeAtom, vol);
+        setVolume(0);
+      } else {
+        setVolume(store.get(preMuteVolumeAtom) || 0.5);
+      }
+    },
+    likeToggle: () => {
+      const track = store.get(currentTrackAtom);
+      if (!track) return;
+      if (favoriteTrackIds.has(track.id)) {
+        removeFavoriteTrack(track.id);
+      } else {
+        addFavoriteTrack(track.id, track);
+      }
+    },
+    focusSearch: () => {
+      window.dispatchEvent(new CustomEvent("focus-search"));
+    },
+    refreshData: () => {
+      clearCache();
+      window.location.reload();
+    },
+    closeDrawer: () => {
+      if (store.get(maximizedPlayerAtom)) return;
+      setDrawerOpen(false);
+    },
+    toggleExclusive: () => {
+      const isExclusive = store.get(exclusiveModeAtom);
+      if (isExclusive) {
+        store.set(exclusiveModeAtom, false);
+        store.set(bitPerfectAtom, false);
+        invoke("set_exclusive_mode", { enabled: false }).catch(() => {});
+        showToast("Exclusive output off — takes effect next track");
+      } else {
+        store.set(exclusiveModeAtom, true);
+        invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
+        invoke<Array<{ id: string; name: string }>>("list_audio_devices")
+          .then((devices) => {
+            if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
+              store.set(exclusiveDeviceAtom, devices[0].id);
+              invoke("set_exclusive_device", { device: devices[0].id }).catch(
+                () => {},
+              );
             }
-            return;
-          case "KeyB":
-            if (e.repeat) return;
-            e.preventDefault();
-            {
-              const isBP = store.get(bitPerfectAtom);
-              if (isBP) {
-                // Bit-perfect on → turn off, exclusive stays
-                store.set(bitPerfectAtom, false);
-                invoke("set_bit_perfect", { enabled: false }).catch(() => {});
-                showToast("Bit-perfect off — takes effect next track");
-              } else {
-                // Bit-perfect off → turn on (auto-enable exclusive if needed)
-                const isExclusive = store.get(exclusiveModeAtom);
-                if (!isExclusive) {
-                  store.set(exclusiveModeAtom, true);
-                  invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
-                  invoke<Array<{ id: string; name: string }>>("list_audio_devices")
-                    .then((devices) => {
-                      if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
-                        store.set(exclusiveDeviceAtom, devices[0].id);
-                        invoke("set_exclusive_device", { device: devices[0].id }).catch(() => {});
-                      }
-                    })
-                    .catch(() => {});
-                }
-                store.set(bitPerfectAtom, true);
-                invoke("set_bit_perfect", { enabled: true }).catch(() => {});
-                showToast("Bit-perfect on — takes effect next track");
+          })
+          .catch(() => {});
+        showToast("Exclusive output on — takes effect next track");
+      }
+    },
+    toggleBitPerfect: () => {
+      const isBP = store.get(bitPerfectAtom);
+      if (isBP) {
+        store.set(bitPerfectAtom, false);
+        invoke("set_bit_perfect", { enabled: false }).catch(() => {});
+        showToast("Bit-perfect off — takes effect next track");
+      } else {
+        const isExclusive = store.get(exclusiveModeAtom);
+        if (!isExclusive) {
+          store.set(exclusiveModeAtom, true);
+          invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
+          invoke<Array<{ id: string; name: string }>>("list_audio_devices")
+            .then((devices) => {
+              if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
+                store.set(exclusiveDeviceAtom, devices[0].id);
+                invoke("set_exclusive_device", {
+                  device: devices[0].id,
+                }).catch(() => {});
               }
-            }
-            return;
+            })
+            .catch(() => {});
         }
+        store.set(bitPerfectAtom, true);
+        invoke("set_bit_perfect", { enabled: true }).catch(() => {});
+        showToast("Bit-perfect on — takes effect next track");
       }
-
-      // ── The rest only fire when NOT typing in an input ──
-      if (inInput) return;
-
-      switch (e.code) {
-        case "Space":
-          e.preventDefault();
-          if (store.get(isPlayingAtom)) {
-            pauseTrack();
-          } else {
-            resumeTrack();
-          }
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1));
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1));
-          break;
-        case "KeyM":
-          if (e.repeat) return;
-          e.preventDefault();
-          // Toggle mute: store previous volume to restore
-          {
-            const vol = store.get(volumeAtom);
-            if (vol > 0) {
-              store.set(preMuteVolumeAtom, vol);
-              setVolume(0);
-            } else {
-              setVolume(store.get(preMuteVolumeAtom) || 0.5);
-            }
-          }
-          break;
-        case "KeyL":
-          if (e.repeat) return;
-          e.preventDefault();
-          // Like / unlike current track
-          {
-            const track = store.get(currentTrackAtom);
-            if (track) {
-              if (favoriteTrackIds.has(track.id)) {
-                removeFavoriteTrack(track.id);
-              } else {
-                addFavoriteTrack(track.id, track);
-              }
-            }
-          }
-          break;
-        case "Escape":
-          if (store.get(maximizedPlayerAtom)) break;
-          e.preventDefault();
-          setDrawerOpen(false);
-          break;
-        case "Slash":
-          if (e.shiftKey) {
-            e.preventDefault();
-            window.dispatchEvent(new CustomEvent("toggle-shortcuts"));
-          }
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [
-    store,
-    playNext,
-    playPrevious,
-    pauseTrack,
-    resumeTrack,
-    setVolume,
-    setDrawerOpen,
-    favoriteTrackIds,
-    addFavoriteTrack,
-    removeFavoriteTrack,
-    showToast,
-  ]);
+    },
+    toggleShortcuts: () => {
+      window.dispatchEvent(new CustomEvent("toggle-shortcuts"));
+    },
+  });
 
   // ================================================================
   //  BLOCK MIDDLE-CLICK PASTE (Linux/X11 primary selection)
