@@ -43,7 +43,7 @@ fn rgba_to_argb(rgba: &[u8]) -> Vec<u8> {
     argb
 }
 
-fn restore_window(app: &tauri::AppHandle) {
+pub(crate) fn restore_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

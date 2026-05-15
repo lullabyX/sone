@@ -85,7 +85,6 @@ import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import {
   getTrackArtistDisplay,
   getTrackArtistDiscordDisplay,
-  getTrackShareUrl,
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
 import {
@@ -869,6 +868,9 @@ export function AppInitializer() {
       const track = store.get(currentTrackAtom);
       if (!track) return;
       const streamInfo = store.get(streamInfoAtom);
+      const favoriteIds = store.get(favoriteTrackIdsAtom);
+      // Track.album has no artist field; fall back to track's own artist.
+      const albumArtistName = track.artist?.name || "";
       invoke("update_mpris_metadata", {
         metadata: {
           trackId: track.id,
@@ -877,8 +879,15 @@ export function AppInitializer() {
           album: track.album?.title || "",
           artUrl: getTidalImageUrl(track.album?.cover, 320),
           durationSecs: track.duration,
-          url: getTrackShareUrl(track.id),
+          // tidal:// so xesam:url matches advertised SupportedUriSchemes.
+          // Share URL stays Discord-only via the separate quality_text path.
+          url: `tidal://track/${track.id}`,
           qualityText: formatQualityText(streamInfo),
+          albumArtist: albumArtistName || null,
+          trackNumber: track.trackNumber ?? null,
+          discNumber: track.volumeNumber ?? null,
+          contentCreated: track.album?.releaseDate || null,
+          userRating: favoriteIds.has(track.id) ? 1.0 : 0.0,
         },
       }).catch(() => {});
       // Re-push playback status — isPlayingAtom may not have changed
@@ -891,7 +900,8 @@ export function AppInitializer() {
     pushMetadata();
     const unsubTrack = store.sub(currentTrackAtom, pushMetadata);
     const unsubStream = store.sub(streamInfoAtom, pushMetadata);
-    return () => { unsubTrack(); unsubStream(); };
+    const unsubFav = store.sub(favoriteTrackIdsAtom, pushMetadata);
+    return () => { unsubTrack(); unsubStream(); unsubFav(); };
   }, [store]);
 
   useEffect(() => {
@@ -948,12 +958,22 @@ export function AppInitializer() {
       const pos = Math.max(0, event.payload);
       await seekTo(pos);
     });
+    const unlistenOpenUri = listen<string>("mpris:open-uri", (event) => {
+      const url = event.payload;
+      if (!url) return;
+      if (!store.get(isAuthenticatedAtom)) {
+        deepLinkQueueRef.current = url;
+        return;
+      }
+      handleDeepLink(url);
+    });
     return () => {
       unlistenSeek.then((fn) => fn());
       unlistenVolume.then((fn) => fn());
       unlistenShuffle.then((fn) => fn());
       unlistenLoop.then((fn) => fn());
       unlistenSetPosition.then((fn) => fn());
+      unlistenOpenUri.then((fn) => fn());
     };
   }, [store, setVolume, toggleShuffle, seekTo]);
 

@@ -10,6 +10,12 @@ pub enum MprisCommand {
         album: String,
         art_url: String,
         duration_secs: f64,
+        url: Option<String>,
+        album_artist: Option<String>,
+        track_number: Option<u32>,
+        disc_number: Option<u32>,
+        content_created: Option<String>,
+        user_rating: Option<f64>,
     },
     SetPlaybackStatus {
         is_playing: bool,
@@ -53,6 +59,21 @@ impl MprisHandle {
                     .can_go_previous(true)
                     .can_seek(true)
                     .can_control(true)
+                    .can_quit(true)
+                    .can_raise(true)
+                    .can_set_fullscreen(false)
+                    .fullscreen(false)
+                    .has_track_list(false)
+                    .supported_uri_schemes(vec!["tidal".to_string()])
+                    .supported_mime_types(vec![
+                        "audio/flac".to_string(),
+                        "audio/mpeg".to_string(),
+                        "audio/mp4".to_string(),
+                        "audio/x-m4a".to_string(),
+                    ])
+                    .rate(1.0)
+                    .minimum_rate(1.0)
+                    .maximum_rate(1.0)
                     .shuffle(false)
                     .loop_status(LoopStatus::None)
                     .build()
@@ -130,6 +151,29 @@ impl MprisHandle {
                 });
 
                 let app = app_handle.clone();
+                player.connect_raise(move |_| {
+                    crate::tray::restore_window(&app);
+                });
+
+                let app = app_handle.clone();
+                player.connect_quit(move |_| {
+                    app.exit(0);
+                });
+
+                player.connect_set_fullscreen(move |_, _fullscreen| {
+                    // SONE has no fullscreen mode; CanSetFullscreen=false advertises this.
+                });
+
+                player.connect_set_rate(move |_, _rate| {
+                    // SONE plays at fixed 1.0×; MinimumRate=MaximumRate=1.0 advertises this.
+                });
+
+                let app = app_handle.clone();
+                player.connect_open_uri(move |_, uri| {
+                    app.emit("mpris:open-uri", uri).ok();
+                });
+
+                let app = app_handle.clone();
                 player.connect_set_position(move |_, _track_id, position| {
                     let secs = position.as_micros() as f64 / 1_000_000.0;
                     app.emit("mpris:set-position", secs).ok();
@@ -150,6 +194,12 @@ impl MprisHandle {
                             album,
                             art_url,
                             duration_secs,
+                            url,
+                            album_artist,
+                            track_number,
+                            disc_number,
+                            content_created,
+                            user_rating,
                         } => {
                             let mut metadata = Metadata::new();
                             let track_path =
@@ -166,6 +216,24 @@ impl MprisHandle {
                             metadata.set_length(Some(Time::from_micros(
                                 (duration_secs * 1_000_000.0) as i64,
                             )));
+                            if let Some(u) = url.filter(|s| !s.is_empty()) {
+                                metadata.set_url(Some(u));
+                            }
+                            if let Some(aa) = album_artist.filter(|s| !s.is_empty()) {
+                                metadata.set_album_artist(Some([aa]));
+                            }
+                            if let Some(n) = track_number {
+                                metadata.set_track_number(Some(n as i32));
+                            }
+                            if let Some(n) = disc_number {
+                                metadata.set_disc_number(Some(n as i32));
+                            }
+                            if let Some(d) = content_created.filter(|s| !s.is_empty()) {
+                                metadata.set_content_created(Some(d));
+                            }
+                            if let Some(r) = user_rating {
+                                metadata.set_user_rating(Some(r));
+                            }
                             player.set_metadata(metadata).await.ok();
                             player.set_position(Time::ZERO);
                         }

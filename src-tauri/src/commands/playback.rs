@@ -242,6 +242,16 @@ pub struct MprisMetadata {
     pub url: String,
     #[serde(default)]
     pub quality_text: String,
+    #[serde(default)]
+    pub album_artist: Option<String>,
+    #[serde(default)]
+    pub track_number: Option<u32>,
+    #[serde(default)]
+    pub disc_number: Option<u32>,
+    #[serde(default)]
+    pub content_created: Option<String>,
+    #[serde(default)]
+    pub user_rating: Option<f64>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -258,6 +268,16 @@ pub fn update_mpris_metadata(
         album: metadata.album.clone(),
         art_url: metadata.art_url.clone(),
         duration_secs: metadata.duration_secs,
+        url: if metadata.url.is_empty() {
+            None
+        } else {
+            Some(metadata.url.clone())
+        },
+        album_artist: metadata.album_artist.clone(),
+        track_number: metadata.track_number,
+        disc_number: metadata.disc_number,
+        content_created: metadata.content_created.clone(),
+        user_rating: metadata.user_rating,
     });
     state
         .discord
