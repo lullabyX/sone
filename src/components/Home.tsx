@@ -1,7 +1,12 @@
 import { Play, Heart } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigation } from "../hooks/useNavigation";
-import { getHomePage, refreshHomePage, getHomePageMore } from "../api/tidal";
+import {
+  getHomePage,
+  refreshHomePage,
+  getHomePageMore,
+  invalidateCache,
+} from "../api/tidal";
 import {
   type HomeSection as HomeSectionType,
   type MediaItemType,
@@ -45,6 +50,8 @@ export default function Home() {
     return "Good evening";
   });
   const hasLoadedRef = useRef(false);
+  const lastLoadedAtRef = useRef<number>(Date.now());
+  const revalidatingRef = useRef(false);
   const [cursor, setCursor] = useState<string | null>(
     cachedHomeData?.cursor ?? null,
   );
@@ -162,64 +169,100 @@ export default function Home() {
     ],
   );
 
+  const loadHomeData = useCallback(async (isRevalidation: boolean) => {
+    if (isRevalidation) {
+      if (revalidatingRef.current) return;
+      revalidatingRef.current = true;
+      // Drop the frontend in-memory cache so getHomePage actually re-consults
+      // the Rust backend — otherwise the 2h TTL on the cached() wrapper short-
+      // circuits the revalidation entirely.
+      invalidateCache("home");
+    }
+
+    try {
+      const result = await getHomePage();
+      console.log(
+        "[Home] Loaded sections:",
+        result.home.sections.map(
+          (s) =>
+            `${s.sectionType}: "${s.title}" (${Array.isArray(s.items) ? s.items.length : 0} items)`,
+        ),
+        "isStale:",
+        result.isStale,
+        "revalidation:",
+        isRevalidation,
+      );
+
+      // If user has paginated, leave the merged list alone — replacing it
+      // would wipe out cursor-loaded sections.
+      if (!(isRevalidation && hasPaginatedRef.current)) {
+        setSections(result.home.sections);
+        setCursor(result.home.cursor ?? null);
+      }
+
+      if (!cachedHomeData) cachedHomeData = { sections: [] };
+      if (!(isRevalidation && hasPaginatedRef.current)) {
+        cachedHomeData.sections = result.home.sections;
+        cachedHomeData.cursor = result.home.cursor ?? null;
+      }
+
+      if (result.isStale) {
+        refreshHomePage()
+          .then((fresh) => {
+            if (!hasPaginatedRef.current) {
+              setSections(fresh.sections);
+              setCursor(fresh.cursor ?? null);
+            }
+            if (cachedHomeData) {
+              cachedHomeData.sections = hasPaginatedRef.current
+                ? cachedHomeData.sections
+                : fresh.sections;
+              cachedHomeData.cursor = hasPaginatedRef.current
+                ? cachedHomeData.cursor
+                : (fresh.cursor ?? null);
+            }
+          })
+          .catch((err) => {
+            console.error("Background refresh failed:", err);
+          });
+      }
+
+      lastLoadedAtRef.current = Date.now();
+    } catch (err) {
+      console.error("Failed to load home page:", err);
+    } finally {
+      if (!isRevalidation) setLoading(false);
+      if (isRevalidation) revalidatingRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
+    loadHomeData(false);
+  }, [loadHomeData]);
 
-    const loadHomeData = async () => {
-      try {
-        // Load home page (cached or fresh)
-        const result = await getHomePage();
-        console.log(
-          "[Home] Loaded sections:",
-          result.home.sections.map(
-            (s) =>
-              `${s.sectionType}: "${s.title}" (${Array.isArray(s.items) ? s.items.length : 0} items)`,
-          ),
-          "isStale:",
-          result.isStale,
-        );
-        setSections(result.home.sections);
-        setCursor(result.home.cursor ?? null);
+  // Revalidate on window focus / tab visibility — covers the case where the
+  // app stays open past the cache TTL and nothing else triggers a re-fetch.
+  useEffect(() => {
+    const REVALIDATE_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
-        // Update in-memory cache
-        if (!cachedHomeData) cachedHomeData = { sections: [] };
-        cachedHomeData.sections = result.home.sections;
-        cachedHomeData.cursor = result.home.cursor ?? null;
-
-        // If cache is stale, refresh in background
-        if (result.isStale) {
-          refreshHomePage()
-            .then((fresh) => {
-              // Don't replace sections if user has already paginated —
-              // that would wipe out cursor-loaded sections
-              if (!hasPaginatedRef.current) {
-                setSections(fresh.sections);
-                setCursor(fresh.cursor ?? null);
-              }
-              // Always update the in-memory cache for next visit
-              if (cachedHomeData) {
-                cachedHomeData.sections = hasPaginatedRef.current
-                  ? cachedHomeData.sections
-                  : fresh.sections;
-                cachedHomeData.cursor = hasPaginatedRef.current
-                  ? cachedHomeData.cursor
-                  : (fresh.cursor ?? null);
-              }
-            })
-            .catch((err) => {
-              console.error("Background refresh failed:", err);
-            });
-        }
-      } catch (err) {
-        console.error("Failed to load home page:", err);
-      }
-
-      setLoading(false);
+    const revalidate = () => {
+      if (document.visibilityState !== "visible") return;
+      if (hasPaginatedRef.current) return;
+      if (revalidatingRef.current) return;
+      if (Date.now() - lastLoadedAtRef.current < REVALIDATE_MIN_INTERVAL_MS)
+        return;
+      loadHomeData(true);
     };
 
-    loadHomeData();
-  }, []);
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener("focus", revalidate);
+    return () => {
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("focus", revalidate);
+    };
+  }, [loadHomeData]);
 
   // Infinite scroll: load more sections when sentinel becomes visible
   useEffect(() => {
