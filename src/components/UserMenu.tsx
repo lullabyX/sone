@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Settings,
   Radio,
+  Info,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -34,6 +35,7 @@ import {
 import ThemeEditor from "./ThemeEditor";
 import SettingsModal from "./SettingsModal";
 import ScrobbleModal from "./ScrobbleModal";
+import AboutModal from "./AboutModal";
 import Toggle from "./Toggle";
 
 export default function UserMenu() {
@@ -43,6 +45,7 @@ export default function UserMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [scrobbleOpen, setScrobbleOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [bindings, setBindings] = useAtom(shortcutsAtom);
   const [editingId, setEditingId] = useState<ActionId | null>(null);
   const [reservedHint, setReservedHint] = useState(false);
@@ -315,6 +318,20 @@ export default function UserMenu() {
             Shortcuts
           </button>
 
+          {/* ── About ── */}
+          <div className="border-t border-th-border-subtle my-1" />
+
+          <button
+            onClick={() => {
+              setOpen(false);
+              setAboutOpen(true);
+            }}
+            className={menuItemClass}
+          >
+            <Info size={16} />
+            About
+          </button>
+
           {/* ── Logout ── */}
           <div className="border-t border-th-border-subtle my-1" />
           <button
@@ -339,6 +356,7 @@ export default function UserMenu() {
         open={scrobbleOpen}
         onClose={() => setScrobbleOpen(false)}
       />
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
 
       {/* Shortcuts modal */}
       {shortcutsOpen && (
