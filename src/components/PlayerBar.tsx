@@ -394,21 +394,28 @@ const TransportControls = memo(function TransportControls() {
 // ─── DrawerButtons ─────────────────────────────────────────────────────────
 
 const DrawerButtons = memo(function DrawerButtons() {
-  const { openDrawerToTab } = useDrawer();
+  const { drawerOpen, drawerTab, toggleDrawerTab } = useDrawer();
+
+  const lyricsActive = drawerOpen && drawerTab === "lyrics";
+  const queueActive = drawerOpen && drawerTab === "queue";
 
   return (
     <>
       <button
-        onClick={() => openDrawerToTab("lyrics")}
-        className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150"
+        onClick={() => toggleDrawerTab("lyrics")}
+        className={`${
+          lyricsActive ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+        } transition-colors duration-150`}
         title="Lyrics"
       >
         <Mic2 size={16} strokeWidth={2} />
       </button>
       <VolumeSlider />
       <button
-        onClick={() => openDrawerToTab("queue")}
-        className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150"
+        onClick={() => toggleDrawerTab("queue")}
+        className={`${
+          queueActive ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+        } transition-colors duration-150`}
         title="Play queue"
       >
         <ListMusic size={16} strokeWidth={2} />
