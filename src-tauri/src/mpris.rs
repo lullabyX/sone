@@ -32,6 +32,9 @@ pub enum MprisCommand {
     SetLoopStatus {
         mode: u8,
     },
+    SetFullscreen {
+        fullscreen: bool,
+    },
     Stop,
 }
 
@@ -61,7 +64,7 @@ impl MprisHandle {
                     .can_control(true)
                     .can_quit(true)
                     .can_raise(true)
-                    .can_set_fullscreen(false)
+                    .can_set_fullscreen(true)
                     .fullscreen(false)
                     .has_track_list(false)
                     .supported_uri_schemes(vec!["tidal".to_string()])
@@ -160,8 +163,9 @@ impl MprisHandle {
                     app.exit(0);
                 });
 
-                player.connect_set_fullscreen(move |_, _fullscreen| {
-                    // SONE has no fullscreen mode; CanSetFullscreen=false advertises this.
+                let app = app_handle.clone();
+                player.connect_set_fullscreen(move |_, fullscreen| {
+                    app.emit("mpris:set-fullscreen", fullscreen).ok();
                 });
 
                 player.connect_set_rate(move |_, _rate| {
@@ -263,6 +267,9 @@ impl MprisHandle {
                                 _ => LoopStatus::None,
                             };
                             player.set_loop_status(status).await.ok();
+                        }
+                        MprisCommand::SetFullscreen { fullscreen } => {
+                            player.set_fullscreen(fullscreen).await.ok();
                         }
                         MprisCommand::Stop => {
                             player

@@ -328,6 +328,19 @@ pub fn update_mpris_shuffle(
 
 #[tauri::command]
 #[allow(unused_variables)]
+pub fn update_mpris_fullscreen(
+    state: State<'_, AppState>,
+    fullscreen: bool,
+) -> Result<(), SoneError> {
+    #[cfg(target_os = "linux")]
+    state
+        .mpris
+        .send(crate::mpris::MprisCommand::SetFullscreen { fullscreen });
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
 pub fn update_mpris_loop_status(
     state: State<'_, AppState>,
     mode: u8,
