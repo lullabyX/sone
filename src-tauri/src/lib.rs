@@ -653,7 +653,7 @@ pub fn run() {
                                 let wv: webkit2gtk::WebView = webview.inner();
                                 if let Some(toplevel) = wv.toplevel() {
                                     if let Some(gdk_win) = toplevel.window() {
-                                        gdk_win.set_shadow_width(36, 36, 28, 48);
+                                        gdk_win.set_shadow_width(12, 12, 12, 12);
                                     }
                                 }
                             });

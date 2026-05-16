@@ -1138,14 +1138,15 @@ export default function MiniPlayer() {
 
   return (
     <div className="w-full h-full relative">
-      <ResizeEdges top={28} bottom={48} left={36} right={36} />
-      <div className="w-full h-full pointer-events-none" style={{ padding: "28px 36px 48px 36px" }}>
+      <ResizeEdges top={12} bottom={12} left={12} right={12} />
+      <div className="w-full h-full pointer-events-none" style={{ padding: "12px" }}>
       <div
         ref={containerRef}
         className="group w-full h-full overflow-hidden relative pointer-events-auto"
         style={{
           borderRadius: 0,
-          boxShadow: "2px 4px 8px rgba(0,0,0,0.4), 3px 10px 36px rgba(0,0,0,0.25), 1px 1px 3px rgba(0,0,0,0.15)",
+          boxShadow: "2px 4px 8px rgba(0,0,0,0.4), 1px 3px 9px rgba(0,0,0,0.25), 1px 1px 2px rgba(0,0,0,0.15)",
+          transform: "translateZ(0)",
         }}
       >
       {/* Dark base background */}
