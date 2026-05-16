@@ -1,6 +1,9 @@
 use mpris_server::{LoopStatus, Metadata, PlaybackStatus, Player, Time, TrackId};
-use tauri::Emitter;
+use std::rc::Rc;
+use std::time::Duration;
+use tauri::{Emitter, Manager};
 use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
 
 pub enum MprisCommand {
     SetMetadata {
@@ -55,6 +58,7 @@ impl MprisHandle {
             let local = tokio::task::LocalSet::new();
 
             local.block_on(&rt, async move {
+                let app_handle_for_tick = app_handle.clone();
                 let player = match Player::builder("io.github.lullabyX.sone")
                     .can_play(true)
                     .can_pause(true)
@@ -82,7 +86,7 @@ impl MprisHandle {
                     .build()
                     .await
                 {
-                    Ok(p) => p,
+                    Ok(p) => Rc::new(p),
                     Err(e) => {
                         log::error!("Failed to build MPRIS player: {e}");
                         return;
@@ -185,6 +189,32 @@ impl MprisHandle {
 
                 // Run the D-Bus server in the background
                 tokio::task::spawn_local(player.run());
+
+                // Publish the live playback position to MPRIS so external media
+                // widgets (Plasma, gnome-shell, KDE Connect) show an advancing
+                // seek bar. The spec-mandated `Position` property is non-signaled,
+                // so clients re-poll on UI updates or extrapolate from the last
+                // value — either way they need a fresh anchor.
+                let player_for_tick = Rc::clone(&player);
+                tokio::task::spawn_local(async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(1));
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                    interval.tick().await; // skip immediate first tick
+                    loop {
+                        interval.tick().await;
+                        if player_for_tick.playback_status() != PlaybackStatus::Playing {
+                            continue;
+                        }
+                        let Some(state) = app_handle_for_tick.try_state::<crate::AppState>()
+                        else {
+                            continue;
+                        };
+                        if let Ok(secs) = state.audio_player.get_position() {
+                            let micros = (secs as f64 * 1_000_000.0) as i64;
+                            player_for_tick.set_position(Time::from_micros(micros));
+                        }
+                    }
+                });
 
                 log::info!("MPRIS D-Bus server started");
 
