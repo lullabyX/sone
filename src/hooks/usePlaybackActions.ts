@@ -90,6 +90,7 @@ function fisherYatesShuffle<T>(arr: T[]): T[] {
 const DEVICE_RETRY_DELAY = 500;
 const DEVICE_MAX_RETRIES = 10;
 const MAX_HISTORY_TRACKS = 500;
+const PLAY_REENTRY_GUARD_MS = 250;
 
 /** Invoke play_tidal_track with automatic device-busy retry.
  *  When PipeWire holds the ALSA device after pipeline teardown, this retries
@@ -124,12 +125,21 @@ export function usePlaybackActions() {
   const playGenerationRef = useRef(0);
   const autoplayIdsRef = useRef(new Set<number>());
   const playNextLockRef = useRef(false);
+  const lastPlayInvokeRef = useRef(0);
 
   const playTrack = useCallback(
     async (
       track: Track,
       opts?: { chosenByUser?: boolean; skipHistoryPush?: boolean },
     ): Promise<boolean> => {
+      // Swallow rapid re-entry (e.g. user double-clicks a track row).
+      // Two play_tidal_track calls in quick succession cause overlapping
+      // pipeline init and audible glitches.
+      const now = Date.now();
+      if (now - lastPlayInvokeRef.current < PLAY_REENTRY_GUARD_MS) {
+        return false;
+      }
+      lastPlayInvokeRef.current = now;
       const generation = ++playGenerationRef.current;
       const stamped = ensureQid(normalizeTrack(track));
       preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
