@@ -143,6 +143,9 @@ export function isMixItem(item: any, sectionType?: string): boolean {
 
 /** Detect the special "My Tracks" shortcut from Tidal's v2 feed. */
 export function isMyTracksItem(item: any): boolean {
+  if (typeof item?.id === "string" && item.id === "tidal://my-collection/tracks") {
+    return true;
+  }
   return (
     getItemTitle(item) === "My Tracks" &&
     !item.uuid &&

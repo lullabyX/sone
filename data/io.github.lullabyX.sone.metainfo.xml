@@ -105,6 +105,7 @@
           <li>Visible text selection highlight across themes</li>
           <li>WebKit permission prompts denied in the PKCE login window</li>
           <li>Tightened miniplayer shadow margin for a uniform appearance</li>
+          <li>"My Tracks" tile in Recently played routes to Loved Tracks instead of failing playback</li>
         </ul>
       </description>
     </release>
