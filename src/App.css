@@ -49,6 +49,17 @@ textarea {
   -webkit-user-select: text;
 }
 
+/* Visible selection highlight across dark + light themes.
+   No color override so the original text color stays readable. */
+::selection {
+  background-color: var(--th-accent);
+  background-color: color-mix(in srgb, var(--th-accent) 40%, transparent);
+}
+::-moz-selection {
+  background-color: var(--th-accent);
+  background-color: color-mix(in srgb, var(--th-accent) 40%, transparent);
+}
+
 #root {
   height: 100%;
   width: 100%;
