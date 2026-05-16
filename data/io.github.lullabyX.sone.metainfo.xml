@@ -78,6 +78,36 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.16.0" date="2026-05-16">
+      <description>
+        <p>Keyboard Shortcuts</p>
+        <ul>
+          <li>Customize in-app keyboard shortcuts from a new settings page</li>
+        </ul>
+        <p>MPRIS</p>
+        <ul>
+          <li>Full coverage of Root and Player interfaces for desktop integration</li>
+        </ul>
+        <p>About</p>
+        <ul>
+          <li>New About modal with version and project info, accessible from the user menu</li>
+        </ul>
+        <p>Playback</p>
+        <ul>
+          <li>Unavailable tracks are automatically skipped and shown greyed out in track lists</li>
+          <li>Guard against rapid re-entry when starting a track</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Context menu positioning corrected at non-default zoom levels</li>
+          <li>Home page refreshes when the window regains focus after 5 minutes</li>
+          <li>Search track row navigates to the album; tap the cover to play</li>
+          <li>Visible text selection highlight across themes</li>
+          <li>WebKit permission prompts denied in the PKCE login window</li>
+          <li>Tightened miniplayer shadow margin for a uniform appearance</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.15.0" date="2026-05-10">
       <description>
         <p>Sign-In</p>
