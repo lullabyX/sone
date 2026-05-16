@@ -10,6 +10,8 @@ import { currentTrackAtom, isPlayingAtom, allowExplicitAtom } from "../atoms/pla
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
+import { useToast } from "../contexts/ToastContext";
+import { isTrackUnavailable } from "../lib/trackAvailability";
 import { TrackArtists } from "./TrackArtists";
 
 interface TrackListProps {
@@ -100,6 +102,7 @@ const TrackRow = memo(function TrackRow({
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
   const { navigateToAlbum } = useNavigation();
   const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
+  const { showToast } = useToast();
 
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -123,6 +126,11 @@ const TrackRow = memo(function TrackRow({
     [track.id],
   );
   const playing = useAtomValue(isPlayingHereAtom);
+
+  // Don't grey out the actively-playing row even if its metadata has been
+  // refreshed to streamReady:false — audio is the source of truth.
+  const isUnavailable = isTrackUnavailable(track) && !isActive;
+  const isInactive = isBlocked || isUnavailable;
 
   const isFav = favoriteTrackIds.has(track.id);
 
@@ -162,10 +170,17 @@ const TrackRow = memo(function TrackRow({
 
   return (
     <div
-      onClick={() => !isBlocked && onPlay(track, index)}
+      onClick={() => {
+        if (isBlocked) return;
+        if (isUnavailable) {
+          showToast("Track unavailable", "info");
+          return;
+        }
+        onPlay(track, index);
+      }}
       onContextMenu={isBlocked ? undefined : handleRowContextMenu}
       className={`grid gap-4 px-4 py-2.5 rounded-md transition-colors items-center ${
-        isBlocked
+        isInactive
           ? "opacity-40 cursor-default"
           : `cursor-pointer group ${isActive ? "bg-th-hl-faint" : "hover:bg-th-hl-faint"}`
       }`}

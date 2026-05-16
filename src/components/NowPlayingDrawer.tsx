@@ -48,6 +48,7 @@ import {
   getArtistBio,
 } from "../api/tidal";
 import BioText from "./BioText";
+import { isTrackUnavailable } from "../lib/trackAvailability";
 import {
   getTidalImageUrl,
   getTrackDisplayTitle,
@@ -1348,19 +1349,30 @@ function TrackRow({
   } | null>(null);
   const dotsBtnRef = useRef<HTMLButtonElement | null>(null);
   const [dotsMenuOpen, setDotsMenuOpen] = useState(false);
+  const { showToast } = useToast();
+  // Don't grey out the currently-active row even if metadata flips.
+  const unavailable = isTrackUnavailable(track) && !isActive;
 
   return (
     <>
       <div
-        onClick={onClick}
+        onClick={() => {
+          if (unavailable) {
+            showToast("Track unavailable", "info");
+            return;
+          }
+          onClick();
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
           setContextMenu({ x: e.clientX, y: e.clientY });
         }}
-        className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer group transition-[background-color] duration-150 ${
-          isActive ? "bg-th-hl-med" : "hover:bg-th-hl-faint"
-        } ${dimmed ? "opacity-50" : ""}`}
+        className={`flex items-center gap-3 px-3 py-2 rounded-md transition-[background-color] duration-150 ${
+          unavailable ? "cursor-default" : "cursor-pointer group"
+        } ${
+          isActive && !unavailable ? "bg-th-hl-med" : unavailable ? "" : "hover:bg-th-hl-faint"
+        } ${dimmed || unavailable ? "opacity-50" : ""}`}
       >
         <div className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
           <TidalImage
@@ -1368,7 +1380,7 @@ function TrackRow({
             alt={track.title}
             className="w-full h-full"
           />
-          {isActive && isPlaying && (
+          {isActive && isPlaying && !unavailable && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <div className="flex items-end gap-[2px] h-3.5">
                 <span className="w-[2px] h-full bg-th-accent rounded-full playing-bar" />

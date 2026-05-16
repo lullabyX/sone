@@ -16,6 +16,7 @@ import { usePlaylists } from "../hooks/usePlaylists";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
 import { getTrackShareUrl } from "../utils/itemHelpers";
+import { isTrackUnavailable } from "../lib/trackAvailability";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
 
@@ -56,6 +57,7 @@ export default function TrackContextMenu({
 
   const isFav = favoriteTrackIds.has(track.id);
   const canRemoveFromPlaylist = !!playlistId && !!isUserPlaylist;
+  const unavailable = isTrackUnavailable(track);
 
   const { menuRef, style } = useContextMenu({
     cursorPosition,
@@ -162,14 +164,22 @@ export default function TrackContextMenu({
         style={style}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Play next */}
-        <button className={menuItemClass} onClick={handlePlayNext}>
+        {/* Play next — disabled when track is unavailable */}
+        <button
+          className={`${menuItemClass} ${unavailable ? "opacity-40 cursor-default pointer-events-none" : ""}`}
+          onClick={handlePlayNext}
+          disabled={unavailable}
+        >
           <ListEnd size={18} className="shrink-0 text-th-text-muted" />
           <span>Play next</span>
         </button>
 
-        {/* Add to queue */}
-        <button className={menuItemClass} onClick={handleAddToQueue}>
+        {/* Add to queue — disabled when track is unavailable */}
+        <button
+          className={`${menuItemClass} ${unavailable ? "opacity-40 cursor-default pointer-events-none" : ""}`}
+          onClick={handleAddToQueue}
+          disabled={unavailable}
+        >
           <ListPlus size={18} className="shrink-0 text-th-text-muted" />
           <span>Add to play queue</span>
         </button>

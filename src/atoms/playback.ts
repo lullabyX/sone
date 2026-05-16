@@ -28,3 +28,7 @@ export const allowExplicitAtom = atomWithStorage("sone.allowExplicit.v1", true);
 export const exclusiveModeAtom = atom(false);
 export const bitPerfectAtom = atom(false);
 export const exclusiveDeviceAtom = atom<string | null>(null);
+
+/** Consecutive auto-advance failures for unplayable tracks.
+ *  Only mutated by playNext's skip-loop; reset on successful play. */
+export const consecutiveFailCountAtom = atom(0);
