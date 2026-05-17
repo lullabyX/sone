@@ -685,6 +685,7 @@ export default function PlaylistView({
           onTrackRemoved={(index) => {
             setAllTracks((prev) => prev.filter((_, i) => i !== index));
           }}
+          virtualize
         />
 
         {/* Recommended Tracks */}
