@@ -11,6 +11,7 @@ import {
   Globe,
   RefreshCw,
   ShieldAlert,
+  FileText,
 } from "lucide-react";
 import {
   autoplayAtom,
@@ -82,6 +83,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [decorations, setDecorations] = useAtom(decorationsAtom);
   const [hideTitleBar, setHideTitleBar] = useAtom(hideTitleBarAtom);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
+  const [enableLogging, setEnableLogging] = useState(true);
   const [proxySettings, setProxySettings] = useAtom(proxySettingsAtom);
   const [proxyTestStatus, setProxyTestStatus] = useState<
     "idle" | "testing" | "success" | "error"
@@ -105,6 +107,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       .catch(() => {});
     invoke<boolean>("get_discord_rpc")
       .then(setDiscordRpc)
+      .catch(() => {});
+    invoke<boolean>("get_enable_logging")
+      .then(setEnableLogging)
       .catch(() => {});
     invoke<string>("get_discord_status_text")
       .then(setDiscordStatusText)
@@ -567,6 +572,35 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                   className="px-3 py-1 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors shrink-0"
                 >
                   Refresh
+                </button>
+              </div>
+
+              {/* Write logs to disk */}
+              <div className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText
+                    size={16}
+                    className="text-th-text-muted shrink-0"
+                  />
+                  <div>
+                    <p className="text-[13px] text-th-text-secondary">
+                      Write logs to disk
+                    </p>
+                    <p className="text-[11px] text-th-text-muted">
+                      Helps when reporting bugs. ~12 MB cap. Takes effect next launch.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !enableLogging;
+                    setEnableLogging(next);
+                    invoke("set_enable_logging", { enabled: next }).catch(
+                      () => {},
+                    );
+                  }}
+                >
+                  <Toggle on={enableLogging} />
                 </button>
               </div>
             </div>
