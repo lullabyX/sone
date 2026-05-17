@@ -110,6 +110,7 @@ function AppContent() {
           <SearchView
             key={currentView.query}
             query={currentView.query}
+            initialTab={currentView.tab}
             onBack={navigateHome}
           />
         );

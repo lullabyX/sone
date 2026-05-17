@@ -4,10 +4,12 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
+import { useViewTab } from "../hooks/useViewTab";
 import { searchTidal } from "../api/tidal";
 import {
   getTidalImageUrl,
   type SearchResults,
+  type SearchTab,
   type Track,
   type AlbumDetail,
   type Playlist,
@@ -22,14 +24,6 @@ import ReusableTrackList from "./TrackList";
 import PageContainer from "./PageContainer";
 import { SearchPageSkeleton } from "./PageSkeleton";
 
-type SearchTab =
-  | "all"
-  | "tophits"
-  | "tracks"
-  | "playlists"
-  | "albums"
-  | "artists";
-
 const TABS: { id: SearchTab; label: string }[] = [
   { id: "all", label: "All Results" },
   { id: "tophits", label: "Top Hits" },
@@ -41,10 +35,11 @@ const TABS: { id: SearchTab; label: string }[] = [
 
 interface SearchViewProps {
   query: string;
+  initialTab?: SearchTab;
   onBack: () => void;
 }
 
-export default function SearchView({ query, onBack }: SearchViewProps) {
+export default function SearchView({ query, initialTab, onBack }: SearchViewProps) {
   const { playTrack, setQueueTracks, playFromSource } = usePlaybackActions();
   const playMedia = useMediaPlay();
   const { navigateToAlbum, navigateToPlaylist, navigateToArtist } =
@@ -62,7 +57,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<SearchTab>("all");
+  const [activeTab, setActiveTab] = useViewTab<SearchTab>(initialTab ?? "all");
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{

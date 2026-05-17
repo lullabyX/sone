@@ -149,6 +149,14 @@ export interface Paginated<T> {
   limit: number;
 }
 
+export type SearchTab =
+  | "all"
+  | "tophits"
+  | "tracks"
+  | "playlists"
+  | "albums"
+  | "artists";
+
 export type AppView =
   | { type: "home" }
   | {
@@ -169,7 +177,7 @@ export type AppView =
       };
     }
   | { type: "favorites" }
-  | { type: "search"; query: string }
+  | { type: "search"; query: string; tab?: SearchTab }
   | {
       type: "viewAll";
       title: string;
