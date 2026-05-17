@@ -174,6 +174,10 @@ export default function SearchBar() {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      // Portal'd menus (TrackContextMenu, MediaContextMenu, submenus, modals)
+      // live outside dropdownRef in the DOM. Treat clicks inside them as "inside".
+      if (target?.closest?.("[data-menu-portal]")) return;
       if (
         dropdownRef.current &&
         !dropdownRef.current.contains(e.target as Node) &&
@@ -528,7 +532,6 @@ export default function SearchBar() {
                             title="Play"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSearchOpen(false);
                               setQueueTracks([]);
                               playTrack(trackObj);
                             }}
