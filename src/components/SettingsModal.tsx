@@ -108,6 +108,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   // Load backend-synced preferences when modal opens
   useEffect(() => {
     if (!open) return;
+    setActiveTab("playback");
     invoke<boolean>("get_volume_normalization")
       .then(setVolumeNormalization)
       .catch(() => {});
@@ -194,7 +195,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
         <div
           ref={panelRef}
-          className="bg-th-elevated rounded-xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col overflow-hidden"
+          className="bg-th-elevated rounded-xl shadow-2xl w-[600px] min-h-[480px] max-h-[80vh] flex flex-col overflow-hidden"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-th-border-subtle">
