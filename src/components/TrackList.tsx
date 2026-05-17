@@ -476,16 +476,27 @@ function VirtualTrackRows({
   });
 
   const virtualItems = virtualizer.getVirtualItems();
-  const lastIndex = virtualItems[virtualItems.length - 1]?.index;
 
-  // Index-threshold load trigger: fire onLoadMore when the last virtual item
-  // is within 10 rows of the end.
+  // Sentinel-based load trigger: an IntersectionObserver watches a sentinel
+  // positioned near the end of the virtualized spacer. Mirrors the
+  // non-virtualized path's pagination semantics, and avoids the race where
+  // overscan rows alone would satisfy a count-based threshold on mount.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!onLoadMore || !hasMore || loadingMore) return;
-    if (lastIndex !== undefined && lastIndex >= tracks.length - 10) {
-      onLoadMore();
-    }
-  }, [lastIndex, hasMore, loadingMore, tracks.length, onLoadMore]);
+    if (!onLoadMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          onLoadMore();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, onLoadMore]);
 
   return (
     <>
@@ -532,6 +543,20 @@ function VirtualTrackRows({
             </div>
           );
         })}
+        {hasMore && (
+          <div
+            ref={sentinelRef}
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: Math.max(0, virtualizer.getTotalSize() - rowHeight * 10),
+              left: 0,
+              right: 0,
+              height: 1,
+              pointerEvents: "none",
+            }}
+          />
+        )}
       </div>
 
       {/* Pagination skeletons — kept identical to the non-virtualized path. */}
