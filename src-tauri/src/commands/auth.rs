@@ -633,7 +633,7 @@ pub async fn get_user_profile(
     state: State<'_, AppState>,
     user_id: u64,
 ) -> Result<(String, Option<String>), SoneError> {
-    log::debug!("[get_user_profile]: user_id={}", user_id);
+    log::debug!("[get_user_profile]");
     let mut client = state.tidal_client.lock().await;
     client.get_user_profile(user_id).await
 }
