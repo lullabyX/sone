@@ -8,6 +8,7 @@ mod embedded_lastfm;
 mod embedded_librefm;
 mod error;
 mod idle_inhibit;
+pub mod logging;
 #[cfg(target_os = "linux")]
 mod mpris;
 mod scrobble;
@@ -389,7 +390,8 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    // TODO(Task 5): replace with logging::init_logging(...)
+    // env_logger::init();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(

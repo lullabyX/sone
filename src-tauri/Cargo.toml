@@ -59,3 +59,6 @@ mpris-server = "0.9"
 alsa = "0.10"
 libc = "0.2"
 ksni = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
