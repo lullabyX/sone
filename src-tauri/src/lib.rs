@@ -146,10 +146,6 @@ pub struct Settings {
     /// on the device-code (LoginCode) auth method. Caps at 5; never resets.
     #[serde(default)]
     pub legacy_auth_notice_count: u8,
-    /// When true (default), SONE writes logs to `~/.config/sone/logs/` with
-    /// a ~12 MB rotation cap. Takes effect on next launch.
-    #[serde(default = "defaults::yes")]
-    pub enable_logging: bool,
 }
 
 impl Default for Settings {
@@ -173,7 +169,6 @@ impl Default for Settings {
             discord_rpc: true,
             discord_status_text: String::new(),
             legacy_auth_notice_count: 0,
-            enable_logging: true,
         }
     }
 }
@@ -396,14 +391,14 @@ impl AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // File logger setup. Must happen before Tauri builds so early log
-    // calls from setup hooks are captured. Reads only the enable_logging
-    // flag from settings.json — full Settings struct is loaded later via
-    // AppState as usual.
+    // calls from setup hooks are captured. Reads only the logging toggle
+    // sidecar file — Settings struct is encrypted and loaded later via
+    // AppState.
     let sone_dir = dirs::config_dir()
         .map(|d| d.join("sone"))
         .unwrap_or_else(|| std::path::PathBuf::from("./.sone"));
-    let settings_path = sone_dir.join("settings.json");
-    let logging_enabled = crate::logging::read_logging_preference(&settings_path);
+    let logging_toggle_path = sone_dir.join("logging.toggle");
+    let logging_enabled = crate::logging::read_logging_preference(&logging_toggle_path);
     let _logger_handle = crate::logging::init_logging(
         sone_dir.join("logs"),
         logging_enabled,

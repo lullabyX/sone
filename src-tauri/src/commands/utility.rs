@@ -341,17 +341,35 @@ pub async fn test_proxy_connection(
     }
 }
 
-#[tauri::command]
-pub fn get_enable_logging(state: State<'_, AppState>) -> bool {
-    state.load_settings()
-        .map(|s| s.enable_logging)
-        .unwrap_or(true)
+fn logging_toggle_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("sone").join("logging.toggle"))
 }
 
 #[tauri::command]
-pub fn set_enable_logging(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
-    let mut settings = state.load_settings().unwrap_or_default();
-    settings.enable_logging = enabled;
-    state.save_settings(&settings)?;
+pub fn get_enable_logging() -> bool {
+    let Some(path) = logging_toggle_path() else {
+        return true;
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return true;
+    };
+    match text.trim() {
+        "false" => false,
+        _ => true,
+    }
+}
+
+#[tauri::command]
+pub fn set_enable_logging(enabled: bool) -> Result<(), SoneError> {
+    let Some(path) = logging_toggle_path() else {
+        return Err(SoneError::Io("Could not resolve config dir".into()));
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| SoneError::Io(format!("Failed to create config dir: {e}")))?;
+    }
+    let body = if enabled { "true" } else { "false" };
+    std::fs::write(&path, body)
+        .map_err(|e| SoneError::Io(format!("Failed to write logging toggle: {e}")))?;
     Ok(())
 }

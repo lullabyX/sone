@@ -1,23 +1,24 @@
 //! Pre-Tauri logger setup. Runs before AppState exists so it cannot
-//! depend on anything in `lib.rs::Settings` beyond a tiny JSON probe.
+//! depend on anything in `lib.rs::Settings` beyond a tiny plaintext probe.
 
 use std::path::Path;
 
-/// Read just the `enable_logging` flag from a `settings.json` file.
-/// Defaults to `true` on any failure (missing file, parse error, missing
-/// key). This runs before Tauri starts, so it intentionally does not
-/// depend on the full `Settings` deserializer.
-pub fn read_logging_preference(settings_path: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(settings_path) else {
+/// Read the logging toggle from the plaintext sidecar file at
+/// `~/.config/sone/logging.toggle`. The file must contain literally
+/// `"true"` or `"false"` (trailing whitespace/newlines are trimmed).
+///
+/// Defaults to `true` on any failure (missing file, unreadable, or
+/// any content other than the literal string `"false"`). This runs
+/// before Tauri starts and before `AppState` exists, so it intentionally
+/// reads only this small sidecar — **not** the encrypted `Settings` struct.
+pub fn read_logging_preference(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
         return true;
     };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return true;
-    };
-    value
-        .get("enable_logging")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(true)
+    match text.trim() {
+        "false" => false,
+        _ => true,
+    }
 }
 
 use flexi_logger::{Cleanup, Criterion, Duplicate, FileSpec, Logger, LoggerHandle, Naming, WriteMode};
@@ -94,7 +95,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn tmp_settings(contents: &str) -> tempfile::NamedTempFile {
+    fn tmp_toggle(contents: &str) -> tempfile::NamedTempFile {
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(contents.as_bytes()).unwrap();
         f
@@ -102,31 +103,37 @@ mod tests {
 
     #[test]
     fn probe_returns_true_when_file_missing() {
-        let path = std::path::PathBuf::from("/nonexistent/sone-settings.json");
+        let path = std::path::PathBuf::from("/nonexistent/sone-logging.toggle");
         assert!(read_logging_preference(&path));
     }
 
     #[test]
-    fn probe_returns_true_when_json_is_malformed() {
-        let f = tmp_settings("{not valid json");
-        assert!(read_logging_preference(f.path()));
-    }
-
-    #[test]
-    fn probe_returns_true_when_key_missing() {
-        let f = tmp_settings(r#"{"volume": 1.0}"#);
+    fn probe_returns_true_when_contents_garbage() {
+        let f = tmp_toggle("not valid stuff");
         assert!(read_logging_preference(f.path()));
     }
 
     #[test]
     fn probe_returns_false_when_explicitly_disabled() {
-        let f = tmp_settings(r#"{"enable_logging": false}"#);
+        let f = tmp_toggle("false");
         assert!(!read_logging_preference(f.path()));
     }
 
     #[test]
     fn probe_returns_true_when_explicitly_enabled() {
-        let f = tmp_settings(r#"{"enable_logging": true}"#);
+        let f = tmp_toggle("true");
+        assert!(read_logging_preference(f.path()));
+    }
+
+    #[test]
+    fn probe_returns_false_when_explicitly_disabled_with_trailing_newline() {
+        let f = tmp_toggle("false\n");
+        assert!(!read_logging_preference(f.path()));
+    }
+
+    #[test]
+    fn probe_returns_true_when_contents_empty() {
+        let f = tmp_toggle("");
         assert!(read_logging_preference(f.path()));
     }
 }
