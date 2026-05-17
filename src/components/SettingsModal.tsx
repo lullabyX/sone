@@ -548,6 +548,35 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 Utilities
               </h3>
 
+              {/* Write logs to disk */}
+              <div className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText
+                    size={16}
+                    className="text-th-text-muted shrink-0"
+                  />
+                  <div>
+                    <p className="text-[13px] text-th-text-secondary">
+                      Write logs to disk
+                    </p>
+                    <p className="text-[11px] text-th-text-muted">
+                      Helps when reporting bugs. ~12 MB cap.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !enableLogging;
+                    setEnableLogging(next);
+                    invoke("set_enable_logging", { enabled: next }).catch(
+                      () => {},
+                    );
+                  }}
+                >
+                  <Toggle on={enableLogging} />
+                </button>
+              </div>
+
               {/* Refresh App */}
               <div className="flex items-center justify-between py-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -572,35 +601,6 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                   className="px-3 py-1 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors shrink-0"
                 >
                   Refresh
-                </button>
-              </div>
-
-              {/* Write logs to disk */}
-              <div className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <FileText
-                    size={16}
-                    className="text-th-text-muted shrink-0"
-                  />
-                  <div>
-                    <p className="text-[13px] text-th-text-secondary">
-                      Write logs to disk
-                    </p>
-                    <p className="text-[11px] text-th-text-muted">
-                      Helps when reporting bugs. ~12 MB cap. Takes effect next launch.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    const next = !enableLogging;
-                    setEnableLogging(next);
-                    invoke("set_enable_logging", { enabled: next }).catch(
-                      () => {},
-                    );
-                  }}
-                >
-                  <Toggle on={enableLogging} />
                 </button>
               </div>
             </div>
