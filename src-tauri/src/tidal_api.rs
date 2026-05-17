@@ -1051,12 +1051,21 @@ impl TidalClient {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         if !status.is_success() {
-            log::error!(
-                "[api_get_body] {} -> status={} body={}",
-                url,
-                status,
-                &body[..body.len().min(500)]
-            );
+            let is_account_endpoint = url.contains("/users/") || url.contains("/sessions");
+            if is_account_endpoint {
+                log::error!(
+                    "[api_get_body] {} -> status={} body=<redacted: account endpoint>",
+                    url,
+                    status,
+                );
+            } else {
+                log::error!(
+                    "[api_get_body] {} -> status={} body={}",
+                    url,
+                    status,
+                    &body[..body.len().min(500)]
+                );
+            }
             return Err(SoneError::Api {
                 status: status.as_u16(),
                 body,
