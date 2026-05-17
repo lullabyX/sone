@@ -4,7 +4,8 @@ import ExplicitBadge from "./ExplicitBadge";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import TrackContextMenu from "./TrackContextMenu";
-import { useRef, useEffect, useState, memo, useMemo } from "react";
+import { useRef, useEffect, useLayoutEffect, useState, memo, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAtomValue, atom } from "jotai";
 import { currentTrackAtom, isPlayingAtom, allowExplicitAtom } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
@@ -38,6 +39,19 @@ interface TrackListProps {
   sortDirection?: "ASC" | "DESC" | null;
   onSort?: (column: string | null, direction: "ASC" | "DESC" | null) => void;
   sortLoading?: boolean;
+  /** When true, rows render through @tanstack/react-virtual. Only paginated
+   * callers (Loved tracks, Playlists) use this. */
+  virtualize?: boolean;
+}
+
+function findScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let cur: HTMLElement | null = el?.parentElement ?? null;
+  while (cur) {
+    const overflowY = getComputedStyle(cur).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return cur;
+    cur = cur.parentElement;
+  }
+  return null;
 }
 
 function formatDuration(seconds: number): string {
@@ -379,6 +393,195 @@ const TrackRow = memo(function TrackRow({
   );
 });
 
+// ─── VirtualTrackRows ──────────────────────────────────────────────────────
+
+interface VirtualTrackRowsProps {
+  tracks: Track[];
+  gridCols: string;
+  showCover: boolean;
+  showArtist: boolean;
+  showAlbum: boolean;
+  showDateAdded: boolean;
+  context: string;
+  onPlay: (track: Track, index: number) => void;
+  trackDisplayNumbers?: number[];
+  playlistId?: string;
+  isUserPlaylist?: boolean;
+  onTrackRemoved?: (index: number) => void;
+  onAddToCurrentPlaylist?: (track: Track) => void;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+}
+
+function VirtualTrackRows({
+  tracks,
+  gridCols,
+  showCover,
+  showArtist,
+  showAlbum,
+  showDateAdded,
+  context,
+  onPlay,
+  trackDisplayNumbers,
+  playlistId,
+  isUserPlaylist,
+  onTrackRemoved,
+  onAddToCurrentPlaylist,
+  onLoadMore,
+  hasMore,
+  loadingMore,
+}: VirtualTrackRowsProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  // Locate the page scroll container by walking up from this list.
+  useLayoutEffect(() => {
+    const el = findScrollParent(parentRef.current);
+    setScrollEl(el);
+  }, []);
+
+  // Maintain scrollMargin: the list's offset within the scroll container.
+  // Re-measures when own list, page content above, or scroll element resizes.
+  useLayoutEffect(() => {
+    if (!parentRef.current || !scrollEl) return;
+    const measure = () => {
+      if (!parentRef.current) return;
+      const top =
+        parentRef.current.getBoundingClientRect().top -
+        scrollEl.getBoundingClientRect().top +
+        scrollEl.scrollTop;
+      setScrollMargin(top);
+    };
+    measure();
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(parentRef.current);
+    if (scrollEl.firstElementChild) ro.observe(scrollEl.firstElementChild);
+    ro.observe(scrollEl);
+
+    return () => ro.disconnect();
+  }, [scrollEl]);
+
+  const rowHeight = showCover ? 60 : 48;
+
+  const virtualizer = useVirtualizer({
+    count: tracks.length,
+    getScrollElement: () => scrollEl,
+    estimateSize: () => rowHeight,
+    overscan: 8,
+    scrollMargin,
+    getItemKey: (i) => tracks[i]?.id ?? i,
+  });
+
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastIndex = virtualItems[virtualItems.length - 1]?.index;
+
+  // Index-threshold load trigger: fire onLoadMore when the last virtual item
+  // is within 10 rows of the end.
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || loadingMore) return;
+    if (lastIndex !== undefined && lastIndex >= tracks.length - 10) {
+      onLoadMore();
+    }
+  }, [lastIndex, hasMore, loadingMore, tracks.length, onLoadMore]);
+
+  return (
+    <>
+      <div
+        ref={parentRef}
+        style={{
+          height: virtualizer.getTotalSize(),
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {virtualItems.map((v) => {
+          const track = tracks[v.index];
+          if (!track) return null;
+          return (
+            <div
+              key={v.key}
+              ref={virtualizer.measureElement}
+              data-index={v.index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                transform: `translateY(${v.start - virtualizer.options.scrollMargin}px)`,
+              }}
+            >
+              <TrackRow
+                track={track}
+                index={v.index}
+                displayNumber={trackDisplayNumbers?.[v.index]}
+                gridCols={gridCols}
+                showCover={showCover}
+                showArtist={showArtist}
+                showAlbum={showAlbum}
+                showDateAdded={showDateAdded}
+                context={context}
+                onPlay={onPlay}
+                playlistId={playlistId}
+                isUserPlaylist={isUserPlaylist}
+                onTrackRemoved={onTrackRemoved}
+                onAddToCurrentPlaylist={onAddToCurrentPlaylist}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pagination skeletons — kept identical to the non-virtualized path. */}
+      {hasMore && loadingMore && (
+        <div className="flex flex-col">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="grid gap-4 px-4 py-2.5"
+              style={{ gridTemplateColumns: gridCols }}
+            >
+              <div className="flex items-center justify-end">
+                <div className="h-4 w-5 bg-th-surface-hover rounded animate-pulse" />
+              </div>
+              <div className="flex items-center gap-3 min-w-0">
+                {showCover && (
+                  <div className="w-10 h-10 shrink-0 rounded bg-th-surface-hover animate-pulse" />
+                )}
+                <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                  <div className="h-4 w-3/5 bg-th-surface-hover rounded animate-pulse" />
+                  <div className="h-3 w-2/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              </div>
+              {showArtist && (
+                <div className="flex items-center">
+                  <div className="h-3.5 w-3/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              )}
+              {showAlbum && (
+                <div className="flex items-center">
+                  <div className="h-3.5 w-3/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              )}
+              {showDateAdded && (
+                <div className="flex items-center">
+                  <div className="h-3.5 w-2/5 bg-th-surface-hover/60 rounded animate-pulse" />
+                </div>
+              )}
+              <div className="flex items-center justify-end">
+                <div className="h-3.5 w-8 bg-th-surface-hover/60 rounded animate-pulse" />
+              </div>
+              <div />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── SortIndicator ─────────────────────────────────────────────────────────
 
 function SortIndicator({ direction }: { direction: "ASC" | "DESC" }) {
@@ -410,11 +613,13 @@ export default memo(function TrackList({
   sortDirection,
   onSort,
   sortLoading = false,
+  virtualize = false,
 }: TrackListProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
+    if (virtualize) return;
     if (!onLoadMore) return;
 
     if (observerRef.current) {
@@ -435,7 +640,7 @@ export default memo(function TrackList({
     }
 
     return () => observerRef.current?.disconnect();
-  }, [hasMore, onLoadMore]);
+  }, [hasMore, onLoadMore, virtualize]);
 
   // Build grid columns string
   const gridCols = useMemo(
@@ -556,6 +761,25 @@ export default memo(function TrackList({
               <div />
             </div>
           ))
+        ) : virtualize ? (
+          <VirtualTrackRows
+            tracks={tracks}
+            gridCols={gridCols}
+            showCover={showCover}
+            showArtist={showArtist}
+            showAlbum={showAlbum}
+            showDateAdded={showDateAdded}
+            context={context}
+            onPlay={onPlay}
+            trackDisplayNumbers={trackDisplayNumbers}
+            playlistId={playlistId}
+            isUserPlaylist={isUserPlaylist}
+            onTrackRemoved={onTrackRemoved}
+            onAddToCurrentPlaylist={onAddToCurrentPlaylist}
+            onLoadMore={onLoadMore}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+          />
         ) : (
           tracks.map((track, index) => (
             <TrackRow
@@ -579,8 +803,9 @@ export default memo(function TrackList({
         )}
       </div>
 
-      {/* Infinite Scroll Sentinel */}
-      {hasMore && (
+      {/* Infinite Scroll Sentinel (non-virtualized path only — virtualized
+          path renders its own pagination skeletons inside VirtualTrackRows) */}
+      {!virtualize && hasMore && (
         <div ref={sentinelRef}>
           {loadingMore ? (
             <div className="flex flex-col">
