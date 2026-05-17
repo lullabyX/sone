@@ -395,8 +395,22 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // TODO(Task 5): replace with logging::init_logging(...)
-    // env_logger::init();
+    // File logger setup. Must happen before Tauri builds so early log
+    // calls from setup hooks are captured. Reads only the enable_logging
+    // flag from settings.json — full Settings struct is loaded later via
+    // AppState as usual.
+    let sone_dir = dirs::config_dir()
+        .map(|d| d.join("sone"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./.sone"));
+    let settings_path = sone_dir.join("settings.json");
+    let logging_enabled = crate::logging::read_logging_preference(&settings_path);
+    let _logger_handle = crate::logging::init_logging(
+        sone_dir.join("logs"),
+        logging_enabled,
+    );
+    // Bind to a named local (not `let _ = ...`) so the handle lives until
+    // the end of `run()`. flexi_logger flushes the log file on drop, so
+    // the handle must outlive the Tauri event loop.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(
