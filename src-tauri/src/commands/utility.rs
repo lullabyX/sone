@@ -340,3 +340,18 @@ pub async fn test_proxy_connection(
         Err(e) => Err(format!("Connection failed: {e}")),
     }
 }
+
+#[tauri::command]
+pub fn get_enable_logging(state: State<'_, AppState>) -> bool {
+    state.load_settings()
+        .map(|s| s.enable_logging)
+        .unwrap_or(true)
+}
+
+#[tauri::command]
+pub fn set_enable_logging(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.enable_logging = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
+}

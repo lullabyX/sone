@@ -806,6 +806,8 @@ pub fn run() {
             commands::utility::clear_disk_cache,
             commands::utility::get_minimize_to_tray,
             commands::utility::set_minimize_to_tray,
+            commands::utility::get_enable_logging,
+            commands::utility::set_enable_logging,
             commands::utility::get_decorations,
             commands::utility::set_decorations,
             commands::utility::get_volume_normalization,
