@@ -385,6 +385,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           sortDirection={sortDirection}
           onSort={handleSort}
           sortLoading={sortLoading}
+          virtualize
         />
 
         {/* End of list */}
