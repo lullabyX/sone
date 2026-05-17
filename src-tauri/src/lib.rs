@@ -146,6 +146,10 @@ pub struct Settings {
     /// on the device-code (LoginCode) auth method. Caps at 5; never resets.
     #[serde(default)]
     pub legacy_auth_notice_count: u8,
+    /// When true (default), SONE writes logs to `~/.config/sone/logs/` with
+    /// a ~12 MB rotation cap. Takes effect on next launch.
+    #[serde(default = "defaults::yes")]
+    pub enable_logging: bool,
 }
 
 impl Default for Settings {
@@ -169,6 +173,7 @@ impl Default for Settings {
             discord_rpc: true,
             discord_status_text: String::new(),
             legacy_auth_notice_count: 0,
+            enable_logging: true,
         }
     }
 }
