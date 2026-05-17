@@ -78,6 +78,38 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.17.0" date="2026-05-18">
+      <description>
+        <p>Logging</p>
+        <ul>
+          <li>Optional disk logging to ~/.config/sone/logs/ with daily rotation, toggled from Settings → Utilities</li>
+          <li>Defaults to on; pre-Tauri probe ensures early-startup logs are captured</li>
+        </ul>
+        <p>Performance</p>
+        <ul>
+          <li>Virtualized the loved tracks list and main playlist track list for smooth scrolling on large libraries</li>
+        </ul>
+        <p>Loved Tracks</p>
+        <ul>
+          <li>Play and Shuffle buttons added to the loved tracks page</li>
+        </ul>
+        <p>Settings</p>
+        <ul>
+          <li>Redesigned with a vertical tab rail, one section per tab</li>
+          <li>Taller modal and tab state resets on reopen</li>
+        </ul>
+        <p>MPRIS</p>
+        <ul>
+          <li>Publishes live playback position so external media widgets show progress</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Reduced WebKitGTK font blur on scroll/resize via text-rendering: geometricPrecision</li>
+          <li>Active search tab is preserved across back/forward navigation</li>
+          <li>Mini search stays open during context menu interactions and when starting playback</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.16.0" date="2026-05-16">
       <description>
         <p>Keyboard Shortcuts</p>
