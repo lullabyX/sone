@@ -8,8 +8,7 @@ use tauri::Manager;
 use crate::AppState;
 use crate::mcp::server::SoneMcpServer;
 
-#[derive(Deserialize, JsonSchema, Default)]
-pub struct NoArgs {}
+use super::util::NoArgs;
 
 #[derive(Deserialize, JsonSchema)]
 pub struct GetQueueArgs {
