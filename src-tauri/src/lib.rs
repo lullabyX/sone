@@ -877,6 +877,8 @@ pub fn run() {
             // mcp
             commands::mcp::mcp_get_connection_info,
             commands::mcp::mcp_publish_state,
+            commands::mcp::mcp_set_enabled,
+            commands::mcp::mcp_regenerate_token,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
