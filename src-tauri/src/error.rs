@@ -41,7 +41,6 @@ pub enum SoneError {
     #[error("Scrobble error: {0}")]
     Scrobble(String),
 
-    /// MCP server error.
     #[error("MCP error: {0}")]
     Mcp(String),
 }
