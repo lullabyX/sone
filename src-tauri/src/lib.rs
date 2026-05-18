@@ -39,6 +39,9 @@ mod defaults {
     pub fn volume() -> f32 { 1.0 }
 }
 
+fn default_mcp_enabled() -> bool { true }
+fn default_mcp_port() -> u16 { 5577 }
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct LastfmCredentials {
     pub session_key: String,
@@ -147,6 +150,14 @@ pub struct Settings {
     /// on the device-code (LoginCode) auth method. Caps at 5; never resets.
     #[serde(default)]
     pub legacy_auth_notice_count: u8,
+    #[serde(default = "default_mcp_enabled")]
+    pub mcp_enabled: bool,
+    #[serde(default = "default_mcp_port")]
+    pub mcp_port: u16,
+    /// Persistent UUID token for the MCP URL path. Empty string means
+    /// "not yet generated" — bootstrap will populate and save on first run.
+    #[serde(default)]
+    pub mcp_token: String,
 }
 
 impl Default for Settings {
@@ -170,6 +181,9 @@ impl Default for Settings {
             discord_rpc: true,
             discord_status_text: String::new(),
             legacy_auth_notice_count: 0,
+            mcp_enabled: true,
+            mcp_port: 5577,
+            mcp_token: String::new(),
         }
     }
 }
@@ -446,18 +460,30 @@ pub fn run() {
                 let handle_for_mcp = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let state = handle_for_mcp.state::<AppState>();
-                    let token = uuid::Uuid::new_v4().simple().to_string();
+
+                    let mut settings = state.read_state_file("settings.json")
+                        .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
+                        .unwrap_or_default();
+
+                    if !settings.mcp_enabled {
+                        log::info!("MCP server disabled in settings");
+                        return;
+                    }
+
+                    if settings.mcp_token.is_empty() {
+                        settings.mcp_token = uuid::Uuid::new_v4().simple().to_string();
+                        if let Err(e) = state.save_settings(&settings) {
+                            log::warn!("Failed to persist MCP token: {e}");
+                        }
+                    }
+
                     match crate::mcp::start_server(
                         handle_for_mcp.clone(),
                         state.mcp_state.clone(),
-                        0, // 0 = OS-assigned port; replaced by settings.mcp_port in Task 1.4
-                        token,
-                    )
-                    .await
-                    {
-                        Ok(handle) => {
-                            *state.mcp_handle.lock().await = Some(handle);
-                        }
+                        settings.mcp_port,
+                        settings.mcp_token.clone(),
+                    ).await {
+                        Ok(handle) => { *state.mcp_handle.lock().await = Some(handle); }
                         Err(e) => log::error!("MCP server failed to start: {e}"),
                     }
                 });
@@ -851,6 +877,9 @@ pub fn run() {
             commands::utility::test_proxy_connection,
             commands::utility::inhibit_idle,
             commands::utility::uninhibit_idle,
+            // mcp
+            commands::mcp::mcp_get_connection_info,
+            commands::mcp::mcp_publish_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
