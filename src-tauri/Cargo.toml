@@ -51,6 +51,7 @@ zeroize = "1"
 discord-rich-presence = "1.1"
 zbus = "5"
 rmcp = { version = "1.7.0", features = ["server", "transport-streamable-http-server", "macros"] }
+schemars = "1"
 axum = "0.7"
 tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4"] }

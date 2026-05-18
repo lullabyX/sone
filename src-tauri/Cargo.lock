@@ -4980,6 +4980,7 @@ dependencies = [
  "rand 0.10.1",
  "reqwest 0.11.27",
  "rmcp",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2",
