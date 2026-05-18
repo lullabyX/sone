@@ -26,9 +26,6 @@ type QueueTrackSnapshot = {
   artist: string;
 };
 
-// Publishes current playback state to the backend on every relevant atom change.
-// Backend MCP tools (get_now_playing, get_queue — Task 5.2) read from this mirror.
-// Mount once at the app root.
 export function useMcpBridge() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
