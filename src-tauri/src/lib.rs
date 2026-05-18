@@ -461,9 +461,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = handle_for_mcp.state::<AppState>();
 
-                    let mut settings = state.read_state_file("settings.json")
-                        .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
-                        .unwrap_or_default();
+                    let mut settings = state.load_settings().unwrap_or_default();
 
                     if !settings.mcp_enabled {
                         log::info!("MCP server disabled in settings");
