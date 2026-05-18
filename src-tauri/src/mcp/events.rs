@@ -12,6 +12,7 @@ pub const EV_CLEAR_QUEUE: &str = "mcp:clear-queue";
 pub const EV_REMOVE_FROM_QUEUE: &str = "mcp:remove-from-queue";
 pub const EV_SET_REPEAT: &str = "mcp:set-repeat";
 pub const EV_TOGGLE_SHUFFLE: &str = "mcp:toggle-shuffle";
+pub const EV_SHUFFLE_SOURCE: &str = "mcp:shuffle-source";
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

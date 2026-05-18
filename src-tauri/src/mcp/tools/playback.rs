@@ -7,9 +7,9 @@ use tauri::Emitter;
 
 use crate::mcp::events::{
     EV_CLEAR_QUEUE, EV_PAUSE, EV_PLAY_SOURCE, EV_PLAY_TRACKS, EV_REMOVE_FROM_QUEUE, EV_RESUME,
-    EV_SEEK, EV_SET_REPEAT, EV_SET_VOLUME, EV_SKIP_NEXT, EV_SKIP_PREVIOUS, EV_TOGGLE_SHUFFLE,
-    PlaySourcePayload, PlayTracksPayload, RemoveFromQueuePayload, RepeatPayload, SeekPayload,
-    VolumePayload,
+    EV_SEEK, EV_SET_REPEAT, EV_SET_VOLUME, EV_SHUFFLE_SOURCE, EV_SKIP_NEXT, EV_SKIP_PREVIOUS,
+    EV_TOGGLE_SHUFFLE, PlaySourcePayload, PlayTracksPayload, RemoveFromQueuePayload, RepeatPayload,
+    SeekPayload, VolumePayload,
 };
 use crate::mcp::server::SoneMcpServer;
 
@@ -100,6 +100,27 @@ impl SoneMcpServer {
             .emit(EV_PLAY_SOURCE, PlaySourcePayload { source_type: args.source_type, id: args.id })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "playing" });
+        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+    }
+
+    #[rmcp::tool(
+        name = "shuffle_source",
+        description = "Shuffle and play an entire playlist, album, artist's top tracks, or mix. Forces shuffle mode ON."
+    )]
+    async fn shuffle_source(
+        &self,
+        Parameters(args): Parameters<PlaySourceArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if !matches!(args.source_type.as_str(), "playlist" | "album" | "artist" | "mix") {
+            return Err(ErrorData::invalid_params(
+                "source_type must be \"playlist\", \"album\", \"artist\", or \"mix\"",
+                None,
+            ));
+        }
+        self.app_handle
+            .emit(EV_SHUFFLE_SOURCE, PlaySourcePayload { source_type: args.source_type, id: args.id })
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
+        let json = serde_json::json!({ "status": "shuffling" });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
     }
 

@@ -9,6 +9,7 @@ import {
   queueAtom,
   manualQueueAtom,
   repeatAtom,
+  shuffleAtom,
 } from "../atoms/playback";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
 import { usePlaybackActions } from "./usePlaybackActions";
@@ -20,6 +21,20 @@ import {
   getAlbumPage,
 } from "../api/tidal";
 import type { Track } from "../types";
+
+async function fetchSourceTracks(sourceType: string, id: string): Promise<Track[]> {
+  if (sourceType === "playlist") {
+    return getPlaylistTracks(id);
+  } else if (sourceType === "album") {
+    const { page } = await getAlbumPage(Number(id));
+    return page.tracks;
+  } else if (sourceType === "mix") {
+    return (await getMixItems(id)).tracks;
+  } else if (sourceType === "artist") {
+    return getArtistTopTracks(Number(id));
+  }
+  return [];
+}
 
 type NowPlayingSnapshot = {
   trackId: number | null;
@@ -43,6 +58,7 @@ export function useMcpBridge() {
   const queue = useAtomValue(queueAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
   const setRepeat = useSetAtom(repeatAtom);
+  const setShuffle = useSetAtom(shuffleAtom);
   const actions = usePlaybackActions();
 
   // Refs so listener closures always read the latest values without
@@ -132,21 +148,25 @@ export function useMcpBridge() {
       listen<{ sourceType: string; id: string }>("mcp:play-source", async (e) => {
         const { sourceType, id } = e.payload;
         try {
-          let tracks: Track[] = [];
-          if (sourceType === "playlist") {
-            tracks = await getPlaylistTracks(id);
-          } else if (sourceType === "album") {
-            const { page } = await getAlbumPage(Number(id));
-            tracks = page.tracks;
-          } else if (sourceType === "mix") {
-            tracks = (await getMixItems(id)).tracks;
-          } else if (sourceType === "artist") {
-            tracks = await getArtistTopTracks(Number(id));
-          }
+          const tracks = await fetchSourceTracks(sourceType, id);
           if (tracks.length === 0) return;
           await actionsRef.current.playAllFromSource(tracks);
         } catch (err) {
           console.error("mcp:play-source failed:", err);
+        }
+      }),
+    );
+
+    unlisteners.push(
+      listen<{ sourceType: string; id: string }>("mcp:shuffle-source", async (e) => {
+        const { sourceType, id } = e.payload;
+        try {
+          const tracks = await fetchSourceTracks(sourceType, id);
+          if (tracks.length === 0) return;
+          setShuffle(true);
+          await actionsRef.current.playAllFromSource(tracks);
+        } catch (err) {
+          console.error("mcp:shuffle-source failed:", err);
         }
       }),
     );
