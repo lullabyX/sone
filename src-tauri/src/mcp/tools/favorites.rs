@@ -24,6 +24,14 @@ pub struct TrackIdArgs {
     pub track_id: u64,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct FavoriteArgs {
+    /// The item's Tidal ID.
+    pub id: u64,
+    /// Either "add" or "remove".
+    pub action: String,
+}
+
 #[tool_router(router = favorites_tools, vis = "pub(crate)")]
 impl SoneMcpServer {
     #[rmcp::tool(
@@ -132,6 +140,114 @@ impl SoneMcpServer {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let json = serde_json::json!({ "favorited": favorited });
+        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+            json.to_string(),
+        )]))
+    }
+
+    #[rmcp::tool(
+        name = "favorite_track",
+        description = "Add or remove a track from the user's favorites. action: \"add\" or \"remove\"."
+    )]
+    async fn favorite_track(
+        &self,
+        Parameters(args): Parameters<FavoriteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if args.action != "add" && args.action != "remove" {
+            return Err(ErrorData::invalid_params(
+                "action must be \"add\" or \"remove\"",
+                None,
+            ));
+        }
+        let state = self.app_handle.state::<AppState>();
+        let client = state.tidal_client.lock().await;
+        let user_id = require_user_id(&client)?;
+        if args.action == "add" {
+            client
+                .add_favorite_track(user_id, args.id)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        } else {
+            client
+                .remove_favorite_track(user_id, args.id)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        }
+        drop(client);
+        state.disk_cache.invalidate_tag("fav-tracks").await;
+        let json = serde_json::json!({ "status": args.action, "id": args.id });
+        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+            json.to_string(),
+        )]))
+    }
+
+    #[rmcp::tool(
+        name = "favorite_album",
+        description = "Add or remove an album from the user's favorites. action: \"add\" or \"remove\"."
+    )]
+    async fn favorite_album(
+        &self,
+        Parameters(args): Parameters<FavoriteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if args.action != "add" && args.action != "remove" {
+            return Err(ErrorData::invalid_params(
+                "action must be \"add\" or \"remove\"",
+                None,
+            ));
+        }
+        let state = self.app_handle.state::<AppState>();
+        let client = state.tidal_client.lock().await;
+        let user_id = require_user_id(&client)?;
+        if args.action == "add" {
+            client
+                .add_favorite_album(user_id, args.id)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        } else {
+            client
+                .remove_favorite_album(user_id, args.id)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        }
+        drop(client);
+        state.disk_cache.invalidate_tag("fav-albums").await;
+        let json = serde_json::json!({ "status": args.action, "id": args.id });
+        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+            json.to_string(),
+        )]))
+    }
+
+    #[rmcp::tool(
+        name = "favorite_artist",
+        description = "Add or remove an artist from the user's favorites. action: \"add\" or \"remove\"."
+    )]
+    async fn favorite_artist(
+        &self,
+        Parameters(args): Parameters<FavoriteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if args.action != "add" && args.action != "remove" {
+            return Err(ErrorData::invalid_params(
+                "action must be \"add\" or \"remove\"",
+                None,
+            ));
+        }
+        let state = self.app_handle.state::<AppState>();
+        let client = state.tidal_client.lock().await;
+        let user_id = require_user_id(&client)?;
+        if args.action == "add" {
+            client
+                .add_favorite_artist(user_id, args.id)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        } else {
+            client
+                .remove_favorite_artist(user_id, args.id)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        }
+        drop(client);
+        state.disk_cache.invalidate_tag("fav-artists").await;
+        let json = serde_json::json!({ "status": args.action, "id": args.id });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
         )]))
