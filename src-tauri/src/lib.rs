@@ -200,7 +200,7 @@ pub struct AppState {
     pub discord: discord::DiscordHandle,
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
     pub mcp_state: crate::mcp::McpStateRef,
-    pub mcp_handle: tokio::sync::Mutex<Option<crate::mcp::McpHandle>>,
+    pub mcp_handle: Mutex<Option<crate::mcp::McpHandle>>,
 }
 
 pub fn now_secs() -> u64 {
@@ -339,7 +339,7 @@ impl AppState {
             discord: discord_handle,
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
             mcp_state: crate::mcp::new_state(),
-            mcp_handle: tokio::sync::Mutex::new(None),
+            mcp_handle: Mutex::new(None),
         }
     }
 
