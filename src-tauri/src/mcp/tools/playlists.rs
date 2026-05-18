@@ -169,17 +169,19 @@ impl SoneMcpServer {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let uuid = playlist.uuid.clone();
-        if let Some(ids) = args.track_ids.filter(|v| !v.is_empty()) {
+        let track_count = if let Some(ids) = args.track_ids.filter(|v| !v.is_empty()) {
             client
                 .add_tracks_to_playlist(&uuid, &ids)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-        }
+            ids.len() as u32
+        } else {
+            0
+        };
         state
             .disk_cache
             .invalidate_tag(&format!("user:{}", user_id))
             .await;
-        let track_count = playlist.number_of_tracks.unwrap_or(0);
         let json = serde_json::json!({ "uuid": uuid, "name": playlist.title, "trackCount": track_count });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
