@@ -12,9 +12,8 @@ use crate::mcp::state_mirror::McpStateRef;
 
 #[derive(Clone)]
 pub struct SoneMcpServer {
-    pub app_handle: AppHandle,
-    pub mcp_state: McpStateRef,
-    // tool_router field gets added in Task 2.2; construction here updates then too.
+    pub(crate) app_handle: AppHandle,
+    pub(crate) mcp_state: McpStateRef,
 }
 
 impl ServerHandler for SoneMcpServer {
@@ -29,9 +28,9 @@ impl ServerHandler for SoneMcpServer {
 }
 
 pub struct McpHandle {
-    pub port: u16,
-    pub token: String,
-    pub cancel: CancellationToken,
+    pub(crate) port: u16,
+    pub(crate) token: String,
+    pub(crate) cancel: CancellationToken,
 }
 
 impl McpHandle {
@@ -40,11 +39,6 @@ impl McpHandle {
     }
 }
 
-/// Start the MCP server on `127.0.0.1:<port>` using `token` in the URL path.
-///
-/// Shutdown is **abrupt**: when `cancel` fires, the spawned task drops the
-/// TCP listener immediately. Any in-flight MCP requests / SSE streams are
-/// killed mid-flight; clients must reconnect.
 pub async fn start_server(
     app_handle: AppHandle,
     mcp_state: McpStateRef,
