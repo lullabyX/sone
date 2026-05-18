@@ -71,7 +71,6 @@ pub async fn mcp_set_enabled(
     if enabled {
         let h = crate::mcp::start_server(
             app_handle.clone(),
-            state.mcp_state.clone(),
             settings.mcp_port,
             settings.mcp_token.clone(),
         ).await?;
@@ -97,7 +96,6 @@ pub async fn mcp_regenerate_token(
     if settings.mcp_enabled {
         let h = crate::mcp::start_server(
             app_handle.clone(),
-            state.mcp_state.clone(),
             settings.mcp_port,
             settings.mcp_token.clone(),
         ).await?;

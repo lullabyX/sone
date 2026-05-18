@@ -9,12 +9,10 @@ use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::SoneError;
-use crate::mcp::state_mirror::McpStateRef;
 
 #[derive(Clone)]
 pub struct SoneMcpServer {
     pub(crate) app_handle: AppHandle,
-    pub(crate) mcp_state: McpStateRef,
     pub(crate) tool_router: ToolRouter<Self>,
 }
 
@@ -44,7 +42,6 @@ impl McpHandle {
 
 pub async fn start_server(
     app_handle: AppHandle,
-    mcp_state: McpStateRef,
     port: u16,
     token: String,
 ) -> Result<McpHandle, SoneError> {
@@ -52,7 +49,6 @@ pub async fn start_server(
 
     let server = SoneMcpServer {
         app_handle: app_handle.clone(),
-        mcp_state: mcp_state.clone(),
         tool_router: crate::mcp::tools::build_router(),
     };
 
