@@ -8,7 +8,8 @@ use tauri::Manager;
 use crate::AppState;
 use crate::mcp::sanitizer::{SanitizedAlbum, SanitizedArtist, backfill_and_sanitize_tracks};
 use crate::mcp::server::SoneMcpServer;
-use crate::tidal_api::TidalClient;
+
+use super::util::require_user_id;
 
 #[derive(Deserialize, JsonSchema)]
 pub struct PaginatedArgs {
@@ -21,14 +22,6 @@ pub struct PaginatedArgs {
 #[derive(Deserialize, JsonSchema)]
 pub struct TrackIdArgs {
     pub track_id: u64,
-}
-
-fn require_user_id(client: &TidalClient) -> Result<u64, ErrorData> {
-    client
-        .tokens
-        .as_ref()
-        .and_then(|t| t.user_id)
-        .ok_or_else(|| ErrorData::internal_error("SONE is not signed in to Tidal", None))
 }
 
 #[tool_router(router = favorites_tools, vis = "pub(crate)")]
