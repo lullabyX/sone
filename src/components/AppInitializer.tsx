@@ -59,6 +59,7 @@ import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { useShortcuts } from "../hooks/useShortcuts";
+import { useMcpBridge } from "../hooks/useMcpBridge";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -156,6 +157,7 @@ export function AppInitializer() {
     usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
+  useMcpBridge();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
   const setDecorations = useSetAtom(decorationsAtom);
   const { showToast } = useToast();
