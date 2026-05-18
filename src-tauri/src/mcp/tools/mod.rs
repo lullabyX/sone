@@ -1,5 +1,6 @@
 mod catalog;
 mod favorites;
+mod playback;
 mod playlists;
 mod state;
 mod util;
@@ -13,4 +14,5 @@ pub fn build_router() -> ToolRouter<SoneMcpServer> {
         + SoneMcpServer::favorites_tools()
         + SoneMcpServer::playlists_tools()
         + SoneMcpServer::state_tools()
+        + SoneMcpServer::playback_tools()
 }
