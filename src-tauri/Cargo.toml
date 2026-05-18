@@ -50,6 +50,10 @@ keyring = { version = "3", features = ["sync-secret-service"] }
 zeroize = "1"
 discord-rich-presence = "1.1"
 zbus = "5"
+rmcp = { version = "1.7.0", features = ["server", "transport-streamable-http-server", "macros"] }
+axum = "0.7"
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "=2.0.1"
