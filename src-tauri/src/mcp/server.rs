@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use rmcp::handler::server::ServerHandler;
+use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::StreamableHttpService;
@@ -14,8 +15,10 @@ use crate::mcp::state_mirror::McpStateRef;
 pub struct SoneMcpServer {
     pub(crate) app_handle: AppHandle,
     pub(crate) mcp_state: McpStateRef,
+    pub(crate) tool_router: ToolRouter<Self>,
 }
 
+#[rmcp::tool_handler(router = self.tool_router)]
 impl ServerHandler for SoneMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
@@ -50,6 +53,7 @@ pub async fn start_server(
     let server = SoneMcpServer {
         app_handle: app_handle.clone(),
         mcp_state: mcp_state.clone(),
+        tool_router: crate::mcp::tools::build_router(),
     };
 
     let service = StreamableHttpService::new(
