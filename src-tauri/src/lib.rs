@@ -37,10 +37,9 @@ use tokio::sync::Mutex;
 mod defaults {
     pub fn yes() -> bool { true }
     pub fn volume() -> f32 { 1.0 }
+    pub fn mcp_enabled() -> bool { true }
+    pub fn mcp_port() -> u16 { 5577 }
 }
-
-fn default_mcp_enabled() -> bool { true }
-fn default_mcp_port() -> u16 { 5577 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct LastfmCredentials {
@@ -150,9 +149,9 @@ pub struct Settings {
     /// on the device-code (LoginCode) auth method. Caps at 5; never resets.
     #[serde(default)]
     pub legacy_auth_notice_count: u8,
-    #[serde(default = "default_mcp_enabled")]
+    #[serde(default = "defaults::mcp_enabled")]
     pub mcp_enabled: bool,
-    #[serde(default = "default_mcp_port")]
+    #[serde(default = "defaults::mcp_port")]
     pub mcp_port: u16,
     /// Persistent UUID token for the MCP URL path. Empty string means
     /// "not yet generated" — bootstrap will populate and save on first run.
