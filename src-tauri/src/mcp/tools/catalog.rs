@@ -192,7 +192,7 @@ impl SoneMcpServer {
         let json = serde_json::json!({
             "lyrics": lyrics.lyrics,
             "subtitles": lyrics.subtitles,
-            "is_right_to_left": lyrics.is_right_to_left,
+            "isRightToLeft": lyrics.is_right_to_left,
         });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
