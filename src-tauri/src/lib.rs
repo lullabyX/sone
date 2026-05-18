@@ -15,6 +15,7 @@ mod scrobble;
 #[cfg(target_os = "linux")]
 mod tray;
 mod tidal_api;
+pub mod mcp;
 
 pub use error::SoneError;
 
@@ -198,6 +199,8 @@ pub struct AppState {
     pub scrobble_manager: scrobble::ScrobbleManager,
     pub discord: discord::DiscordHandle,
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
+    pub mcp_state: crate::mcp::McpStateRef,
+    pub mcp_handle: tokio::sync::Mutex<Option<crate::mcp::McpHandle>>,
 }
 
 pub fn now_secs() -> u64 {
@@ -335,6 +338,8 @@ impl AppState {
             scrobble_manager,
             discord: discord_handle,
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
+            mcp_state: crate::mcp::new_state(),
+            mcp_handle: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -435,6 +440,28 @@ pub fn run() {
             }
 
             app.manage(AppState::new(app.handle().clone()));
+
+            // Start MCP server in background
+            {
+                let handle_for_mcp = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle_for_mcp.state::<AppState>();
+                    let token = uuid::Uuid::new_v4().simple().to_string();
+                    match crate::mcp::start_server(
+                        handle_for_mcp.clone(),
+                        state.mcp_state.clone(),
+                        0, // 0 = OS-assigned port; replaced by settings.mcp_port in Task 1.4
+                        token,
+                    )
+                    .await
+                    {
+                        Ok(handle) => {
+                            *state.mcp_handle.lock().await = Some(handle);
+                        }
+                        Err(e) => log::error!("MCP server failed to start: {e}"),
+                    }
+                });
+            }
 
             // Apply saved audio mode to audio thread
             {
