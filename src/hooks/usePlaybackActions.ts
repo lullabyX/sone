@@ -1139,7 +1139,9 @@ export function usePlaybackActions() {
       },
     ) => {
       const filterExplicit = !store.get(allowExplicitAtom);
-      const eligible = filterExplicit ? allTracks.filter(t => !t.explicit) : allTracks;
+      const eligible = allTracks.filter(
+        (t) => !isTrackUnavailable(t) && (!filterExplicit || !t.explicit),
+      );
       if (eligible.length === 0) return;
       store.set(consecutiveFailCountAtom, 0);
       let first: Track;
