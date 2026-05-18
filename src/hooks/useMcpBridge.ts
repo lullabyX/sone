@@ -45,6 +45,17 @@ export function useMcpBridge() {
   const setRepeat = useSetAtom(repeatAtom);
   const actions = usePlaybackActions();
 
+  // Refs so listener closures always read the latest values without
+  // forcing the listener effect to re-run on every state change.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
+  const manualQueueRef = useRef(manualQueue);
+  manualQueueRef.current = manualQueue;
+
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+
   // Position is updated via a custom DOM event so we avoid re-rendering
   // this hook on every tick — a ref read is sufficient at publish time.
   const positionRef = useRef(0);
@@ -105,12 +116,12 @@ export function useMcpBridge() {
           if (tracks.length === 0) return;
 
           if (action === "play_now") {
-            actions.setQueueTracks(tracks);
-            await actions.playTrack(tracks[0]);
+            actionsRef.current.setQueueTracks(tracks);
+            await actionsRef.current.playTrack(tracks[0]);
           } else if (action === "queue") {
-            actions.appendToQueue(tracks);
+            actionsRef.current.appendToQueue(tracks);
           } else if (action === "play_next") {
-            for (const t of [...tracks].reverse()) actions.playNextInQueue(t);
+            for (const t of [...tracks].reverse()) actionsRef.current.playNextInQueue(t);
           }
         } catch (err) {
           console.error("mcp:play-tracks failed:", err);
@@ -134,29 +145,29 @@ export function useMcpBridge() {
             tracks = await getArtistTopTracks(Number(id));
           }
           if (tracks.length === 0) return;
-          await actions.playAllFromSource(tracks);
+          await actionsRef.current.playAllFromSource(tracks);
         } catch (err) {
           console.error("mcp:play-source failed:", err);
         }
       }),
     );
 
-    unlisteners.push(listen("mcp:pause", () => { actions.pauseTrack().catch(() => {}); }));
-    unlisteners.push(listen("mcp:resume", () => { actions.resumeTrack().catch(() => {}); }));
-    unlisteners.push(listen("mcp:skip-next", () => { actions.playNext({ explicit: true }).catch(() => {}); }));
-    unlisteners.push(listen("mcp:skip-previous", () => { actions.playPrevious().catch(() => {}); }));
-    unlisteners.push(listen("mcp:clear-queue", () => { actions.clearQueue(); }));
-    unlisteners.push(listen("mcp:toggle-shuffle", () => { actions.toggleShuffle(); }));
+    unlisteners.push(listen("mcp:pause", () => { actionsRef.current.pauseTrack().catch(() => {}); }));
+    unlisteners.push(listen("mcp:resume", () => { actionsRef.current.resumeTrack().catch(() => {}); }));
+    unlisteners.push(listen("mcp:skip-next", () => { actionsRef.current.playNext({ explicit: true }).catch(() => {}); }));
+    unlisteners.push(listen("mcp:skip-previous", () => { actionsRef.current.playPrevious().catch(() => {}); }));
+    unlisteners.push(listen("mcp:clear-queue", () => { actionsRef.current.clearQueue(); }));
+    unlisteners.push(listen("mcp:toggle-shuffle", () => { actionsRef.current.toggleShuffle(); }));
 
     unlisteners.push(
       listen<{ positionSeconds: number }>("mcp:seek", (e) => {
-        actions.seekTo(e.payload.positionSeconds).catch(() => {});
+        actionsRef.current.seekTo(e.payload.positionSeconds).catch(() => {});
       }),
     );
 
     unlisteners.push(
       listen<{ level: number }>("mcp:set-volume", (e) => {
-        actions.setVolume(e.payload.level).catch(() => {});
+        actionsRef.current.setVolume(e.payload.level).catch(() => {});
       }),
     );
 
@@ -164,9 +175,9 @@ export function useMcpBridge() {
       listen<{ trackId: number }>("mcp:remove-from-queue", (e) => {
         // removeFromQueue takes an index into the combined [manualQueue, queue] array.
         // Find the first occurrence of the given trackId across both segments.
-        const combined = [...manualQueue, ...queue];
+        const combined = [...manualQueueRef.current, ...queueRef.current];
         const index = combined.findIndex((t) => t.id === e.payload.trackId);
-        if (index !== -1) actions.removeFromQueue(index);
+        if (index !== -1) actionsRef.current.removeFromQueue(index);
       }),
     );
 
@@ -183,5 +194,5 @@ export function useMcpBridge() {
         p.then((fn) => fn()).catch(() => {});
       }
     };
-  }, [actions, setRepeat, manualQueue, queue]);
+  }, []);
 }
