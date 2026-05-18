@@ -10,7 +10,7 @@ use crate::mcp::sanitizer::{SanitizedPlaylist, backfill_and_sanitize_tracks};
 use crate::mcp::server::SoneMcpServer;
 use crate::tidal_api::TidalClient;
 
-use super::util::require_user_id;
+use super::util::{require_user_id, NoArgs};
 
 #[derive(Deserialize, JsonSchema)]
 pub struct CreatePlaylistArgs {
@@ -50,9 +50,6 @@ pub struct RemoveTrackFromPlaylistArgs {
     /// 0-based index of the track within the playlist.
     pub index: u32,
 }
-
-#[derive(Deserialize, JsonSchema, Default)]
-pub struct NoArgs {}
 
 #[derive(Deserialize, JsonSchema)]
 pub struct GetPlaylistTracksArgs {
@@ -182,6 +179,7 @@ impl SoneMcpServer {
             .disk_cache
             .invalidate_tag(&format!("user:{}", user_id))
             .await;
+        state.disk_cache.invalidate_tag("folders").await;
         let json = serde_json::json!({ "uuid": uuid, "name": playlist.title, "trackCount": track_count });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -224,10 +222,16 @@ impl SoneMcpServer {
             .update_playlist(&args.playlist_uuid, new_name, new_desc, &current_access)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let user_id = require_user_id(&client)?;
+        state
+            .disk_cache
+            .invalidate_tag(&format!("user:{}", user_id))
+            .await;
         state
             .disk_cache
             .invalidate_tag(&format!("playlist:{}", args.playlist_uuid))
             .await;
+        state.disk_cache.invalidate_tag("folders").await;
         let json = serde_json::json!({ "status": "updated" });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -257,6 +261,7 @@ impl SoneMcpServer {
             .disk_cache
             .invalidate_tag(&format!("playlist:{}", args.playlist_uuid))
             .await;
+        state.disk_cache.invalidate_tag("folders").await;
         let json = serde_json::json!({ "status": "deleted" });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
