@@ -6,7 +6,7 @@ use serde::Deserialize;
 use tauri::Manager;
 
 use crate::AppState;
-use crate::mcp::sanitizer::{SanitizedAlbum, SanitizedArtist, backfill_and_sanitize_tracks};
+use crate::mcp::sanitizer::{SanitizedAlbum, SanitizedArtist, SanitizedPlaylist, backfill_and_sanitize_tracks};
 use crate::mcp::server::SoneMcpServer;
 
 #[derive(Deserialize, JsonSchema)]
@@ -49,7 +49,7 @@ pub struct LyricsArgs {
 impl SoneMcpServer {
     #[rmcp::tool(
         name = "search_tracks",
-        description = "Search the Tidal catalog for tracks, albums, and artists. Returns up to `limit` of each."
+        description = "Search the Tidal catalog for tracks, albums, artists, and playlists. Returns up to `limit` of each."
     )]
     async fn search_tracks(
         &self,
@@ -68,8 +68,9 @@ impl SoneMcpServer {
         let tracks = backfill_and_sanitize_tracks(results.tracks);
         let albums: Vec<SanitizedAlbum> = results.albums.iter().map(SanitizedAlbum::from_tidal).collect();
         let artists: Vec<SanitizedArtist> = results.artists.iter().map(SanitizedArtist::from_tidal).collect();
+        let playlists: Vec<SanitizedPlaylist> = results.playlists.iter().map(SanitizedPlaylist::from_tidal).collect();
 
-        let json = serde_json::json!({ "tracks": tracks, "albums": albums, "artists": artists });
+        let json = serde_json::json!({ "tracks": tracks, "albums": albums, "artists": artists, "playlists": playlists });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
         )]))

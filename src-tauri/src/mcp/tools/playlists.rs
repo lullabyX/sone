@@ -77,13 +77,18 @@ async fn resolve_playlist_uuid(
                 None,
             )
         })?;
-    let resp = client
+    let owned = client
         .get_user_playlists(user_id, 0, 200)
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let favorited = client
+        .get_favorite_playlists(user_id, 0, 200)
+        .await
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     let lower = needle.to_lowercase();
-    resp.items
+    owned.items
         .into_iter()
+        .chain(favorited.items.into_iter())
         .find(|p| p.title.to_lowercase() == lower)
         .map(|p| p.uuid)
         .ok_or_else(|| {
@@ -95,7 +100,7 @@ async fn resolve_playlist_uuid(
 impl SoneMcpServer {
     #[rmcp::tool(
         name = "get_user_playlists",
-        description = "Get all of the user's playlists. Returns playlist uuid, title, and track count."
+        description = "Get all playlists in the user's library — both owned and favorited (followed). Returns playlist uuid, title, and track count."
     )]
     async fn get_user_playlists(
         &self,
@@ -104,12 +109,22 @@ impl SoneMcpServer {
         let state = self.app_handle.state::<AppState>();
         let mut client = state.tidal_client.lock().await;
         let user_id = require_user_id(&client)?;
-        let resp = client
+        let owned = client
             .get_user_playlists(user_id, 0, 200)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-        let playlists: Vec<SanitizedPlaylist> =
-            resp.items.iter().map(SanitizedPlaylist::from_tidal).collect();
+        let favorited = client
+            .get_favorite_playlists(user_id, 0, 200)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut combined = Vec::with_capacity(owned.items.len() + favorited.items.len());
+        for p in owned.items.into_iter().chain(favorited.items.into_iter()) {
+            if seen.insert(p.uuid.clone()) {
+                combined.push(p);
+            }
+        }
+        let playlists: Vec<SanitizedPlaylist> = combined.iter().map(SanitizedPlaylist::from_tidal).collect();
         let json = serde_json::json!({ "playlists": playlists });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
