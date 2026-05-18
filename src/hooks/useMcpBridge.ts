@@ -116,8 +116,7 @@ export function useMcpBridge() {
           if (tracks.length === 0) return;
 
           if (action === "play_now") {
-            actionsRef.current.setQueueTracks(tracks);
-            await actionsRef.current.playTrack(tracks[0]);
+            await actionsRef.current.playAllFromSource(tracks);
           } else if (action === "queue") {
             actionsRef.current.appendToQueue(tracks);
           } else if (action === "play_next") {
