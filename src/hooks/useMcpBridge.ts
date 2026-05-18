@@ -16,24 +16,98 @@ import { usePlaybackActions } from "./usePlaybackActions";
 import {
   getTrack,
   getPlaylistTracks,
+  getPlaylistDetails,
   getMixItems,
   getArtistTopTracks,
+  getArtistDetail,
   getAlbumPage,
 } from "../api/tidal";
 import type { Track } from "../types";
 
-async function fetchSourceTracks(sourceType: string, id: string): Promise<Track[]> {
+type SourceData = {
+  tracks: Track[];
+  source: {
+    type: string;
+    id: string | number;
+    name: string;
+    image?: string;
+    subtitle?: string;
+    mixType?: string;
+    allTracks: Track[];
+  };
+  albumMode?: boolean;
+};
+
+async function fetchSourceWithMetadata(
+  sourceType: string,
+  id: string,
+): Promise<SourceData | null> {
   if (sourceType === "playlist") {
-    return getPlaylistTracks(id);
+    const tracks = await getPlaylistTracks(id);
+    try {
+      const details = await getPlaylistDetails(id);
+      return {
+        tracks,
+        source: {
+          type: "playlist",
+          id,
+          name: details.title,
+          image: details.squareImage ?? details.image,
+          allTracks: tracks,
+        },
+      };
+    } catch {
+      // metadata fetch failed — fall back to tracks-only
+      return { tracks, source: { type: "playlist", id, name: "Playlist", allTracks: tracks } };
+    }
   } else if (sourceType === "album") {
     const { page } = await getAlbumPage(Number(id));
-    return page.tracks;
-  } else if (sourceType === "mix") {
-    return (await getMixItems(id)).tracks;
+    const tracks = page.tracks;
+    return {
+      tracks,
+      source: {
+        type: "album",
+        id: Number(id),
+        name: page.album.title,
+        image: page.album.cover,
+        allTracks: tracks,
+      },
+      albumMode: true,
+    };
   } else if (sourceType === "artist") {
-    return getArtistTopTracks(Number(id));
+    const tracks = await getArtistTopTracks(Number(id));
+    try {
+      const detail = await getArtistDetail(Number(id));
+      return {
+        tracks,
+        source: {
+          type: "artist",
+          id: Number(id),
+          name: detail.name,
+          image: detail.picture ?? undefined,
+          subtitle: "Top tracks",
+          allTracks: tracks,
+        },
+      };
+    } catch {
+      // metadata fetch failed — fall back to tracks-only
+      return { tracks, source: { type: "artist", id: Number(id), name: "Artist", allTracks: tracks } };
+    }
+  } else if (sourceType === "mix") {
+    const result = await getMixItems(id);
+    return {
+      tracks: result.tracks,
+      source: {
+        type: "mix",
+        id,
+        name: result.title ?? "Mix",
+        image: result.image ?? undefined,
+        mixType: result.mixType ?? undefined,
+        allTracks: result.tracks,
+      },
+    };
   }
-  return [];
+  return null;
 }
 
 type NowPlayingSnapshot = {
@@ -148,9 +222,11 @@ export function useMcpBridge() {
       listen<{ sourceType: string; id: string }>("mcp:play-source", async (e) => {
         const { sourceType, id } = e.payload;
         try {
-          const tracks = await fetchSourceTracks(sourceType, id);
-          if (tracks.length === 0) return;
-          await actionsRef.current.playAllFromSource(tracks);
+          const data = await fetchSourceWithMetadata(sourceType, id);
+          if (!data || data.tracks.length === 0) return;
+          const opts: { source: typeof data.source; albumMode?: boolean } = { source: data.source };
+          if (data.albumMode) opts.albumMode = true;
+          await actionsRef.current.playAllFromSource(data.tracks, opts);
         } catch (err) {
           console.error("mcp:play-source failed:", err);
         }
@@ -161,10 +237,12 @@ export function useMcpBridge() {
       listen<{ sourceType: string; id: string }>("mcp:shuffle-source", async (e) => {
         const { sourceType, id } = e.payload;
         try {
-          const tracks = await fetchSourceTracks(sourceType, id);
-          if (tracks.length === 0) return;
+          const data = await fetchSourceWithMetadata(sourceType, id);
+          if (!data || data.tracks.length === 0) return;
           setShuffle(true);
-          await actionsRef.current.playAllFromSource(tracks);
+          const opts: { source: typeof data.source; albumMode?: boolean } = { source: data.source };
+          if (data.albumMode) opts.albumMode = true;
+          await actionsRef.current.playAllFromSource(data.tracks, opts);
         } catch (err) {
           console.error("mcp:shuffle-source failed:", err);
         }
