@@ -59,7 +59,7 @@ pub struct RepeatArgs {
 impl SoneMcpServer {
     #[rmcp::tool(
         name = "play_tracks",
-        description = "Play, queue, or insert tracks. action: \"play_now\" replaces queue and plays; \"queue\" appends; \"play_next\" inserts after current."
+        description = "Play, queue, or insert tracks. action: \"play_now\" replaces the auto queue and plays immediately; \"queue\" appends to the Next-up list; \"play_next\" prepends to the Next-up list."
     )]
     async fn play_tracks(
         &self,
