@@ -476,7 +476,6 @@ pub fn run() {
 
                     match crate::mcp::start_server(
                         handle_for_mcp.clone(),
-                        state.mcp_state.clone(),
                         settings.mcp_port,
                         settings.mcp_token.clone(),
                     ).await {
