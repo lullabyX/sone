@@ -47,3 +47,62 @@ pub async fn mcp_publish_state(
     }
     Ok(())
 }
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_set_enabled(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    enabled: bool,
+) -> Result<McpConnectionInfo, SoneError> {
+    let mut settings = state.load_settings().unwrap_or_default();
+
+    settings.mcp_enabled = enabled;
+
+    if enabled && settings.mcp_token.is_empty() {
+        settings.mcp_token = uuid::Uuid::new_v4().simple().to_string();
+    }
+
+    state.save_settings(&settings)?;
+
+    if let Some(handle) = state.mcp_handle.lock().await.take() {
+        handle.cancel.cancel();
+    }
+
+    if enabled {
+        let h = crate::mcp::start_server(
+            app_handle.clone(),
+            state.mcp_state.clone(),
+            settings.mcp_port,
+            settings.mcp_token.clone(),
+        ).await?;
+        *state.mcp_handle.lock().await = Some(h);
+    }
+
+    mcp_get_connection_info(state).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_regenerate_token(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<McpConnectionInfo, SoneError> {
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.mcp_token = uuid::Uuid::new_v4().simple().to_string();
+    state.save_settings(&settings)?;
+
+    if let Some(handle) = state.mcp_handle.lock().await.take() {
+        handle.cancel.cancel();
+    }
+
+    if settings.mcp_enabled {
+        let h = crate::mcp::start_server(
+            app_handle.clone(),
+            state.mcp_state.clone(),
+            settings.mcp_port,
+            settings.mcp_token.clone(),
+        ).await?;
+        *state.mcp_handle.lock().await = Some(h);
+    }
+
+    mcp_get_connection_info(state).await
+}
