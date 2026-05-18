@@ -40,6 +40,10 @@ pub enum SoneError {
     /// Scrobbling service error.
     #[error("Scrobble error: {0}")]
     Scrobble(String),
+
+    /// MCP server error.
+    #[error("MCP error: {0}")]
+    Mcp(String),
 }
 
 impl SoneError {
