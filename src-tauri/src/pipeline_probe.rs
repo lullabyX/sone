@@ -139,6 +139,26 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
     })
 }
 
+/// Find the Sample Specification (format/channels/rate) for a sink with
+/// the given Name in `pactl list sinks` output.
+pub fn sink_sample_spec(stdout: &str, target_sink_name: &str) -> Option<(String, u32, u32)> {
+    let mut in_target = false;
+    for line in stdout.lines() {
+        let trimmed = line.trim_start();
+        if let Some(name) = trimmed.strip_prefix("Name:") {
+            in_target = name.trim() == target_sink_name;
+        } else if in_target {
+            if let Some(rest) = trimmed.strip_prefix("Sample Specification:") {
+                let (fmt, ch, rate) = parse_sample_spec(rest.trim());
+                if !fmt.is_empty() && rate > 0 {
+                    return Some((fmt, ch, rate));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Scan `pactl list sinks` output for a sink with the given Name, and return
 /// its `alsa.id` property — which maps to /proc/asound/<id>/.
 pub fn sink_alsa_id(stdout: &str, target_sink_name: &str) -> Option<String> {
@@ -331,7 +351,17 @@ fn read_card_longname(card_name: &str) -> Option<String> {
 
 pub fn query_os_mixer() -> Option<OsMixerInfo> {
     let info_out = run_pactl(&["info"])?;
-    parse_pactl_info(&info_out)
+    let mut mixer = parse_pactl_info(&info_out)?;
+
+    // Override the global default spec with the actual default sink's spec.
+    if let Some(list_out) = run_pactl(&["list", "sinks"]) {
+        if let Some((fmt, ch, rate)) = sink_sample_spec(&list_out, &mixer.default_sink_name) {
+            mixer.sink_format = fmt;
+            mixer.sink_channels = ch;
+            mixer.sink_rate = rate;
+        }
+    }
+    Some(mixer)
 }
 
 fn run_pactl(args: &[&str]) -> Option<String> {
@@ -467,6 +497,23 @@ Sink #60
 \t\talsa.card_name = \"HDA NVidia\"
 \t\talsa.id = \"NVidia\"
 ";
+
+    #[test]
+    fn finds_sink_sample_spec() {
+        let spec = sink_sample_spec(PACTL_LIST_SINKS, "alsa_output.usb-iFi.iec958-stereo");
+        assert_eq!(spec, Some(("s24le".to_string(), 2, 96000)));
+    }
+
+    #[test]
+    fn finds_hdmi_sink_sample_spec() {
+        let spec = sink_sample_spec(PACTL_LIST_SINKS, "alsa_output.pci-0000_01_00.1.hdmi-stereo");
+        assert_eq!(spec, Some(("float32le".to_string(), 2, 48000)));
+    }
+
+    #[test]
+    fn returns_none_for_unknown_sink_spec() {
+        assert!(sink_sample_spec(PACTL_LIST_SINKS, "alsa_output.unknown").is_none());
+    }
 
     #[test]
     fn finds_sink_alsa_id_by_name() {
