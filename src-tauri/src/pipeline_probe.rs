@@ -103,6 +103,60 @@ pub fn parse_hw_params_file(contents: &str) -> Option<ParsedHwParams> {
     })
 }
 
+/// Parse output of `pactl info`.
+/// Returns None if Default Sink is missing.
+pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
+    let mut server_raw = None;
+    let mut default_sink = None;
+    let mut spec = None;
+
+    for line in stdout.lines() {
+        if let Some(v) = line.strip_prefix("Server Name:").map(str::trim) {
+            server_raw = Some(v.to_string());
+        } else if let Some(v) = line.strip_prefix("Default Sink:").map(str::trim) {
+            default_sink = Some(v.to_string());
+        } else if let Some(v) = line.strip_prefix("Default Sample Specification:").map(str::trim) {
+            spec = Some(v.to_string());
+        }
+    }
+
+    let server = match server_raw.as_deref() {
+        Some(s) if s.contains("PipeWire") => "PipeWire".to_string(),
+        Some(s) if s.to_ascii_lowercase().contains("pulseaudio") => "PulseAudio".to_string(),
+        Some(_) => "Unknown".to_string(),
+        None => return None,
+    };
+
+    let default_sink_name = default_sink?;
+    let (sink_format, sink_channels, sink_rate) = parse_sample_spec(&spec.unwrap_or_default());
+
+    Some(OsMixerInfo {
+        server,
+        default_sink_name,
+        sink_format,
+        sink_rate,
+        sink_channels,
+    })
+}
+
+/// Parse "<format> <N>ch <rate>Hz" → (format, channels, rate).
+/// Tolerant of missing/garbage parts.
+fn parse_sample_spec(spec: &str) -> (String, u32, u32) {
+    let mut format = String::new();
+    let mut channels = 0;
+    let mut rate = 0;
+    for tok in spec.split_whitespace() {
+        if let Some(c) = tok.strip_suffix("ch").and_then(|s| s.parse::<u32>().ok()) {
+            channels = c;
+        } else if let Some(r) = tok.strip_suffix("Hz").and_then(|s| s.parse::<u32>().ok()) {
+            rate = r;
+        } else if format.is_empty() {
+            format = tok.to_string();
+        }
+    }
+    (format, channels, rate)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,6 +213,49 @@ buffer_size: 22050
     fn returns_none_on_malformed() {
         assert!(parse_hw_params_file("not a hw_params file\nfoo: bar").is_none());
         assert!(parse_hw_params_file("").is_none());
+    }
+
+    const PACTL_INFO_PIPEWIRE: &str = "\
+Server String: /run/user/1000/pulse/native
+Library Protocol Version: 35
+Server Protocol Version: 35
+Is Local: yes
+Server Name: PulseAudio (on PipeWire 1.0.5)
+Server Version: 15.0.0
+Default Sample Specification: float32le 2ch 48000Hz
+Default Channel Map: front-left,front-right
+Default Sink: alsa_output.pci-0000_01_00.1.hdmi-stereo
+Default Source: alsa_input.usb-foo.mono-fallback
+Cookie: c4d7:c013
+";
+
+    const PACTL_INFO_PULSE: &str = "\
+Server Name: pulseaudio
+Default Sample Specification: s16le 2ch 44100Hz
+Default Sink: alsa_output.usb-iFi-by-AMR-HD-USB-Audio.iec958-stereo
+";
+
+    #[test]
+    fn detects_pipewire_server() {
+        let info = parse_pactl_info(PACTL_INFO_PIPEWIRE).unwrap();
+        assert_eq!(info.server, "PipeWire");
+        assert_eq!(info.default_sink_name, "alsa_output.pci-0000_01_00.1.hdmi-stereo");
+        assert_eq!(info.sink_format, "float32le");
+        assert_eq!(info.sink_rate, 48000);
+        assert_eq!(info.sink_channels, 2);
+    }
+
+    #[test]
+    fn detects_pulseaudio_server() {
+        let info = parse_pactl_info(PACTL_INFO_PULSE).unwrap();
+        assert_eq!(info.server, "PulseAudio");
+        assert_eq!(info.sink_rate, 44100);
+    }
+
+    #[test]
+    fn parse_pactl_info_returns_none_when_no_sink() {
+        let stripped = "Server Name: PulseAudio\nDefault Sample Specification: s16le 2ch 44100Hz\n";
+        assert!(parse_pactl_info(stripped).is_none());
     }
 }
 
