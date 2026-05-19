@@ -1135,6 +1135,7 @@ impl AudioPlayer {
                             } else {
                                 signal_path.set_backend("Normal", None);
                             }
+                            signal_path.set_audio_modes(exclusive, bit_perfect);
 
                             if exclusive || bit_perfect {
                                 // ── DirectAlsa path ──
