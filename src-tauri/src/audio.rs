@@ -1137,6 +1137,8 @@ impl AudioPlayer {
                             has_uri.store(true, Ordering::SeqCst);
                             frames_written.store(0, Ordering::Relaxed);
 
+                            *decoded_cell_thread.lock().unwrap() = None;
+                            *output_cell_thread.lock().unwrap() = None;
                             signal_path.reset_for_track();
                             if exclusive || bit_perfect {
                                 signal_path.set_backend("DirectAlsa", device.clone());
@@ -1393,6 +1395,12 @@ impl AudioPlayer {
                                 // autoaudiosink is a bin — its real child sink
                                 // (pulsesink/pipewiresink/alsasink) is added asynchronously.
                                 // Hook child-added to attach a CAPS probe on the real sink's pad.
+                                // Race trade-off: if the child is added BEFORE this signal handler
+                                // is connected, the initial CAPS event is missed and output_cell
+                                // stays None until the next caps event (e.g., format renegotiation)
+                                // or until the 2s heartbeat triggers a refresh; the diagram
+                                // gracefully shows "—" until then. In practice the connect happens
+                                // before the pipeline transitions to PAUSED, so the race is rare.
                                 if let Ok(sink_bin) = sink.clone().dynamic_cast::<gst::Bin>() {
                                     let output_cell = Arc::clone(&output_cell_thread);
                                     sink_bin.connect_element_added(move |_bin, element| {
