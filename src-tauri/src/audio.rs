@@ -404,6 +404,8 @@ fn spawn_alsa_writer(
     bit_perfect: bool,
     combined_vol: Arc<AtomicU32>,
     signal_path: Arc<SignalPathTracker>,
+    decoded_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
+    output_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
 ) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>, PcmFormat, Vec<&'static str>, Vec<u32>), String> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
@@ -681,6 +683,8 @@ fn spawn_alsa_writer(
                                 } else {
                                     // SW pause: blocking writei paces the thread (~50ms per period)
                                     if !write_silence(&pcm, &silence_buf) {
+                                        *decoded_cell.lock().unwrap() = None;
+                                        *output_cell.lock().unwrap() = None;
                                         app_handle.emit("audio-error",
                                             serde_json::json!({ "kind": "device_disconnected" })).ok();
                                         tearing_down.store(true, Ordering::SeqCst);
@@ -793,6 +797,8 @@ fn spawn_alsa_writer(
                         }
                         let got_shutdown = drain_writer_rx(&rx);
                         if !write_silence(&pcm, &silence_buf) {
+                            *decoded_cell.lock().unwrap() = None;
+                            *output_cell.lock().unwrap() = None;
                             app_handle.emit("audio-error",
                                 serde_json::json!({ "kind": "device_disconnected" })).ok();
                             tearing_down.store(true, Ordering::SeqCst);
@@ -810,6 +816,8 @@ fn spawn_alsa_writer(
                         log::debug!("[alsa-writer] entering idle silence loop");
                         loop {
                             if !write_silence(&pcm, &silence_buf) {
+                                *decoded_cell.lock().unwrap() = None;
+                                *output_cell.lock().unwrap() = None;
                                 app_handle.emit("audio-error",
                                     serde_json::json!({ "kind": "device_disconnected" })).ok();
                                 tearing_down.store(true, Ordering::SeqCst);
@@ -920,6 +928,8 @@ fn spawn_alsa_writer(
 
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                         if !write_silence(&pcm, &silence_buf) {
+                            *decoded_cell.lock().unwrap() = None;
+                            *output_cell.lock().unwrap() = None;
                             app_handle.emit("audio-error",
                                 serde_json::json!({ "kind": "device_disconnected" })).ok();
                             tearing_down.store(true, Ordering::SeqCst);
@@ -1180,6 +1190,8 @@ impl AudioPlayer {
                                             bit_perfect,
                                             Arc::clone(&combined_vol),
                                             Arc::clone(&signal_path),
+                                            Arc::clone(&decoded_cell_thread),
+                                            Arc::clone(&output_cell_thread),
                                         )?;
                                         writer_tx = Some(tx);
                                         writer_thread = Some(handle);
@@ -1539,6 +1551,8 @@ impl AudioPlayer {
                                 std::thread::spawn(move || {
                                     pipeline.set_state(gst::State::Null).ok();
                                 });
+                                *decoded_cell_thread.lock().unwrap() = None;
+                                *output_cell_thread.lock().unwrap() = None;
                                 Ok(())
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
@@ -1555,7 +1569,7 @@ impl AudioPlayer {
                                         WriterCommand::Shutdown,
                                         std::time::Duration::from_millis(200),
                                     );
-                                }                                
+                                }
                                 pipeline.set_state(gst::State::Null).ok();
                                 let _ = pipeline.state(gst::ClockTime::from_mseconds(500));
                                 drop(pipeline);
@@ -1564,6 +1578,8 @@ impl AudioPlayer {
                                 }
                                 eos.store(false, Ordering::SeqCst);
                                 has_uri.store(false, Ordering::SeqCst);
+                                *decoded_cell_thread.lock().unwrap() = None;
+                                *output_cell_thread.lock().unwrap() = None;
                                 Ok(())
                             }
                             None => {
@@ -1590,7 +1606,7 @@ impl AudioPlayer {
                             ((amplitude * current_norm_gain) as f32).to_bits(),
                             Ordering::Relaxed,
                         );
-                        signal_path.set_user_volume(level);
+                        signal_path.set_user_volume(amplitude as f32);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1697,7 +1713,6 @@ impl AudioPlayer {
                         if let Ok(mut cell) = exclusive_device_thread.lock() {
                             *cell = if enabled { device.clone() } else { None };
                         }
-                        signal_path.set_audio_modes(exclusive, bit_perfect);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1706,7 +1721,6 @@ impl AudioPlayer {
                         if enabled {
                             exclusive = true;
                         }
-                        signal_path.set_audio_modes(exclusive, bit_perfect);
                         reply.send(Ok(())).ok();
                     }
 
