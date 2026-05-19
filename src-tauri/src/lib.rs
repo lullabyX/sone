@@ -191,7 +191,8 @@ impl Default for Settings {
 }
 
 pub struct AppState {
-    pub audio_player: AudioPlayer,
+    pub audio_player: Arc<AudioPlayer>,
+    pub pipeline_probe: Arc<crate::pipeline_probe::PipelineProbe>,
     pub tidal_client: Mutex<TidalClient>,
     pub settings_path: PathBuf,
     pub cache_dir: PathBuf,
@@ -338,8 +339,18 @@ impl AppState {
         signal_path.set_audio_modes(exclusive_mode, bit_perfect);
         signal_path.set_normalization_enabled(volume_normalization);
 
+        let audio_player = Arc::new(AudioPlayer::new(
+            app_handle.clone(),
+            Arc::clone(&signal_path),
+        ));
+        let pipeline_probe = Arc::new(crate::pipeline_probe::PipelineProbe::new(
+            Arc::clone(&signal_path),
+            Arc::clone(&audio_player),
+        ));
+
         Self {
-            audio_player: AudioPlayer::new(app_handle.clone(), Arc::clone(&signal_path)),
+            audio_player,
+            pipeline_probe,
             tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
             settings_path,
             cache_dir,
@@ -888,6 +899,7 @@ pub fn run() {
             commands::mcp::mcp_set_enabled,
             commands::mcp::mcp_regenerate_token,
             commands::utility::get_signal_path,
+            commands::utility::refresh_signal_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
