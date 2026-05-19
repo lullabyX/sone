@@ -5,7 +5,7 @@ import {
   type SignalPathViewProps,
 } from "./types";
 
-type CableState = "bit-exact" | "altered" | "lossy";
+type CableState = "pristine" | "altered" | "lossy";
 
 interface Alteration {
   state: "altered" | "lossy";
@@ -50,7 +50,7 @@ export default function FlowDiagramBody({
     userVolAltered,
     normAltered,
     isDirectAlsa,
-    isUntouched,
+    isPristine,
   } = deriveAlterations(sp);
 
   const sourceCodec = streamInfo?.codec?.toUpperCase() ?? null;
@@ -74,6 +74,22 @@ export default function FlowDiagramBody({
     .filter(Boolean)
     .join(" ");
 
+  const mixSource: { fmt: string | null; rate: number | null; tertiary: string | null } =
+    isDirectAlsa
+      ? {
+          fmt: sp?.outputFormat ?? null,
+          rate: sp?.outputRate ?? null,
+          tertiary:
+            userVolAltered || normAltered ? "+gain stage" : "pass-thru",
+        }
+      : sp?.osMixer
+        ? {
+            fmt: sp.osMixer.sinkFormat,
+            rate: sp.osMixer.sinkRate,
+            tertiary: sp.osMixer.server,
+          }
+        : { fmt: null, rate: null, tertiary: "sw mixer" };
+
   const nodes: NodeSpec[] = [
     {
       title: "TIDAL",
@@ -88,31 +104,21 @@ export default function FlowDiagramBody({
       tertiary: sp?.decodedChannels ? `${sp.decodedChannels}ch` : null,
     },
     {
-      // MIX shows the format actually leaving this stage (= what reaches
-      // the DAC). Promotion/format-fallback are transient internal
-      // transformations surfaced via the alteration row and cable caption,
-      // not as the node's primary value — otherwise the diagram would
-      // imply a silent downconversion between MIX and DAC.
       title: "MIX",
-      primary: sp?.outputFormat ?? sp?.decodedFormat ?? "—",
-      secondary: formatRate(sp?.outputRate ?? sp?.decodedRate ?? null),
-      tertiary:
-        userVolAltered || normAltered
-          ? "+gain stage"
-          : isDirectAlsa
-            ? "pass-thru"
-            : "sw mixer",
+      primary: mixSource.fmt ?? "—",
+      secondary: formatRate(mixSource.rate),
+      tertiary: mixSource.tertiary,
     },
     {
       title: "DAC",
-      primary: sp?.outputFormat ?? "—",
-      secondary: formatRate(sp?.outputRate ?? null),
-      tertiary: sp?.outputChannels ? `${sp.outputChannels}ch` : null,
+      primary: sp?.dac?.format ?? sp?.outputFormat ?? "—",
+      secondary: formatRate(sp?.dac?.rate ?? sp?.outputRate ?? null),
+      tertiary: sp?.dac?.cardName ?? (sp?.outputChannels ? `${sp.outputChannels}ch` : null),
     },
   ];
 
   const cable0: CableSpec = {
-    state: "bit-exact",
+    state: "pristine",
     caption: sourceCodec ? `${sourceCodec} → PCM` : "lossless decompression",
     alterations: [],
   };
@@ -165,7 +171,7 @@ export default function FlowDiagramBody({
     ? "lossy"
     : cable1Alterations.length > 0
       ? "altered"
-      : "bit-exact";
+      : "pristine";
   const cable1Caption =
     sp?.resampledFrom && sp?.resampledTo
       ? `resample ${shortRate(sp.resampledFrom)}→${shortRate(sp.resampledTo)}`
@@ -205,11 +211,25 @@ export default function FlowDiagramBody({
       reason: "Loudness normalization scales samples before output",
     });
   }
+  const dacDiverges =
+    !!sp?.dac &&
+    sp.dac.state === "Active" &&
+    !!sp?.outputFormat &&
+    (sp.dac.format !== sp.outputFormat ||
+      (sp.dac.rate !== sp.outputRate && sp.outputRate !== null));
+  if (dacDiverges) {
+    cable2Alterations.push({
+      state: "lossy",
+      label: "OS-LAYER CONVERSION",
+      detail: `pipeline ${sp!.outputFormat}/${formatRate(sp!.outputRate)} → DAC ${sp!.dac!.format}/${formatRate(sp!.dac!.rate)}`,
+      reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream before it reached ALSA`,
+    });
+  }
   const cable2State: CableState = cable2Alterations.some((a) => a.state === "lossy")
     ? "lossy"
     : cable2Alterations.length > 0
       ? "altered"
-      : "bit-exact";
+      : "pristine";
   const cable2Caption =
     sp?.formatFallbackFrom && sp?.formatFallbackTo
       ? `fallback ${sp.formatFallbackFrom}→${sp.formatFallbackTo}`
@@ -225,34 +245,31 @@ export default function FlowDiagramBody({
   const cables: CableSpec[] = [cable0, cable1, cable2];
   const allAlterations: Alteration[] = cables.flatMap((c) => c.alterations);
 
-  // Shared system mixer is an off-pipeline alteration not represented on any
-  // cable — surface it explicitly so the verdict stays honest.
-  if (sp && sp.backend && sp.backend !== "DirectAlsa") {
+  if (sp?.osMixer && sp.backend !== "DirectAlsa") {
     allAlterations.push({
       state: "altered",
-      label: "SHARED MIXER",
-      detail: sp.backend,
-      reason:
-        "Audio routed through PulseAudio/PipeWire — system mixer may resample to 48 kHz",
+      label: "OS MIXER",
+      detail: `${sp.osMixer.server} · ${sp.osMixer.defaultSinkName}`,
+      reason: `Routed through ${sp.osMixer.server}'s default sink before reaching the DAC`,
     });
   }
 
   const lossyCount = allAlterations.filter((a) => a.state === "lossy").length;
   const alteredCount = allAlterations.filter((a) => a.state === "altered").length;
-  // Reuse the minimalist's `isUntouched` so both views agree. Promotion-only
-  // paths (lossless zero-pad) still register as bit-perfect even though the
+  // Reuse the minimalist's `isPristine` so both views agree. Promotion-only
+  // paths (lossless zero-pad) still register as pristine even though the
   // alterations list contains a row for them.
-  const isBitPerfect = isUntouched;
+  const isPristineVerdict = isPristine;
 
   const cableColor = (s: CableState): string =>
-    s === "bit-exact"
+    s === "pristine"
       ? "bg-green-400"
       : s === "altered"
         ? "bg-amber-400"
         : "bg-red-400";
 
   const cableTextColor = (s: CableState): string =>
-    s === "bit-exact"
+    s === "pristine"
       ? "text-green-400"
       : s === "altered"
         ? "text-amber-300"
@@ -338,7 +355,7 @@ export default function FlowDiagramBody({
               {i < nodes.length - 1 && (
                 <div className="flex-1 flex flex-col justify-center items-center relative px-1 min-w-[40px]">
                   <div className="w-full relative flex flex-col items-center justify-center h-8">
-                    {cables[i].state === "bit-exact" ? (
+                    {cables[i].state === "pristine" ? (
                       <>
                         <div className={`w-full h-[2px] ${cableColor(cables[i].state)}`} />
                         <div className="h-[3px]" />
@@ -377,7 +394,7 @@ export default function FlowDiagramBody({
               <div className="w-4 h-[2px] bg-green-400" />
               <div className="w-4 h-[2px] bg-green-400" />
             </div>
-            <span>BIT-EXACT</span>
+            <span>PRISTINE</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-[3px] bg-amber-400" />
@@ -421,17 +438,17 @@ export default function FlowDiagramBody({
       {/* Verdict line */}
       <div
         className={`px-6 py-3 border-t border-th-border-subtle text-center text-[11px] font-bold tracking-[0.15em] ${
-          isBitPerfect
+          isPristineVerdict
             ? "text-green-400"
             : lossyCount > 0
               ? "text-red-400"
               : "text-amber-300"
         }`}
       >
-        {isBitPerfect
-          ? "BIT-EXACT — NO ALTERATIONS DETECTED"
+        {isPristineVerdict
+          ? "PRISTINE — NO ALTERATIONS DETECTED"
           : lossyCount > 0
-            ? `NOT BIT-EXACT — ${lossyCount} LOSSY STAGE${lossyCount === 1 ? "" : "S"}${
+            ? `NOT PRISTINE — ${lossyCount} LOSSY STAGE${lossyCount === 1 ? "" : "S"}${
                 alteredCount > 0 ? ` · ${alteredCount} MODIFIED` : ""
               }`
             : alteredCount > 0
