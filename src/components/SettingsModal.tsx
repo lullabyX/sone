@@ -17,6 +17,7 @@ import {
 import {
   autoplayAtom,
   bitPerfectAtom,
+  volumeNormalizationAtom,
   allowExplicitAtom,
   currentTrackAtom,
   isPlayingAtom,
@@ -194,7 +195,9 @@ interface SettingsModalProps {
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
   const [bitPerfect] = useAtom(bitPerfectAtom);
-  const [volumeNormalization, setVolumeNormalization] = useState(false);
+  const [volumeNormalization, setVolumeNormalization] = useAtom(
+    volumeNormalizationAtom,
+  );
   const [discordRpc, setDiscordRpc] = useState(false);
   const [discordStatusText, setDiscordStatusText] = useState("");
   const [decorations, setDecorations] = useAtom(decorationsAtom);
@@ -216,9 +219,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   useEffect(() => {
     if (!open) return;
     setActiveTab("playback");
-    invoke<boolean>("get_volume_normalization")
-      .then(setVolumeNormalization)
-      .catch(() => {});
+    // volume normalization atom is hydrated globally on app boot via
+    // AppInitializer and kept in sync by setBitPerfect/the toggle handler.
     // decorations atom is hydrated globally on app boot via AppInitializer;
     // no per-modal-open re-fetch needed.
     invoke<boolean>("get_minimize_to_tray")

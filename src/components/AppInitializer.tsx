@@ -44,6 +44,7 @@ import {
   exclusiveModeAtom,
   bitPerfectAtom,
   exclusiveDeviceAtom,
+  volumeNormalizationAtom,
   originalQueueAtom,
   manualQueueAtom,
   playbackSourceAtom,
@@ -153,7 +154,7 @@ export function AppInitializer() {
   const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
-  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, toggleShuffle, seekTo } =
+  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, setBitPerfect, toggleShuffle, seekTo } =
     usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
@@ -242,6 +243,9 @@ export function AppInitializer() {
           .catch(() => {});
         invoke<string | null>("get_exclusive_device")
           .then((v) => store.set(exclusiveDeviceAtom, v))
+          .catch(() => {});
+        invoke<boolean>("get_volume_normalization")
+          .then((v) => store.set(volumeNormalizationAtom, v))
           .catch(() => {});
         invoke<ProxySettings>("get_proxy_settings")
           .then((v) => store.set(proxySettingsAtom, v))
@@ -1044,7 +1048,9 @@ export function AppInitializer() {
       const isExclusive = store.get(exclusiveModeAtom);
       if (isExclusive) {
         store.set(exclusiveModeAtom, false);
-        store.set(bitPerfectAtom, false);
+        if (store.get(bitPerfectAtom)) {
+          setBitPerfect(false);
+        }
         invoke("set_exclusive_mode", { enabled: false }).catch(() => {});
         showToast("Exclusive output off — takes effect next track");
       } else {
@@ -1066,8 +1072,7 @@ export function AppInitializer() {
     toggleBitPerfect: () => {
       const isBP = store.get(bitPerfectAtom);
       if (isBP) {
-        store.set(bitPerfectAtom, false);
-        invoke("set_bit_perfect", { enabled: false }).catch(() => {});
+        setBitPerfect(false);
         showToast("Bit-perfect off — takes effect next track");
       } else {
         const isExclusive = store.get(exclusiveModeAtom);
@@ -1085,8 +1090,7 @@ export function AppInitializer() {
             })
             .catch(() => {});
         }
-        store.set(bitPerfectAtom, true);
-        invoke("set_bit_perfect", { enabled: true }).catch(() => {});
+        setBitPerfect(true);
         showToast("Bit-perfect on — takes effect next track");
       }
     },

@@ -13,8 +13,9 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { useAuth } from "../hooks/useAuth";
+import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import {
   exclusiveModeAtom,
   bitPerfectAtom,
@@ -50,8 +51,9 @@ export default function UserMenu() {
   const [editingId, setEditingId] = useState<ActionId | null>(null);
   const [reservedHint, setReservedHint] = useState(false);
   const [exclusiveMode, setExclusiveMode] = useAtom(exclusiveModeAtom);
-  const [bitPerfect, setBitPerfect] = useAtom(bitPerfectAtom);
+  const bitPerfect = useAtomValue(bitPerfectAtom);
   const [exclusiveDevice, setExclusiveDevice] = useAtom(exclusiveDeviceAtom);
+  const { setBitPerfect } = usePlaybackActions();
   const [audioDevices, setAudioDevices] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -183,7 +185,9 @@ export default function UserMenu() {
             onClick={() => {
               const next = !exclusiveMode;
               setExclusiveMode(next);
-              if (!next) {
+              if (!next && bitPerfect) {
+                // Disabling exclusive also disables bit-perfect; route through
+                // the action so volume/normalization restore to previous state.
                 setBitPerfect(false);
               }
               invoke("set_exclusive_mode", { enabled: next }).catch(() => {});
@@ -250,7 +254,6 @@ export default function UserMenu() {
               onClick={() => {
                 const next = !bitPerfect;
                 setBitPerfect(next);
-                invoke("set_bit_perfect", { enabled: next }).catch(() => {});
                 showToast(
                   next
                     ? "Bit-perfect on — takes effect next track"
