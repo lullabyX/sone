@@ -1835,7 +1835,11 @@ fn build_appsink_pipeline(
     bit_perfect: bool,
     writer_tx: crossbeam_channel::Sender<WriterCommand>,
     writer_gen: Arc<AtomicU64>,
-    negotiated_fmt: &PcmFormat,
+    // Retained in signature for caller compatibility; no longer used in the
+    // builder body since the non-bit-perfect capsfilter is constructed empty
+    // and the writer learns the format via FormatHint (from pad_added + the
+    // appsink CAPS probe).
+    _negotiated_fmt: &PcmFormat,
     supported_gst_formats: &[&str],
     supported_rates: &[u32],
     decoded_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
@@ -1922,16 +1926,14 @@ fn build_appsink_pipeline(
         let audioresample = gst::ElementFactory::make("audioresample")
             .build()
             .map_err(|e| format!("Failed to create audioresample: {e}"))?;
-        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
+        // Construct capsfilter EMPTY so it imposes no constraint until pad_added
+        // relocks it with the chosen format. Seeding caps here (e.g. with the
+        // default S32LE from `_negotiated_fmt`) makes src_pad.link() trigger
+        // downstream negotiation against the seed BEFORE the relock runs —
+        // audioconvert then commits to converting (e.g. S16LE→S32LE) and the
+        // writer reopens ALSA at the wrong format. Matches the bit-perfect
+        // BTS pattern at line ~1903 where the capsfilter is also built empty.
         let capsfilter = gst::ElementFactory::make("capsfilter")
-            .property(
-                "caps",
-                gst::Caps::builder("audio/x-raw")
-                    .field("format", negotiated_fmt.gst_format.as_str())
-                    .field("channels", negotiated_fmt.channels as i32)
-                    .field("rate", gst::List::new(rate_list))
-                    .build(),
-            )
             .build()
             .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
         let cf_weak = capsfilter.downgrade();
@@ -2094,6 +2096,27 @@ fn build_appsink_pipeline(
                                 };
                                 log::info!("[audio] capsfilter locked to {locked}");
                                 cf.set_property("caps", &locked);
+
+                                // Belt-and-braces: notify the writer explicitly so it
+                                // reopens ALSA at the chosen format. The appsink CAPS
+                                // probe will also fire FormatHint when the new caps
+                                // event reaches it; both arrive at the writer's mpsc
+                                // and the writer dedups via the current_fmt comparison.
+                                if !is_bit_perfect {
+                                    let bps: u32 = match chosen.as_str() {
+                                        "S16LE" => 2,
+                                        "S24LE" => 3,
+                                        "S24_32LE" | "S32LE" | "F32LE" => 4,
+                                        _ => 4,
+                                    };
+                                    let hint_fmt = PcmFormat {
+                                        gst_format: chosen.clone(),
+                                        sample_rate: rate as u32,
+                                        channels: channels as u32,
+                                        bytes_per_sample: bps,
+                                    };
+                                    let _ = resample_tx.try_send(WriterCommand::FormatHint(hint_fmt));
+                                }
                             }
                         }
                     }
