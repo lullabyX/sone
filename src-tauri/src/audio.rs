@@ -1953,11 +1953,12 @@ fn build_appsink_pipeline(
         (None, None)
     };
 
-    // Grab capsfilter weak ref for bit-perfect cap locking.
-    // Skip for DASH URIs — adaptive demux renegotiates caps mid-stream,
-    // which the locked capsfilter rejects (GST_FLOW_ERROR). DASH caps are
-    // already constrained to safe formats above.
-    let capsfilter_weak: Option<gst::glib::WeakRef<gst::Element>> = if bit_perfect && !is_dash {
+    // Grab capsfilter weak ref for dynamic format locking in pad_added.
+    // Both bit-perfect AND non-bit-perfect benefit from pick_capsfilter_format's
+    // lossless preference (prefer pass-through, then narrowest lossless promotion).
+    // DASH renegotiates caps mid-stream → skip locking (caps are constrained at
+    // appsink level instead for DASH+bit-perfect).
+    let capsfilter_weak: Option<gst::glib::WeakRef<gst::Element>> = if !is_dash {
         audioconvert
             .static_pad("src")
             .and_then(|p| p.peer())
@@ -2044,9 +2045,11 @@ fn build_appsink_pipeline(
             }
         }
 
-        // Bit-perfect: detect format promotion and lock capsfilter.
-        // Runs for both DASH and non-DASH — notification is independent of capsfilter.
-        if is_bit_perfect {
+        // Format selection: both bit-perfect AND non-bit-perfect prefer the
+        // narrowest lossless option from pick_capsfilter_format. Difference:
+        // bit-perfect also emits PendingPromotion so the writer can fire a
+        // truthful from→to toast; non-bit-perfect just relies on FormatHint.
+        if !is_dash {
             let caps = src_pad.current_caps().or_else(|| {
                 let query = src_pad.query_caps(None);
                 if query.is_fixed() {
@@ -2062,29 +2065,40 @@ fn build_appsink_pipeline(
                         s.get::<i32>("channels"),
                         s.get::<&str>("format"),
                     ) {
-                        // Announce source format unconditionally. The writer compares
-                        // against the actually-negotiated current_fmt to decide whether
-                        // a toast fires (and what the truthful `to` is).
-                        let _ = resample_tx.try_send(WriterCommand::PendingPromotion {
-                            from: format.to_string(),
-                            generation: pad_gen.load(Ordering::Acquire),
-                        });
+                        // Bit-perfect: announce source format so the writer
+                        // can emit a truthful promotion toast once negotiation lands.
+                        if is_bit_perfect {
+                            let _ = resample_tx.try_send(WriterCommand::PendingPromotion {
+                                from: format.to_string(),
+                                generation: pad_gen.load(Ordering::Acquire),
+                            });
+                        }
 
-                        // Pick a single capsfilter format. Multi-format lists would let
-                        // audioconvert free-pick — observed S24_32LE → S24LE conversion
-                        // when the DAC supports S24_32LE natively. Single-format locking
-                        // makes negotiation deterministic and prefers pass-through.
                         let chosen = pick_capsfilter_format(format, &supported_fmts_for_closure);
 
-                        // Lock capsfilter (non-DASH only — DASH uses appsink caps instead)
                         if let Some(ref cf_weak) = capsfilter_weak {
                             if let Some(cf) = cf_weak.upgrade() {
-                                let locked = gst::Caps::builder("audio/x-raw")
-                                    .field("format", chosen.as_str())
-                                    .field("rate", rate)
-                                    .field("channels", channels)
-                                    .build();
-                                log::info!("[audio] bit-perfect: locking capsfilter to {locked}");
+                                let locked = if is_bit_perfect {
+                                    // Bit-perfect: single rate (no audioresample work).
+                                    gst::Caps::builder("audio/x-raw")
+                                        .field("format", chosen.as_str())
+                                        .field("rate", rate)
+                                        .field("channels", channels)
+                                        .build()
+                                } else {
+                                    // Non-bit-perfect: rate stays a list so audioresample
+                                    // can pick a DAC-supported rate when source rate isn't.
+                                    let rate_list: Vec<i32> = supported_rates_for_closure
+                                        .iter()
+                                        .map(|&r| r as i32)
+                                        .collect();
+                                    gst::Caps::builder("audio/x-raw")
+                                        .field("format", chosen.as_str())
+                                        .field("channels", channels)
+                                        .field("rate", gst::List::new(rate_list))
+                                        .build()
+                                };
+                                log::info!("[audio] capsfilter locked to {locked}");
                                 cf.set_property("caps", &locked);
                             }
                         }
