@@ -4,7 +4,7 @@ use rmcp::handler::server::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
-use rmcp::transport::streamable_http_server::StreamableHttpService;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -55,7 +55,9 @@ pub async fn start_server(
     let service = StreamableHttpService::new(
         move || Ok(server.clone()),
         LocalSessionManager::default().into(),
-        Default::default(),
+        StreamableHttpServerConfig::default()
+            .with_stateful_mode(false)
+            .with_json_response(true),
     );
 
     let path = format!("/{}/mcp", token);
