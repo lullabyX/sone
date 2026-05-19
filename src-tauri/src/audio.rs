@@ -727,6 +727,8 @@ fn spawn_alsa_writer(
                                     sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
                                     if !bit_perfect && chunk.format.gst_format != negotiated.gst_format {
                                         sp.record_format_fallback(&chunk.format.gst_format, &negotiated.gst_format);
+                                    } else {
+                                        sp.clear_format_fallback();
                                     }
                                     current_fmt = negotiated;
                                 }
@@ -760,6 +762,8 @@ fn spawn_alsa_writer(
                                     sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
                                     if !bit_perfect && requested.gst_format != negotiated.gst_format {
                                         sp.record_format_fallback(&requested.gst_format, &negotiated.gst_format);
+                                    } else {
+                                        sp.clear_format_fallback();
                                     }
                                     current_fmt = negotiated;
                                 }
@@ -848,6 +852,8 @@ fn spawn_alsa_writer(
                                                 sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
                                                 if !bit_perfect && chunk.format.gst_format != negotiated.gst_format {
                                                     sp.record_format_fallback(&chunk.format.gst_format, &negotiated.gst_format);
+                                                } else {
+                                                    sp.clear_format_fallback();
                                                 }
                                                 current_fmt = negotiated;
                                             }
@@ -885,6 +891,8 @@ fn spawn_alsa_writer(
                                                 sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
                                                 if !bit_perfect && requested.gst_format != negotiated.gst_format {
                                                     sp.record_format_fallback(&requested.gst_format, &negotiated.gst_format);
+                                                } else {
+                                                    sp.clear_format_fallback();
                                                 }
                                                 current_fmt = negotiated;
                                             }
