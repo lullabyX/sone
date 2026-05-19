@@ -1887,7 +1887,7 @@ fn build_appsink_pipeline(
         "[audio] building appsink pipeline: exclusive={exclusive} bit_perfect={bit_perfect}"
     );
 
-    let (u_vol, n_vol) = if bit_perfect {
+    let (u_vol, n_vol, capsfilter_weak_from_build): (Option<gst::Element>, Option<gst::Element>, Option<gst::glib::WeakRef<gst::Element>>) = if bit_perfect {
         audioconvert.set_property_from_str("dithering", "none");
         audioconvert.set_property_from_str("noise-shaping", "none");
 
@@ -1898,11 +1898,13 @@ fn build_appsink_pipeline(
                 .map_err(|e| format!("Failed to add elements: {e}"))?;
             gst::Element::link_many([&audioconvert, appsink.upcast_ref()])
                 .map_err(|e| format!("Failed to link bit-perfect DASH chain: {e}"))?;
+            (None, None, None)
         } else {
             // BTS: capsfilter for dynamic locking (preserves exact decoded format)
             let capsfilter = gst::ElementFactory::make("capsfilter")
                 .build()
                 .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
+            let cf_weak = capsfilter.downgrade();
             pipe.add_many([
                 &uridecodebin,
                 &audioconvert,
@@ -1912,9 +1914,8 @@ fn build_appsink_pipeline(
             .map_err(|e| format!("Failed to add elements: {e}"))?;
             gst::Element::link_many([&audioconvert, &capsfilter, appsink.upcast_ref()])
                 .map_err(|e| format!("Failed to link bit-perfect chain: {e}"))?;
+            (None, None, Some(cf_weak))
         }
-
-        (None, None)
     } else {
         // Exclusive (non-bit-perfect): volume applied in ALSA writer thread.
         // Rate constrained to DAC-supported rates — audioresample converts unsupported rates.
@@ -1933,6 +1934,7 @@ fn build_appsink_pipeline(
             )
             .build()
             .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
+        let cf_weak = capsfilter.downgrade();
 
         pipe.add_many([
             &uridecodebin,
@@ -1950,23 +1952,15 @@ fn build_appsink_pipeline(
         ])
         .map_err(|e| format!("Failed to link exclusive chain: {e}"))?;
 
-        (None, None)
+        (None, None, Some(cf_weak))
     };
 
-    // Grab capsfilter weak ref for dynamic format locking in pad_added.
-    // Both bit-perfect AND non-bit-perfect benefit from pick_capsfilter_format's
-    // lossless preference (prefer pass-through, then narrowest lossless promotion).
-    // DASH renegotiates caps mid-stream → skip locking (caps are constrained at
-    // appsink level instead for DASH+bit-perfect).
-    let capsfilter_weak: Option<gst::glib::WeakRef<gst::Element>> = if !is_dash {
-        audioconvert
-            .static_pad("src")
-            .and_then(|p| p.peer())
-            .and_then(|p| p.parent_element())
-            .map(|el| el.downgrade())
-    } else {
-        None
-    };
+    // Capsfilter weak ref captured at element creation (line ~1903/1925).
+    // DON'T use audioconvert.src.peer.parent_element — the chain length differs
+    // between bit-perfect (audioconvert→capsfilter) and non-bit-perfect
+    // (audioconvert→audioresample→capsfilter), so peer-walk would target the
+    // wrong element in non-bit-perfect mode.
+    let capsfilter_weak = capsfilter_weak_from_build;
 
     // Pad probe on audioconvert.sink — captures the codec's raw output
     // (pre-conversion). audioconvert.src would show the post-promotion
