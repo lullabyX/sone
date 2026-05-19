@@ -139,6 +139,24 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
     })
 }
 
+/// Scan `pactl list sinks` output for a sink with the given Name, and return
+/// its `alsa.id` property — which maps to /proc/asound/<id>/.
+pub fn sink_alsa_id(stdout: &str, target_sink_name: &str) -> Option<String> {
+    let mut in_target = false;
+    for line in stdout.lines() {
+        let trimmed = line.trim_start();
+        if let Some(name) = trimmed.strip_prefix("Name:") {
+            in_target = name.trim() == target_sink_name;
+        } else if in_target {
+            if let Some(rest) = trimmed.strip_prefix("alsa.id =") {
+                // Format: alsa.id = "Audio"
+                return Some(rest.trim().trim_matches('"').to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Parse "<format> <N>ch <rate>Hz" → (format, channels, rate).
 /// Tolerant of missing/garbage parts.
 fn parse_sample_spec(spec: &str) -> (String, u32, u32) {
@@ -256,6 +274,45 @@ Default Sink: alsa_output.usb-iFi-by-AMR-HD-USB-Audio.iec958-stereo
     fn parse_pactl_info_returns_none_when_no_sink() {
         let stripped = "Server Name: PulseAudio\nDefault Sample Specification: s16le 2ch 44100Hz\n";
         assert!(parse_pactl_info(stripped).is_none());
+    }
+
+    const PACTL_LIST_SINKS: &str = "\
+Sink #59
+\tState: SUSPENDED
+\tName: alsa_output.usb-iFi.iec958-stereo
+\tDescription: iFi HD USB Audio
+\tDriver: PipeWire
+\tSample Specification: s24le 2ch 96000Hz
+\tProperties:
+\t\talsa.card = \"5\"
+\t\talsa.card_name = \"iFi (by AMR) HD USB Audio\"
+\t\talsa.id = \"Audio\"
+
+Sink #60
+\tState: RUNNING
+\tName: alsa_output.pci-0000_01_00.1.hdmi-stereo
+\tSample Specification: float32le 2ch 48000Hz
+\tProperties:
+\t\talsa.card = \"0\"
+\t\talsa.card_name = \"HDA NVidia\"
+\t\talsa.id = \"NVidia\"
+";
+
+    #[test]
+    fn finds_sink_alsa_id_by_name() {
+        let id = sink_alsa_id(PACTL_LIST_SINKS, "alsa_output.usb-iFi.iec958-stereo");
+        assert_eq!(id.as_deref(), Some("Audio"));
+    }
+
+    #[test]
+    fn finds_hdmi_sink_alsa_id() {
+        let id = sink_alsa_id(PACTL_LIST_SINKS, "alsa_output.pci-0000_01_00.1.hdmi-stereo");
+        assert_eq!(id.as_deref(), Some("NVidia"));
+    }
+
+    #[test]
+    fn returns_none_for_unknown_sink() {
+        assert!(sink_alsa_id(PACTL_LIST_SINKS, "alsa_output.unknown").is_none());
     }
 }
 
