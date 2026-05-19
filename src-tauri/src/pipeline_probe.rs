@@ -259,7 +259,7 @@ impl PipelineProbe {
             None
         };
 
-        let dac = card.as_deref().and_then(|c| read_hw_params(c));
+        let dac = card.as_deref().and_then(read_hw_params);
         self.signal_path.set_dac(dac);
     }
 }
