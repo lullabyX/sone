@@ -14,6 +14,7 @@ import ExploreSubPage from "./components/ExploreSubPage";
 import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
+import TooltipLayer from "./components/TooltipLayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
 import { useShortcuts } from "./hooks/useShortcuts";
@@ -201,6 +202,7 @@ function App() {
   return (
     <ToastProvider>
       <AppInitializer />
+      <TooltipLayer />
       <AppContent />
     </ToastProvider>
   );
