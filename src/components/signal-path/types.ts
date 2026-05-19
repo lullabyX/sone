@@ -32,17 +32,19 @@ export function deriveAlterations(sp: SignalPath | null) {
     !!sp?.volumeNormalization && Math.abs(normFactor - 1.0) > EPS;
   const isDirectAlsa = sp?.backend === "DirectAlsa";
 
-  // "Untouched" is a strict claim. Requires:
+  // "Pristine" is a strict claim. Requires:
   //  - DirectAlsa backend (we own the ALSA device; OS mixer is bypassed)
   //  - exclusiveMode (no shared access could mix into our stream)
-  //  - bitPerfect (pipeline is CONSTRUCTED to exclude modifying stages —
-  //    no GStreamer `volume`/`audioresample`/dithering, just decode → ALSA)
+  //  - bitPerfect (pipeline excludes modifying stages by construction)
   //  - No per-stage alteration detected (resample, format fallback, vol, RG)
-  //
-  // Without bitPerfect mode, the pipeline includes processing elements at
-  // unity values — they SHOULD be passthrough but it's not guaranteed.
-  // Calling that "untouched" would be overclaiming.
-  const isUntouched =
+  //  - DAC kernel hw_params matches our pipeline's output format/rate
+  //    (or no DAC info available, in which case we don't punish)
+  const dacMatchesPipeline =
+    !sp?.dac ||
+    sp.dac.state !== "Active" ||
+    (sp.dac.format === sp.outputFormat && sp.dac.rate === sp.outputRate);
+
+  const isPristine =
     !!sp &&
     isDirectAlsa &&
     !!sp.exclusiveMode &&
@@ -50,7 +52,8 @@ export function deriveAlterations(sp: SignalPath | null) {
     sp.resampledFrom == null &&
     sp.formatFallbackFrom == null &&
     !userVolAltered &&
-    !normAltered;
+    !normAltered &&
+    dacMatchesPipeline;
 
   return {
     userVol,
@@ -58,6 +61,6 @@ export function deriveAlterations(sp: SignalPath | null) {
     userVolAltered,
     normAltered,
     isDirectAlsa,
-    isUntouched,
+    isPristine,
   };
 }

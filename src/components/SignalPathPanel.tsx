@@ -18,6 +18,7 @@ import {
   formatRate,
   gainFactorToDb,
 } from "./signal-path/types";
+import { useSignalPathRefresh } from "../hooks/useSignalPathRefresh";
 
 interface SignalPathPanelProps {
   open: boolean;
@@ -33,6 +34,8 @@ export default function SignalPathPanel({
   const sp = useAtomValue(signalPathAtom);
   const streamInfo = useAtomValue(streamInfoAtom);
   const currentTrack = useAtomValue(currentTrackAtom);
+
+  useSignalPathRefresh(open);
 
   useEffect(() => {
     if (!open) return;
@@ -62,7 +65,7 @@ export default function SignalPathPanel({
 
   if (!open) return null;
 
-  const { userVol, normFactor, userVolAltered, normAltered, isUntouched } =
+  const { userVol, normFactor, userVolAltered, normAltered, isPristine } =
     deriveAlterations(sp);
 
   const sourceBits = streamInfo?.bitDepth;
@@ -78,10 +81,16 @@ export default function SignalPathPanel({
     .join(" ");
 
   let headline: string;
-  if (isUntouched) {
+  if (!sp || !sp.backend) {
+    headline = "Idle — no track playing";
+  } else if (!sp.dac && !sp.outputFormat) {
+    headline = "Pipeline starting…";
+  } else if (sp.dac?.state === "Closed") {
+    headline = "DAC inactive — output may be routed elsewhere";
+  } else if (isPristine) {
     headline = sourceSummary
-      ? `${sourceSummary} reaches your DAC bit-exact`
-      : "Source PCM reaches your DAC bit-exact";
+      ? `${sourceSummary} reaches your DAC pristine`
+      : "Source PCM reaches your DAC pristine";
   } else if (sp?.resampledFrom && sp?.resampledTo) {
     headline = `Resampled ${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`;
   } else if (sp?.formatFallbackFrom && sp?.formatFallbackTo) {
@@ -92,18 +101,18 @@ export default function SignalPathPanel({
     headline = `ReplayGain applied · ${gainFactorToDb(normFactor)}`;
   } else if (userVolAltered) {
     headline = `Volume slider scaling samples · ${Math.round(userVol * 100)}%`;
-  } else if (sp?.backend !== "DirectAlsa") {
-    headline = "Routed through the system mixer";
+  } else if (sp?.osMixer) {
+    headline = `Routed through ${sp.osMixer.server}`;
   } else if (sp && !sp.bitPerfect) {
     headline = "Bit-perfect mode off — pipeline at unity, not guaranteed";
   } else {
     headline = "Pipeline pass-through";
   }
 
-  const verdictWord = isUntouched ? "UNTOUCHED" : "MODIFIED";
-  const ringColor = isUntouched ? "border-green-400" : "border-amber-400";
-  const wordColor = isUntouched ? "text-green-400" : "text-amber-300";
-  const dotColor = isUntouched ? "bg-green-400" : "bg-amber-400";
+  const verdictWord = isPristine ? "PRISTINE" : "MODIFIED";
+  const ringColor = isPristine ? "border-green-400" : "border-amber-400";
+  const wordColor = isPristine ? "text-green-400" : "text-amber-300";
+  const dotColor = isPristine ? "bg-green-400" : "bg-amber-400";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
