@@ -151,22 +151,22 @@ export default function FlowDiagramBody({
       reason: "Lossless zero-pad — sample values preserved",
     });
   }
-  // Bit-perfect mode OFF on DirectAlsa: pipeline still includes
-  // audioresample, audioconvert, GStreamer `volume` elements (even at
-  // unity). They SHOULD be passthrough but it's not guaranteed by config.
-  // Surface this so the cable color and verdict don't overclaim.
-  const pipelineAtUnity =
+  // DirectAlsa mode: detect when audioconvert is doing a lossless container
+  // repack (e.g., S24_32LE → S24LE because the DAC doesn't accept the 4-byte
+  // form, or S24_32LE → S32LE in non-bit-perfect mode). Audio bits are
+  // preserved; only the byte layout differs. Flagged as altered-lossless
+  // (yellow), not lossy (red).
+  const containerRepack =
     isDirectAlsa &&
-    !sp?.bitPerfect &&
-    !sp?.resampledFrom &&
-    !sp?.formatFallbackFrom;
-  if (pipelineAtUnity) {
+    !!sp?.decodedFormat &&
+    !!sp?.outputFormat &&
+    !formatsEquivalent(sp.decodedFormat, sp.outputFormat);
+  if (containerRepack) {
     cable1Alterations.push({
       state: "altered",
-      label: "PIPELINE PROCESSING",
-      detail: "bit-perfect mode off",
-      reason:
-        "Pipeline includes volume / audioresample / audioconvert elements at unity — passthrough not guaranteed",
+      label: "CONTAINER REPACK",
+      detail: `${displayFormat(sp!.decodedFormat)} → ${displayFormat(sp!.outputFormat)}`,
+      reason: "audioconvert repacked the sample container — audio bits preserved, byte layout differs",
     });
   }
   // Normal mode: detect pipeline-output → OS-mixer-input divergence.
@@ -200,8 +200,8 @@ export default function FlowDiagramBody({
         ? `promote ${displayFormat(sp!.promotedFrom)}→${displayFormat(sp!.promotedTo)}`
         : mixerDiverges
           ? "mix conversion"
-          : pipelineAtUnity
-            ? "processing at unity"
+          : containerRepack
+            ? "container repack"
             : "pass-thru";
   const cable1: CableSpec = {
     state: cable1State,
