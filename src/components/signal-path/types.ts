@@ -29,6 +29,21 @@ export function formatsEquivalent(
   return normalizeFormat(a) === normalizeFormat(b);
 }
 
+/**
+ * Normalize a PCM format string for DISPLAY (uppercase, no underscores/dashes).
+ * GStreamer "S24LE", ALSA "S24_LE", pactl "s24le" all render as "S24LE".
+ * Floats render as their bit-width form, e.g. "F32LE" / "F64LE", never
+ * the bare "FLOAT" alias.
+ */
+export function displayFormat(s: string | null | undefined): string {
+  if (!s) return "—";
+  const upper = s.toUpperCase().replace(/[_-]/g, "");
+  // Common float aliases → canonical FxxLE form.
+  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE") return "F32LE";
+  if (upper === "FLOAT64" || upper === "FLOAT64LE") return "F64LE";
+  return upper;
+}
+
 export function formatRate(hz: number | null | undefined): string | null {
   if (!hz) return null;
   return hz >= 1000

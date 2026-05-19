@@ -1,5 +1,6 @@
 import {
   deriveAlterations,
+  displayFormat,
   formatRate,
   formatsEquivalent,
   gainFactorToDb,
@@ -100,19 +101,19 @@ export default function FlowDiagramBody({
     },
     {
       title: "DECODE",
-      primary: sp?.decodedFormat ?? "—",
+      primary: displayFormat(sp?.decodedFormat ?? null),
       secondary: formatRate(sp?.decodedRate ?? null),
       tertiary: sp?.decodedChannels ? `${sp.decodedChannels}ch` : null,
     },
     {
       title: "MIX",
-      primary: mixSource.fmt ?? "—",
+      primary: displayFormat(mixSource.fmt),
       secondary: formatRate(mixSource.rate),
       tertiary: mixSource.tertiary,
     },
     {
       title: "DAC",
-      primary: sp?.dac?.format ?? sp?.outputFormat ?? "—",
+      primary: displayFormat(sp?.dac?.format ?? sp?.outputFormat ?? null),
       secondary: formatRate(sp?.dac?.rate ?? sp?.outputRate ?? null),
       tertiary: sp?.dac?.cardName ?? (sp?.outputChannels ? `${sp.outputChannels}ch` : null),
     },
@@ -146,7 +147,7 @@ export default function FlowDiagramBody({
     cable1Alterations.push({
       state: "altered",
       label: "PROMOTED",
-      detail: `${sp!.promotedFrom} → ${sp!.promotedTo}`,
+      detail: `${displayFormat(sp!.promotedFrom)} → ${displayFormat(sp!.promotedTo)}`,
       reason: "Lossless zero-pad — sample values preserved",
     });
   }
@@ -183,7 +184,7 @@ export default function FlowDiagramBody({
     cable1Alterations.push({
       state: "lossy",
       label: "MIX CONVERSION",
-      detail: `pipeline ${sp!.decodedFormat}/${formatRate(sp!.decodedRate)} → mixer ${sp!.osMixer!.sinkFormat}/${formatRate(sp!.osMixer!.sinkRate)}`,
+      detail: `pipeline ${displayFormat(sp!.decodedFormat)}/${formatRate(sp!.decodedRate)} → mixer ${displayFormat(sp!.osMixer!.sinkFormat)}/${formatRate(sp!.osMixer!.sinkRate)}`,
       reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream into its internal mix format`,
     });
   }
@@ -196,7 +197,7 @@ export default function FlowDiagramBody({
     sp?.resampledFrom && sp?.resampledTo
       ? `resample ${shortRate(sp.resampledFrom)}→${shortRate(sp.resampledTo)}`
       : promotionVisible
-        ? `promote ${sp!.promotedFrom}→${sp!.promotedTo}`
+        ? `promote ${displayFormat(sp!.promotedFrom)}→${displayFormat(sp!.promotedTo)}`
         : mixerDiverges
           ? "mix conversion"
           : pipelineAtUnity
@@ -213,7 +214,7 @@ export default function FlowDiagramBody({
     cable2Alterations.push({
       state: "lossy",
       label: "FORMAT FALLBACK",
-      detail: `${sp.formatFallbackFrom} → ${sp.formatFallbackTo}`,
+      detail: `${displayFormat(sp.formatFallbackFrom)} → ${displayFormat(sp.formatFallbackTo)}`,
       reason: "DAC rejected requested format — fell back to nearest accepted",
     });
   }
@@ -255,7 +256,7 @@ export default function FlowDiagramBody({
     cable2Alterations.push({
       state: "lossy",
       label: "OS-LAYER CONVERSION",
-      detail: `${isDirectAlsa ? "pipeline" : "mixer"} ${upstreamFormat}/${formatRate(upstreamRate)} → DAC ${sp!.dac!.format}/${formatRate(sp!.dac!.rate)}`,
+      detail: `${isDirectAlsa ? "pipeline" : "mixer"} ${displayFormat(upstreamFormat)}/${formatRate(upstreamRate)} → DAC ${displayFormat(sp!.dac!.format)}/${formatRate(sp!.dac!.rate)}`,
       reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream before it reached ALSA`,
     });
   }
@@ -266,7 +267,7 @@ export default function FlowDiagramBody({
       : "pristine";
   const cable2Caption =
     sp?.formatFallbackFrom && sp?.formatFallbackTo
-      ? `fallback ${sp.formatFallbackFrom}→${sp.formatFallbackTo}`
+      ? `fallback ${displayFormat(sp.formatFallbackFrom)}→${displayFormat(sp.formatFallbackTo)}`
       : dacDiverges
         ? "OS-layer conversion"
         : userVolAltered || normAltered
@@ -280,15 +281,6 @@ export default function FlowDiagramBody({
 
   const cables: CableSpec[] = [cable0, cable1, cable2];
   const allAlterations: Alteration[] = cables.flatMap((c) => c.alterations);
-
-  if (sp?.osMixer && sp.backend !== "DirectAlsa") {
-    allAlterations.push({
-      state: "altered",
-      label: "OS MIXER",
-      detail: `${sp.osMixer.server} · ${sp.osMixer.defaultSinkName}`,
-      reason: `Routed through ${sp.osMixer.server}'s default sink before reaching the DAC`,
-    });
-  }
 
   const lossyCount = allAlterations.filter((a) => a.state === "lossy").length;
   const alteredCount = allAlterations.filter((a) => a.state === "altered").length;
