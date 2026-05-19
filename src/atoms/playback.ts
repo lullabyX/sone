@@ -2,6 +2,26 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Track, StreamInfo, PlaybackSource } from "../types";
 
+export interface DacHwParams {
+  cardIndex: number;
+  cardName: string;
+  pcmDevice: string;
+  format: string;
+  rate: number;
+  channels: number;
+  periodSize: number;
+  bufferSize: number;
+  state: "Active" | "Closed";
+}
+
+export interface OsMixerInfo {
+  server: string; // "PipeWire" | "PulseAudio" | "Unknown"
+  defaultSinkName: string;
+  sinkFormat: string;
+  sinkRate: number;
+  sinkChannels: number;
+}
+
 export interface SignalPath {
   backend: string | null;
   decodedFormat: string | null;
@@ -14,7 +34,7 @@ export interface SignalPath {
   exclusiveMode: boolean;
   bitPerfect: boolean;
   volumeNormalization: boolean;
-  userVolume: number;
+  userVolume: number; // amplitude (was slider position)
   normGainFactor: number;
   resampledFrom: number | null;
   resampledTo: number | null;
@@ -22,6 +42,8 @@ export interface SignalPath {
   promotedTo: string | null;
   formatFallbackFrom: string | null;
   formatFallbackTo: string | null;
+  dac: DacHwParams | null;
+  osMixer: OsMixerInfo | null;
 }
 
 export const signalPathAtom = atom<SignalPath | null>(null);
