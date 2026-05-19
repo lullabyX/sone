@@ -127,6 +127,17 @@ textarea {
   }
 }
 
+@keyframes signalPathPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+}
+
 .animate-fadeIn {
   animation: fadeIn 0.2s ease-out both;
 }
