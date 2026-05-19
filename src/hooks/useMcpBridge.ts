@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -11,6 +11,20 @@ import {
   repeatAtom,
   shuffleAtom,
 } from "../atoms/playback";
+import {
+  userPlaylistsAtom,
+  addedToFolderAtom,
+  deletedPlaylistIdsAtom,
+  updatedPlaylistsAtom,
+} from "../atoms/playlists";
+import {
+  favoriteTrackIdsAtom,
+  favoriteAlbumIdsAtom,
+  followedArtistIdsAtom,
+  optimisticFavoriteAlbumsAtom,
+  optimisticFollowedArtistsAtom,
+} from "../atoms/favorites";
+import { authTokensAtom } from "../atoms/auth";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
 import { usePlaybackActions } from "./usePlaybackActions";
 import {
@@ -20,9 +34,18 @@ import {
   getMixItems,
   getArtistTopTracks,
   getArtistDetail,
+  getAlbumDetail,
   getAlbumPage,
+  getPlaylistFolders,
+  normalizePlaylistFolders,
+  invalidateCache,
+  addAlbumToFavoritesCache,
+  removeAlbumFromFavoritesCache,
+  addArtistToFollowedCache,
+  removeArtistFromFollowedCache,
+  removeTrackFromFavoritesCache,
 } from "../api/tidal";
-import type { Track } from "../types";
+import type { Track, Playlist, PlaylistOrFolder } from "../types";
 
 type SourceData = {
   tracks: Track[];
@@ -134,6 +157,7 @@ export function useMcpBridge() {
   const setRepeat = useSetAtom(repeatAtom);
   const setShuffle = useSetAtom(shuffleAtom);
   const actions = usePlaybackActions();
+  const store = useStore();
 
   // Refs so listener closures always read the latest values without
   // forcing the listener effect to re-run on every state change.
@@ -283,6 +307,188 @@ export function useMcpBridge() {
         const map: Record<string, number> = { off: 0, all: 1, one: 2 };
         const v = map[e.payload.mode];
         if (v !== undefined) setRepeat(v);
+      }),
+    );
+
+    // ================================================================
+    //  Library mutations from MCP server
+    // ================================================================
+
+    // Re-fetch root playlists list and merge into atoms — used to pick up
+    // server-generated cover art / exact counts after an MCP mutation.
+    const refreshSidebarPlaylists = () => {
+      getPlaylistFolders("root", 0, 50)
+        .then((res) => {
+          const normalized = normalizePlaylistFolders(res);
+          const fresh = normalized.items
+            .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+            .map((i) => i.data);
+          if (!fresh.length) return;
+          store.set(userPlaylistsAtom, (prev) => {
+            if (prev.length === 0) return fresh;
+            const freshUuids = new Set(fresh.map((p) => p.uuid));
+            const retained = prev.filter((p) => !freshUuids.has(p.uuid));
+            return [...fresh, ...retained];
+          });
+          const freshMap = new Map(fresh.map((p) => [p.uuid, p]));
+          store.set(addedToFolderAtom, (prev) => {
+            const rootList = prev.get("root");
+            if (!rootList?.length) return prev;
+            let changed = false;
+            const updated = rootList.map((entry) => {
+              if (entry.kind !== "playlist") return entry;
+              const ref = freshMap.get(entry.data.uuid);
+              if (ref && (ref.image !== entry.data.image || ref.numberOfTracks !== entry.data.numberOfTracks)) {
+                changed = true;
+                return { ...entry, data: { ...entry.data, ...ref } };
+              }
+              return entry;
+            });
+            if (!changed) return prev;
+            const next = new Map(prev);
+            next.set("root", updated);
+            return next;
+          });
+        })
+        .catch(() => {});
+    };
+
+    unlisteners.push(
+      listen<Playlist>("mcp:playlist-created", (e) => {
+        const playlist = e.payload;
+        store.set(userPlaylistsAtom, (prev) =>
+          prev.some((p) => p.uuid === playlist.uuid) ? prev : [playlist, ...prev],
+        );
+        store.set(addedToFolderAtom, (prev) => {
+          const next = new Map(prev);
+          const list = next.get("root") ?? [];
+          if (list.some((e) => e.kind === "playlist" && e.data.uuid === playlist.uuid)) return prev;
+          next.set("root", [...list, { kind: "playlist" as const, data: playlist }]);
+          return next;
+        });
+        invalidateCache("user-playlists");
+        // Delayed refresh to pick up cover art generated server-side
+        setTimeout(refreshSidebarPlaylists, 3000);
+      }),
+    );
+
+    unlisteners.push(
+      listen<{ uuid: string; title: string | null; description: string | null }>(
+        "mcp:playlist-updated",
+        (e) => {
+          const { uuid, title, description } = e.payload;
+          store.set(userPlaylistsAtom, (prev) =>
+            prev.map((p) =>
+              p.uuid === uuid
+                ? {
+                    ...p,
+                    ...(title != null ? { title } : {}),
+                    ...(description != null ? { description } : {}),
+                  }
+                : p,
+            ),
+          );
+          store.set(updatedPlaylistsAtom, (prev) => {
+            const next = new Map(prev);
+            const existing = next.get(uuid) ?? { title: title ?? "", description: undefined };
+            next.set(uuid, {
+              title: title ?? existing.title,
+              description: description ?? existing.description,
+            });
+            return next;
+          });
+          invalidateCache("user-playlists");
+        },
+      ),
+    );
+
+    unlisteners.push(
+      listen<{ uuid: string }>("mcp:playlist-deleted", (e) => {
+        const { uuid } = e.payload;
+        store.set(userPlaylistsAtom, (prev) => prev.filter((p) => p.uuid !== uuid));
+        store.set(deletedPlaylistIdsAtom, (prev) => new Set(prev).add(uuid));
+        invalidateCache("user-playlists");
+        invalidateCache(`playlist:${uuid}`);
+        invalidateCache(`playlist-page:${uuid}`);
+      }),
+    );
+
+    unlisteners.push(
+      listen<{ uuid: string; delta: number }>("mcp:playlist-tracks-changed", (e) => {
+        const { uuid, delta } = e.payload;
+        store.set(userPlaylistsAtom, (prev) =>
+          prev.map((p) =>
+            p.uuid === uuid
+              ? { ...p, numberOfTracks: Math.max(0, (p.numberOfTracks ?? 0) + delta) }
+              : p,
+          ),
+        );
+        invalidateCache(`playlist:${uuid}`);
+        invalidateCache(`playlist-page:${uuid}`);
+        invalidateCache("user-playlists");
+        // Refresh to re-sync exact count + cover art with the server
+        setTimeout(refreshSidebarPlaylists, 3000);
+      }),
+    );
+
+    unlisteners.push(
+      listen<{ kind: string; id: number; action: string }>("mcp:favorite-changed", (e) => {
+        const { kind, id, action } = e.payload;
+        const userId = store.get(authTokensAtom)?.user_id;
+        if (kind === "track") {
+          if (action === "add") {
+            store.set(favoriteTrackIdsAtom, (prev) => new Set([...prev, id]));
+          } else {
+            store.set(favoriteTrackIdsAtom, (prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+            if (userId) removeTrackFromFavoritesCache(userId, id);
+          }
+        } else if (kind === "album") {
+          if (action === "add") {
+            store.set(favoriteAlbumIdsAtom, (prev) => new Set([...prev, id]));
+            getAlbumDetail(id)
+              .then((album) => {
+                if (userId) addAlbumToFavoritesCache(userId, album);
+                store.set(optimisticFavoriteAlbumsAtom, (prev) => [
+                  album,
+                  ...prev.filter((a) => a.id !== id),
+                ]);
+              })
+              .catch(() => {});
+          } else {
+            store.set(favoriteAlbumIdsAtom, (prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+            store.set(optimisticFavoriteAlbumsAtom, (prev) => prev.filter((a) => a.id !== id));
+            if (userId) removeAlbumFromFavoritesCache(userId, id);
+          }
+        } else if (kind === "artist") {
+          if (action === "add") {
+            store.set(followedArtistIdsAtom, (prev) => new Set([...prev, id]));
+            getArtistDetail(id)
+              .then((artist) => {
+                if (userId) addArtistToFollowedCache(userId, artist);
+                store.set(optimisticFollowedArtistsAtom, (prev) => [
+                  artist,
+                  ...prev.filter((a) => a.id !== id),
+                ]);
+              })
+              .catch(() => {});
+          } else {
+            store.set(followedArtistIdsAtom, (prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+            store.set(optimisticFollowedArtistsAtom, (prev) => prev.filter((a) => a.id !== id));
+            if (userId) removeArtistFromFollowedCache(userId, id);
+          }
+        }
       }),
     );
 

@@ -3,9 +3,13 @@ use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
 use rmcp::{ErrorData, tool_router};
 use serde::Deserialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::AppState;
+use crate::mcp::events::{
+    EV_PLAYLIST_CREATED, EV_PLAYLIST_DELETED, EV_PLAYLIST_TRACKS_CHANGED, EV_PLAYLIST_UPDATED,
+    PlaylistDeletedPayload, PlaylistTracksChangedPayload, PlaylistUpdatedPayload,
+};
 use crate::mcp::sanitizer::{SanitizedPlaylist, backfill_and_sanitize_tracks};
 use crate::mcp::server::SoneMcpServer;
 use crate::tidal_api::TidalClient;
@@ -195,6 +199,20 @@ impl SoneMcpServer {
             .invalidate_tag(&format!("user:{}", user_id))
             .await;
         state.disk_cache.invalidate_tag("folders").await;
+        self.app_handle
+            .emit(EV_PLAYLIST_CREATED, &playlist)
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
+        if track_count > 0 {
+            self.app_handle
+                .emit(
+                    EV_PLAYLIST_TRACKS_CHANGED,
+                    PlaylistTracksChangedPayload {
+                        uuid: uuid.clone(),
+                        delta: track_count as i32,
+                    },
+                )
+                .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
+        }
         let json = serde_json::json!({ "uuid": uuid, "name": playlist.title, "trackCount": track_count });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -247,6 +265,16 @@ impl SoneMcpServer {
             .invalidate_tag(&format!("playlist:{}", args.playlist_uuid))
             .await;
         state.disk_cache.invalidate_tag("folders").await;
+        self.app_handle
+            .emit(
+                EV_PLAYLIST_UPDATED,
+                PlaylistUpdatedPayload {
+                    uuid: args.playlist_uuid.clone(),
+                    title: args.name.clone(),
+                    description: args.description.clone(),
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "updated" });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -277,6 +305,14 @@ impl SoneMcpServer {
             .invalidate_tag(&format!("playlist:{}", args.playlist_uuid))
             .await;
         state.disk_cache.invalidate_tag("folders").await;
+        self.app_handle
+            .emit(
+                EV_PLAYLIST_DELETED,
+                PlaylistDeletedPayload {
+                    uuid: args.playlist_uuid.clone(),
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "deleted" });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -313,6 +349,15 @@ impl SoneMcpServer {
             .disk_cache
             .invalidate_tag(&format!("playlist:{}", uuid))
             .await;
+        self.app_handle
+            .emit(
+                EV_PLAYLIST_TRACKS_CHANGED,
+                PlaylistTracksChangedPayload {
+                    uuid: uuid.clone(),
+                    delta: added as i32,
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "uuid": uuid, "added": added });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -337,6 +382,15 @@ impl SoneMcpServer {
             .disk_cache
             .invalidate_tag(&format!("playlist:{}", args.playlist_uuid))
             .await;
+        self.app_handle
+            .emit(
+                EV_PLAYLIST_TRACKS_CHANGED,
+                PlaylistTracksChangedPayload {
+                    uuid: args.playlist_uuid.clone(),
+                    delta: -1,
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "removed" });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),

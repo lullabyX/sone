@@ -3,9 +3,10 @@ use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
 use rmcp::{ErrorData, tool_router};
 use serde::Deserialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::AppState;
+use crate::mcp::events::{EV_FAVORITE_CHANGED, FavoriteChangedPayload};
 use crate::mcp::sanitizer::{SanitizedAlbum, SanitizedArtist, backfill_and_sanitize_tracks};
 use crate::mcp::server::SoneMcpServer;
 
@@ -175,6 +176,16 @@ impl SoneMcpServer {
         }
         drop(client);
         state.disk_cache.invalidate_tag("fav-tracks").await;
+        self.app_handle
+            .emit(
+                EV_FAVORITE_CHANGED,
+                FavoriteChangedPayload {
+                    kind: "track".to_string(),
+                    id: args.id,
+                    action: args.action.clone(),
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": args.action, "id": args.id });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -211,6 +222,16 @@ impl SoneMcpServer {
         }
         drop(client);
         state.disk_cache.invalidate_tag("fav-albums").await;
+        self.app_handle
+            .emit(
+                EV_FAVORITE_CHANGED,
+                FavoriteChangedPayload {
+                    kind: "album".to_string(),
+                    id: args.id,
+                    action: args.action.clone(),
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": args.action, "id": args.id });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -247,6 +268,16 @@ impl SoneMcpServer {
         }
         drop(client);
         state.disk_cache.invalidate_tag("fav-artists").await;
+        self.app_handle
+            .emit(
+                EV_FAVORITE_CHANGED,
+                FavoriteChangedPayload {
+                    kind: "artist".to_string(),
+                    id: args.id,
+                    action: args.action.clone(),
+                },
+            )
+            .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": args.action, "id": args.id });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
