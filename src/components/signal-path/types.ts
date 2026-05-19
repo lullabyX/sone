@@ -10,38 +10,55 @@ export interface SignalPathViewProps {
 
 export const EPS = 1e-3;
 
-function normalizeFormat(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[_-]/g, "")       // strip underscores and dashes
-    .replace(/^float(32|64)?$/, "float");  // f32/float32/float → float
+/** ALSA naming → canonical GStreamer naming. Pure mapping table. */
+const ALSA_TO_GSTREAMER: Record<string, string> = {
+  S16_LE: "S16LE",
+  S24_LE: "S24_32LE",
+  S24_3LE: "S24LE",
+  S32_LE: "S32LE",
+  FLOAT_LE: "F32LE",
+  S16_BE: "S16BE",
+  S24_BE: "S24_32BE",
+  S24_3BE: "S24BE",
+  S32_BE: "S32BE",
+  FLOAT_BE: "F32BE",
+};
+
+/** Convert any naming convention (ALSA / GStreamer / pactl) to canonical GStreamer form. */
+function toGstreamerFormat(s: string): string {
+  // Uppercase and convert pactl's dashes to underscores.
+  const upper = s.toUpperCase().replace(/-/g, "_");
+  // ALSA → GStreamer.
+  if (ALSA_TO_GSTREAMER[upper]) return ALSA_TO_GSTREAMER[upper];
+  // pactl float aliases.
+  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE") return "F32LE";
+  if (upper === "FLOAT64" || upper === "FLOAT64LE") return "F64LE";
+  // Already canonical (or unknown — leave as-is).
+  return upper;
 }
 
 /**
- * Compare two PCM format strings for semantic equivalence.
- * Tolerates GStreamer ("S24LE"), ALSA ("S24_LE"), and pactl ("s24le") naming.
+ * Render a PCM format for the UI. Canonicalizes to GStreamer naming so
+ * S24_32LE (4-byte container) and S24LE (3-byte packed) stay visibly
+ * distinct regardless of whether the source string came from /proc/asound
+ * (ALSA), GStreamer pad caps, or pactl.
+ */
+export function displayFormat(s: string | null | undefined): string {
+  if (!s) return "—";
+  return toGstreamerFormat(s);
+}
+
+/**
+ * Compare two PCM format strings for semantic equivalence across naming
+ * conventions. ALSA "S24_LE" matches GStreamer "S24_32LE"; pactl "s32le"
+ * matches ALSA "S32_LE"; etc.
  */
 export function formatsEquivalent(
   a: string | null | undefined,
   b: string | null | undefined,
 ): boolean {
   if (!a || !b) return false;
-  return normalizeFormat(a) === normalizeFormat(b);
-}
-
-/**
- * Normalize a PCM format string for DISPLAY (uppercase, no underscores/dashes).
- * GStreamer "S24LE", ALSA "S24_LE", pactl "s24le" all render as "S24LE".
- * Floats render as their bit-width form, e.g. "F32LE" / "F64LE", never
- * the bare "FLOAT" alias.
- */
-export function displayFormat(s: string | null | undefined): string {
-  if (!s) return "—";
-  const upper = s.toUpperCase().replace(/[_-]/g, "");
-  // Common float aliases → canonical FxxLE form.
-  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE") return "F32LE";
-  if (upper === "FLOAT64" || upper === "FLOAT64LE") return "F64LE";
-  return upper;
+  return toGstreamerFormat(a) === toGstreamerFormat(b);
 }
 
 export function formatRate(hz: number | null | undefined): string | null {
