@@ -1204,6 +1204,8 @@ impl AudioPlayer {
                                         fmt_for_pipeline,
                                         supported_fmts_for_pipeline,
                                         supported_rates_for_pipeline,
+                                        Arc::clone(&decoded_cell_thread),
+                                        Arc::clone(&output_cell_thread),
                                     )?;
 
                                     // Start pipeline directly — errors come via bus watcher
@@ -1752,6 +1754,8 @@ fn build_appsink_pipeline(
     negotiated_fmt: &PcmFormat,
     supported_gst_formats: &[&str],
     supported_rates: &[u32],
+    decoded_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
+    output_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
 ) -> Result<(gst::Pipeline, Option<gst::Element>, Option<gst::Element>), String> {
     use gst_app::prelude::*;
 
@@ -1879,6 +1883,30 @@ fn build_appsink_pipeline(
         None
     };
 
+    // Pad probe on audioconvert.src — captures the post-decode/post-convert
+    // format the pipeline settled on. Writes into the shared cell for
+    // pipeline_probe to read on refresh.
+    if let Some(src_pad) = audioconvert.static_pad("src") {
+        let cell = Arc::clone(&decoded_cell);
+        src_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
+            if let Some(gst::PadProbeData::Event(ref event)) = info.data {
+                if let gst::EventView::Caps(caps_event) = event.view() {
+                    let caps = caps_event.caps();
+                    if let Some(fmt) = parse_pcm_format(caps) {
+                        if let Ok(mut guard) = cell.lock() {
+                            *guard = Some(crate::pipeline_probe::PadCaps {
+                                format: fmt.gst_format.clone(),
+                                rate: fmt.sample_rate,
+                                channels: fmt.channels,
+                            });
+                        }
+                    }
+                }
+            }
+            gst::PadProbeReturn::Ok
+        });
+    }
+
     // Connect uridecodebin's dynamic pad to audioconvert
     let convert_weak = audioconvert.downgrade();
     let supported_fmts_for_closure: Vec<String> = supported_gst_formats.iter().map(|s| s.to_string()).collect();
@@ -1985,12 +2013,20 @@ fn build_appsink_pipeline(
     // Pad probe: intercept CAPS events for preemptive ALSA format changes (DASH renegotiation)
     let probe_tx = writer_tx.clone();
     if let Some(sink_pad) = appsink.static_pad("sink") {
+        let output_cell_for_probe = Arc::clone(&output_cell);
         sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
             if let Some(gst::PadProbeData::Event(ref event)) = info.data {
                 if let gst::EventView::Caps(caps_event) = event.view() {
                     let caps = caps_event.caps();
                     if let Some(fmt) = parse_pcm_format(caps) {
                         log::debug!("[audio] CAPS event on appsink: {fmt:?}");
+                        if let Ok(mut guard) = output_cell_for_probe.lock() {
+                            *guard = Some(crate::pipeline_probe::PadCaps {
+                                format: fmt.gst_format.clone(),
+                                rate: fmt.sample_rate,
+                                channels: fmt.channels,
+                            });
+                        }
                         let _ = probe_tx.try_send(WriterCommand::FormatHint(fmt));
                     }
                 }
