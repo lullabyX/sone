@@ -1,6 +1,7 @@
 import {
   deriveAlterations,
   formatRate,
+  formatsEquivalent,
   gainFactorToDb,
   type SignalPathViewProps,
 } from "./types";
@@ -176,7 +177,7 @@ export default function FlowDiagramBody({
     !isDirectAlsa &&
     !!sp?.osMixer &&
     !!sp?.decodedFormat &&
-    ((sp.decodedFormat.toLowerCase() !== sp.osMixer.sinkFormat.toLowerCase()) ||
+    (!formatsEquivalent(sp.decodedFormat, sp.osMixer.sinkFormat) ||
       (sp.decodedRate !== null && sp.osMixer.sinkRate !== sp.decodedRate));
   if (mixerDiverges) {
     cable1Alterations.push({
@@ -232,17 +233,29 @@ export default function FlowDiagramBody({
       reason: "Loudness normalization scales samples before output",
     });
   }
+  // Mode-aware: in Normal mode the "previous stage" is the OS mixer's sink
+  // spec (what PipeWire actually delivers to the kernel), NOT our pipeline
+  // output. In DirectAlsa we own the device so outputFormat IS what reaches
+  // the kernel.
+  const upstreamFormat = isDirectAlsa
+    ? sp?.outputFormat ?? null
+    : sp?.osMixer?.sinkFormat ?? sp?.outputFormat ?? null;
+  const upstreamRate = isDirectAlsa
+    ? sp?.outputRate ?? null
+    : sp?.osMixer?.sinkRate ?? sp?.outputRate ?? null;
+
   const dacDiverges =
     !!sp?.dac &&
     sp.dac.state === "Active" &&
-    !!sp?.outputFormat &&
-    (sp.dac.format !== sp.outputFormat ||
-      (sp.dac.rate !== sp.outputRate && sp.outputRate !== null));
+    !!upstreamFormat &&
+    upstreamRate !== null &&
+    (!formatsEquivalent(sp.dac.format, upstreamFormat) ||
+      sp.dac.rate !== upstreamRate);
   if (dacDiverges) {
     cable2Alterations.push({
       state: "lossy",
       label: "OS-LAYER CONVERSION",
-      detail: `pipeline ${sp!.outputFormat}/${formatRate(sp!.outputRate)} → DAC ${sp!.dac!.format}/${formatRate(sp!.dac!.rate)}`,
+      detail: `${isDirectAlsa ? "pipeline" : "mixer"} ${upstreamFormat}/${formatRate(upstreamRate)} → DAC ${sp!.dac!.format}/${formatRate(sp!.dac!.rate)}`,
       reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream before it reached ALSA`,
     });
   }

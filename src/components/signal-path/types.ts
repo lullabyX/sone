@@ -10,6 +10,25 @@ export interface SignalPathViewProps {
 
 export const EPS = 1e-3;
 
+function normalizeFormat(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[_-]/g, "")       // strip underscores and dashes
+    .replace(/^float(32|64)?$/, "float");  // f32/float32/float → float
+}
+
+/**
+ * Compare two PCM format strings for semantic equivalence.
+ * Tolerates GStreamer ("S24LE"), ALSA ("S24_LE"), and pactl ("s24le") naming.
+ */
+export function formatsEquivalent(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return normalizeFormat(a) === normalizeFormat(b);
+}
+
 export function formatRate(hz: number | null | undefined): string | null {
   if (!hz) return null;
   return hz >= 1000
@@ -39,10 +58,21 @@ export function deriveAlterations(sp: SignalPath | null) {
   //  - No per-stage alteration detected (resample, format fallback, vol, RG)
   //  - DAC kernel hw_params matches our pipeline's output format/rate
   //    (or no DAC info available, in which case we don't punish)
+  // What feeds the kernel? DirectAlsa: our pipeline's appsink output (we own
+  // the ALSA device directly). Normal: the OS mixer's per-sink spec
+  // (PipeWire/Pulse owns the device, our pipeline only hands off audio).
+  const upstreamFormat = isDirectAlsa
+    ? sp?.outputFormat
+    : sp?.osMixer?.sinkFormat ?? sp?.outputFormat;
+  const upstreamRate = isDirectAlsa
+    ? sp?.outputRate
+    : sp?.osMixer?.sinkRate ?? sp?.outputRate;
+
   const dacMatchesPipeline =
     !sp?.dac ||
     sp.dac.state !== "Active" ||
-    (sp.dac.format === sp.outputFormat && sp.dac.rate === sp.outputRate);
+    (formatsEquivalent(sp.dac.format, upstreamFormat ?? null) &&
+      sp.dac.rate === upstreamRate);
 
   const isPristine =
     !!sp &&
