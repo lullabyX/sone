@@ -213,6 +213,138 @@ fn parse_sample_spec(spec: &str) -> (String, u32, u32) {
     (format, channels, rate)
 }
 
+use std::process::Command;
+use std::sync::Arc;
+
+pub struct PipelineProbe {
+    signal_path: Arc<crate::signal_path::SignalPathTracker>,
+    audio_player: Arc<crate::audio::AudioPlayer>,
+}
+
+impl PipelineProbe {
+    pub fn new(
+        signal_path: Arc<crate::signal_path::SignalPathTracker>,
+        audio_player: Arc<crate::audio::AudioPlayer>,
+    ) -> Self {
+        Self { signal_path, audio_player }
+    }
+
+    /// One-shot refresh: probe all sources, push into tracker. Cheap to call.
+    /// Runs in the Tauri command handler thread; performs file reads and one
+    /// shell-out to pactl. Never blocks on audio thread.
+    pub fn refresh(&self) {
+        // 1. Pad caps cells (mutex reads, very fast).
+        self.signal_path.set_decoded_caps(self.audio_player.snapshot_decoded_caps());
+        self.signal_path.set_output_caps(self.audio_player.snapshot_output_caps());
+
+        // 2. OS mixer via pactl. Best-effort; None on failure.
+        let mixer = query_os_mixer();
+        self.signal_path.set_os_mixer(mixer.clone());
+
+        // 3. Discover the active card and read its hw_params.
+        let backend = self.signal_path.snapshot().backend;
+        let exclusive_device = self.audio_player.exclusive_device();
+        let card = if let Some(b) = backend.as_deref() {
+            if b == "Normal" {
+                // Need sink → alsa.id mapping from `pactl list sinks`.
+                let list_stdout = run_pactl(&["list", "sinks"]);
+                let resolver = |sink: &str| {
+                    list_stdout.as_deref().and_then(|out| sink_alsa_id(out, sink))
+                };
+                discover_active_card_with_resolver(Some(b), exclusive_device.as_deref(), mixer.as_ref(), &resolver)
+            } else {
+                discover_active_card(Some(b), exclusive_device.as_deref(), mixer.as_ref())
+            }
+        } else {
+            None
+        };
+
+        let dac = card.as_deref().and_then(|c| read_hw_params(c));
+        self.signal_path.set_dac(dac);
+    }
+}
+
+/// Read /proc/asound/<card>/pcm0p/sub0/hw_params and return a populated
+/// DacHwParams. Tries multiple PCM subdevices if pcm0p/sub0 is closed,
+/// to handle hardware with non-default PCM indices.
+pub fn read_hw_params(card_name: &str) -> Option<DacHwParams> {
+    let base = format!("/proc/asound/{card_name}");
+    let card_index = read_card_index(card_name).unwrap_or(0);
+
+    // Probe a small grid of pcm/sub combinations (covers ~all hardware).
+    for pcm in 0..4u32 {
+        for sub in 0..2u32 {
+            let path = format!("{base}/pcm{pcm}p/sub{sub}/hw_params");
+            let Ok(contents) = std::fs::read_to_string(&path) else { continue };
+            let parsed = parse_hw_params_file(&contents)?;
+            if parsed.state == HwParamsState::Closed && (pcm != 0 || sub != 0) {
+                continue; // try the next subdevice
+            }
+            return Some(DacHwParams {
+                card_index,
+                card_name: read_card_longname(card_name).unwrap_or_else(|| card_name.to_string()),
+                pcm_device: format!("hw:CARD={card_name},DEV={pcm}"),
+                format: parsed.format,
+                rate: parsed.rate,
+                channels: parsed.channels,
+                period_size: parsed.period_size,
+                buffer_size: parsed.buffer_size,
+                state: parsed.state,
+            });
+        }
+    }
+    None
+}
+
+fn read_card_index(card_name: &str) -> Option<u32> {
+    let id_path = format!("/proc/asound/{card_name}/id");
+    // /proc/asound/<name> is sometimes a symlink to /proc/asound/cardN — read the link.
+    let link = std::fs::read_link(format!("/proc/asound/{card_name}")).ok()?;
+    let s = link.to_string_lossy();
+    s.strip_prefix("card").and_then(|n| n.parse().ok()).or_else(|| {
+        // Fallback: read the id file (contains the same name; index unknown).
+        let _ = std::fs::read_to_string(id_path);
+        None
+    })
+}
+
+fn read_card_longname(card_name: &str) -> Option<String> {
+    // /proc/asound/cards lists "  N [Name           ]: Driver - Long name"
+    let cards = std::fs::read_to_string("/proc/asound/cards").ok()?;
+    for line in cards.lines() {
+        if let Some(bracket) = line.find('[') {
+            let after = &line[bracket + 1..];
+            if let Some(close) = after.find(']') {
+                let id = after[..close].trim();
+                if id == card_name {
+                    // Next line in the pair is the long name; but the format
+                    // varies. Cheapest: just return the line after the colon.
+                    if let Some(colon) = line.find(": ") {
+                        return Some(line[colon + 2..].trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn query_os_mixer() -> Option<OsMixerInfo> {
+    let info_out = run_pactl(&["info"])?;
+    parse_pactl_info(&info_out)
+}
+
+fn run_pactl(args: &[&str]) -> Option<String> {
+    let out = Command::new("pactl")
+        .args(args)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
