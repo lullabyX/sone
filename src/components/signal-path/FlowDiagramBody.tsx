@@ -86,7 +86,7 @@ export default function FlowDiagramBody({
         ? {
             fmt: sp.osMixer.sinkFormat,
             rate: sp.osMixer.sinkRate,
-            tertiary: sp.osMixer.server,
+            tertiary: `${sp.osMixer.server} · ${sp.osMixer.sinkChannels}ch`,
           }
         : { fmt: null, rate: null, tertiary: "sw mixer" };
 
@@ -167,6 +167,25 @@ export default function FlowDiagramBody({
         "Pipeline includes volume / audioresample / audioconvert elements at unity — passthrough not guaranteed",
     });
   }
+  // Normal mode: detect pipeline-output → OS-mixer-input divergence.
+  // PipeWire/PulseAudio may resample/convert our pipeline output into its
+  // internal mix format. Compare decoded caps (post-audioconvert) against
+  // the OS mixer's per-sink working spec. Format strings differ in case
+  // (GStreamer uses "S24LE", pactl uses "s24le") — compare case-insensitively.
+  const mixerDiverges =
+    !isDirectAlsa &&
+    !!sp?.osMixer &&
+    !!sp?.decodedFormat &&
+    ((sp.decodedFormat.toLowerCase() !== sp.osMixer.sinkFormat.toLowerCase()) ||
+      (sp.decodedRate !== null && sp.osMixer.sinkRate !== sp.decodedRate));
+  if (mixerDiverges) {
+    cable1Alterations.push({
+      state: "lossy",
+      label: "MIX CONVERSION",
+      detail: `pipeline ${sp!.decodedFormat}/${formatRate(sp!.decodedRate)} → mixer ${sp!.osMixer!.sinkFormat}/${formatRate(sp!.osMixer!.sinkRate)}`,
+      reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream into its internal mix format`,
+    });
+  }
   const cable1State: CableState = cable1Alterations.some((a) => a.state === "lossy")
     ? "lossy"
     : cable1Alterations.length > 0
@@ -177,9 +196,11 @@ export default function FlowDiagramBody({
       ? `resample ${shortRate(sp.resampledFrom)}→${shortRate(sp.resampledTo)}`
       : promotionVisible
         ? `promote ${sp!.promotedFrom}→${sp!.promotedTo}`
-        : pipelineAtUnity
-          ? "processing at unity"
-          : "pass-thru";
+        : mixerDiverges
+          ? "mix conversion"
+          : pipelineAtUnity
+            ? "processing at unity"
+            : "pass-thru";
   const cable1: CableSpec = {
     state: cable1State,
     caption: cable1Caption,
@@ -233,9 +254,11 @@ export default function FlowDiagramBody({
   const cable2Caption =
     sp?.formatFallbackFrom && sp?.formatFallbackTo
       ? `fallback ${sp.formatFallbackFrom}→${sp.formatFallbackTo}`
-      : userVolAltered || normAltered
-        ? "gain applied"
-        : "pass-thru";
+      : dacDiverges
+        ? "OS-layer conversion"
+        : userVolAltered || normAltered
+          ? "gain applied"
+          : "pass-thru";
   const cable2: CableSpec = {
     state: cable2State,
     caption: cable2Caption,
