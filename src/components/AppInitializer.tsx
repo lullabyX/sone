@@ -77,7 +77,6 @@ import {
   getPlaylistFolders,
   normalizePlaylistFolders,
   getTrack,
-  getSignalPath,
 } from "../api/tidal";
 
 import type {
@@ -685,6 +684,7 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     const unlisten = listen("track-finished", () => {
+      store.set(streamInfoAtom, null);
       playNext();
     });
     return () => {
@@ -698,12 +698,19 @@ export function AppInitializer() {
   //  records a change in mode / format / output / alterations.
   // ================================================================
   useEffect(() => {
-    getSignalPath()
-      .then((sp) => store.set(signalPathAtom, sp))
-      .catch(() => {});
+    // Attach listener FIRST so any event during initial fetch isn't lost.
     const unlisten = listen<SignalPath>("signal-path-changed", (e) => {
       store.set(signalPathAtom, e.payload);
     });
+    // Initial fetch uses the new refresh command (which probes ground truth)
+    // and only writes if no event has already populated the atom.
+    invoke<SignalPath>("refresh_signal_path")
+      .then((sp) => {
+        if (store.get(signalPathAtom) === null) {
+          store.set(signalPathAtom, sp);
+        }
+      })
+      .catch(() => {});
     return () => {
       unlisten.then((fn) => fn());
     };
@@ -719,6 +726,9 @@ export function AppInitializer() {
       (event) => {
         store.set(isPlayingAtom, false);
         const { kind, message } = event.payload;
+        if (kind === "device_disconnected" || kind === "playback_error") {
+          store.set(streamInfoAtom, null);
+        }
         if (kind === "device_busy") {
           showToast(
             "Audio device is busy — close other apps using it",
