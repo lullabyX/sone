@@ -13,6 +13,7 @@ pub mod logging;
 mod mpris;
 mod scrobble;
 mod signal_path;
+mod pipeline_probe;
 #[cfg(target_os = "linux")]
 mod tray;
 mod tidal_api;
