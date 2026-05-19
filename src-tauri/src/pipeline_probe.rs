@@ -157,6 +157,44 @@ pub fn sink_alsa_id(stdout: &str, target_sink_name: &str) -> Option<String> {
     None
 }
 
+/// Discover the /proc/asound directory name (e.g. "Audio") for the card
+/// currently being driven by SONE. Pure function; takes a resolver closure
+/// for sink-name → alsa.id lookup so the function is testable without
+/// shell-outs.
+pub fn discover_active_card_with_resolver(
+    backend: Option<&str>,
+    exclusive_device: Option<&str>,
+    mixer: Option<&OsMixerInfo>,
+    sink_resolver: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    match backend {
+        Some("DirectAlsa") => exclusive_device.and_then(parse_alsa_card_from_device),
+        Some("Normal") => {
+            let mixer = mixer?;
+            sink_resolver(&mixer.default_sink_name)
+        }
+        _ => None,
+    }
+}
+
+/// Convenience wrapper that takes no resolver — used by callers that don't
+/// have list-sinks output yet (returns None for Normal mode).
+pub fn discover_active_card(
+    backend: Option<&str>,
+    exclusive_device: Option<&str>,
+    mixer: Option<&OsMixerInfo>,
+) -> Option<String> {
+    discover_active_card_with_resolver(backend, exclusive_device, mixer, &|_| None)
+}
+
+/// Extract the card name from an ALSA device string like
+/// "hw:CARD=Audio,DEV=0". Returns None for numeric "hw:5,0".
+fn parse_alsa_card_from_device(device: &str) -> Option<String> {
+    let rest = device.strip_prefix("hw:CARD=")?;
+    let end = rest.find(',').unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
 /// Parse "<format> <N>ch <rate>Hz" → (format, channels, rate).
 /// Tolerant of missing/garbage parts.
 fn parse_sample_spec(spec: &str) -> (String, u32, u32) {
@@ -313,6 +351,45 @@ Sink #60
     #[test]
     fn returns_none_for_unknown_sink() {
         assert!(sink_alsa_id(PACTL_LIST_SINKS, "alsa_output.unknown").is_none());
+    }
+
+    #[test]
+    fn discover_directalsa_uses_exclusive_device() {
+        let card = discover_active_card(
+            Some("DirectAlsa"),
+            Some("hw:CARD=Audio,DEV=0"),
+            None,
+        );
+        assert_eq!(card.as_deref(), Some("Audio"));
+    }
+
+    #[test]
+    fn discover_directalsa_with_plain_hw_string() {
+        let card = discover_active_card(Some("DirectAlsa"), Some("hw:5,0"), None);
+        // Numeric form not resolvable; expect None (caller falls back to mixer).
+        assert!(card.is_none());
+    }
+
+    #[test]
+    fn discover_normal_uses_os_mixer_alsa_id() {
+        let info = OsMixerInfo {
+            server: "PipeWire".into(),
+            default_sink_name: "alsa_output.usb-iFi.iec958-stereo".into(),
+            sink_format: "s24le".into(),
+            sink_rate: 96000,
+            sink_channels: 2,
+        };
+        // alsa.id resolution requires the list-sinks stdout — simulated via caller:
+        let resolver = |sink: &str| {
+            if sink == "alsa_output.usb-iFi.iec958-stereo" { Some("Audio".into()) } else { None }
+        };
+        let card = discover_active_card_with_resolver(Some("Normal"), None, Some(&info), &resolver);
+        assert_eq!(card.as_deref(), Some("Audio"));
+    }
+
+    #[test]
+    fn discover_returns_none_when_no_backend() {
+        assert!(discover_active_card(None, None, None).is_none());
     }
 }
 
