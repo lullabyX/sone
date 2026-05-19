@@ -998,6 +998,8 @@ pub struct AudioPlayer {
     /// Latest exclusive ALSA device set via `SetExclusiveMode`. Mirrored from
     /// the audio thread so the pipeline probe can read it without messaging.
     exclusive_device: Arc<Mutex<Option<String>>>,
+    decoded_caps_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
+    output_caps_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
 }
 
 impl AudioPlayer {
@@ -1005,6 +1007,12 @@ impl AudioPlayer {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AudioCommand>();
         let exclusive_device: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let exclusive_device_thread = exclusive_device.clone();
+        let decoded_caps_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>> =
+            Arc::new(Mutex::new(None));
+        let output_caps_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>> =
+            Arc::new(Mutex::new(None));
+        let decoded_cell_thread = Arc::clone(&decoded_caps_cell);
+        let output_cell_thread = Arc::clone(&output_caps_cell);
 
         std::thread::spawn(move || {
             // GStreamer plugin path setup
@@ -1659,6 +1667,8 @@ impl AudioPlayer {
         Self {
             cmd_tx,
             exclusive_device,
+            decoded_caps_cell,
+            output_caps_cell,
         }
     }
 
@@ -1716,11 +1726,13 @@ impl AudioPlayer {
         self.send_cmd(|reply| AudioCommand::ListDevices { reply })
     }
 
-    /// TEMP: replaced in Task 10 with real pad-probe snapshot reads.
-    pub fn snapshot_decoded_caps(&self) -> Option<crate::pipeline_probe::PadCaps> { None }
+    pub fn snapshot_decoded_caps(&self) -> Option<crate::pipeline_probe::PadCaps> {
+        self.decoded_caps_cell.lock().ok()?.clone()
+    }
 
-    /// TEMP: replaced in Task 10 with real pad-probe snapshot reads.
-    pub fn snapshot_output_caps(&self) -> Option<crate::pipeline_probe::PadCaps> { None }
+    pub fn snapshot_output_caps(&self) -> Option<crate::pipeline_probe::PadCaps> {
+        self.output_caps_cell.lock().ok()?.clone()
+    }
 
     /// Returns the ALSA device string for DirectAlsa, or None for Normal mode.
     pub fn exclusive_device(&self) -> Option<String> {
