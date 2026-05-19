@@ -65,7 +65,7 @@ export default function SignalPathPanel({
 
   if (!open) return null;
 
-  const { userVol, normFactor, userVolAltered, normAltered, isPristine } =
+  const { userVol, normFactor, userVolAltered, normAltered, isDirectAlsa, isPristine } =
     deriveAlterations(sp);
 
   const sourceBits = streamInfo?.bitDepth;
@@ -101,7 +101,7 @@ export default function SignalPathPanel({
     headline = `ReplayGain applied · ${gainFactorToDb(normFactor)}`;
   } else if (userVolAltered) {
     headline = `Volume slider scaling samples · ${Math.round(userVol * 100)}%`;
-  } else if (sp?.osMixer) {
+  } else if (sp?.osMixer && !isDirectAlsa) {
     headline = `Routed through ${sp.osMixer.server}`;
   } else if (sp && !sp.bitPerfect) {
     headline = "Bit-perfect mode off — pipeline at unity, not guaranteed";

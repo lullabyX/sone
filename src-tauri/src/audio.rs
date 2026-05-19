@@ -1369,11 +1369,12 @@ impl AudioPlayer {
                                 ])
                                 .map_err(|e| format!("Failed to link chain: {e}"))?;
 
-                                // Pad probe on audioconvert.src — writes
-                                // the decoded format into the shared cell.
-                                if let Some(src_pad) = audioconvert.static_pad("src") {
+                                // Pad probe on audioconvert.sink — captures the codec's raw output
+                                // (pre-conversion). audioconvert.src would show the post-promotion
+                                // format when the downstream capsfilter is locked, which is misleading.
+                                if let Some(sink_pad) = audioconvert.static_pad("sink") {
                                     let cell = Arc::clone(&decoded_cell_thread);
-                                    src_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
+                                    sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
                                         if let Some(gst::PadProbeData::Event(ref event)) = info.data {
                                             if let gst::EventView::Caps(caps_event) = event.view() {
                                                 let caps = caps_event.caps();
@@ -1966,12 +1967,12 @@ fn build_appsink_pipeline(
         None
     };
 
-    // Pad probe on audioconvert.src — captures the post-decode/post-convert
-    // format the pipeline settled on. Writes into the shared cell for
-    // pipeline_probe to read on refresh.
-    if let Some(src_pad) = audioconvert.static_pad("src") {
+    // Pad probe on audioconvert.sink — captures the codec's raw output
+    // (pre-conversion). audioconvert.src would show the post-promotion
+    // format when the downstream capsfilter is locked, which is misleading.
+    if let Some(sink_pad) = audioconvert.static_pad("sink") {
         let cell = Arc::clone(&decoded_cell);
-        src_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
+        sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
             if let Some(gst::PadProbeData::Event(ref event)) = info.data {
                 if let gst::EventView::Caps(caps_event) = event.view() {
                     let caps = caps_event.caps();

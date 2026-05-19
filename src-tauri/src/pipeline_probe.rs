@@ -207,12 +207,45 @@ pub fn discover_active_card(
     discover_active_card_with_resolver(backend, exclusive_device, mixer, &|_| None)
 }
 
-/// Extract the card name from an ALSA device string like
-/// "hw:CARD=Audio,DEV=0". Returns None for numeric "hw:5,0".
-fn parse_alsa_card_from_device(device: &str) -> Option<String> {
-    let rest = device.strip_prefix("hw:CARD=")?;
-    let end = rest.find(',').unwrap_or(rest.len());
-    Some(rest[..end].to_string())
+/// Extract the card name from an ALSA device string. Handles both:
+///   - hw:CARD=Audio,DEV=0   (named, GStreamer's preferred form)
+///   - hw:5,0                (numeric, GStreamer fallback when api.alsa.path absent)
+///   - plughw:* variants of either
+/// Returns the card's /proc/asound/<name> directory entry name.
+pub fn parse_alsa_card_from_device(device: &str) -> Option<String> {
+    let body = device
+        .strip_prefix("plughw:")
+        .or_else(|| device.strip_prefix("hw:"))?;
+
+    if let Some(rest) = body.strip_prefix("CARD=") {
+        let end = rest.find(',').unwrap_or(rest.len());
+        return Some(rest[..end].to_string());
+    }
+
+    // Numeric form: parse leading integer and resolve via /proc/asound/cards.
+    let end = body.find(',').unwrap_or(body.len());
+    let card_idx: u32 = body[..end].parse().ok()?;
+    card_index_to_name(card_idx)
+}
+
+/// Look up the bracket name (e.g. "Audio") for card index N in
+/// /proc/asound/cards. Returns None on parse failure or missing card.
+fn card_index_to_name(idx: u32) -> Option<String> {
+    let cards = std::fs::read_to_string("/proc/asound/cards").ok()?;
+    for line in cards.lines() {
+        // Format: "  N [Name           ]: Driver - Long name"
+        let trimmed = line.trim_start();
+        let space_pos = trimmed.find(' ')?;
+        let num_str = &trimmed[..space_pos];
+        if num_str.parse::<u32>().ok() != Some(idx) {
+            continue;
+        }
+        let after_num = trimmed[space_pos..].trim_start();
+        let after_bracket = after_num.strip_prefix('[')?;
+        let close = after_bracket.find(']')?;
+        return Some(after_bracket[..close].trim().to_string());
+    }
+    None
 }
 
 /// Parse "<format> <N>ch <rate>Hz" → (format, channels, rate).
@@ -543,10 +576,17 @@ Sink #60
     }
 
     #[test]
-    fn discover_directalsa_with_plain_hw_string() {
-        let card = discover_active_card(Some("DirectAlsa"), Some("hw:5,0"), None);
-        // Numeric form not resolvable; expect None (caller falls back to mixer).
-        assert!(card.is_none());
+    fn parse_alsa_card_handles_named_form() {
+        assert_eq!(parse_alsa_card_from_device("hw:CARD=Audio,DEV=0").as_deref(), Some("Audio"));
+        assert_eq!(parse_alsa_card_from_device("plughw:CARD=Audio,DEV=0").as_deref(), Some("Audio"));
+        assert_eq!(parse_alsa_card_from_device("hw:CARD=Audio").as_deref(), Some("Audio"));
+    }
+
+    #[test]
+    fn parse_alsa_card_rejects_garbage() {
+        assert!(parse_alsa_card_from_device("default").is_none());
+        assert!(parse_alsa_card_from_device("hw:").is_none());
+        assert!(parse_alsa_card_from_device("not an alsa device").is_none());
     }
 
     #[test]
