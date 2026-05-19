@@ -1346,6 +1346,58 @@ impl AudioPlayer {
                                 ])
                                 .map_err(|e| format!("Failed to link chain: {e}"))?;
 
+                                // Pad probe on audioconvert.src — writes
+                                // the decoded format into the shared cell.
+                                if let Some(src_pad) = audioconvert.static_pad("src") {
+                                    let cell = Arc::clone(&decoded_cell_thread);
+                                    src_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
+                                        if let Some(gst::PadProbeData::Event(ref event)) = info.data {
+                                            if let gst::EventView::Caps(caps_event) = event.view() {
+                                                let caps = caps_event.caps();
+                                                if let Some(fmt) = parse_pcm_format(caps) {
+                                                    if let Ok(mut guard) = cell.lock() {
+                                                        *guard = Some(crate::pipeline_probe::PadCaps {
+                                                            format: fmt.gst_format.clone(),
+                                                            rate: fmt.sample_rate,
+                                                            channels: fmt.channels,
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        gst::PadProbeReturn::Ok
+                                    });
+                                }
+
+                                // autoaudiosink is a bin — its real child sink
+                                // (pulsesink/pipewiresink/alsasink) is added asynchronously.
+                                // Hook child-added to attach a CAPS probe on the real sink's pad.
+                                if let Ok(sink_bin) = sink.clone().dynamic_cast::<gst::Bin>() {
+                                    let output_cell = Arc::clone(&output_cell_thread);
+                                    sink_bin.connect_element_added(move |_bin, element| {
+                                        let cell = Arc::clone(&output_cell);
+                                        if let Some(sink_pad) = element.static_pad("sink") {
+                                            sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
+                                                if let Some(gst::PadProbeData::Event(ref event)) = info.data {
+                                                    if let gst::EventView::Caps(caps_event) = event.view() {
+                                                        let caps = caps_event.caps();
+                                                        if let Some(fmt) = parse_pcm_format(caps) {
+                                                            if let Ok(mut guard) = cell.lock() {
+                                                                *guard = Some(crate::pipeline_probe::PadCaps {
+                                                                    format: fmt.gst_format.clone(),
+                                                                    rate: fmt.sample_rate,
+                                                                    channels: fmt.channels,
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                gst::PadProbeReturn::Ok
+                                            });
+                                        }
+                                    });
+                                }
+
                                 let convert_weak = audioconvert.downgrade();
                                 uridecodebin.connect_pad_added(move |_src, src_pad| {
                                     let Some(convert) = convert_weak.upgrade() else {
