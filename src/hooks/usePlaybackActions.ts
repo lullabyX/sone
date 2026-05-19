@@ -28,6 +28,8 @@ import {
   repeatAtom,
   allowExplicitAtom,
   bitPerfectAtom,
+  volumeNormalizationAtom,
+  bitPerfectPreviousStateAtom,
   consecutiveFailCountAtom,
 } from "../atoms/playback";
 import { getMixItems, checkNetworkError } from "../api/tidal";
@@ -312,6 +314,89 @@ export function usePlaybackActions() {
       }
     },
     [store],
+  );
+
+  const setVolumeNormalization = useCallback(
+    async (enabled: boolean) => {
+      store.set(volumeNormalizationAtom, enabled);
+      try {
+        await invoke("set_volume_normalization", { enabled });
+      } catch (error) {
+        console.error("Failed to set volume normalization:", error);
+      }
+    },
+    [store],
+  );
+
+  const rampVolume = useCallback(
+    async (from: number, to: number, durationMs = 300, steps = 12) => {
+      if (Math.abs(from - to) < 1e-4) return;
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const level = from + (to - from) * t;
+        store.set(volumeAtom, level);
+        try {
+          await invoke("set_volume", { level });
+        } catch (error) {
+          console.error("Failed to set volume:", error);
+        }
+        if (i < steps) await new Promise((r) => setTimeout(r, durationMs / steps));
+      }
+    },
+    [store],
+  );
+
+  const setBitPerfect = useCallback(
+    async (enabled: boolean) => {
+      const currentlyEnabled = store.get(bitPerfectAtom);
+      if (enabled === currentlyEnabled) return;
+
+      if (enabled) {
+        // Save current state so we can restore on disable.
+        const prevVolume = store.get(volumeAtom);
+        store.set(bitPerfectPreviousStateAtom, {
+          volume: prevVolume,
+          volumeNormalization: store.get(volumeNormalizationAtom),
+        });
+        // Ramp BEFORE flipping bit-perfect — the setVolume short-circuit
+        // would block updates otherwise.
+        await rampVolume(prevVolume, 1.0);
+        store.set(volumeNormalizationAtom, false);
+        try {
+          await invoke("set_volume_normalization", { enabled: false });
+        } catch (error) {
+          console.error("Failed to set volume normalization:", error);
+        }
+        store.set(bitPerfectAtom, true);
+        try {
+          await invoke("set_bit_perfect", { enabled: true });
+        } catch (error) {
+          console.error("Failed to set bit perfect:", error);
+        }
+      } else {
+        // Flip the atom FIRST so the ramp's setVolume calls go through.
+        store.set(bitPerfectAtom, false);
+        try {
+          await invoke("set_bit_perfect", { enabled: false });
+        } catch (error) {
+          console.error("Failed to set bit perfect:", error);
+        }
+        const prev = store.get(bitPerfectPreviousStateAtom);
+        if (prev) {
+          await rampVolume(store.get(volumeAtom), prev.volume);
+          store.set(volumeNormalizationAtom, prev.volumeNormalization);
+          try {
+            await invoke("set_volume_normalization", {
+              enabled: prev.volumeNormalization,
+            });
+          } catch (error) {
+            console.error("Failed to set volume normalization:", error);
+          }
+          store.set(bitPerfectPreviousStateAtom, null);
+        }
+      }
+    },
+    [store, rampVolume],
   );
 
   const seekTo = useCallback(async (positionSecs: number) => {
@@ -1176,6 +1261,8 @@ export function usePlaybackActions() {
     pauseTrack,
     resumeTrack,
     setVolume,
+    setVolumeNormalization,
+    setBitPerfect,
     seekTo,
     addToQueue,
     playNextInQueue,
