@@ -14,6 +14,12 @@ pub fn get_signal_path(state: State<'_, AppState>) -> SignalPath {
 }
 
 #[tauri::command]
+pub fn refresh_signal_path(state: State<'_, AppState>) -> SignalPath {
+    state.pipeline_probe.refresh();
+    state.signal_path.snapshot()
+}
+
+#[tauri::command]
 pub async fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String, SoneError> {
     #[cfg(target_os = "linux")]
     if let Some(tray_handle) = app.try_state::<crate::tray::TrayHandle>() {
