@@ -4,7 +4,7 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use tauri::Emitter;
 
@@ -995,11 +995,16 @@ enum AudioCommand {
 #[derive(Clone)]
 pub struct AudioPlayer {
     cmd_tx: mpsc::Sender<AudioCommand>,
+    /// Latest exclusive ALSA device set via `SetExclusiveMode`. Mirrored from
+    /// the audio thread so the pipeline probe can read it without messaging.
+    exclusive_device: Arc<Mutex<Option<String>>>,
 }
 
 impl AudioPlayer {
     pub fn new(app_handle: tauri::AppHandle, signal_path: Arc<SignalPathTracker>) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AudioCommand>();
+        let exclusive_device: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let exclusive_device_thread = exclusive_device.clone();
 
         std::thread::spawn(move || {
             // GStreamer plugin path setup
@@ -1625,6 +1630,11 @@ impl AudioPlayer {
                         if !enabled {
                             bit_perfect = false;
                         }
+                        // Mirror the device into the shared cell so the
+                        // pipeline probe can read it without messaging.
+                        if let Ok(mut cell) = exclusive_device_thread.lock() {
+                            *cell = if enabled { device.clone() } else { None };
+                        }
                         signal_path.set_audio_modes(exclusive, bit_perfect);
                         reply.send(Ok(())).ok();
                     }
@@ -1646,7 +1656,10 @@ impl AudioPlayer {
             }
         });
 
-        Self { cmd_tx }
+        Self {
+            cmd_tx,
+            exclusive_device,
+        }
     }
 
     fn send_cmd<T>(&self, build: impl FnOnce(Reply<T>) -> AudioCommand) -> T {
@@ -1701,6 +1714,17 @@ impl AudioPlayer {
     }
     pub fn list_devices(&self) -> Result<Vec<AudioDevice>, String> {
         self.send_cmd(|reply| AudioCommand::ListDevices { reply })
+    }
+
+    /// TEMP: replaced in Task 10 with real pad-probe snapshot reads.
+    pub fn snapshot_decoded_caps(&self) -> Option<crate::pipeline_probe::PadCaps> { None }
+
+    /// TEMP: replaced in Task 10 with real pad-probe snapshot reads.
+    pub fn snapshot_output_caps(&self) -> Option<crate::pipeline_probe::PadCaps> { None }
+
+    /// Returns the ALSA device string for DirectAlsa, or None for Normal mode.
+    pub fn exclusive_device(&self) -> Option<String> {
+        self.exclusive_device.lock().ok()?.clone()
     }
 }
 
