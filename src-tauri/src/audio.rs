@@ -41,7 +41,7 @@ enum WriterCommand {
     },
     FormatHint(PcmFormat),
     Resampling { from: u32, to: u32 },
-    BitDepthChanged { from: String, to: String },
+    PendingPromotion { from: String, generation: u64 },
     Flush,
     Shutdown,
 }
@@ -167,6 +167,40 @@ fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
     } else {
         supported
     }
+}
+
+/// Pick the bit-perfect capsfilter format for a given source.
+/// Priority:
+///   1. Pass-through if the DAC supports the source format directly (zero conversion work).
+///   2. Narrowest lossless promotion the DAC supports (container widening or, for S24_32LE,
+///      shrinking to S24LE which holds the same 24 audio bits in 3 bytes).
+///   3. Lossy fallback: DAC's first probed format (widest per probe order).
+/// In case 3, the writer's `resolve_pending` still emits a truthful from→to toast.
+#[cfg(target_os = "linux")]
+fn pick_capsfilter_format(source: &str, dac_supported: &[String]) -> String {
+    // 1. Pass-through.
+    if dac_supported.iter().any(|f| f == source) {
+        return source.to_string();
+    }
+    // 2. Narrowest lossless promotion. audioconvert with dithering=none does pure
+    //    integer bit-shift conversions between these formats — no quantization.
+    //    S24_32LE → S24LE is safe because audioconvert writes a zero pad byte
+    //    upstream; stripping it preserves the 24 audio bits exactly.
+    let promotions: &[&str] = match source {
+        "S16LE"    => &["S24LE", "S24_32LE", "S32LE"],
+        "S24LE"    => &["S24_32LE", "S32LE"],
+        "S24_32LE" => &["S24LE", "S32LE"], // S24LE = same 24 bits, narrower container
+        _          => &[], // S32LE, F32LE, unknowns: no lossless integer alternative
+    };
+    if let Some(p) = promotions.iter().find(|p| dac_supported.iter().any(|f| f == *p)) {
+        return (*p).to_string();
+    }
+    // 3. Lossy fallback — DAC's preferred (widest) format. PendingPromotion still
+    //    fires from pad_added so the writer surfaces a truthful toast.
+    dac_supported
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "S32LE".to_string())
 }
 
 /// Probe which standard sample rates an ALSA device supports.
@@ -430,6 +464,23 @@ fn spawn_alsa_writer(
             let silence_frames = (current_fmt.sample_rate as usize * 50) / 1000;
             let mut silence_buf = vec![0u8; silence_frames * current_fmt.channels as usize * current_fmt.bytes_per_sample as usize];
 
+            // Bit-perfect promotion announcement: pad_added sends only the source format,
+            // writer emits the toast once the actually-negotiated `current_fmt` is known.
+            let mut pending_promotion_from: Option<String> = None;
+            let resolve_pending = |pending: &mut Option<String>, current: &PcmFormat| {
+                if let Some(from) = pending.take() {
+                    if from != current.gst_format {
+                        log::info!("[alsa-writer] bit-depth promotion: {from} -> {}", current.gst_format);
+                        app_handle.emit(
+                            "audio-bit-depth-changed",
+                            serde_json::json!({ "from": from, "to": current.gst_format }),
+                        ).ok();
+                    } else {
+                        log::debug!("[alsa-writer] bit-perfect: no promotion needed ({from})");
+                    }
+                }
+            };
+
             // Recover from ALSA errors (XRUN, suspend, etc.)
             fn alsa_recover(pcm: &alsa::PCM, errno: i32) -> bool {
                 if errno == libc::EPIPE {
@@ -660,6 +711,7 @@ fn spawn_alsa_writer(
                                 }
                             }
                         }
+                        resolve_pending(&mut pending_promotion_from, &current_fmt);
                         let vol = f32::from_bits(combined_vol.load(Ordering::Relaxed));
                         apply_volume(&mut chunk.data, &current_fmt, vol);
                         if let Err(kind) = write_bytes(&pcm, &chunk.data, &current_fmt, &frames_written, &silence_buf) {
@@ -686,6 +738,7 @@ fn spawn_alsa_writer(
                                 }
                             }
                         }
+                        resolve_pending(&mut pending_promotion_from, &current_fmt);
                     }
 
                     Ok(WriterCommand::Resampling { from, to }) => {
@@ -694,10 +747,12 @@ fn spawn_alsa_writer(
                             serde_json::json!({ "from": from, "to": to })).ok();
                     }
 
-                    Ok(WriterCommand::BitDepthChanged { from, to }) => {
-                        log::info!("[alsa-writer] bit-depth promotion: {} -> {}", from, to);
-                        app_handle.emit("audio-bit-depth-changed",
-                            serde_json::json!({ "from": from, "to": to })).ok();
+                    Ok(WriterCommand::PendingPromotion { from, generation }) => {
+                        if generation < writer_gen.load(Ordering::Acquire) {
+                            continue; // stale promotion from old pipeline
+                        }
+                        // Last-write-wins: overwrites any prior unresolved pending.
+                        pending_promotion_from = Some(from);
                     }
 
                     Ok(WriterCommand::EndOfTrack { emit_finished, generation }) => {
@@ -762,6 +817,7 @@ fn spawn_alsa_writer(
                                         pcm.drop().ok();
                                         pcm.prepare().ok();
                                     }
+                                    resolve_pending(&mut pending_promotion_from, &current_fmt);
                                     let vol = f32::from_bits(combined_vol.load(Ordering::Relaxed));
                                     apply_volume(&mut chunk.data, &current_fmt, vol);
                                     if let Err(kind) = write_bytes(&pcm, &chunk.data, &current_fmt, &frames_written, &silence_buf) {
@@ -771,7 +827,7 @@ fn spawn_alsa_writer(
                                     break; // back to main loop
                                 }
                                 Ok(WriterCommand::Shutdown) => break 'main,
-                                Ok(WriterCommand::Flush) => { drain_writer_rx(&rx); pcm.drop().ok(); pcm.prepare().ok(); break; }
+                                Ok(WriterCommand::Flush) => { drain_writer_rx(&rx); pcm.drop().ok(); pcm.prepare().ok(); pending_promotion_from = None; break; }
                                 Ok(WriterCommand::FormatHint(new_fmt)) => {
                                     if new_fmt != current_fmt {
                                         log::info!("[alsa-writer] format hint (idle): {current_fmt:?} -> {new_fmt:?}");
@@ -788,12 +844,14 @@ fn spawn_alsa_writer(
                                             }
                                         }
                                     }
+                                    resolve_pending(&mut pending_promotion_from, &current_fmt);
                                 }
                                 Ok(WriterCommand::Resampling { .. }) => {}
-                                Ok(WriterCommand::BitDepthChanged { from, to }) => {
-                                    log::info!("[alsa-writer] bit-depth promotion: {} -> {}", from, to);
-                                    app_handle.emit("audio-bit-depth-changed",
-                                        serde_json::json!({ "from": from, "to": to })).ok();
+                                Ok(WriterCommand::PendingPromotion { from, generation }) => {
+                                    if generation < writer_gen.load(Ordering::Acquire) {
+                                        continue;
+                                    }
+                                    pending_promotion_from = Some(from);
                                 }
                                 Ok(_) => {}
                                 Err(crossbeam_channel::TryRecvError::Empty) => {}
@@ -806,6 +864,7 @@ fn spawn_alsa_writer(
                         drain_writer_rx(&rx);
                         pcm.drop().ok();
                         pcm.prepare().ok();
+                        pending_promotion_from = None;
                     }
 
                     Ok(WriterCommand::Shutdown) => {
@@ -1733,6 +1792,9 @@ fn build_appsink_pipeline(
     let supported_rates_for_closure: Vec<u32> = supported_rates.to_vec();
     let resample_tx = writer_tx.clone();
     let is_bit_perfect = bit_perfect;
+    // pad_added runs on the GStreamer streaming thread; clone writer_gen up front
+    // since `writer_gen` itself is moved into the appsink callback later.
+    let pad_gen = Arc::clone(&writer_gen);
     uridecodebin.connect_pad_added(move |_src, src_pad| {
         let Some(convert) = convert_weak.upgrade() else {
             return;
@@ -1795,41 +1857,25 @@ fn build_appsink_pipeline(
                         s.get::<i32>("channels"),
                         s.get::<&str>("format"),
                     ) {
-                        // Lossless-compatible formats: source format + wider
-                        // integer containers that can represent it via zero-padding.
-                        // audioconvert (dithering=none) handles this as a pure bit op.
-                        let compatible: &[&str] = match format {
-                            "S16LE" => &["S16LE", "S24LE", "S24_32LE", "S32LE"],
-                            "S24LE" | "S24_32LE" => &["S24LE", "S24_32LE", "S32LE"],
-                            "S32LE" => &["S32LE"],
-                            "F32LE" => &["F32LE"],
-                            _ => &["S32LE"],
-                        };
-                        let candidates: Vec<&str> = supported_fmts_for_closure
-                            .iter()
-                            .map(|s| s.as_str())
-                            .filter(|f| compatible.contains(f))
-                            .collect();
-                        let fmts = if candidates.is_empty() {
-                            vec!["S32LE"] // safe fallback
-                        } else {
-                            // Notify if source format needs promotion
-                            if !candidates.contains(&format) {
-                                let _ = resample_tx.try_send(
-                                    WriterCommand::BitDepthChanged {
-                                        from: format.to_string(),
-                                        to: candidates[0].to_string(),
-                                    },
-                                );
-                            }
-                            candidates
-                        };
+                        // Announce source format unconditionally. The writer compares
+                        // against the actually-negotiated current_fmt to decide whether
+                        // a toast fires (and what the truthful `to` is).
+                        let _ = resample_tx.try_send(WriterCommand::PendingPromotion {
+                            from: format.to_string(),
+                            generation: pad_gen.load(Ordering::Acquire),
+                        });
+
+                        // Pick a single capsfilter format. Multi-format lists would let
+                        // audioconvert free-pick — observed S24_32LE → S24LE conversion
+                        // when the DAC supports S24_32LE natively. Single-format locking
+                        // makes negotiation deterministic and prefers pass-through.
+                        let chosen = pick_capsfilter_format(format, &supported_fmts_for_closure);
 
                         // Lock capsfilter (non-DASH only — DASH uses appsink caps instead)
                         if let Some(ref cf_weak) = capsfilter_weak {
                             if let Some(cf) = cf_weak.upgrade() {
                                 let locked = gst::Caps::builder("audio/x-raw")
-                                    .field("format", gst::List::new(fmts.iter().copied()))
+                                    .field("format", chosen.as_str())
                                     .field("rate", rate)
                                     .field("channels", channels)
                                     .build();
