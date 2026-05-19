@@ -55,6 +55,14 @@ pub struct SignalPath {
     /// Format fallback (non-bit-perfect: DAC didn't accept requested format).
     pub format_fallback_from: Option<String>,
     pub format_fallback_to: Option<String>,
+
+    /// Ground-truth kernel hw_params for the active DAC. Populated by
+    /// pipeline_probe; None until first refresh or when no DAC active.
+    pub dac: Option<crate::pipeline_probe::DacHwParams>,
+
+    /// OS-mixer info (PulseAudio/PipeWire). None when probe failed or
+    /// pactl is unavailable.
+    pub os_mixer: Option<crate::pipeline_probe::OsMixerInfo>,
 }
 
 pub struct SignalPathTracker {
