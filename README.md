@@ -154,8 +154,11 @@ sudo apt install -y \
     libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libdbus-1-dev \
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav \
-    libsecret-1-dev libasound2-dev xdg-utils
+    libsecret-1-dev libasound2-dev xdg-utils \
+    pulseaudio-utils
 ```
+
+`pulseaudio-utils` provides the `pactl` binary, used by the signal-path panel to read OS mixer state (sink format/rate, volume, mute) in Normal mode. SONE runs without it but the Normal-mode panel will show degraded info. Exclusive mode is unaffected.
 
 Optional (for exclusive ALSA output):
 
@@ -173,8 +176,11 @@ sudo dnf install -y \
     webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel openssl-devel dbus-devel \
     gstreamer1-devel gstreamer1-plugins-base-devel \
     gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugin-libav \
-    libsecret-devel alsa-lib-devel xdg-utils
+    libsecret-devel alsa-lib-devel xdg-utils \
+    pulseaudio-utils
 ```
+
+`pulseaudio-utils` provides the `pactl` binary, used by the signal-path panel to read OS mixer state (sink format/rate, volume, mute) in Normal mode. SONE runs without it but the Normal-mode panel will show degraded info. Exclusive mode is unaffected.
 
 Optional (for exclusive ALSA output):
 
@@ -207,8 +213,11 @@ sudo pacman -S --needed \
     base-devel curl wget file patchelf \
     webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg openssl dbus \
     gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav \
-    libsecret alsa-lib xdg-utils
+    libsecret alsa-lib xdg-utils \
+    libpulse
 ```
+
+`libpulse` provides the `pactl` binary, used by the signal-path panel to read OS mixer state (sink format/rate, volume, mute) in Normal mode. SONE runs without it but the Normal-mode panel will show degraded info. Exclusive mode is unaffected.
 
 Optional (for exclusive ALSA output):
 

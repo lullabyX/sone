@@ -49,7 +49,8 @@
           "gstreamer1.0-alsa",
           "libsecret-1-0",
           "libasound2 | libasound2t64",
-          "librsvg2-common"
+          "librsvg2-common",
+          "pulseaudio-utils"
         ],
         "section": "sound",
         "priority": "optional"
@@ -66,7 +67,8 @@
           "gstreamer1-plugin-libav",
           "alsa-lib",
           "libsecret",
-          "librsvg2"
+          "librsvg2",
+          "pulseaudio-utils"
         ],
         "release": "1"
       },

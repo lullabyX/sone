@@ -466,7 +466,12 @@ pub fn query_os_mixer() -> Option<OsMixerInfo> {
 }
 
 fn run_pactl(args: &[&str]) -> Option<String> {
+    // Force C locale on the child so any future pactl release that decides to
+    // localize field labels ("Mute:", "Volume:", "Sample Specification:",
+    // "Default Sink:") doesn't break our parsers. The env mutation is scoped
+    // to this child process only — does not affect SONE or any other app.
     let out = Command::new("pactl")
+        .env("LC_ALL", "C")
         .args(args)
         .output()
         .ok()?;
