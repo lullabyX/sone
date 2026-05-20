@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import {
   signalPathAtom,
   streamInfoAtom,
@@ -14,6 +14,7 @@ import {
 } from "../atoms/playback";
 import FlowDiagramBody from "./signal-path/FlowDiagramBody";
 import {
+  dacDisplayName,
   deriveAlterations,
   displayFormat,
   formatRate,
@@ -97,8 +98,8 @@ export default function SignalPathPanel({
     headline = "DAC inactive — output may be routed elsewhere";
   } else if (isPristine) {
     headline = sourceSummary
-      ? `${sourceSummary} reaches your DAC pristine`
-      : "Source PCM reaches your DAC pristine";
+      ? `${sourceSummary} reaches your DAC untouched`
+      : "Source PCM reaches your DAC untouched";
   } else if (sp?.resampledFrom && sp?.resampledTo) {
     headline = `Resampled ${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`;
   } else if (sp?.formatFallbackFrom && sp?.formatFallbackTo) {
@@ -135,17 +136,7 @@ export default function SignalPathPanel({
           animation: "fadeIn 0.2s ease-out",
         }}
       >
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-0.5">
-          {expanded && (
-            <button
-              onClick={() => setExpanded(false)}
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
-              aria-label="Back to verdict"
-              title="Back to verdict"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          )}
+        <div className="absolute top-3 right-3 z-20">
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
@@ -155,17 +146,22 @@ export default function SignalPathPanel({
           </button>
         </div>
 
-        {/* Content-swap grid: row heights animate between [1fr,0fr] and [0fr,1fr]
-            so the modal grows/shrinks to match whichever child is active. */}
-        <div
-          className="grid transition-[grid-template-rows] duration-500"
-          style={{
-            gridTemplateRows: expanded ? "0fr 1fr" : "1fr 0fr",
-            transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
-          }}
-        >
+        {/* Content-swap: two independent single-track grids, each toggling
+            its track between 1fr (full content) and 0fr (collapsed). Using
+            separate grids avoids the two-row `1fr 0fr` quirk where the
+            inactive row's max-content can leak into the container's
+            auto height. The modal's height is now strictly the active
+            child's content height. */}
+        <div>
           {/* Compact verdict */}
-          <div className="overflow-hidden">
+          <div
+            className="grid transition-[grid-template-rows] duration-500"
+            style={{
+              gridTemplateRows: expanded ? "0fr" : "1fr",
+              transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+          <div className="overflow-hidden min-h-0">
             <div
               className="transition-opacity duration-300"
               style={{
@@ -196,28 +192,64 @@ export default function SignalPathPanel({
                   </span>
                 </div>
 
-                <div className="text-[13px] text-th-text-primary max-w-[360px] mb-5 leading-relaxed">
+                <div className="text-[13px] text-th-text-primary max-w-[360px] mb-4 leading-relaxed">
                   {headline}
                 </div>
 
-                {(sp?.outputDevice || sp?.exclusiveMode || sp?.bitPerfect) && (
-                  <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-mono text-th-text-faint mb-6">
-                    {sp?.outputDevice && <span>{sp.outputDevice}</span>}
-                    {sp?.exclusiveMode && (
-                      <>
-                        <span className="text-th-text-faint/40">·</span>
-                        <span>exclusive</span>
-                      </>
+                {/* Source quality + DAC name — gives the compact view enough
+                    factual context to be useful without expanding. */}
+                {(sourceSummary || dacDisplayName(sp)) && (
+                  <div className="flex flex-col items-center gap-0.5 mb-4 max-w-[360px]">
+                    {sourceSummary && (
+                      <div className="text-[11px] font-mono text-th-text-muted">
+                        {sourceSummary}
+                        {streamInfo?.audioQuality && (
+                          <>
+                            <span className="text-th-text-faint/40"> · </span>
+                            <span className="text-th-text-faint">
+                              {streamInfo.audioQuality}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     )}
+                    {dacDisplayName(sp) && (
+                      <div className="text-[11px] text-th-text-muted truncate max-w-[360px]">
+                        {dacDisplayName(sp)}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(sp?.exclusiveMode ||
+                  sp?.bitPerfect ||
+                  sp?.backend ||
+                  (sp?.osMixer && !isDirectAlsa)) && (
+                  <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-mono text-th-text-faint mb-6 uppercase tracking-wider">
+                    {sp?.exclusiveMode && <span>exclusive</span>}
                     {sp?.bitPerfect && (
                       <>
-                        <span className="text-th-text-faint/40">·</span>
+                        {sp?.exclusiveMode && (
+                          <span className="text-th-text-faint/40">·</span>
+                        )}
                         <span>bit-perfect</span>
+                      </>
+                    )}
+                    {sp?.osMixer && !isDirectAlsa && (
+                      <>
+                        {(sp?.exclusiveMode || sp?.bitPerfect) && (
+                          <span className="text-th-text-faint/40">·</span>
+                        )}
+                        <span>{sp.osMixer.server}</span>
                       </>
                     )}
                     {sp?.backend && (
                       <>
-                        <span className="text-th-text-faint/40">·</span>
+                        {(sp?.exclusiveMode ||
+                          sp?.bitPerfect ||
+                          (sp?.osMixer && !isDirectAlsa)) && (
+                          <span className="text-th-text-faint/40">·</span>
+                        )}
                         <span>{sp.backend}</span>
                       </>
                     )}
@@ -237,9 +269,17 @@ export default function SignalPathPanel({
               </div>
             </div>
           </div>
+          </div>
 
           {/* Flow diagram */}
-          <div className="overflow-hidden">
+          <div
+            className="grid transition-[grid-template-rows] duration-500"
+            style={{
+              gridTemplateRows: expanded ? "1fr" : "0fr",
+              transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+          <div className="overflow-hidden min-h-0">
             <div
               className="transition-opacity duration-300"
               style={{
@@ -266,8 +306,10 @@ export default function SignalPathPanel({
                 sp={sp}
                 streamInfo={streamInfo}
                 currentTrack={currentTrack}
+                onBack={() => setExpanded(false)}
               />
             </div>
+          </div>
           </div>
         </div>
       </div>

@@ -1,4 +1,6 @@
+import { ArrowLeft } from "lucide-react";
 import {
+  dacDisplayName,
   deriveAlterations,
   displayFormat,
   formatRate,
@@ -38,6 +40,8 @@ function shortRate(hz: number | null | undefined): string {
 type FlowProps = Omit<SignalPathViewProps, "onClose"> & {
   /** When true, hide the track header (caller already shows track context). */
   hideTrackHeader?: boolean;
+  /** When provided, render a back-arrow inside the verdict footer (left side). */
+  onBack?: () => void;
 };
 
 export default function FlowDiagramBody({
@@ -45,6 +49,7 @@ export default function FlowDiagramBody({
   streamInfo,
   currentTrack,
   hideTrackHeader = false,
+  onBack,
 }: FlowProps) {
   const {
     userVol,
@@ -62,10 +67,13 @@ export default function FlowDiagramBody({
     streamInfo?.audioQuality || currentTrack?.audioQuality || null;
 
   const trackTitle = currentTrack?.title ?? null;
+  // Prefer the full `artists` list when present (Tidal sets both, with `artist`
+  // being only the primary). Falls back to the singular `artist` for sources
+  // that only populate that field.
   const trackArtist =
-    currentTrack?.artist?.name ??
-    currentTrack?.artists?.map((a) => a.name).join(", ") ??
-    null;
+    (currentTrack?.artists && currentTrack.artists.length > 0
+      ? currentTrack.artists.map((a) => a.name).join(", ")
+      : currentTrack?.artist?.name) ?? null;
 
   const sourceQualityLine = [
     sourceCodec,
@@ -360,10 +368,10 @@ export default function FlowDiagramBody({
                 <span>{sourceQuality}</span>
               </>
             )}
-            {sp?.outputDevice && (
+            {dacDisplayName(sp) && (
               <>
                 <span className="text-th-text-faint/50">·</span>
-                <span className="truncate max-w-[200px]">{sp.outputDevice}</span>
+                <span className="truncate max-w-[260px]">{dacDisplayName(sp)}</span>
               </>
             )}
             <div className="flex gap-1.5 ml-auto pr-2">
@@ -497,7 +505,7 @@ export default function FlowDiagramBody({
 
       {/* Verdict line */}
       <div
-        className={`px-6 py-3 border-t border-th-border-subtle text-center text-[11px] font-bold tracking-[0.15em] ${
+        className={`relative px-4 py-3 border-t border-th-border-subtle flex items-center justify-center text-[11px] font-bold tracking-[0.15em] ${
           isPristineVerdict
             ? "text-green-400"
             : lossyCount > 0
@@ -505,15 +513,31 @@ export default function FlowDiagramBody({
               : "text-amber-300"
         }`}
       >
-        {isPristineVerdict
-          ? "PRISTINE — NO ALTERATIONS DETECTED"
-          : lossyCount > 0
-            ? `NOT PRISTINE — ${lossyCount} LOSSY STAGE${lossyCount === 1 ? "" : "S"}${
-                alteredCount > 0 ? ` · ${alteredCount} MODIFIED` : ""
-              }`
-            : alteredCount > 0
-              ? `MODIFIED — ${alteredCount} STAGE${alteredCount === 1 ? "" : "S"}`
-              : "MODIFIED"}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="group absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium tracking-wider text-th-text-muted bg-th-surface/60 hover:bg-th-button-hover hover:text-th-text-primary transition-all border border-th-border-subtle hover:border-th-text-faint/30"
+            aria-label="Back to verdict"
+            title="Back to verdict"
+          >
+            <ArrowLeft
+              size={11}
+              className="transition-transform group-hover:-translate-x-0.5"
+            />
+            <span>BACK</span>
+          </button>
+        )}
+        <span className="text-center">
+          {isPristineVerdict
+            ? "PRISTINE — NO ALTERATIONS DETECTED"
+            : lossyCount > 0
+              ? `NOT PRISTINE — ${lossyCount} LOSSY STAGE${lossyCount === 1 ? "" : "S"}${
+                  alteredCount > 0 ? ` · ${alteredCount} MODIFIED` : ""
+                }`
+              : alteredCount > 0
+                ? `MODIFIED — ${alteredCount} STAGE${alteredCount === 1 ? "" : "S"}`
+                : "MODIFIED"}
+        </span>
       </div>
     </>
   );
