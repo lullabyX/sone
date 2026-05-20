@@ -20,6 +20,9 @@ export interface OsMixerInfo {
   sinkFormat: string;
   sinkRate: number;
   sinkChannels: number;
+  /** Linear amplitude multiplier the OS mixer applies. 1.0 = unity, 0.0 = mute. */
+  sinkVolume: number;
+  sinkMuted: boolean;
 }
 
 export interface SignalPath {
