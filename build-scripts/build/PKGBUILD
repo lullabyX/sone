@@ -18,6 +18,7 @@ depends=(
     'alsa-lib'
     'librsvg'
     'libayatana-appindicator'
+    'libpulse'
 )
 
 # The .deb is built by Tauri and copied alongside this PKGBUILD before makepkg runs.
