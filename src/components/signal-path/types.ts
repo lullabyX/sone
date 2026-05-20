@@ -75,6 +75,34 @@ export function gainFactorToDb(factor: number): string {
   return `${db >= 0 ? "+" : ""}${db.toFixed(1)} dB`;
 }
 
+/**
+ * Effective audio-bit precision per sample for a PCM format. Endianness is
+ * ignored on purpose — LE↔BE swaps are bit-exact byte reorders, not
+ * quantizations. Float is treated as 24-bit equivalent (24-bit mantissa
+ * captures the precision of any integer source FLAC produces).
+ */
+function audioBitDepth(format: string | null | undefined): number {
+  if (!format) return 0;
+  switch (toGstreamerFormat(format)) {
+    case "S16LE":
+    case "S16BE":
+      return 16;
+    case "S24LE":
+    case "S24BE":
+    case "S24_32LE":
+    case "S24_32BE":
+      return 24;
+    case "S32LE":
+    case "S32BE":
+      return 32;
+    case "F32LE":
+    case "F32BE":
+      return 24;
+    default:
+      return 0;
+  }
+}
+
 export function deriveAlterations(sp: SignalPath | null) {
   const userVol = sp?.userVolume ?? 1.0;
   const normFactor = sp?.normGainFactor ?? 1.0;
@@ -83,11 +111,19 @@ export function deriveAlterations(sp: SignalPath | null) {
     !!sp?.volumeNormalization && Math.abs(normFactor - 1.0) > EPS;
   const isDirectAlsa = sp?.backend === "DirectAlsa";
 
-  // "Pristine" is a strict claim. Requires:
+  // "Pristine" means: every audio sample the decoder produced reaches the
+  // DAC with all its bits intact. Empirical, not mode-based — a non-bit-
+  // perfect chain can still be pristine if no lossy stage actually fired.
+  // Requires:
   //  - DirectAlsa backend (we own the ALSA device; OS mixer is bypassed)
   //  - exclusiveMode (no shared access could mix into our stream)
-  //  - bitPerfect (pipeline excludes modifying stages by construction)
-  //  - No per-stage alteration detected (resample, format fallback, vol, RG)
+  //  - No rate change (resample alters the timeline)
+  //  - No ALSA format fallback recorded
+  //  - No user-volume / ReplayGain scaling (any non-unity multiply is
+  //    destructive on integer PCM)
+  //  - No bit-depth narrowing between decoded and output (S24_32LE → S32LE
+  //    or S24_32LE → S24LE are lossless container changes and DO NOT
+  //    disqualify; S32LE → S16LE narrows and DOES)
   //  - DAC kernel hw_params matches our pipeline's output format/rate
   //    (or no DAC info available, in which case we don't punish)
   // What feeds the kernel? DirectAlsa: our pipeline's appsink output (we own
@@ -106,15 +142,26 @@ export function deriveAlterations(sp: SignalPath | null) {
     (formatsEquivalent(sp.dac.format, upstreamFormat ?? null) &&
       sp.dac.rate === upstreamRate);
 
+  // Lossless format conversions (container repack, bit-width widening) keep
+  // all audio bits; only the byte layout changes. A conversion is lossy iff
+  // the destination has fewer audio bits than the source.
+  const formatChanged =
+    !!sp?.decodedFormat &&
+    !!sp?.outputFormat &&
+    !formatsEquivalent(sp.decodedFormat, sp.outputFormat);
+  const lossyFormatChange =
+    formatChanged &&
+    audioBitDepth(sp!.outputFormat) < audioBitDepth(sp!.decodedFormat);
+
   const isPristine =
     !!sp &&
     isDirectAlsa &&
     !!sp.exclusiveMode &&
-    !!sp.bitPerfect &&
     sp.resampledFrom == null &&
     sp.formatFallbackFrom == null &&
     !userVolAltered &&
     !normAltered &&
+    !lossyFormatChange &&
     dacMatchesPipeline;
 
   return {
@@ -124,5 +171,6 @@ export function deriveAlterations(sp: SignalPath | null) {
     normAltered,
     isDirectAlsa,
     isPristine,
+    lossyFormatChange,
   };
 }

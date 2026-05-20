@@ -15,6 +15,7 @@ import {
 import FlowDiagramBody from "./signal-path/FlowDiagramBody";
 import {
   deriveAlterations,
+  displayFormat,
   formatRate,
   gainFactorToDb,
 } from "./signal-path/types";
@@ -65,8 +66,15 @@ export default function SignalPathPanel({
 
   if (!open) return null;
 
-  const { userVol, normFactor, userVolAltered, normAltered, isDirectAlsa, isPristine } =
-    deriveAlterations(sp);
+  const {
+    userVol,
+    normFactor,
+    userVolAltered,
+    normAltered,
+    isDirectAlsa,
+    isPristine,
+    lossyFormatChange,
+  } = deriveAlterations(sp);
 
   const sourceBits = streamInfo?.bitDepth;
   const sourceRate = streamInfo?.sampleRate;
@@ -95,6 +103,8 @@ export default function SignalPathPanel({
     headline = `Resampled ${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`;
   } else if (sp?.formatFallbackFrom && sp?.formatFallbackTo) {
     headline = `DAC refused ${sp.formatFallbackFrom} — fell back to ${sp.formatFallbackTo}`;
+  } else if (lossyFormatChange) {
+    headline = `Bit-depth reduced ${displayFormat(sp?.decodedFormat)} → ${displayFormat(sp?.outputFormat)}`;
   } else if (normAltered && userVolAltered) {
     headline = "Samples scaled by volume slider and ReplayGain";
   } else if (normAltered) {
