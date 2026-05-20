@@ -1871,9 +1871,14 @@ fn build_appsink_pipeline(
         .sync(false)
         .build();
 
-    // DASH + bit-perfect: constrain appsink to ALSA-safe formats and rates.
-    // This prevents mid-stream renegotiation to a rate the DAC can't handle.
-    if is_dash && bit_perfect {
+    // DASH: constrain appsink to DAC-supported formats and rates for BOTH
+    // bit-perfect and non-bit-perfect. The pad_added capsfilter relock is
+    // gated by `if !is_dash` (DASH renegotiates caps mid-stream and would
+    // fight the lock), so without this constraint a non-bit-perfect DASH
+    // chain has no protection and source-format chunks (e.g. S24_32LE on a
+    // DAC that only supports S32LE) reach the writer, triggering the
+    // strict format-mismatch teardown in the Data handler.
+    if is_dash {
         let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
         let mut caps_builder = gst::Caps::builder("audio/x-raw")
             .field("format", gst::List::new(supported_gst_formats.iter().copied()));
@@ -1882,7 +1887,7 @@ fn build_appsink_pipeline(
         }
         appsink.set_caps(Some(&caps_builder.build()));
         log::debug!(
-            "[audio] bit-perfect DASH: appsink caps = formats:{:?} rates:{:?}",
+            "[audio] DASH appsink caps = formats:{:?} rates:{:?} (bit_perfect={bit_perfect})",
             supported_gst_formats, supported_rates
         );
     }
