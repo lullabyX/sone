@@ -76,6 +76,31 @@ export function gainFactorToDb(factor: number): string {
 }
 
 /**
+ * Friendly DAC name for compact display. Strips the ALSA driver prefix
+ * ("USB-Audio - ", "HDA-Intel - ") and the trailing bus location
+ * (" at usb-0000:..."). Falls back to outputDevice path. Returns null when
+ * nothing usable is available.
+ *
+ * Example transformations:
+ *   "USB-Audio - iFi (by AMR) HD USB Audio at usb-0000:00:14.0-3, high speed"
+ *     → "iFi (by AMR) HD USB Audio"
+ *   "HDA-Intel - HDA Intel PCH" → "HDA Intel PCH"
+ */
+export function dacDisplayName(sp: SignalPath | null): string | null {
+  const cardName = sp?.dac?.cardName;
+  if (cardName) {
+    let s = cardName;
+    const dashIdx = s.indexOf(" - ");
+    if (dashIdx > 0) s = s.slice(dashIdx + 3);
+    const atIdx = s.indexOf(" at ");
+    if (atIdx > 0) s = s.slice(0, atIdx);
+    const trimmed = s.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return sp?.outputDevice ?? null;
+}
+
+/**
  * Effective audio-bit precision per sample for a PCM format. Endianness is
  * ignored on purpose — LE↔BE swaps are bit-exact byte reorders, not
  * quantizations. Float is treated as 24-bit equivalent (24-bit mantissa
