@@ -34,6 +34,12 @@ pub struct OsMixerInfo {
     pub sink_format: String,
     pub sink_rate: u32,
     pub sink_channels: u32,
+    /// Linear amplitude multiplier the OS mixer applies before the kernel
+    /// write. Derived from the per-channel dB value in `pactl list sinks`
+    /// (10^(dB/20)) — endian-of-scale agnostic, unlike the percentage which
+    /// depends on the cubic/linear setting. 1.0 = unity. 0.0 = mute.
+    pub sink_volume: f32,
+    pub sink_muted: bool,
 }
 
 /// Pad-caps snapshot from an audio pipeline probe.
@@ -136,7 +142,65 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
         sink_format,
         sink_rate,
         sink_channels,
+        sink_volume: 1.0,
+        sink_muted: false,
     })
+}
+
+/// Parse the per-sink Mute and Volume lines for a target sink from
+/// `pactl list sinks` output. Returns (linear_amplitude_multiplier, muted).
+///
+/// Volume line format (PipeWire/Pulse):
+///   Volume: front-left: 39322 /  60% / -13.31 dB,   front-right: 39322 / ...
+/// We use the dB value (10^(dB/20)) because the "%" depends on the
+/// cubic/linear scaling the server is configured with — dB is authoritative.
+/// We use the channel with the largest |dB| from 0 as the representative,
+/// so any unbalanced cut surfaces honestly.
+///
+/// `Base Volume:` lines are skipped (they describe the sink's reference
+/// 0 dB, not the current setting).
+pub fn sink_volume_and_mute(stdout: &str, target_sink_name: &str) -> (f32, bool) {
+    let mut in_target = false;
+    let mut volume: f32 = 1.0;
+    let mut muted = false;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim_start();
+        if let Some(name) = trimmed.strip_prefix("Name:") {
+            in_target = name.trim() == target_sink_name;
+            continue;
+        }
+        if !in_target {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("Mute:") {
+            muted = rest.trim().eq_ignore_ascii_case("yes");
+        } else if let Some(rest) = trimmed.strip_prefix("Volume:") {
+            // Skip "Base Volume:" — strip_prefix("Volume:") only matches when
+            // the prefix is exactly "Volume:", but `Base Volume:` is reached
+            // only via the outer trimmed line "Base Volume:" which starts
+            // with "Base", so strip_prefix("Volume:") returns None for it.
+            let mut max_abs_db: f32 = 0.0;
+            let mut chosen_db: f32 = 0.0;
+            for part in rest.split(',') {
+                // Find " dB" anchor; the dB number is just before it.
+                let Some(db_end) = part.rfind(" dB") else { continue };
+                let before_db = &part[..db_end];
+                let Some(last_slash) = before_db.rfind('/') else { continue };
+                let db_str = before_db[last_slash + 1..].trim();
+                let Ok(db) = db_str.parse::<f32>() else { continue };
+                if db.abs() > max_abs_db {
+                    max_abs_db = db.abs();
+                    chosen_db = db;
+                }
+            }
+            if max_abs_db > 0.0 {
+                volume = 10f32.powf(chosen_db / 20.0);
+            }
+        }
+    }
+
+    (volume, muted)
 }
 
 /// Find the Sample Specification (format/channels/rate) for a sink with
@@ -386,13 +450,17 @@ pub fn query_os_mixer() -> Option<OsMixerInfo> {
     let info_out = run_pactl(&["info"])?;
     let mut mixer = parse_pactl_info(&info_out)?;
 
-    // Override the global default spec with the actual default sink's spec.
+    // Override the global default spec with the actual default sink's spec,
+    // and read its current Mute/Volume so we can surface OS-layer scaling.
     if let Some(list_out) = run_pactl(&["list", "sinks"]) {
         if let Some((fmt, ch, rate)) = sink_sample_spec(&list_out, &mixer.default_sink_name) {
             mixer.sink_format = fmt;
             mixer.sink_channels = ch;
             mixer.sink_rate = rate;
         }
+        let (vol, muted) = sink_volume_and_mute(&list_out, &mixer.default_sink_name);
+        mixer.sink_volume = vol;
+        mixer.sink_muted = muted;
     }
     Some(mixer)
 }
@@ -597,6 +665,8 @@ Sink #60
             sink_format: "s24le".into(),
             sink_rate: 96000,
             sink_channels: 2,
+            sink_volume: 1.0,
+            sink_muted: false,
         };
         // alsa.id resolution requires the list-sinks stdout — simulated via caller:
         let resolver = |sink: &str| {
@@ -609,6 +679,88 @@ Sink #60
     #[test]
     fn discover_returns_none_when_no_backend() {
         assert!(discover_active_card(None, None, None).is_none());
+    }
+
+    const PACTL_LIST_SINKS_WITH_VOLUME: &str = "\
+Sink #2
+\tState: RUNNING
+\tName: alsa_output.usb-iFi.iec958-stereo
+\tSample Specification: s24le 2ch 96000Hz
+\tMute: no
+\tVolume: front-left: 39322 /  60% / -13.31 dB,   front-right: 39322 /  60% / -13.31 dB
+\t        balance 0.00
+\tBase Volume: 65536 / 100% / 0.00 dB
+\tProperties:
+\t\talsa.card = \"5\"
+
+Sink #3
+\tState: SUSPENDED
+\tName: alsa_output.muted-test
+\tSample Specification: s16le 2ch 48000Hz
+\tMute: yes
+\tVolume: front-left: 65536 /  100% / 0.00 dB,   front-right: 65536 /  100% / 0.00 dB
+\t        balance 0.00
+\tBase Volume: 65536 / 100% / 0.00 dB
+
+Sink #4
+\tState: RUNNING
+\tName: alsa_output.unity
+\tSample Specification: s32le 2ch 48000Hz
+\tMute: no
+\tVolume: front-left: 65536 /  100% / 0.00 dB,   front-right: 65536 /  100% / 0.00 dB
+\t        balance 0.00
+\tBase Volume: 65536 / 100% / 0.00 dB
+";
+
+    #[test]
+    fn parses_attenuated_sink_volume() {
+        let (vol, muted) = sink_volume_and_mute(
+            PACTL_LIST_SINKS_WITH_VOLUME,
+            "alsa_output.usb-iFi.iec958-stereo",
+        );
+        // -13.31 dB → ~0.2158 multiplier
+        assert!((vol - 0.2158).abs() < 0.001, "vol={vol}");
+        assert!(!muted);
+    }
+
+    #[test]
+    fn parses_muted_sink() {
+        let (_vol, muted) =
+            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.muted-test");
+        assert!(muted);
+    }
+
+    #[test]
+    fn parses_unity_sink_volume() {
+        let (vol, muted) =
+            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unity");
+        assert!((vol - 1.0).abs() < 1e-6, "vol={vol}");
+        assert!(!muted);
+    }
+
+    #[test]
+    fn returns_defaults_for_unknown_sink_volume() {
+        let (vol, muted) =
+            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unknown");
+        assert!((vol - 1.0).abs() < 1e-6);
+        assert!(!muted);
+    }
+
+    #[test]
+    fn ignores_base_volume_line() {
+        // The "Base Volume" line is also "Base Volume: 65536 / 100% / 0.00 dB"
+        // — if the parser accidentally matched it, the attenuated sink above
+        // would still come back at 0 dB. That's covered by the attenuated
+        // test, but pin the negative case explicitly:
+        let only_base = "\
+Sink #99
+\tName: alsa_output.only-base
+\tBase Volume: 65536 / 100% / 0.00 dB
+";
+        let (vol, muted) = sink_volume_and_mute(only_base, "alsa_output.only-base");
+        // No Volume: line ever matched → default 1.0
+        assert!((vol - 1.0).abs() < 1e-6);
+        assert!(!muted);
     }
 }
 

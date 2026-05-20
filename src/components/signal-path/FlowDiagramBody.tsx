@@ -234,6 +234,34 @@ export default function FlowDiagramBody({
       reason: "Loudness normalization scales samples before output",
     });
   }
+  // Normal mode: surface OS mixer mute / volume scaling. We're not the only
+  // thing that touches samples — PipeWire/Pulse can mute the sink or apply a
+  // per-sink software volume that scales every sample before the kernel write.
+  // Skipped for DirectAlsa because we own the device exclusively (OS mixer is
+  // bypassed). EPS_VOL guards against floating-point noise around 1.0.
+  const EPS_VOL = 1e-3;
+  const osMuted =
+    !isDirectAlsa && !!sp?.osMixer && sp.osMixer.sinkMuted;
+  const osVolumeAltered =
+    !isDirectAlsa &&
+    !!sp?.osMixer &&
+    !sp.osMixer.sinkMuted &&
+    Math.abs(sp.osMixer.sinkVolume - 1.0) > EPS_VOL;
+  if (osMuted) {
+    cable2Alterations.push({
+      state: "lossy",
+      label: "OS MUTED",
+      detail: `${sp?.osMixer?.server ?? "OS mixer"} sink is muted`,
+      reason: "OS mixer is muted — samples are zeroed before reaching the DAC",
+    });
+  } else if (osVolumeAltered) {
+    cable2Alterations.push({
+      state: "altered",
+      label: "OS VOLUME",
+      detail: `${Math.round(sp!.osMixer!.sinkVolume * 100)}% (${gainFactorToDb(sp!.osMixer!.sinkVolume)})`,
+      reason: `${sp?.osMixer?.server ?? "OS mixer"} scales samples by this factor before the kernel write`,
+    });
+  }
   // Mode-aware: in Normal mode the "previous stage" is the OS mixer's sink
   // spec (what PipeWire actually delivers to the kernel), NOT our pipeline
   // output. In DirectAlsa we own the device so outputFormat IS what reaches
@@ -268,11 +296,15 @@ export default function FlowDiagramBody({
   const cable2Caption =
     sp?.formatFallbackFrom && sp?.formatFallbackTo
       ? `fallback ${displayFormat(sp.formatFallbackFrom)}→${displayFormat(sp.formatFallbackTo)}`
-      : dacDiverges
-        ? "OS-layer conversion"
-        : userVolAltered || normAltered
-          ? "gain applied"
-          : "pass-thru";
+      : osMuted
+        ? "OS muted"
+        : dacDiverges
+          ? "OS-layer conversion"
+          : osVolumeAltered
+            ? `OS vol ${gainFactorToDb(sp!.osMixer!.sinkVolume)}`
+            : userVolAltered || normAltered
+              ? "gain applied"
+              : "pass-thru";
   const cable2: CableSpec = {
     state: cable2State,
     caption: cable2Caption,
