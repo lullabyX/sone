@@ -141,7 +141,15 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 ```
 
-**Node.js** 18+ (via [nvm](https://github.com/nvm-sh/nvm), [fnm](https://github.com/Schniz/fnm), or your preferred method)
+**Node.js** 22+ (via [nvm](https://github.com/nvm-sh/nvm), [fnm](https://github.com/Schniz/fnm), or your preferred method)
+
+**pnpm** 11.x:
+
+```bash
+npm install -g pnpm@11.1.3
+# or, if corepack ships with your Node install:
+corepack enable
+```
 
 **System dependencies:**
 
