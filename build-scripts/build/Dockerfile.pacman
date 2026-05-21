@@ -31,7 +31,7 @@ WORKDIR /app
 
 # ── Layer 4: pnpm install (only re-runs when package*.json or lockfile changes)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN npm install -g pnpm@10.15.0 && pnpm install --frozen-lockfile
+RUN npm install -g pnpm@11.1.3 && pnpm install --frozen-lockfile
 
 # ── Layer 5: Build deb (Tauri doesn't support --bundles pacman) ──────────────
 COPY . .
