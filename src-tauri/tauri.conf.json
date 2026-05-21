@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SONE",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "identifier": "io.github.lullabyX.sone",
   "build": {
     "beforeDevCommand": "pnpm dev",
