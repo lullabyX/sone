@@ -1,5 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import {
+  amplitudeToSliderPercent,
   dacDisplayName,
   deriveAlterations,
   displayFormat,
@@ -230,7 +231,7 @@ export default function FlowDiagramBody({
     cable2Alterations.push({
       state: "altered",
       label: "VOLUME",
-      detail: `${Math.round(userVol * 100)}% (${gainFactorToDb(userVol)})`,
+      detail: `${amplitudeToSliderPercent(userVol)}% (${gainFactorToDb(userVol)})`,
       reason: "Software volume scales samples in the writer thread",
     });
   }
@@ -266,7 +267,7 @@ export default function FlowDiagramBody({
     cable2Alterations.push({
       state: "altered",
       label: "OS VOLUME",
-      detail: `${Math.round(sp!.osMixer!.sinkVolume * 100)}% (${gainFactorToDb(sp!.osMixer!.sinkVolume)})`,
+      detail: `${sp!.osMixer!.sinkVolumePercent}% (${gainFactorToDb(sp!.osMixer!.sinkVolume)})`,
       reason: `${sp?.osMixer?.server ?? "OS mixer"} scales samples by this factor before the kernel write`,
     });
   }
