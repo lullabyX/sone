@@ -570,14 +570,14 @@ export default function Login() {
 
   if (!credentialsLoaded) {
     return (
-      <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+      <div className="flex items-center justify-center h-full w-full bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
         <Loader2 className="animate-spin text-th-accent" size={32} />
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+    <div className="flex items-center justify-center h-full w-full bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
       <div className="text-center p-10 bg-th-surface/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-th-border-subtle max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-center gap-0">

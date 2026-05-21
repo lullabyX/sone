@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Layout from "./components/Layout";
+import TitleBar from "./components/TitleBar";
+import ResizeEdges from "./components/ResizeEdges";
 import Home from "./components/Home";
 import AlbumView from "./components/AlbumView";
 import PlaylistView from "./components/PlaylistView";
@@ -20,6 +22,7 @@ import { useNavigation } from "./hooks/useNavigation";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useAtomValue } from "jotai";
 import { isAuthCheckingAtom } from "./atoms/auth";
+import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -67,6 +70,18 @@ function useZoom() {
   });
 }
 
+function AppChrome({ children }: { children: ReactNode }) {
+  const nativeChrome = useAtomValue(decorationsAtom);
+  const hideTitleBar = useAtomValue(hideTitleBarAtom);
+  return (
+    <div className="relative flex flex-col h-full w-full overflow-hidden">
+      {!nativeChrome && !hideTitleBar && <TitleBar />}
+      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={4} />}
+    </div>
+  );
+}
+
 function AppContent() {
   const { isAuthenticated } = useAuth();
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
@@ -74,14 +89,20 @@ function AppContent() {
 
   if (isAuthChecking) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-th-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-th-accent border-t-transparent" />
-      </div>
+      <AppChrome>
+        <div className="flex h-full w-full items-center justify-center bg-th-background">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-th-accent border-t-transparent" />
+        </div>
+      </AppChrome>
     );
   }
 
   if (!isAuthenticated) {
-    return <Login />;
+    return (
+      <AppChrome>
+        <Login />
+      </AppChrome>
+    );
   }
 
   const renderView = () => {
