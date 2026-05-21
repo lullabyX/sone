@@ -40,7 +40,7 @@ use tokio::sync::Mutex;
 mod defaults {
     pub fn yes() -> bool { true }
     pub fn volume() -> f32 { 1.0 }
-    pub fn mcp_enabled() -> bool { true }
+    pub fn mcp_enabled() -> bool { false }
     pub fn mcp_port() -> u16 { 5577 }
 }
 
@@ -183,7 +183,7 @@ impl Default for Settings {
             discord_rpc: true,
             discord_status_text: String::new(),
             legacy_auth_notice_count: 0,
-            mcp_enabled: true,
+            mcp_enabled: false,
             mcp_port: 5577,
             mcp_token: String::new(),
         }
