@@ -54,6 +54,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Bit-perfect output** — no resampling, no dithering. Your DAC receives the unaltered decoded signal
 - **Exclusive ALSA** — bypasses PipeWire/PulseAudio entirely for direct hardware access
 - **Smart DAC matching** — automatically detects your hardware's supported formats and sample rates, picking the best fit
+- **Signal Path Transparency** — see exactly what your audio is going through end-to-end. Probes the live GStreamer pipeline, OS mixer (`pactl`), and ALSA card (`/proc/asound`); flags every conversion, format mismatch, or volume alteration with a PRISTINE verdict for bit-clean playback
 - **Volume normalization** (ReplayGain) with automatic context switching between album and track gain
 - **Autoplay** — discovers and plays similar tracks when your queue ends
 
@@ -65,9 +66,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, shuffle, repeat, seek, and desktop widget support
-- **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
 - **Proxy support** — route traffic through HTTP, HTTPS, or SOCKS5 proxies
-- **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 - **System tray** with playback controls and minimize-to-tray
 - **Keyboard shortcuts** for all common actions with a built-in shortcut overlay
 
@@ -76,6 +75,12 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Library management** — browse and sort your playlists, albums, artists, and mixes with playlist folder support
 - **Share** — share tracks, albums, playlists, artists, and mixes with your friends via a direct TIDAL link
 - **Deep links** — open `tidal://` URLs directly in SONE
+
+### Integrations
+
+- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) server on port 5577 lets external AI agents (Claude Code, etc.) search your library, control playback, and manage playlists/favorites. Off by default; enable in Settings with one-click token generation
+- **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
+- **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 
 ## Why SONE?
 
