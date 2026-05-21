@@ -23,9 +23,9 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.18",
-    "@tauri-apps/api": "~2.9.1",
-    "@tauri-apps/plugin-deep-link": "^2.4.7",
-    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/api": "2.11.0",
+    "@tauri-apps/plugin-deep-link": "2.4.9",
+    "@tauri-apps/plugin-opener": "2.5.4",
     "jotai": "^2.17.1",
     "lucide-react": "^0.563.0",
     "qrcode.react": "^4.2.0",
@@ -35,7 +35,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.3",
     "@tailwindcss/postcss": "^4.1.18",
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "2.11.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
