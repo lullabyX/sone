@@ -103,7 +103,7 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: |
           pip install ./flatpak-builder-tools/node
-          flatpak-node-generator pnpm sone/pnpm-lock.yaml -o flathub/pnpm-sources.json
+          flatpak-node-generator pnpm --pnpm-store-version v11 sone/pnpm-lock.yaml -o flathub/pnpm-sources.json
 
       - name: Commit and push
         if: steps.check.outputs.skip != 'true'
