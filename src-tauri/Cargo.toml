@@ -16,14 +16,14 @@ name = "tauri_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.6.2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["image-png"] }
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-tauri-plugin-deep-link = "2"
+tauri = { version = "=2.11.2", features = ["image-png"] }
+tauri-plugin-single-instance = { version = "=2.4.2", features = ["deep-link"] }
+tauri-plugin-deep-link = "=2.4.9"
 image = "0.25"
-tauri-plugin-opener = "2"
+tauri-plugin-opener = "=2.5.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 gstreamer = "0.23"
@@ -35,7 +35,7 @@ reqwest = { version = "0.11", features = ["json", "socks"] }
 tokio = { version = "1", features = ["full"] }
 base64 = "0.21"
 dirs = "5"
-tauri-plugin-window-state = "2.4.1"
+tauri-plugin-window-state = "=2.4.1"
 tauri-plugin-oauth = "=2.0.0"
 rand = "0.10.1"
 sha2 = "0.10.9"
@@ -44,7 +44,7 @@ async-trait = "0.1"
 log = "0.4"
 flexi_logger = "0.31"
 thiserror = "2"
-tauri-plugin-global-shortcut = "2"
+tauri-plugin-global-shortcut = "=2.3.1"
 aes-gcm = "0.10"
 keyring = { version = "3", features = ["sync-secret-service"] }
 zeroize = "1"
@@ -57,7 +57,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webkit2gtk = "=2.0.1"
+webkit2gtk = "=2.0.2"
 gtk = "0.18"
 gdk = "0.18"
 mpris-server = "0.9"
