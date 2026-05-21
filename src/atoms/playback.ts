@@ -22,6 +22,8 @@ export interface OsMixerInfo {
   sinkChannels: number;
   /** Linear amplitude multiplier the OS mixer applies. 1.0 = unity, 0.0 = mute. */
   sinkVolume: number;
+  /** Slider-scale percent as `pactl` prints it — matches the OS volume widget. */
+  sinkVolumePercent: number;
   sinkMuted: boolean;
 }
 

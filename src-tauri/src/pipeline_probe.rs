@@ -39,6 +39,11 @@ pub struct OsMixerInfo {
     /// (10^(dB/20)) — endian-of-scale agnostic, unlike the percentage which
     /// depends on the cubic/linear setting. 1.0 = unity. 0.0 = mute.
     pub sink_volume: f32,
+    /// Slider-scale percentage exactly as `pactl list sinks` prints it
+    /// (cubic-mapped by default on PulseAudio/PipeWire — matches GNOME/KDE
+    /// volume widgets). Used for display; alteration detection still uses
+    /// `sink_volume`. 100 = unity.
+    pub sink_volume_percent: u32,
     pub sink_muted: bool,
 }
 
@@ -143,25 +148,31 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
         sink_rate,
         sink_channels,
         sink_volume: 1.0,
+        sink_volume_percent: 100,
         sink_muted: false,
     })
 }
 
 /// Parse the per-sink Mute and Volume lines for a target sink from
-/// `pactl list sinks` output. Returns (linear_amplitude_multiplier, muted).
+/// `pactl list sinks` output. Returns (linear_amplitude_multiplier,
+/// slider_percent, muted).
 ///
 /// Volume line format (PipeWire/Pulse):
 ///   Volume: front-left: 39322 /  60% / -13.31 dB,   front-right: 39322 / ...
-/// We use the dB value (10^(dB/20)) because the "%" depends on the
-/// cubic/linear scaling the server is configured with — dB is authoritative.
-/// We use the channel with the largest |dB| from 0 as the representative,
-/// so any unbalanced cut surfaces honestly.
 ///
-/// `Base Volume:` lines are skipped (they describe the sink's reference
-/// 0 dB, not the current setting).
-pub fn sink_volume_and_mute(stdout: &str, target_sink_name: &str) -> (f32, bool) {
+/// We extract two numbers from the chosen channel:
+///   - `dB` → linear amplitude (10^(dB/20)) used for alteration math
+///   - `%`  → slider-scale percentage exactly as `pactl` printed it. This is
+///     what the OS volume widget shows (cubic-mapped by default), so it's the
+///     right number to surface in the UI even though the amplitude factor is
+///     smaller (e.g. 25% slider = ~1.6% amplitude = -36 dB).
+///
+/// We pick the channel with the largest |dB| from 0 as the representative,
+/// so any unbalanced cut surfaces honestly. `Base Volume:` lines are skipped.
+pub fn sink_volume_and_mute(stdout: &str, target_sink_name: &str) -> (f32, u32, bool) {
     let mut in_target = false;
     let mut volume: f32 = 1.0;
+    let mut percent: u32 = 100;
     let mut muted = false;
 
     for line in stdout.lines() {
@@ -182,25 +193,48 @@ pub fn sink_volume_and_mute(stdout: &str, target_sink_name: &str) -> (f32, bool)
             // with "Base", so strip_prefix("Volume:") returns None for it.
             let mut max_abs_db: f32 = 0.0;
             let mut chosen_db: f32 = 0.0;
+            let mut chosen_percent: Option<u32> = None;
             for part in rest.split(',') {
-                // Find " dB" anchor; the dB number is just before it.
+                // Anchor on " dB" at the end of the channel segment.
                 let Some(db_end) = part.rfind(" dB") else { continue };
                 let before_db = &part[..db_end];
                 let Some(last_slash) = before_db.rfind('/') else { continue };
                 let db_str = before_db[last_slash + 1..].trim();
                 let Ok(db) = db_str.parse::<f32>() else { continue };
+
+                // Walk back from the slash-before-dB to find the "<N>%"
+                // token sitting between two earlier slashes:
+                // "<raw> / <N>% / <dB> dB".
+                let part_percent: Option<u32> = (|| {
+                    let before_last_slash = &before_db[..last_slash];
+                    let pct_end = before_last_slash.rfind('%')?;
+                    let before_pct = &before_last_slash[..pct_end];
+                    let slash_before_pct = before_pct.rfind('/')?;
+                    before_last_slash[slash_before_pct + 1..pct_end]
+                        .trim()
+                        .parse::<f32>()
+                        .ok()
+                        .map(|f| f.round().max(0.0) as u32)
+                })();
+
                 if db.abs() > max_abs_db {
                     max_abs_db = db.abs();
                     chosen_db = db;
+                    chosen_percent = part_percent;
                 }
             }
             if max_abs_db > 0.0 {
                 volume = 10f32.powf(chosen_db / 20.0);
+                percent = chosen_percent.unwrap_or_else(|| {
+                    // Fallback: PA's scale is cubic by default, so the
+                    // slider position is approximately cbrt(amplitude).
+                    (volume.cbrt() * 100.0).round().max(0.0) as u32
+                });
             }
         }
     }
 
-    (volume, muted)
+    (volume, percent, muted)
 }
 
 /// Find the Sample Specification (format/channels/rate) for a sink with
@@ -458,8 +492,9 @@ pub fn query_os_mixer() -> Option<OsMixerInfo> {
             mixer.sink_channels = ch;
             mixer.sink_rate = rate;
         }
-        let (vol, muted) = sink_volume_and_mute(&list_out, &mixer.default_sink_name);
+        let (vol, pct, muted) = sink_volume_and_mute(&list_out, &mixer.default_sink_name);
         mixer.sink_volume = vol;
+        mixer.sink_volume_percent = pct;
         mixer.sink_muted = muted;
     }
     Some(mixer)
@@ -671,6 +706,7 @@ Sink #60
             sink_rate: 96000,
             sink_channels: 2,
             sink_volume: 1.0,
+            sink_volume_percent: 100,
             sink_muted: false,
         };
         // alsa.id resolution requires the list-sinks stdout — simulated via caller:
@@ -715,39 +751,63 @@ Sink #4
 \tVolume: front-left: 65536 /  100% / 0.00 dB,   front-right: 65536 /  100% / 0.00 dB
 \t        balance 0.00
 \tBase Volume: 65536 / 100% / 0.00 dB
+
+Sink #5
+\tState: RUNNING
+\tName: alsa_output.slider-25
+\tSample Specification: s32le 2ch 48000Hz
+\tMute: no
+\tVolume: front-left: 16384 /  25% / -36.12 dB,   front-right: 16384 /  25% / -36.12 dB
+\t        balance 0.00
+\tBase Volume: 65536 / 100% / 0.00 dB
 ";
 
     #[test]
     fn parses_attenuated_sink_volume() {
-        let (vol, muted) = sink_volume_and_mute(
+        let (vol, pct, muted) = sink_volume_and_mute(
             PACTL_LIST_SINKS_WITH_VOLUME,
             "alsa_output.usb-iFi.iec958-stereo",
         );
-        // -13.31 dB → ~0.2158 multiplier
+        // -13.31 dB → ~0.2158 amplitude, but pactl prints 60% on its slider scale.
         assert!((vol - 0.2158).abs() < 0.001, "vol={vol}");
+        assert_eq!(pct, 60);
         assert!(!muted);
     }
 
     #[test]
     fn parses_muted_sink() {
-        let (_vol, muted) =
+        let (_vol, _pct, muted) =
             sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.muted-test");
         assert!(muted);
     }
 
     #[test]
     fn parses_unity_sink_volume() {
-        let (vol, muted) =
+        let (vol, pct, muted) =
             sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unity");
         assert!((vol - 1.0).abs() < 1e-6, "vol={vol}");
+        assert_eq!(pct, 100);
+        assert!(!muted);
+    }
+
+    #[test]
+    fn slider_percent_matches_pactl_not_amplitude() {
+        // 25% on a cubic slider = 0.25^3 ≈ 0.0156 amplitude = -36.12 dB.
+        // The display percent must mirror pactl's "25%", not the 2% you'd
+        // get by treating the amplitude factor as a percentage.
+        let (vol, pct, muted) =
+            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.slider-25");
+        assert!((vol - 0.01567).abs() < 0.001, "vol={vol}");
+        assert_eq!(pct, 25);
         assert!(!muted);
     }
 
     #[test]
     fn returns_defaults_for_unknown_sink_volume() {
-        let (vol, muted) =
+        let (vol, pct, muted) =
             sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unknown");
         assert!((vol - 1.0).abs() < 1e-6);
+        assert_eq!(pct, 100);
         assert!(!muted);
     }
 
@@ -762,9 +822,10 @@ Sink #99
 \tName: alsa_output.only-base
 \tBase Volume: 65536 / 100% / 0.00 dB
 ";
-        let (vol, muted) = sink_volume_and_mute(only_base, "alsa_output.only-base");
-        // No Volume: line ever matched → default 1.0
+        let (vol, pct, muted) = sink_volume_and_mute(only_base, "alsa_output.only-base");
+        // No Volume: line ever matched → default 1.0 / 100%
         assert!((vol - 1.0).abs() < 1e-6);
+        assert_eq!(pct, 100);
         assert!(!muted);
     }
 }

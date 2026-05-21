@@ -76,6 +76,18 @@ export function gainFactorToDb(factor: number): string {
 }
 
 /**
+ * Recover the in-app slider position (0-100) from the amplitude factor the
+ * backend reports. The backend applies a cubic taper (slider^3 → amplitude)
+ * in `slider_to_amplitude`, so `cbrt(amplitude)` returns the slider position.
+ * Use this for display so the panel matches what the user sees on the
+ * volume widget rather than the lower amplitude-percent.
+ */
+export function amplitudeToSliderPercent(amplitude: number): number {
+  if (amplitude <= 0) return 0;
+  return Math.round(Math.cbrt(amplitude) * 100);
+}
+
+/**
  * Friendly DAC name for compact display. Strips the ALSA driver prefix
  * ("USB-Audio - ", "HDA-Intel - ") and the trailing bus location
  * (" at usb-0000:..."). Falls back to outputDevice path. Returns null when

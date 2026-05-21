@@ -14,6 +14,7 @@ import {
 } from "../atoms/playback";
 import FlowDiagramBody from "./signal-path/FlowDiagramBody";
 import {
+  amplitudeToSliderPercent,
   dacDisplayName,
   deriveAlterations,
   displayFormat,
@@ -111,7 +112,7 @@ export default function SignalPathPanel({
   } else if (normAltered) {
     headline = `ReplayGain applied · ${gainFactorToDb(normFactor)}`;
   } else if (userVolAltered) {
-    headline = `Volume slider scaling samples · ${Math.round(userVol * 100)}%`;
+    headline = `Volume slider scaling samples · ${amplitudeToSliderPercent(userVol)}%`;
   } else if (sp?.osMixer && !isDirectAlsa) {
     headline = `Routed through ${sp.osMixer.server}`;
   } else if (sp && !sp.bitPerfect) {
