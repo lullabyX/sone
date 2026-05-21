@@ -231,9 +231,9 @@ sudo pacman -S --needed gst-plugin-pipewire alsa-plugins
 ```bash
 git clone https://github.com/lullabyX/sone.git
 cd sone
-npm install
-npm run tauri dev          # Development mode
-npm run tauri build        # Release build (produces .deb, .rpm, .AppImage)
+pnpm install
+pnpm tauri dev             # Development mode
+pnpm tauri build           # Release build (produces .deb, .rpm, .AppImage)
 ```
 
 **Using build scripts:**
