@@ -33,9 +33,9 @@ RUN curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - \
 
 WORKDIR /app
 
-# ── Layer 4: npm ci ──────────────────────────────────────────────────────────
-COPY package.json package-lock.json ./
-RUN npm ci
+# ── Layer 4: pnpm install (only re-runs when package*.json or lockfile changes)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN npm install -g pnpm@10.15.0 && pnpm install --frozen-lockfile
 
 # ── Layer 5: Full source + build ─────────────────────────────────────────────
 COPY . .
@@ -43,6 +43,6 @@ RUN echo "%vendor lullabyX" >> /root/.rpmmacros
 RUN --mount=type=cache,id=sone-rpm-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=sone-rpm-git,target=/root/.cargo/git \
     --mount=type=cache,id=sone-rpm-target,target=/app/src-tauri/target \
-    npm run tauri build -- --bundles rpm \
+    pnpm tauri build --bundles rpm \
     && mkdir -p /output \
     && cp src-tauri/target/release/bundle/rpm/SONE-*.rpm /output/

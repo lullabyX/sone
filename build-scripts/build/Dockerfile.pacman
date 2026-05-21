@@ -29,9 +29,9 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
-# ── Layer 4: npm ci ──────────────────────────────────────────────────────────
-COPY package.json package-lock.json ./
-RUN npm ci
+# ── Layer 4: pnpm install (only re-runs when package*.json or lockfile changes)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN npm install -g pnpm@10.15.0 && pnpm install --frozen-lockfile
 
 # ── Layer 5: Build deb (Tauri doesn't support --bundles pacman) ──────────────
 COPY . .
@@ -39,7 +39,7 @@ RUN --mount=type=cache,id=sone-pacman-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=sone-pacman-git,target=/root/.cargo/git \
     --mount=type=cache,id=sone-pacman-target,target=/app/src-tauri/target \
     rm -f src-tauri/target/release/bundle/deb/SONE_*.deb \
-    && npm run tauri build -- --bundles deb \
+    && pnpm tauri build --bundles deb \
     && mkdir -p /build \
     && cp src-tauri/target/release/bundle/deb/SONE_*.deb /build/sone.deb
 
