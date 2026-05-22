@@ -4488,9 +4488,13 @@ impl TidalClient {
         &mut self,
         artist_id: u64,
         view_all_path: &str,
+        offset: u32,
+        limit: u32,
     ) -> Result<Value, SoneError> {
         let cc = self.country_code.clone();
         let id_str = artist_id.to_string();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
         // viewAll paths from v2 API are relative like "artist/ARTIST_ALBUMS/view-all?artistId=123"
         // They need the v2 base URL, and may already contain query params
         let url = if view_all_path.starts_with("http") {
@@ -4509,8 +4513,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("deviceType", "BROWSER"),
                     ("platform", "WEB"),
-                    ("limit", "50"),
-                    ("offset", "0"),
+                    ("limit", &limit_str),
+                    ("offset", &offset_str),
                 ],
             )
             .await?;

@@ -809,14 +809,21 @@ pub async fn get_artist_view_all(
     app_handle: tauri::AppHandle,
     artist_id: u64,
     view_all_path: String,
+    offset: u32,
+    limit: u32,
 ) -> Result<Value, SoneError> {
     log::debug!(
-        "[get_artist_view_all]: artist_id={}, path={}",
+        "[get_artist_view_all]: artist_id={} path={} offset={} limit={}",
         artist_id,
-        view_all_path
+        view_all_path,
+        offset,
+        limit
     );
 
-    let cache_key = format!("artist-view-all:{}:{}", artist_id, view_all_path);
+    let cache_key = format!(
+        "artist-view-all:{}:{}:{}:{}",
+        artist_id, view_all_path, offset, limit
+    );
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
         CacheResult::Fresh(bytes) => {
             if let Ok(data) = serde_json::from_slice(&bytes) {
@@ -835,7 +842,9 @@ pub async fn get_artist_view_all(
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_artist_view_all(artist_id, &path).await
+                                client
+                                    .get_artist_view_all(artist_id, &path, offset, limit)
+                                    .await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -864,7 +873,7 @@ pub async fn get_artist_view_all(
 
     let mut client = state.tidal_client.lock().await;
     let data = client
-        .get_artist_view_all(artist_id, &view_all_path)
+        .get_artist_view_all(artist_id, &view_all_path, offset, limit)
         .await?;
     drop(client);
 
