@@ -813,7 +813,7 @@ pub async fn get_artist_view_all(
     limit: u32,
 ) -> Result<Value, SoneError> {
     log::debug!(
-        "[get_artist_view_all]: artist_id={} path={} offset={} limit={}",
+        "[get_artist_view_all]: artist_id={}, path={}, offset={}, limit={}",
         artist_id,
         view_all_path,
         offset,
