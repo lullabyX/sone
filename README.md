@@ -3,9 +3,9 @@
   <h1>SONE</h1>
   <p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
 
-  [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-  [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
-  [![Built with Tauri 2](https://img.shields.io/badge/Built_with-Tauri_2-orange.svg)](https://v2.tauri.app/)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
+[![Built with Tauri 2](https://img.shields.io/badge/Built_with-Tauri_2-orange.svg)](https://v2.tauri.app/)
 
   <a href="https://flathub.org/apps/io.github.lullabyX.sone">
     <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
@@ -25,9 +25,9 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 
 ## The Vision
 
-The Linux desktop app TIDAL never built. 
+The Linux desktop app TIDAL never built.
 
-SONE finally gives Linux users a first-class streaming client. It delivers the complete, fully-featured experience you expect with seamless library management and a sleek, familiar workflow—and then supercharges it. 
+SONE finally gives Linux users a first-class streaming client. It delivers the complete, fully-featured experience you expect with seamless library management and a sleek, familiar workflow—and then supercharges it.
 
 We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizable-adaptive floating miniplayer, custom themes, Discord Rich Presence, and multi-service scrobbling (Last.fm, Libre.fm, ListenBrainz)—all wrapped in a fast, native Linux app.
 
@@ -95,6 +95,23 @@ SONE is a lightweight, native alternative to the official TIDAL web player and E
 
 ## Installation / Download
 
+### Flathub
+SONE is officially available on Flathub, making it easy to install on any Linux distribution. You can install it via your software center or by using the CLI:
+  
+**Install the application**
+```
+flatpak install flathub io.github.lullabyX.sone
+```
+
+**Run the application**
+```
+flatpak run io.github.lullabyX.sone
+```
+
+<a href="https://flathub.org/apps/io.github.lullabyX.sone">
+  <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
+</a>
+
 ### OS Packages
 
 Pre-built packages for Ubuntu/Debian (.deb), Fedora (.rpm), openSUSE (.rpm), and Arch Linux (PKGBUILD) are available on the [GitHub Releases](https://github.com/lullabyX/sone/releases) page.
@@ -120,22 +137,50 @@ Pre-built packages for Ubuntu/Debian (.deb), Fedora (.rpm), openSUSE (.rpm), and
   </a>
 </p>
 
-### Flathub
-SONE is also officially available on Flathub, making it easy to install on any Linux distribution. You can install it via your software center or by using the CLI:
-  
-**Install the application**
-```
-flatpak install flathub io.github.lullabyX.sone
+Or add the repository so `apt upgrade` / `dnf upgrade` / `zypper up` keep SONE current automatically (the setup script auto-detects your distro and imports the signing key):
+
+<details>
+<summary><b>Debian / Ubuntu (apt)</b></summary>
+
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.deb.sh' | sudo -E bash
+sudo apt install sone
 ```
 
-**Run the application**
-```
-flatpak run io.github.lullabyX.sone
-```
+Derivatives (Kubuntu, Linux Mint, Pop!_OS, Zorin, MX, LMDE) use the same command.
+</details>
 
-<a href="https://flathub.org/apps/io.github.lullabyX.sone">
-  <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
-</a>
+<details>
+<summary><b>Fedora (dnf)</b></summary>
+
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.rpm.sh' | sudo -E bash
+sudo dnf install sone
+```
+</details>
+
+<details>
+<summary><b>openSUSE (zypper)</b></summary>
+
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.rpm.sh' | sudo -E bash
+sudo zypper install sone
+```
+</details>
+
+<details>
+<summary><b>Arch Linux (AUR)</b></summary>
+
+```bash
+yay -S sone-bin    # prebuilt binary — or 'yay -S sone' to build from source
+```
+</details>
+
+<p align="center">
+  <a href="https://cloudsmith.com">
+    <img src="https://img.shields.io/badge/OSS%20hosting%20by-cloudsmith-blue?logo=cloudsmith&style=for-the-badge" alt="Package hosting by Cloudsmith" />
+  </a>
+</p>
 
 ### Building from source
 
@@ -178,6 +223,7 @@ Optional (for exclusive ALSA output):
 ```bash
 sudo apt install -y gstreamer1.0-alsa
 ```
+
 </details>
 
 <details>
@@ -200,6 +246,7 @@ Optional (for exclusive ALSA output):
 ```bash
 sudo dnf install -y gstreamer1-plugins-base-tools
 ```
+
 </details>
 
 <details>
@@ -213,6 +260,7 @@ SONE is available on the AUR in two variants:
 - [`sone-bin`](https://aur.archlinux.org/packages/sone-bin) — pre-built binary, no compilation required
 
 **Install with your AUR helper:**
+
 ```bash
 yay -S sone       # build from source
 # or
@@ -237,6 +285,7 @@ Optional (for exclusive ALSA output):
 ```bash
 sudo pacman -S --needed gst-plugin-pipewire alsa-plugins
 ```
+
 </details>
 
 **Build and run:**
@@ -271,6 +320,7 @@ Output goes to `dist/<format>/`. Pass `--no-cache` to force a clean Docker build
 
 > [!NOTE]
 > **NVIDIA GPU users:** If you see a blank window, rendering glitches, or a Wayland protocol error on launch, start the app with:
+>
 > ```bash
 > WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
 > ```
