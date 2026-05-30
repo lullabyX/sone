@@ -1,7 +1,7 @@
 <div align="center">
   <img src="sone.png" alt="SONE" width="150">
   <h1>SONE</h1>
-  <p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
+<p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
@@ -93,17 +93,20 @@ SONE is a lightweight, native alternative to the official TIDAL web player and E
 - **Encrypted at rest** — credentials, cache, and settings are encrypted with AES-256-GCM
 - **No telemetry, no tracking** — fully open source under GPL-3.0. Your listening data stays on your machine
 
-## Installation / Download
+## Installation
 
 ### Flathub
+
 SONE is officially available on Flathub, making it easy to install on any Linux distribution. You can install it via your software center or by using the CLI:
-  
+
 **Install the application**
+
 ```
 flatpak install flathub io.github.lullabyX.sone
 ```
 
 **Run the application**
+
 ```
 flatpak run io.github.lullabyX.sone
 ```
@@ -147,7 +150,8 @@ curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.deb.sh' | sudo -
 sudo apt install sone
 ```
 
-Derivatives (Kubuntu, Linux Mint, Pop!_OS, Zorin, MX, LMDE) use the same command.
+Derivatives (Kubuntu, Linux Mint, Pop!\_OS, Zorin, MX, LMDE) use the same command.
+
 </details>
 
 <details>
@@ -157,6 +161,7 @@ Derivatives (Kubuntu, Linux Mint, Pop!_OS, Zorin, MX, LMDE) use the same command
 curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.rpm.sh' | sudo -E bash
 sudo dnf install sone
 ```
+
 </details>
 
 <details>
@@ -166,6 +171,7 @@ sudo dnf install sone
 curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.rpm.sh' | sudo -E bash
 sudo zypper install sone
 ```
+
 </details>
 
 <details>
@@ -174,6 +180,7 @@ sudo zypper install sone
 ```bash
 yay -S sone-bin    # prebuilt binary — or 'yay -S sone' to build from source
 ```
+
 </details>
 
 <p align="center">
@@ -355,6 +362,34 @@ This is a known issue with NVIDIA's proprietary drivers and WebKitGTK hardware a
 </details>
 
 ## FAQ
+
+<details>
+<summary>Is SONE free and open source?</summary>
+
+Yes. SONE is fully open source under the GPL-3.0 license, with no telemetry or tracking — your listening data stays on your machine.
+
+</details>
+
+<details>
+<summary>Do I need a TIDAL subscription?</summary>
+
+Yes. SONE is a client for TIDAL and requires an active paid TIDAL subscription. SONE is an independent project and is not affiliated with or endorsed by TIDAL.
+
+</details>
+
+<details>
+<summary>Which Linux distributions are supported?</summary>
+
+Any modern Linux distribution. SONE is on Flathub (works everywhere), and ships native packages for Debian/Ubuntu (`.deb`), Fedora and openSUSE (`.rpm`), and Arch Linux (AUR).
+
+</details>
+
+<details>
+<summary>Does SONE support offline downloads?</summary>
+
+No. SONE is a streaming client only — it streams directly from TIDAL and does not download tracks for offline playback.
+
+</details>
 
 <details>
 <summary>I'm getting a "Device busy" error in exclusive or bit-perfect mode</summary>
