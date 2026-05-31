@@ -394,17 +394,60 @@ export type HomeFeedItem =
   | (ArtistDetail & { _itemType?: "ARTIST" })
   | (HomeFeedMix & { _itemType?: "MIX" });
 
+/** Promo/magazine card (uploads feed). Wraps an artifact (e.g. a playlist). */
+export interface HomeMagazineItem {
+  type: "MAGAZINE";
+  data: {
+    id: number;
+    imageURL: string;
+    artifactId: string;
+    type: string; // e.g. "PLAYLIST"
+    shortHeader?: string;
+    shortSubHeader?: string;
+    header?: string;
+  };
+  _itemType?: "MAGAZINE";
+}
+
+/** Deep-link shortcut (static feed shortcuts grid). */
+export interface HomeDeepLinkItem {
+  type: "DEEP_LINK";
+  data: {
+    title: string;
+    id: string; // e.g. "tidal://my-collection/tracks"
+    url: string;
+    externalUrl: boolean;
+  };
+  _itemType?: "DEEP_LINK";
+}
+
+// `HomeItem` includes the new typed variants plus a permissive fallback for the
+// many existing untyped item shapes (albums, playlists, tracks, mixes, artists).
+export type HomeItem =
+  | HomeMagazineItem
+  | HomeDeepLinkItem
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | (Record<string, any> & { type?: string; _itemType?: string });
+
 // ==================== Home Page Types ====================
+
+export type HomeFeedType = "STATIC" | "EDITORIAL" | "UPLOADS" | string;
+
+export interface HomeTab {
+  name: string;
+  tabType: HomeFeedType;
+}
 
 export interface HomeSection {
   title: string;
   sectionType: string;
-  items: any[];
+  items: HomeItem[];
   hasMore: boolean;
   apiPath?: string;
 }
 
 export interface HomePageResponse {
+  tabs: HomeTab[];
   sections: HomeSection[];
   cursor?: string;
 }
