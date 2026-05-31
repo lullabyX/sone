@@ -78,6 +78,9 @@ export const allowExplicitAtom = atomWithStorage("sone.allowExplicit.v1", true);
 
 export const exclusiveModeAtom = atom(false);
 export const bitPerfectAtom = atom(false);
+
+/** Gapless playback kill-switch (Normal mode only). Default ON. */
+export const gaplessAtom = atom(true);
 export const exclusiveDeviceAtom = atom<string | null>(null);
 export const volumeNormalizationAtom = atom(false);
 
