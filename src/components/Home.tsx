@@ -398,15 +398,15 @@ export default function Home() {
             <div key={i} className="mb-8">
               <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
               <div className="card-scroll">
-              <div className="card-scroll-track">
-                {Array.from({ length: 10 }).map((_, j) => (
-                  <div key={j} className="card-scroll-item">
-                    <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-                    <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
-                    <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
-                  </div>
-                ))}
-              </div>
+                <div className="card-scroll-track">
+                  {Array.from({ length: 10 }).map((_, j) => (
+                    <div key={j} className="card-scroll-item">
+                      <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+                      <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+                      <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           ))}
@@ -423,41 +423,13 @@ export default function Home() {
         {shortcutSection && (
           <section className="mb-10">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {/* Loved Tracks - always first */}
-            <div
-              onClick={navigateToFavorites}
-              className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
-            >
-              <div className="w-[56px] h-[56px] flex-shrink-0 bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] shadow-lg flex items-center justify-center relative">
-                <Heart size={22} className="text-white" fill="white" />
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Play size={18} fill="white" className="text-white ml-0.5" />
-                </div>
-              </div>
-              <div className="flex-1 flex items-center px-3 min-w-0">
-                <span className="font-bold text-[13px] text-th-text-primary truncate">
-                  Loved Tracks
-                </span>
-              </div>
-            </div>
-            {shortcutItems.slice(0, 7).map((item: any) => (
+              {/* Loved Tracks - always first */}
               <div
-                key={getItemId(item)}
-                onClick={() => handleShortcutClick(item)}
-                onContextMenu={(e) => handleShortcutContextMenu(e, item)}
+                onClick={navigateToFavorites}
                 className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
               >
-                <div className="w-[56px] h-[56px] flex-shrink-0 bg-th-surface-hover shadow-lg relative">
-                  {getItemImage(item, 160) ? (
-                    <img
-                      src={getItemImage(item, 160)}
-                      alt={getItemTitle(item)}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-th-surface-hover" />
-                  )}
+                <div className="w-[56px] h-[56px] flex-shrink-0 bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] shadow-lg flex items-center justify-center relative">
+                  <Heart size={22} className="text-white" fill="white" />
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <Play
                       size={18}
@@ -468,11 +440,43 @@ export default function Home() {
                 </div>
                 <div className="flex-1 flex items-center px-3 min-w-0">
                   <span className="font-bold text-[13px] text-th-text-primary truncate">
-                    {getItemTitle(item)}
+                    Loved Tracks
                   </span>
                 </div>
               </div>
-            ))}
+              {shortcutItems.slice(0, 7).map((item: any) => (
+                <div
+                  key={getItemId(item)}
+                  onClick={() => handleShortcutClick(item)}
+                  onContextMenu={(e) => handleShortcutContextMenu(e, item)}
+                  className="flex items-center bg-th-inset/40 hover:bg-th-inset rounded-[4px] overflow-hidden cursor-pointer group transition-[background-color,box-shadow] duration-300 h-[56px] shadow-sm hover:shadow-md"
+                >
+                  <div className="w-[56px] h-[56px] flex-shrink-0 bg-th-surface-hover shadow-lg relative">
+                    {getItemImage(item, 160) ? (
+                      <img
+                        src={getItemImage(item, 160)}
+                        alt={getItemTitle(item)}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-th-surface-hover" />
+                    )}
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Play
+                        size={18}
+                        fill="white"
+                        className="text-white ml-0.5"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-1 flex items-center px-3 min-w-0">
+                    <span className="font-bold text-[13px] text-th-text-primary truncate">
+                      {getItemTitle(item)}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         )}
@@ -489,15 +493,15 @@ export default function Home() {
               <div key={i} className="mb-8">
                 <div className="h-7 w-48 bg-th-surface-hover rounded animate-pulse mb-4" />
                 <div className="card-scroll">
-                <div className="card-scroll-track">
-                  {Array.from({ length: 10 }).map((_, j) => (
-                    <div key={j} className="card-scroll-item">
-                      <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-                      <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
-                      <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
-                    </div>
-                  ))}
-                </div>
+                  <div className="card-scroll-track">
+                    {Array.from({ length: 10 }).map((_, j) => (
+                      <div key={j} className="card-scroll-item">
+                        <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+                        <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+                        <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}
