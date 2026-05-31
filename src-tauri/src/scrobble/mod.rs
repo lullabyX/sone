@@ -38,6 +38,14 @@ pub struct ScrobbleTrack {
     pub track_id: Option<u64>,
     #[serde(default)]
     pub recording_mbid: Option<String>,
+    /// Single primary artist for Audioscrobbler providers (Last.fm/Libre.fm).
+    /// Empty for pre-upgrade queued entries — providers fall back to `artist`.
+    #[serde(default)]
+    pub artist_primary: String,
+    /// MusicBrainz Artist IDs for ListenBrainz, from an artist-corroborated
+    /// MusicBrainz match only. Empty when the match was not corroborated.
+    #[serde(default)]
+    pub artist_mbids: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
