@@ -34,6 +34,7 @@ type TabCacheEntry = {
 };
 const tabCache = new Map<string, TabCacheEntry>();
 let cachedTabs: HomeTabType[] = [];
+let lastActiveType: string | null = null;
 const slugOf = (feedType: string) => feedType.toLowerCase();
 
 export default function Home() {
@@ -47,7 +48,7 @@ export default function Home() {
 
   const [tabs, setTabs] = useState<HomeTabType[]>(cachedTabs);
   const [activeType, setActiveType] = useState<string>(
-    cachedTabs[0]?.tabType ?? "STATIC",
+    lastActiveType ?? cachedTabs[0]?.tabType ?? "STATIC",
   );
   const activeEntry = tabCache.get(slugOf(activeType));
   const sections = activeEntry?.sections ?? [];
@@ -57,6 +58,7 @@ export default function Home() {
   const activeTypeRef = useRef(activeType);
   useEffect(() => {
     activeTypeRef.current = activeType;
+    lastActiveType = activeType;
   }, [activeType]);
 
   const lastLoadedAtRef = useRef<number>(Date.now());
@@ -351,19 +353,46 @@ export default function Home() {
     );
   }
 
+  const tabBar =
+    tabs.length > 0 ? (
+      <div className="flex gap-2 mb-8" role="tablist">
+        {tabs.map((tab) => {
+          const active = slugOf(tab.tabType) === slugOf(activeType);
+          return (
+            <button
+              key={tab.tabType}
+              role="tab"
+              aria-selected={active}
+              onClick={() => handleTabClick(tab.tabType)}
+              className={
+                active
+                  ? "px-4 py-2 rounded-full text-[14px] font-bold bg-th-text-primary text-th-base transition-colors"
+                  : "px-4 py-2 rounded-full text-[14px] font-bold bg-th-surface-hover/60 text-th-text-primary hover:bg-th-surface-hover transition-colors"
+              }
+            >
+              {tab.name}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
+
   if (loading) {
     return (
       <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
         <PageContainer className="px-6 py-8">
-          {/* Skeleton quick access */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-10">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-[56px] bg-th-surface-hover/40 rounded-[4px] animate-pulse"
-              />
-            ))}
-          </div>
+          {tabBar}
+          {/* Skeleton quick access — only on the static/For-you feed */}
+          {slugOf(activeType) === "static" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-10">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-[56px] bg-th-surface-hover/40 rounded-[4px] animate-pulse"
+                />
+              ))}
+            </div>
+          )}
           {/* Skeleton sections */}
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="mb-8">
@@ -389,31 +418,11 @@ export default function Home() {
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <PageContainer className="px-6 py-8">
-        {/* Quick Access Grid (Hero) — SHORTCUT_LIST from v2 feed */}
-        <section className="mb-10">
-          {tabs.length > 0 && (
-            <div className="flex gap-2 mb-6" role="tablist">
-              {tabs.map((tab) => {
-                const active = slugOf(tab.tabType) === slugOf(activeType);
-                return (
-                  <button
-                    key={tab.tabType}
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => handleTabClick(tab.tabType)}
-                    className={
-                      active
-                        ? "px-4 py-2 rounded-full text-[14px] font-bold bg-th-text-primary text-th-base transition-colors"
-                        : "px-4 py-2 rounded-full text-[14px] font-bold bg-th-surface-hover/60 text-th-text-primary hover:bg-th-surface-hover transition-colors"
-                    }
-                  >
-                    {tab.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        {tabBar}
+        {/* Quick Access Grid (Hero) — SHORTCUT_LIST from v2 feed, For-you only */}
+        {shortcutSection && (
+          <section className="mb-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {/* Loved Tracks - always first */}
             <div
               onClick={navigateToFavorites}
@@ -464,8 +473,9 @@ export default function Home() {
                 </div>
               </div>
             ))}
-          </div>
-        </section>
+            </div>
+          </section>
+        )}
 
         {/* Dynamic sections from v2 feed */}
         {contentSections.map((section, idx) => (
