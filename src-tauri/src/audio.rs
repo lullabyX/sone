@@ -35,7 +35,6 @@ struct PcmFormat {
 
 /// Pre-resolved next track armed for a gapless `about-to-finish` transition.
 #[derive(Clone)]
-#[allow(dead_code)] // fields consumed in Task 3 (about-to-finish handler)
 struct NextTrack {
     uri: String,
     norm_gain: f64,
@@ -49,14 +48,12 @@ struct NextTrack {
 /// A gapless advance that has been committed to the pipeline and is awaiting
 /// the confirming STREAM_START on the bus thread.
 #[derive(Clone)]
-#[allow(dead_code)] // fields consumed in Task 3 (STREAM_START arm + HandleGaplessAdvance)
 struct PendingAdvance {
     track_id: u64,
     qid: String,
     norm_gain: f64,
     replay_gain: f64,
     peak_amplitude: f64,
-    uri: String,
 }
 
 /// Commands to the ALSA writer thread
@@ -166,6 +163,27 @@ fn alsa_format_to_gst(alsa_fmt: alsa::pcm::Format) -> (&'static str, u32) {
 #[inline]
 fn slider_to_amplitude(slider_val: f64) -> f64 {
     slider_val.clamp(0.0, 1.0).powi(3)
+}
+
+/// Applies a normalization gain across all volume sinks: the GStreamer
+/// `norm_vol` element (if present), the local `current_norm_gain` mirror, the
+/// combined-volume atom (read by the ALSA writer), and the signal-path tracker.
+/// Shared by `SetNormalizationGain` and the gapless `HandleGaplessAdvance` path.
+fn apply_normalization_gain(
+    gain: f64,
+    current_norm_gain: &mut f64,
+    norm_volume_el: Option<&gst::Element>,
+    combined_vol: &Arc<AtomicU32>,
+    current_volume: f64,
+    signal_path: &SignalPathTracker,
+) {
+    *current_norm_gain = gain;
+    if let Some(el) = norm_volume_el {
+        el.set_property("volume", gain);
+    }
+    let amp = slider_to_amplitude(current_volume);
+    combined_vol.store(((amp * gain) as f32).to_bits(), Ordering::Relaxed);
+    signal_path.set_norm_gain_factor(gain as f32);
 }
 
 /// Probe which GStreamer format strings an ALSA device supports.
@@ -1047,7 +1065,6 @@ enum AudioCommand {
         reply: Reply<Result<(), String>>,
     },
     /// Sent by the bus thread on a confirmed gapless STREAM_START boundary.
-    #[allow(dead_code)] // constructed in Task 3 (STREAM_START arm)
     HandleGaplessAdvance {
         track_id: u64,
         qid: String,
@@ -1143,12 +1160,16 @@ impl AudioPlayer {
             let gapless_capable: bool = gapless_supported();
             let next_track: Arc<Mutex<Option<NextTrack>>> = Arc::new(Mutex::new(None));
             let pending_advance: Arc<Mutex<Option<PendingAdvance>>> = Arc::new(Mutex::new(None));
-            let _cmd_tx_worker = cmd_tx_worker;
+            let cmd_tx_worker = cmd_tx_worker;
 
             for cmd in cmd_rx {
                 match cmd {
                     AudioCommand::PlayUrl { uri, reply } => {
                         let result = (|| -> Result<(), String> {
+                            // Every PlayUrl is a non-advance boundary: clear any
+                            // armed gapless slots so a stale next/pending can't fire.
+                            *next_track.lock().unwrap() = None;
+                            *pending_advance.lock().unwrap() = None;
                             // ── Teardown old backend (GStreamer pipeline only) ──
                             if let Some(old_backend) = backend.take() {
                                 tearing_down.store(true, Ordering::SeqCst);
@@ -1523,6 +1544,42 @@ impl AudioPlayer {
                                     }
                                 });
 
+                                // Gapless: arm the next track on `about-to-finish`
+                                // (uridecodebin3 only). Fires on a streaming thread;
+                                // the `uri` must be set synchronously in the handler.
+                                if decoder_name == "uridecodebin3" {
+                                    let next_cb = Arc::clone(&next_track);
+                                    let pending_cb = Arc::clone(&pending_advance);
+                                    uridecodebin.connect("about-to-finish", false, move |vals| {
+                                        let dbin = vals[0].get::<gst::Element>().ok()?;
+                                        let nt = next_cb.lock().ok()?.take()?;
+                                        // Adjust buffer-duration for the next source first.
+                                        dbin.set_property(
+                                            "buffer-duration",
+                                            if nt.is_dash {
+                                                15_000_000_000i64
+                                            } else {
+                                                5_000_000_000i64
+                                            },
+                                        );
+                                        dbin.set_property("uri", &nt.uri);
+                                        if let Ok(mut p) = pending_cb.lock() {
+                                            *p = Some(PendingAdvance {
+                                                track_id: nt.track_id,
+                                                qid: nt.qid.clone(),
+                                                norm_gain: nt.norm_gain,
+                                                replay_gain: nt.replay_gain,
+                                                peak_amplitude: nt.peak_amplitude,
+                                            });
+                                        }
+                                        log::debug!(
+                                            "[audio] gapless: queued next track {}",
+                                            nt.track_id
+                                        );
+                                        None
+                                    });
+                                }
+
                                 pipe.set_state(gst::State::Playing)
                                     .map_err(|e| format!("Failed to start playback: {e}"))?;
 
@@ -1530,10 +1587,43 @@ impl AudioPlayer {
                                 let eos_flag = Arc::clone(&eos);
                                 let tearing_down_flag = Arc::clone(&tearing_down);
                                 let app_handle_clone = app_handle.clone();
+                                let cmd_tx_bus = cmd_tx_worker.clone();
+                                let pending_bus = Arc::clone(&pending_advance);
+                                let mut stream_start_count: u32 = 0;
                                 if let Some(bus) = pipe.bus() {
                                     std::thread::spawn(move || {
                                         for msg in bus.iter_timed(gst::ClockTime::NONE) {
                                             match msg.view() {
+                                                gst::MessageView::StreamStart(..) => {
+                                                    stream_start_count += 1;
+                                                    // First STREAM_START is the initial track.
+                                                    if stream_start_count <= 1 {
+                                                        continue;
+                                                    }
+                                                    if tearing_down_flag.load(Ordering::SeqCst) {
+                                                        continue;
+                                                    }
+                                                    // One-shot: about-to-finish arms exactly once
+                                                    // per boundary, so consume whenever an arm
+                                                    // exists. An adaptive intra-track STREAM_START
+                                                    // with no arm present simply no-ops.
+                                                    if let Some(pa) = pending_bus
+                                                        .lock()
+                                                        .ok()
+                                                        .and_then(|mut g| g.take())
+                                                    {
+                                                        let _ = cmd_tx_bus.send(
+                                                            AudioCommand::HandleGaplessAdvance {
+                                                                track_id: pa.track_id,
+                                                                qid: pa.qid,
+                                                                norm_gain: pa.norm_gain,
+                                                                replay_gain: pa.replay_gain,
+                                                                peak_amplitude: pa.peak_amplitude,
+                                                            },
+                                                        );
+                                                    }
+                                                    continue;
+                                                }
                                                 gst::MessageView::Eos(..) => {
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
@@ -1544,6 +1634,32 @@ impl AudioPlayer {
                                                     break;
                                                 }
                                                 gst::MessageView::Error(err) => {
+                                                    // If a gapless advance is armed, the
+                                                    // gapless-queued next track failed to decode
+                                                    // (e.g. expired URL). Recover: drop the arm and
+                                                    // signal a terminal boundary so the frontend's
+                                                    // playNext re-resolves and continues, instead
+                                                    // of dying with a dangling audio-error.
+                                                    let advance_armed = pending_bus
+                                                        .lock()
+                                                        .ok()
+                                                        .map(|g| g.is_some())
+                                                        .unwrap_or(false);
+                                                    if advance_armed
+                                                        && !tearing_down_flag.load(Ordering::SeqCst)
+                                                    {
+                                                        if let Ok(mut g) = pending_bus.lock() {
+                                                            *g = None;
+                                                        }
+                                                        log::warn!(
+                                                            "[audio] gapless next failed to decode; routing to track-finished"
+                                                        );
+                                                        eos_flag.store(true, Ordering::SeqCst);
+                                                        app_handle_clone
+                                                            .emit("track-finished", ())
+                                                            .ok();
+                                                        break;
+                                                    }
                                                     let err_msg = err.error().to_string();
                                                     let debug_str = err
                                                         .debug()
@@ -1631,6 +1747,9 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::Stop { reply } => {
+                        // Non-advance boundary: clear armed gapless slots.
+                        *next_track.lock().unwrap() = None;
+                        *pending_advance.lock().unwrap() = None;
                         let result = match backend.take() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 if let Some(bus) = pipeline.bus() {
@@ -1701,15 +1820,14 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::SetNormalizationGain { gain, reply } => {
-                        current_norm_gain = gain;
-                        if let Some(vol) = backend.as_ref().and_then(|b| b.norm_volume_el()) {
-                            vol.set_property("volume", gain);
-                        }
-                        combined_vol.store(
-                            ((slider_to_amplitude(current_volume) * current_norm_gain) as f32).to_bits(),
-                            Ordering::Relaxed,
+                        apply_normalization_gain(
+                            gain,
+                            &mut current_norm_gain,
+                            backend.as_ref().and_then(|b| b.norm_volume_el()),
+                            &combined_vol,
+                            current_volume,
+                            &signal_path,
                         );
-                        signal_path.set_norm_gain_factor(gain as f32);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1717,6 +1835,13 @@ impl AudioPlayer {
                         position_secs,
                         reply,
                     } => {
+                        // Do NOT clear next_track/pending_advance here. Empirically (GStreamer
+                        // 1.24.2), a FLUSH seek does NOT retract a next URI already committed by
+                        // about-to-finish — the queued stream still plays at the current track's
+                        // end. Clearing pending_advance would make that gapless switch fire NEITHER
+                        // track-advanced NOR track-finished (UI desync). Keeping the arm lets the
+                        // committed next's STREAM_START still emit track-advanced; and an
+                        // un-committed next_track stays valid so gapless resumes after the seek.
                         let result = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 let pos = gst::ClockTime::from_nseconds(
@@ -1863,7 +1988,42 @@ impl AudioPlayer {
                         let _ = reply.send(Ok(()));
                     }
 
-                    AudioCommand::HandleGaplessAdvance { .. } => { /* Task 3 */ }
+                    AudioCommand::HandleGaplessAdvance {
+                        track_id,
+                        qid,
+                        norm_gain,
+                        replay_gain,
+                        peak_amplitude,
+                    } => {
+                        signal_path.reset_for_track();
+                        apply_normalization_gain(
+                            norm_gain,
+                            &mut current_norm_gain,
+                            backend.as_ref().and_then(|b| b.norm_volume_el()),
+                            &combined_vol,
+                            current_volume,
+                            &signal_path,
+                        );
+                        eos.store(false, Ordering::SeqCst);
+                        has_uri.store(true, Ordering::SeqCst);
+                        log::debug!("[audio] gapless: advanced to track {track_id}");
+                        // rg/peak are carried in the payload; the lib.rs track-advanced
+                        // listener (Task 5), which has AppState, stores them into
+                        // last_replay_gain/last_peak_amplitude so a live volume-
+                        // normalization toggle uses THIS track's values. The worker
+                        // has no AppState access.
+                        app_handle
+                            .emit(
+                                "track-advanced",
+                                serde_json::json!({
+                                    "trackId": track_id,
+                                    "qid": qid,
+                                    "replayGain": replay_gain,
+                                    "peakAmplitude": peak_amplitude,
+                                }),
+                            )
+                            .ok();
+                    }
 
                     AudioCommand::ListDevices { reply } => {
                         let result = list_alsa_devices_inner();
