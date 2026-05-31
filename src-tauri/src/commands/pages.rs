@@ -198,15 +198,19 @@ pub async fn get_album_tracks(
     Ok(tracks)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_home_page(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
+    feed_type: Option<String>,
 ) -> Result<HomePageCached, SoneError> {
-    log::debug!("[get_home_page]");
+    let slug = feed_type
+        .unwrap_or_else(|| "static".to_string())
+        .to_lowercase();
+    let cache_key = format!("home_feed_{}", slug);
+    log::debug!("[get_home_page] feed={}", slug);
 
-    let cache_key = "home_page";
-    match state.disk_cache.get(cache_key, CacheTier::Dynamic).await {
+    match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
         CacheResult::Fresh(bytes) => {
             if let Ok(home) = serde_json::from_slice(&bytes) {
                 return Ok(HomePageCached {
@@ -218,29 +222,31 @@ pub async fn get_home_page(
         CacheResult::Stale(bytes) => {
             if let Ok(home) = serde_json::from_slice::<HomePageResponse>(&bytes) {
                 // SWR: return stale data, refresh in background.
-                if state.disk_cache.mark_in_flight(cache_key).await {
+                if state.disk_cache.mark_in_flight(&cache_key).await {
                     // Only retry if last attempt was >5min ago (300s)
-                    if state.disk_cache.should_retry_refresh(cache_key, 300).await {
-                        state.disk_cache.mark_refresh_attempt(cache_key).await;
+                    if state.disk_cache.should_retry_refresh(&cache_key, 300).await {
+                        state.disk_cache.mark_refresh_attempt(&cache_key).await;
                         let handle = app_handle.clone();
+                        let slug = slug.clone();
+                        let cache_key = cache_key.clone();
                         tokio::spawn(async move {
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_home_page("static").await
+                                client.get_home_page(&slug).await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
                                     st.disk_cache
-                                        .put(cache_key, &json, CacheTier::Dynamic, &["home-page"])
+                                        .put(&cache_key, &json, CacheTier::Dynamic, &["home-page"])
                                         .await
                                         .ok();
                                 }
                             }
-                            st.disk_cache.clear_in_flight(cache_key).await;
+                            st.disk_cache.clear_in_flight(&cache_key).await;
                         });
                     } else {
-                        state.disk_cache.clear_in_flight(cache_key).await;
+                        state.disk_cache.clear_in_flight(&cache_key).await;
                     }
                 }
                 return Ok(HomePageCached {
@@ -253,13 +259,13 @@ pub async fn get_home_page(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let home = client.get_home_page("static").await?;
+    let home = client.get_home_page(&slug).await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&home) {
         state
             .disk_cache
-            .put(cache_key, &json, CacheTier::Dynamic, &["home-page"])
+            .put(&cache_key, &json, CacheTier::Dynamic, &["home-page"])
             .await
             .ok();
     }
@@ -269,17 +275,24 @@ pub async fn get_home_page(
     })
 }
 
-#[tauri::command]
-pub async fn refresh_home_page(state: State<'_, AppState>) -> Result<HomePageResponse, SoneError> {
-    log::debug!("[refresh_home_page]");
+#[tauri::command(rename_all = "camelCase")]
+pub async fn refresh_home_page(
+    state: State<'_, AppState>,
+    feed_type: Option<String>,
+) -> Result<HomePageResponse, SoneError> {
+    let slug = feed_type
+        .unwrap_or_else(|| "static".to_string())
+        .to_lowercase();
+    let cache_key = format!("home_feed_{}", slug);
+    log::debug!("[refresh_home_page] feed={}", slug);
     let mut client = state.tidal_client.lock().await;
-    let home = client.get_home_page("static").await?;
+    let home = client.get_home_page(&slug).await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&home) {
         state
             .disk_cache
-            .put("home_page", &json, CacheTier::Dynamic, &["home-page"])
+            .put(&cache_key, &json, CacheTier::Dynamic, &["home-page"])
             .await
             .ok();
     }
@@ -289,15 +302,19 @@ pub async fn refresh_home_page(state: State<'_, AppState>) -> Result<HomePageRes
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_home_page_more(
     state: State<'_, AppState>,
+    feed_type: Option<String>,
     cursor: String,
 ) -> Result<HomePageResponse, SoneError> {
+    let slug = feed_type
+        .unwrap_or_else(|| "static".to_string())
+        .to_lowercase();
     log::debug!(
-        "[get_home_page_more]: cursor={}",
+        "[get_home_page_more]: feed={} cursor={}",
+        slug,
         &cursor[..cursor.len().min(32)]
     );
     let mut client = state.tidal_client.lock().await;
-    let (_tabs, mut sections, next_cursor) =
-        client.fetch_v2_home_feed("static", Some(&cursor)).await;
+    let (_tabs, mut sections, next_cursor) = client.fetch_v2_home_feed(&slug, Some(&cursor)).await;
     drop(client);
 
     sections.retain(|s| {
