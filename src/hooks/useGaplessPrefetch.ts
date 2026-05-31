@@ -45,8 +45,8 @@ export function useGaplessPrefetch(
     }
     // Gate on currentTrack presence only — NOT isPlayingAtom. isPlaying flickers false during
     // device-busy retries and on every pause; gating on it would churn the slot (network round-trips,
-    // gap-on-resume-near-end). A paused track's armed slot is harmless (about-to-finish can't fire
-    // while paused), so leave it armed across pause/resume.
+    // gap-on-resume-near-end). A paused track's armed slot is harmless (concat can't switch its
+    // active pad while paused — no EOS propagates), so leave it armed across pause/resume.
     const enabled =
       cachedSupported &&
       store.get(gaplessAtom) &&
