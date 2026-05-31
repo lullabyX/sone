@@ -48,6 +48,19 @@ pub struct ScrobbleTrack {
     pub artist_mbids: Vec<String>,
 }
 
+impl ScrobbleTrack {
+    /// The single artist to scrobble (Audioscrobbler) or match on (MusicBrainz):
+    /// the primary artist, falling back to the combined `artist` string for
+    /// pre-upgrade queue entries whose `artist_primary` is empty.
+    pub fn scrobble_artist(&self) -> &str {
+        if self.artist_primary.is_empty() {
+            &self.artist
+        } else {
+            &self.artist_primary
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 pub struct ProviderStatus {
     pub name: String,
@@ -248,11 +261,7 @@ impl ScrobbleManager {
         //    corroborated; fall back to the combined string for pre-upgrade entries.
         let isrc = track.isrc.clone();
         let track_name = track.track.clone();
-        let artist_match = if track.artist_primary.is_empty() {
-            track.artist.clone()
-        } else {
-            track.artist_primary.clone()
-        };
+        let artist_match = track.scrobble_artist().to_string();
         let expected_id = track.track_id;
         if let (Some(isrc), Some(expected_id)) = (isrc, expected_id) {
             let mb = Arc::clone(&self.mb_lookup);
