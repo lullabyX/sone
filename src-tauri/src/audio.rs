@@ -1385,8 +1385,14 @@ impl AudioPlayer {
 
                                 let pipe = gst::Pipeline::new();
                                 let is_dash = uri.starts_with("data:application/dash");
+                                let decoder_name = if gapless_setting && gapless_capable {
+                                    "uridecodebin3"
+                                } else {
+                                    "uridecodebin"
+                                };
+                                log::debug!("[audio] normal decoder: {decoder_name}");
                                 let mut udb =
-                                    gst::ElementFactory::make("uridecodebin").property("uri", &uri);
+                                    gst::ElementFactory::make(decoder_name).property("uri", &uri);
                                 if is_dash {
                                     udb = udb
                                         .property("buffer-duration", 15_000_000_000i64)
@@ -1398,7 +1404,7 @@ impl AudioPlayer {
                                 }
                                 let uridecodebin = udb
                                     .build()
-                                    .map_err(|e| format!("Failed to create uridecodebin: {e}"))?;
+                                    .map_err(|e| format!("Failed to create {decoder_name}: {e}"))?;
                                 let audioconvert = gst::ElementFactory::make("audioconvert")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioconvert: {e}"))?;
