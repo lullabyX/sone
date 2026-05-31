@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import {
   amplitudeToSliderPercent,
+  conversionState,
   dacDisplayName,
   deriveAlterations,
   displayFormat,
@@ -85,21 +86,23 @@ export default function FlowDiagramBody({
     .filter(Boolean)
     .join(" ");
 
-  const mixSource: { fmt: string | null; rate: number | null; tertiary: string | null } =
-    isDirectAlsa
+  const mixSource: {
+    fmt: string | null;
+    rate: number | null;
+    tertiary: string | null;
+  } = isDirectAlsa
+    ? {
+        fmt: sp?.outputFormat ?? null,
+        rate: sp?.outputRate ?? null,
+        tertiary: userVolAltered || normAltered ? "+gain stage" : "pass-thru",
+      }
+    : sp?.osMixer
       ? {
-          fmt: sp?.outputFormat ?? null,
-          rate: sp?.outputRate ?? null,
-          tertiary:
-            userVolAltered || normAltered ? "+gain stage" : "pass-thru",
+          fmt: sp.osMixer.sinkFormat,
+          rate: sp.osMixer.sinkRate,
+          tertiary: `${sp.osMixer.server} · ${sp.osMixer.sinkChannels}ch`,
         }
-      : sp?.osMixer
-        ? {
-            fmt: sp.osMixer.sinkFormat,
-            rate: sp.osMixer.sinkRate,
-            tertiary: `${sp.osMixer.server} · ${sp.osMixer.sinkChannels}ch`,
-          }
-        : { fmt: null, rate: null, tertiary: "sw mixer" };
+      : { fmt: null, rate: null, tertiary: "sw mixer" };
 
   const nodes: NodeSpec[] = [
     {
@@ -124,7 +127,9 @@ export default function FlowDiagramBody({
       title: "DAC",
       primary: displayFormat(sp?.dac?.format ?? sp?.outputFormat ?? null),
       secondary: formatRate(sp?.dac?.rate ?? sp?.outputRate ?? null),
-      tertiary: sp?.dac?.cardName ?? (sp?.outputChannels ? `${sp.outputChannels}ch` : null),
+      tertiary:
+        sp?.dac?.cardName ??
+        (sp?.outputChannels ? `${sp.outputChannels}ch` : null),
     },
   ];
 
@@ -140,7 +145,8 @@ export default function FlowDiagramBody({
       state: "lossy",
       label: "RESAMPLED",
       detail: `${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`,
-      reason: "DAC does not accept the source rate at the chosen exclusive mode",
+      reason:
+        "DAC does not accept the source rate at the chosen exclusive mode",
     });
   }
   // Only surface promotion when it actually reaches the DAC. If
@@ -149,9 +155,7 @@ export default function FlowDiagramBody({
   // honestly claim a transition that isn't visible at either end of the
   // cable.
   const promotionVisible =
-    !!sp?.promotedFrom &&
-    !!sp?.promotedTo &&
-    sp.promotedTo === sp.outputFormat;
+    !!sp?.promotedFrom && !!sp?.promotedTo && sp.promotedTo === sp.outputFormat;
   if (promotionVisible) {
     cable1Alterations.push({
       state: "altered",
@@ -175,7 +179,8 @@ export default function FlowDiagramBody({
       state: "altered",
       label: "CONTAINER REPACK",
       detail: `${displayFormat(sp!.decodedFormat)} → ${displayFormat(sp!.outputFormat)}`,
-      reason: "audioconvert repacked the sample container — audio bits preserved, byte layout differs",
+      reason:
+        "audioconvert repacked the sample container — audio bits preserved, byte layout differs",
     });
   }
   // Normal mode: detect pipeline-output → OS-mixer-input divergence.
@@ -190,14 +195,30 @@ export default function FlowDiagramBody({
     (!formatsEquivalent(sp.decodedFormat, sp.osMixer.sinkFormat) ||
       (sp.decodedRate !== null && sp.osMixer.sinkRate !== sp.decodedRate));
   if (mixerDiverges) {
+    const mixState = conversionState(
+      sp!.decodedFormat,
+      sp!.osMixer!.sinkFormat,
+      sp!.decodedRate,
+      sp!.osMixer!.sinkRate,
+    );
+    const mixRateChanged =
+      sp!.decodedRate !== null && sp!.osMixer!.sinkRate !== sp!.decodedRate;
+    const mixServer = sp?.osMixer?.server ?? "OS mixer";
     cable1Alterations.push({
-      state: "lossy",
+      state: mixState,
       label: "MIX CONVERSION",
       detail: `pipeline ${displayFormat(sp!.decodedFormat)}/${formatRate(sp!.decodedRate)} → mixer ${displayFormat(sp!.osMixer!.sinkFormat)}/${formatRate(sp!.osMixer!.sinkRate)}`,
-      reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream into its internal mix format`,
+      reason:
+        mixState === "altered"
+          ? `${mixServer} widened/repacked the stream into its internal mix format — audio bits preserved`
+          : mixRateChanged
+            ? `${mixServer} resampled the stream to its internal mix rate`
+            : `${mixServer} reduced bit depth converting into its internal mix format`,
     });
   }
-  const cable1State: CableState = cable1Alterations.some((a) => a.state === "lossy")
+  const cable1State: CableState = cable1Alterations.some(
+    (a) => a.state === "lossy",
+  )
     ? "lossy"
     : cable1Alterations.length > 0
       ? "altered"
@@ -249,8 +270,7 @@ export default function FlowDiagramBody({
   // Skipped for DirectAlsa because we own the device exclusively (OS mixer is
   // bypassed). EPS_VOL guards against floating-point noise around 1.0.
   const EPS_VOL = 1e-3;
-  const osMuted =
-    !isDirectAlsa && !!sp?.osMixer && sp.osMixer.sinkMuted;
+  const osMuted = !isDirectAlsa && !!sp?.osMixer && sp.osMixer.sinkMuted;
   const osVolumeAltered =
     !isDirectAlsa &&
     !!sp?.osMixer &&
@@ -276,11 +296,11 @@ export default function FlowDiagramBody({
   // output. In DirectAlsa we own the device so outputFormat IS what reaches
   // the kernel.
   const upstreamFormat = isDirectAlsa
-    ? sp?.outputFormat ?? null
-    : sp?.osMixer?.sinkFormat ?? sp?.outputFormat ?? null;
+    ? (sp?.outputFormat ?? null)
+    : (sp?.osMixer?.sinkFormat ?? sp?.outputFormat ?? null);
   const upstreamRate = isDirectAlsa
-    ? sp?.outputRate ?? null
-    : sp?.osMixer?.sinkRate ?? sp?.outputRate ?? null;
+    ? (sp?.outputRate ?? null)
+    : (sp?.osMixer?.sinkRate ?? sp?.outputRate ?? null);
 
   const dacDiverges =
     !!sp?.dac &&
@@ -297,7 +317,9 @@ export default function FlowDiagramBody({
       reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream before it reached ALSA`,
     });
   }
-  const cable2State: CableState = cable2Alterations.some((a) => a.state === "lossy")
+  const cable2State: CableState = cable2Alterations.some(
+    (a) => a.state === "lossy",
+  )
     ? "lossy"
     : cable2Alterations.length > 0
       ? "altered"
@@ -324,7 +346,9 @@ export default function FlowDiagramBody({
   const allAlterations: Alteration[] = cables.flatMap((c) => c.alterations);
 
   const lossyCount = allAlterations.filter((a) => a.state === "lossy").length;
-  const alteredCount = allAlterations.filter((a) => a.state === "altered").length;
+  const alteredCount = allAlterations.filter(
+    (a) => a.state === "altered",
+  ).length;
   // Reuse the minimalist's `isPristine` so both views agree. Promotion-only
   // paths (lossless zero-pad) still register as pristine even though the
   // alterations list contains a row for them.
@@ -372,7 +396,9 @@ export default function FlowDiagramBody({
             {dacDisplayName(sp) && (
               <>
                 <span className="text-th-text-faint/50">·</span>
-                <span className="truncate max-w-[260px]">{dacDisplayName(sp)}</span>
+                <span className="truncate max-w-[260px]">
+                  {dacDisplayName(sp)}
+                </span>
               </>
             )}
             <div className="flex gap-1.5 ml-auto pr-2">
@@ -426,13 +452,19 @@ export default function FlowDiagramBody({
                   <div className="w-full relative flex flex-col items-center justify-center h-8">
                     {cables[i].state === "pristine" ? (
                       <>
-                        <div className={`w-full h-[2px] ${cableColor(cables[i].state)}`} />
+                        <div
+                          className={`w-full h-[2px] ${cableColor(cables[i].state)}`}
+                        />
                         <div className="h-[3px]" />
-                        <div className={`w-full h-[2px] ${cableColor(cables[i].state)}`} />
+                        <div
+                          className={`w-full h-[2px] ${cableColor(cables[i].state)}`}
+                        />
                       </>
                     ) : (
                       <>
-                        <div className={`w-full h-[4px] ${cableColor(cables[i].state)}`} />
+                        <div
+                          className={`w-full h-[4px] ${cableColor(cables[i].state)}`}
+                        />
                         <div
                           className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-th-elevated border-2 flex items-center justify-center text-[11px] font-bold ${
                             cables[i].state === "lossy"
