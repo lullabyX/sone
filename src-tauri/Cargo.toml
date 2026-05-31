@@ -65,7 +65,8 @@ alsa = "0.10"
 libc = "0.2"
 ksni = "0.3"
 x11rb = { version = "0.13.2", features = ["screensaver", "dpms"] }
-wayland-client = "0.31"
+wayland-client = { version = "0.31", features = ["dlopen"] }
+wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 gdkwayland-sys = "0.18"
 
