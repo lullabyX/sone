@@ -140,6 +140,8 @@ pub struct Settings {
     pub exclusive_device: Option<String>,
     #[serde(default)]
     pub bit_perfect: bool,
+    #[serde(default = "defaults::yes")]
+    pub gapless: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
@@ -178,6 +180,7 @@ impl Default for Settings {
             exclusive_mode: false,
             exclusive_device: None,
             bit_perfect: false,
+            gapless: true,
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
@@ -203,6 +206,7 @@ pub struct AppState {
     pub volume_normalization: AtomicBool,
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
+    pub gapless: AtomicBool,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
@@ -305,6 +309,7 @@ impl AppState {
             .unwrap_or(false);
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
+        let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
         let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
@@ -361,6 +366,7 @@ impl AppState {
             volume_normalization: AtomicBool::new(volume_normalization),
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
+            gapless: AtomicBool::new(gapless),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
@@ -519,6 +525,9 @@ pub fn run() {
                 if bp {
                     state.audio_player.set_bit_perfect(true).ok();
                 }
+                let _ = state
+                    .audio_player
+                    .set_gapless(state.gapless.load(std::sync::atomic::Ordering::Relaxed));
             }
 
             // Pre-warm audio device cache in background (GStreamer probe is slow)
@@ -881,6 +890,9 @@ pub fn run() {
             commands::utility::set_exclusive_mode,
             commands::utility::get_bit_perfect,
             commands::utility::set_bit_perfect,
+            commands::utility::get_gapless,
+            commands::utility::get_gapless_supported,
+            commands::utility::set_gapless,
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
