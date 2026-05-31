@@ -243,20 +243,28 @@ impl ScrobbleManager {
             self.fire_now_playing(&track),
         );
 
-        // 3. Spawn fire-and-forget MBID lookup (only if we have ISRC + track_id for guard)
+        // 3. Spawn fire-and-forget MBID lookup (only if we have ISRC + track_id for guard).
+        //    Match against the PRIMARY artist (single name) so multi-artist tracks can be
+        //    corroborated; fall back to the combined string for pre-upgrade entries.
         let isrc = track.isrc.clone();
         let track_name = track.track.clone();
-        let artist_name = track.artist.clone();
+        let artist_match = if track.artist_primary.is_empty() {
+            track.artist.clone()
+        } else {
+            track.artist_primary.clone()
+        };
         let expected_id = track.track_id;
         if let (Some(isrc), Some(expected_id)) = (isrc, expected_id) {
             let mb = Arc::clone(&self.mb_lookup);
             let ct = Arc::clone(&self.current_track);
             tokio::spawn(async move {
-                if let Some(mbid) = mb.lookup_isrc(&isrc, &track_name, &artist_name).await {
+                let lookup = mb.lookup_isrc(&isrc, &track_name, &artist_match).await;
+                if lookup.recording_mbid.is_some() || !lookup.artist_mbids.is_empty() {
                     let mut current = ct.lock().await;
                     if let Some(ref mut playback) = *current {
                         if playback.track.track_id == Some(expected_id) {
-                            playback.track.recording_mbid = Some(mbid);
+                            playback.track.recording_mbid = lookup.recording_mbid;
+                            playback.track.artist_mbids = lookup.artist_mbids;
                         }
                     }
                 }
