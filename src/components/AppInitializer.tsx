@@ -43,6 +43,7 @@ import {
   preMuteVolumeAtom,
   exclusiveModeAtom,
   bitPerfectAtom,
+  gaplessAtom,
   exclusiveDeviceAtom,
   volumeNormalizationAtom,
   originalQueueAtom,
@@ -259,6 +260,9 @@ export function AppInitializer() {
           .catch(() => {});
         invoke<boolean>("get_bit_perfect")
           .then((v) => store.set(bitPerfectAtom, v))
+          .catch(() => {});
+        invoke<boolean>("get_gapless")
+          .then((v) => store.set(gaplessAtom, v))
           .catch(() => {});
         invoke<string | null>("get_exclusive_device")
           .then((v) => store.set(exclusiveDeviceAtom, v))
