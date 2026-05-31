@@ -21,6 +21,7 @@ import {
   isArtistItem,
   isMixItem,
   isMyTracksItem,
+  isDeepLinkItem,
 } from "../utils/itemHelpers";
 import PageContainer from "./PageContainer";
 
@@ -127,7 +128,7 @@ export default function Home() {
 
   const handleShortcutClick = useCallback(
     (item: any) => {
-      if (item.type === "DEEP_LINK" || item._itemType === "DEEP_LINK") {
+      if (isDeepLinkItem(item)) {
         const url = item.data?.url ?? item.data?.id;
         if (url === "tidal://my-collection/tracks") {
           navigateToFavorites();

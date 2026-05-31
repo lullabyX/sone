@@ -28,6 +28,7 @@ import {
   isTrackItem,
   isMixItem,
   isMyTracksItem,
+  isMagazineItem,
   buildMediaItem,
 } from "../utils/itemHelpers";
 
@@ -110,7 +111,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
       navigateToFavorites();
       return;
     }
-    if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+    if (isMagazineItem(item)) {
       const d = item.data;
       if (d?.type === "PLAYLIST" && d?.artifactId) {
         navigateToPlaylist(d.artifactId, {

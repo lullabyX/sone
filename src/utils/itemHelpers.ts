@@ -7,11 +7,11 @@ import { getTidalImageUrl, type MediaItemType } from "../types";
 
 export function getItemImage(item: any, size: number = 320): string {
   // MAGAZINE: data.imageURL is already a full URL — return as-is, no CDN builder.
-  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+  if (isMagazineItem(item)) {
     return item.data?.imageURL ?? "";
   }
   // DEEP_LINK: no image in payload.
-  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+  if (isDeepLinkItem(item)) {
     return "";
   }
   // Mix items: images.SMALL/MEDIUM/LARGE
@@ -68,10 +68,10 @@ export function getItemImage(item: any, size: number = 320): string {
 }
 
 export function getItemTitle(item: any): string {
-  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+  if (isMagazineItem(item)) {
     return item.data?.shortHeader ?? "";
   }
-  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+  if (isDeepLinkItem(item)) {
     return item.data?.title ?? "";
   }
   if (item.title) return item.title;
@@ -81,7 +81,7 @@ export function getItemTitle(item: any): string {
 }
 
 export function getItemSubtitle(item: any, userId?: number): string {
-  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+  if (isMagazineItem(item)) {
     return item.data?.shortSubHeader ?? "";
   }
   if (item.subTitle) return item.subTitle;
@@ -113,10 +113,10 @@ export function getItemSubtitle(item: any, userId?: number): string {
 }
 
 export function getItemId(item: any): string {
-  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+  if (isMagazineItem(item)) {
     return item.data?.artifactId ?? String(item.data?.id ?? "");
   }
-  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+  if (isDeepLinkItem(item)) {
     return String(item.data?.id ?? item.data?.url ?? "");
   }
   return (
@@ -164,12 +164,20 @@ export function isMixItem(item: any, sectionType?: string): boolean {
   );
 }
 
+export function isMagazineItem(item: any): boolean {
+  return item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE";
+}
+
+export function isDeepLinkItem(item: any): boolean {
+  return item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK";
+}
+
 /** Detect the special "My Tracks" shortcut from Tidal's v2 feed. */
 export function isMyTracksItem(item: any): boolean {
   if (typeof item?.id === "string" && item.id === "tidal://my-collection/tracks") {
     return true;
   }
-  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+  if (isDeepLinkItem(item)) {
     const url = item.data?.url ?? item.data?.id;
     return url === "tidal://my-collection/tracks";
   }
@@ -187,7 +195,7 @@ export function buildMediaItem(
   sectionType?: string,
 ): MediaItemType | null {
   // MAGAZINE promo card wraps a playlist artifact.
-  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+  if (isMagazineItem(item)) {
     const d = item.data;
     if (d?.type === "PLAYLIST" && d?.artifactId) {
       return {
