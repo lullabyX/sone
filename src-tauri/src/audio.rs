@@ -33,28 +33,9 @@ struct PcmFormat {
     bytes_per_sample: u32,
 }
 
-/// Pre-resolved next track armed for a gapless `about-to-finish` transition.
-#[derive(Clone)]
-struct NextTrack {
-    uri: String,
-    norm_gain: f64,
-    track_id: u64,
-    qid: String,
-    replay_gain: f64,
-    peak_amplitude: f64,
-    is_dash: bool,
-}
-
-/// A gapless advance that has been committed to the pipeline and is awaiting
-/// the confirming STREAM_START on the bus thread.
-#[derive(Clone)]
-struct PendingAdvance {
-    track_id: u64,
-    qid: String,
-    norm_gain: f64,
-    replay_gain: f64,
-    peak_amplitude: f64,
-}
+// NOTE (2b): the old `NextTrack` / `PendingAdvance` slot structs (used by the
+// 2a `about-to-finish` machinery) were removed in 2b-A1. The concat
+// preroll-ahead state (`NextBinState`) is introduced in 2b-A2.
 
 /// Commands to the ALSA writer thread
 enum WriterCommand {
@@ -74,9 +55,12 @@ enum WriterCommand {
 /// The ALSA writer sender + thread handle live as separate state variables
 /// so they persist across PlayUrl calls (track changes keep DAC open).
 enum PlaybackBackend {
-    /// Normal: full GStreamer pipeline with autoaudiosink (unchanged)
+    /// Normal: full GStreamer pipeline with autoaudiosink.
+    /// `concat` sits at the head (per-branch `queue` → concat → chain → sink)
+    /// so the next track's decoder can preroll ahead for gapless (2b).
     Normal {
         pipeline: gst::Pipeline,
+        concat: gst::Element,
         user_volume_el: Option<gst::Element>,
         norm_volume_el: Option<gst::Element>,
     },
@@ -100,6 +84,28 @@ impl PlaybackBackend {
         match self {
             PlaybackBackend::Normal { norm_volume_el, .. }
             | PlaybackBackend::DirectAlsa { norm_volume_el, .. } => norm_volume_el.as_ref(),
+        }
+    }
+
+    /// The backend's GStreamer pipeline. Both variants own a `gst::Pipeline`.
+    #[allow(dead_code)]
+    fn pipeline(&self) -> &gst::Pipeline {
+        match self {
+            PlaybackBackend::Normal { pipeline, .. }
+            | PlaybackBackend::DirectAlsa { pipeline, .. } => pipeline,
+        }
+    }
+
+    /// The head `concat` element. Normal-only — gapless never runs on
+    /// DirectAlsa (the mode gate prevents this path), so calling it on
+    /// DirectAlsa is a programming error.
+    #[allow(dead_code)]
+    fn concat(&self) -> &gst::Element {
+        match self {
+            PlaybackBackend::Normal { concat, .. } => concat,
+            PlaybackBackend::DirectAlsa { .. } => {
+                panic!("PlaybackBackend::concat() called on DirectAlsa — gapless is normal-only")
+            }
         }
     }
 }
@@ -1051,6 +1057,9 @@ enum AudioCommand {
         enabled: bool,
         reply: Reply<Result<(), String>>,
     },
+    // 2b-A1: fields are accepted from the frontend but the handler is an inert
+    // stub this task; the attach path (2b-A2) reads them.
+    #[allow(dead_code)]
     SetNextTrack {
         uri: String,
         norm_gain: f64,
@@ -1064,7 +1073,8 @@ enum AudioCommand {
     ClearNextTrack {
         reply: Reply<Result<(), String>>,
     },
-    /// Sent by the bus thread on a confirmed gapless STREAM_START boundary.
+    /// 2b: emitted by concat's notify::active-pad advance handler (wired in 2b-A3).
+    #[allow(dead_code)]
     HandleGaplessAdvance {
         track_id: u64,
         qid: String,
@@ -1151,33 +1161,29 @@ impl AudioPlayer {
             let mut current_volume: f64 = 1.0;
             let mut current_norm_gain: f64 = 1.0;
             let mut track_generation: u64 = 0;
-            // Per-track position offset (Normal mode only). After a gapless A→B
-            // transition, `pipeline.query_position(TIME)` is CUMULATIVE running-time
-            // (empirically GStreamer 1.24.2: at B's start it reads ~A_duration and
-            // keeps climbing). We capture that baseline at the boundary and subtract
-            // it in GetPosition so the UI reports B-relative elapsed time.
-            let mut position_offset_ns: u64 = 0;
+            // 2b: under `concat` (adjust-base=true), `query_position(TIME)` re-bases
+            // to ~0 at each track boundary — it is per-track, NOT cumulative. So the
+            // 2a `position_offset_ns` capture/subtract mechanism is gone (C2).
 
             // Gapless state. `gapless_setting` defaults to true and is pushed
             // from saved settings at startup via `set_gapless` (the worker has
             // no access to AppState). `cmd_tx_worker` is the self-sender the
-            // Normal bus thread clones to deliver HandleGaplessAdvance (Task 3).
+            // Normal bus thread clones for gapless advance handling (2b-A3).
             let mut gapless_setting: bool = true;
             let gapless_capable: bool = gapless_supported();
-            let next_track: Arc<Mutex<Option<NextTrack>>> = Arc::new(Mutex::new(None));
-            let pending_advance: Arc<Mutex<Option<PendingAdvance>>> = Arc::new(Mutex::new(None));
             let cmd_tx_worker = cmd_tx_worker;
+            // 2b-A1: gapless is INERT — these are consumed by the attach/advance
+            // logic in 2b-A2/2b-A3. Silence "unused" until then without changing
+            // their names (so the later tasks wire them up unchanged).
+            #[allow(clippy::no_effect_underscore_binding)]
+            {
+                let _ = (&gapless_setting, gapless_capable, &cmd_tx_worker);
+            }
 
             for cmd in cmd_rx {
                 match cmd {
                     AudioCommand::PlayUrl { uri, reply } => {
                         let result = (|| -> Result<(), String> {
-                            // Every PlayUrl is a non-advance boundary: clear any
-                            // armed gapless slots so a stale next/pending can't fire.
-                            *next_track.lock().unwrap() = None;
-                            *pending_advance.lock().unwrap() = None;
-                            // Fresh pipeline resets the running-time baseline.
-                            position_offset_ns = 0;
                             // ── Teardown old backend (GStreamer pipeline only) ──
                             if let Some(old_backend) = backend.take() {
                                 tearing_down.store(true, Ordering::SeqCst);
@@ -1414,14 +1420,13 @@ impl AudioPlayer {
 
                                 let pipe = gst::Pipeline::new();
                                 let is_dash = uri.starts_with("data:application/dash");
-                                let decoder_name = if gapless_setting && gapless_capable {
-                                    "uridecodebin3"
-                                } else {
-                                    "uridecodebin"
-                                };
-                                log::debug!("[audio] normal decoder: {decoder_name}");
+                                // 2b: legacy `uridecodebin` per branch. `concat` does the
+                                // gapless switching, so we no longer need uridecodebin3 /
+                                // about-to-finish. Legacy uridecodebin handles Tidal
+                                // `data:application/dash+xml` URIs and works on GStreamer
+                                // < 1.24.
                                 let mut udb =
-                                    gst::ElementFactory::make(decoder_name).property("uri", &uri);
+                                    gst::ElementFactory::make("uridecodebin").property("uri", &uri);
                                 if is_dash {
                                     udb = udb
                                         .property("buffer-duration", 15_000_000_000i64)
@@ -1433,7 +1438,23 @@ impl AudioPlayer {
                                 }
                                 let uridecodebin = udb
                                     .build()
-                                    .map_err(|e| format!("Failed to create {decoder_name}: {e}"))?;
+                                    .map_err(|e| format!("Failed to create uridecodebin: {e}"))?;
+                                // Per-branch upstream queue (C1): decouples the decoder from
+                                // concat's gate so the next branch can pre-buffer ahead while
+                                // the current track plays. With one branch it's a passthrough.
+                                let branch_queue = gst::ElementFactory::make("queue")
+                                    .property("max-size-time", 5_000_000_000u64)
+                                    .property("max-size-buffers", 0u32)
+                                    .property("max-size-bytes", 0u32)
+                                    .build()
+                                    .map_err(|e| format!("Failed to create branch queue: {e}"))?;
+                                // `concat` at the head of the chain. With a single sink pad it
+                                // is a passthrough (identical signal path to the old direct
+                                // chain); the gapless second branch attaches in 2b-A2.
+                                let concat = gst::ElementFactory::make("concat")
+                                    .name("gapless-concat")
+                                    .build()
+                                    .map_err(|e| format!("Failed to create concat: {e}"))?;
                                 let audioconvert = gst::ElementFactory::make("audioconvert")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioconvert: {e}"))?;
@@ -1454,6 +1475,8 @@ impl AudioPlayer {
 
                                 pipe.add_many([
                                     &uridecodebin,
+                                    &branch_queue,
+                                    &concat,
                                     &audioconvert,
                                     &audioresample,
                                     &norm_vol,
@@ -1461,7 +1484,11 @@ impl AudioPlayer {
                                     &sink,
                                 ])
                                 .map_err(|e| format!("Failed to add elements: {e}"))?;
+                                // Static chain: concat → audioconvert → … → sink.
+                                // (uridecodebin → branch_queue is dynamic via pad_added;
+                                // branch_queue.src → concat sink_0 is linked below.)
                                 gst::Element::link_many([
+                                    &concat,
                                     &audioconvert,
                                     &audioresample,
                                     &norm_vol,
@@ -1469,6 +1496,33 @@ impl AudioPlayer {
                                     &sink,
                                 ])
                                 .map_err(|e| format!("Failed to link chain: {e}"))?;
+
+                                // N2: connect notify::active-pad BEFORE requesting sink_0.
+                                // gstconcat fires `notify` synchronously inside
+                                // request_pad_simple when current_sinkpad is NULL; the
+                                // first-fire-suppressing stub absorbs that. Real advance
+                                // logic lands in 2b-A3.
+                                let notify_count = Arc::new(AtomicU32::new(0));
+                                concat.connect_notify(Some("active-pad"), move |_concat, _pspec| {
+                                    let prev = notify_count.fetch_add(1, Ordering::AcqRel);
+                                    if prev != 0 {
+                                        // 2b-A3: gate on active-pad identity and dispatch
+                                        // HandleGaplessAdvance via cmd_tx_worker here.
+                                        // (prev == 0 is the initial sink_0 activation from
+                                        // request_pad_simple — suppressed.)
+                                    }
+                                });
+
+                                // Request concat sink_0 and link the branch queue into it.
+                                let concat_sink_0 = concat
+                                    .request_pad_simple("sink_%u")
+                                    .ok_or_else(|| "concat refused initial sink pad".to_string())?;
+                                let queue_src = branch_queue
+                                    .static_pad("src")
+                                    .ok_or_else(|| "branch queue has no src pad".to_string())?;
+                                queue_src
+                                    .link(&concat_sink_0)
+                                    .map_err(|e| format!("Failed to link queue→concat: {e}"))?;
 
                                 // Pad probe on audioconvert.sink — captures the codec's raw output
                                 // (pre-conversion). audioconvert.src would show the post-promotion
@@ -1529,12 +1583,14 @@ impl AudioPlayer {
                                     });
                                 }
 
-                                let convert_weak = audioconvert.downgrade();
+                                // uridecodebin(A) → branch_queue (dynamic). The branch
+                                // queue's src is already linked to concat sink_0.
+                                let branch_queue_weak = branch_queue.downgrade();
                                 uridecodebin.connect_pad_added(move |_src, src_pad| {
-                                    let Some(convert) = convert_weak.upgrade() else {
+                                    let Some(branch_queue) = branch_queue_weak.upgrade() else {
                                         return;
                                     };
-                                    let Some(sink_pad) = convert.static_pad("sink") else {
+                                    let Some(sink_pad) = branch_queue.static_pad("sink") else {
                                         return;
                                     };
                                     if sink_pad.is_linked() {
@@ -1552,86 +1608,20 @@ impl AudioPlayer {
                                     }
                                 });
 
-                                // Gapless: arm the next track on `about-to-finish`
-                                // (uridecodebin3 only). Fires on a streaming thread;
-                                // the `uri` must be set synchronously in the handler.
-                                if decoder_name == "uridecodebin3" {
-                                    let next_cb = Arc::clone(&next_track);
-                                    let pending_cb = Arc::clone(&pending_advance);
-                                    uridecodebin.connect("about-to-finish", false, move |vals| {
-                                        let dbin = vals[0].get::<gst::Element>().ok()?;
-                                        let nt = next_cb.lock().ok()?.take()?;
-                                        // Adjust buffer-duration for the next source first.
-                                        dbin.set_property(
-                                            "buffer-duration",
-                                            if nt.is_dash {
-                                                15_000_000_000i64
-                                            } else {
-                                                5_000_000_000i64
-                                            },
-                                        );
-                                        dbin.set_property("uri", &nt.uri);
-                                        if let Ok(mut p) = pending_cb.lock() {
-                                            *p = Some(PendingAdvance {
-                                                track_id: nt.track_id,
-                                                qid: nt.qid.clone(),
-                                                norm_gain: nt.norm_gain,
-                                                replay_gain: nt.replay_gain,
-                                                peak_amplitude: nt.peak_amplitude,
-                                            });
-                                        }
-                                        log::debug!(
-                                            "[audio] gapless: queued next track {}",
-                                            nt.track_id
-                                        );
-                                        None
-                                    });
-                                }
-
                                 pipe.set_state(gst::State::Playing)
                                     .map_err(|e| format!("Failed to start playback: {e}"))?;
 
-                                // Bus watcher (normal mode — unchanged)
+                                // Bus watcher (normal mode). 2b: the StreamStart arm
+                                // (2a gapless trigger) is gone; advance is driven by
+                                // concat's notify::active-pad (2b-A3). The bus keeps
+                                // Eos / Error / Buffering.
                                 let eos_flag = Arc::clone(&eos);
                                 let tearing_down_flag = Arc::clone(&tearing_down);
                                 let app_handle_clone = app_handle.clone();
-                                let cmd_tx_bus = cmd_tx_worker.clone();
-                                let pending_bus = Arc::clone(&pending_advance);
-                                let mut stream_start_count: u32 = 0;
                                 if let Some(bus) = pipe.bus() {
                                     std::thread::spawn(move || {
                                         for msg in bus.iter_timed(gst::ClockTime::NONE) {
                                             match msg.view() {
-                                                gst::MessageView::StreamStart(..) => {
-                                                    stream_start_count += 1;
-                                                    // First STREAM_START is the initial track.
-                                                    if stream_start_count <= 1 {
-                                                        continue;
-                                                    }
-                                                    if tearing_down_flag.load(Ordering::SeqCst) {
-                                                        continue;
-                                                    }
-                                                    // One-shot: about-to-finish arms exactly once
-                                                    // per boundary, so consume whenever an arm
-                                                    // exists. An adaptive intra-track STREAM_START
-                                                    // with no arm present simply no-ops.
-                                                    if let Some(pa) = pending_bus
-                                                        .lock()
-                                                        .ok()
-                                                        .and_then(|mut g| g.take())
-                                                    {
-                                                        let _ = cmd_tx_bus.send(
-                                                            AudioCommand::HandleGaplessAdvance {
-                                                                track_id: pa.track_id,
-                                                                qid: pa.qid,
-                                                                norm_gain: pa.norm_gain,
-                                                                replay_gain: pa.replay_gain,
-                                                                peak_amplitude: pa.peak_amplitude,
-                                                            },
-                                                        );
-                                                    }
-                                                    continue;
-                                                }
                                                 gst::MessageView::Eos(..) => {
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
@@ -1642,32 +1632,6 @@ impl AudioPlayer {
                                                     break;
                                                 }
                                                 gst::MessageView::Error(err) => {
-                                                    // If a gapless advance is armed, the
-                                                    // gapless-queued next track failed to decode
-                                                    // (e.g. expired URL). Recover: drop the arm and
-                                                    // signal a terminal boundary so the frontend's
-                                                    // playNext re-resolves and continues, instead
-                                                    // of dying with a dangling audio-error.
-                                                    let advance_armed = pending_bus
-                                                        .lock()
-                                                        .ok()
-                                                        .map(|g| g.is_some())
-                                                        .unwrap_or(false);
-                                                    if advance_armed
-                                                        && !tearing_down_flag.load(Ordering::SeqCst)
-                                                    {
-                                                        if let Ok(mut g) = pending_bus.lock() {
-                                                            *g = None;
-                                                        }
-                                                        log::warn!(
-                                                            "[audio] gapless next failed to decode; routing to track-finished"
-                                                        );
-                                                        eos_flag.store(true, Ordering::SeqCst);
-                                                        app_handle_clone
-                                                            .emit("track-finished", ())
-                                                            .ok();
-                                                        break;
-                                                    }
                                                     let err_msg = err.error().to_string();
                                                     let debug_str = err
                                                         .debug()
@@ -1709,6 +1673,7 @@ impl AudioPlayer {
 
                                 backend = Some(PlaybackBackend::Normal {
                                     pipeline: pipe,
+                                    concat,
                                     user_volume_el: Some(user_vol),
                                     norm_volume_el: Some(norm_vol),
                                 });
@@ -1755,11 +1720,6 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::Stop { reply } => {
-                        // Non-advance boundary: clear armed gapless slots.
-                        *next_track.lock().unwrap() = None;
-                        *pending_advance.lock().unwrap() = None;
-                        // Stop resets the running-time baseline.
-                        position_offset_ns = 0;
                         let result = match backend.take() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 if let Some(bus) = pipeline.bus() {
@@ -1845,33 +1805,17 @@ impl AudioPlayer {
                         position_secs,
                         reply,
                     } => {
-                        // Do NOT clear next_track/pending_advance here. Empirically (GStreamer
-                        // 1.24.2), a FLUSH seek does NOT retract a next URI already committed by
-                        // about-to-finish — the queued stream still plays at the current track's
-                        // end. Clearing pending_advance would make that gapless switch fire NEITHER
-                        // track-advanced NOR track-finished (UI desync). Keeping the arm lets the
-                        // committed next's STREAM_START still emit track-advanced; and an
-                        // un-committed next_track stays valid so gapless resumes after the seek.
                         let result = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 let pos = gst::ClockTime::from_nseconds(
                                     (position_secs as f64 * 1_000_000_000.0) as u64,
                                 );
-                                let r = pipeline
+                                pipeline
                                     .seek_simple(
                                         gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
                                         pos,
                                     )
-                                    .map_err(|e| format!("Seek failed: {e}"));
-                                // Empirically (GStreamer 1.24.2): seek_simple(TIME, T) is
-                                // STREAM-RELATIVE — it lands at T within the current track's
-                                // timeline. After the FLUSH seek, query_position re-bases and
-                                // reads ~T (not the prior cumulative offset+T). So clear the
-                                // boundary offset to keep GetPosition correct post-seek.
-                                if r.is_ok() {
-                                    position_offset_ns = 0;
-                                }
-                                r
+                                    .map_err(|e| format!("Seek failed: {e}"))
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 let was_paused = paused.load(Ordering::Acquire);
@@ -1908,13 +1852,10 @@ impl AudioPlayer {
                         let pos = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
                                 .query_position::<gst::ClockTime>()
-                                // query_position is CUMULATIVE running-time across
-                                // gapless transitions; subtract the boundary offset
-                                // to get B-relative elapsed time (0 on the first track).
-                                .map(|pos| {
-                                    pos.nseconds().saturating_sub(position_offset_ns) as f32
-                                        / 1_000_000_000.0
-                                })
+                                // 2b (C2): under concat (adjust-base=true) query_position
+                                // re-bases per track, so it is already B-relative — no
+                                // offset subtraction needed.
+                                .map(|pos| pos.nseconds() as f32 / 1_000_000_000.0)
                                 .unwrap_or(0.0),
                             Some(PlaybackBackend::DirectAlsa { .. }) => {
                                 let frames = frames_written.load(Ordering::Relaxed);
@@ -1953,10 +1894,7 @@ impl AudioPlayer {
                         if let Ok(mut cell) = exclusive_device_thread.lock() {
                             *cell = if enabled { device.clone() } else { None };
                         }
-                        // Defense-in-depth: leaving Normal mode invalidates any
-                        // armed gapless slots.
-                        *next_track.lock().unwrap() = None;
-                        *pending_advance.lock().unwrap() = None;
+                        // 2b: next-bin detach on mode switch lands in 2b-A3.
                         reply.send(Ok(())).ok();
                     }
 
@@ -1965,103 +1903,34 @@ impl AudioPlayer {
                         if enabled {
                             exclusive = true;
                         }
-                        // Defense-in-depth: leaving Normal mode invalidates any
-                        // armed gapless slots.
-                        *next_track.lock().unwrap() = None;
-                        *pending_advance.lock().unwrap() = None;
+                        // 2b: next-bin detach on mode switch lands in 2b-A3.
                         reply.send(Ok(())).ok();
                     }
 
                     AudioCommand::SetGapless { enabled, reply } => {
-                        gapless_setting = enabled;
-                        if !enabled {
-                            *next_track.lock().unwrap() = None;
-                            *pending_advance.lock().unwrap() = None;
+                        // 2b-A1: stored but inert; the attach path (2b-A2) reads it.
+                        #[allow(unused_assignments)]
+                        {
+                            gapless_setting = enabled;
                         }
                         let _ = reply.send(Ok(()));
                     }
 
-                    AudioCommand::SetNextTrack {
-                        uri,
-                        norm_gain,
-                        track_id,
-                        qid,
-                        replay_gain,
-                        peak_amplitude,
-                        is_dash,
-                        reply,
-                    } => {
-                        if gapless_setting && gapless_capable && !exclusive && !bit_perfect {
-                            *next_track.lock().unwrap() = Some(NextTrack {
-                                uri,
-                                norm_gain,
-                                track_id,
-                                qid,
-                                replay_gain,
-                                peak_amplitude,
-                                is_dash,
-                            });
-                        } else {
-                            *next_track.lock().unwrap() = None;
-                        }
+                    // 2b: gapless stays INERT after 2b-A1. SetNextTrack records
+                    // nothing yet — the concat second-branch attach lands in 2b-A2.
+                    // The frontend still calls set_next_track; we accept and no-op.
+                    AudioCommand::SetNextTrack { reply, .. } => {
                         let _ = reply.send(Ok(()));
                     }
 
+                    // 2b: real next-bin detach lands in 2b-A2/2b-A3.
                     AudioCommand::ClearNextTrack { reply } => {
-                        *next_track.lock().unwrap() = None;
-                        *pending_advance.lock().unwrap() = None;
                         let _ = reply.send(Ok(()));
                     }
 
-                    AudioCommand::HandleGaplessAdvance {
-                        track_id,
-                        qid,
-                        norm_gain,
-                        replay_gain,
-                        peak_amplitude,
-                    } => {
-                        signal_path.reset_for_track();
-                        apply_normalization_gain(
-                            norm_gain,
-                            &mut current_norm_gain,
-                            backend.as_ref().and_then(|b| b.norm_volume_el()),
-                            &combined_vol,
-                            current_volume,
-                            &signal_path,
-                        );
-                        eos.store(false, Ordering::SeqCst);
-                        has_uri.store(true, Ordering::SeqCst);
-                        // Capture the running-time baseline at the gapless boundary.
-                        // We run on the new track's STREAM_START, so the pipeline's
-                        // query_position here ≈ the previous track's accumulated
-                        // running-time. GetPosition subtracts this to report the new
-                        // track's elapsed time. (Empirical, GStreamer 1.24.2.)
-                        if let Some(p) = backend.as_ref().and_then(|b| match b {
-                            PlaybackBackend::Normal { pipeline, .. } => {
-                                pipeline.query_position::<gst::ClockTime>()
-                            }
-                            _ => None,
-                        }) {
-                            position_offset_ns = p.nseconds();
-                        }
-                        log::debug!("[audio] gapless: advanced to track {track_id}");
-                        // rg/peak are carried in the payload; the lib.rs track-advanced
-                        // listener (Task 5), which has AppState, stores them into
-                        // last_replay_gain/last_peak_amplitude so a live volume-
-                        // normalization toggle uses THIS track's values. The worker
-                        // has no AppState access.
-                        app_handle
-                            .emit(
-                                "track-advanced",
-                                serde_json::json!({
-                                    "trackId": track_id,
-                                    "qid": qid,
-                                    "replayGain": replay_gain,
-                                    "peakAmplitude": peak_amplitude,
-                                }),
-                            )
-                            .ok();
-                    }
+                    // 2b: real advance logic (promote next_bin, emit track-advanced)
+                    // lands in 2b-A3, driven by concat's notify::active-pad.
+                    AudioCommand::HandleGaplessAdvance { .. } => {}
 
                     AudioCommand::ListDevices { reply } => {
                         let result = list_alsa_devices_inner();
