@@ -109,6 +109,9 @@ impl ListenBrainzProvider {
         if let Some(ref mbid) = track.recording_mbid {
             additional_info["recording_mbid"] = json!(mbid);
         }
+        if !track.artist_mbids.is_empty() {
+            additional_info["artist_mbids"] = json!(track.artist_mbids);
+        }
         if let Some(track_id) = track.track_id {
             additional_info["origin_url"] =
                 json!(format!("https://listen.tidal.com/track/{track_id}"));
@@ -248,5 +251,53 @@ impl ScrobbleProvider for ListenBrainzProvider {
         }
 
         ScrobbleResult::Ok
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scrobble::ScrobbleTrack;
+
+    fn track(mbids: Vec<String>) -> ScrobbleTrack {
+        ScrobbleTrack {
+            artist: "A, B".to_string(),
+            track: "Song".to_string(),
+            album: None,
+            album_artist: None,
+            duration_secs: 200,
+            track_number: None,
+            timestamp: 0,
+            chosen_by_user: true,
+            isrc: None,
+            track_id: None,
+            recording_mbid: None,
+            artist_primary: "A".to_string(),
+            artist_mbids: mbids,
+        }
+    }
+
+    #[test]
+    fn artist_name_keeps_combined_string() {
+        let meta = ListenBrainzProvider::build_track_metadata(&track(vec![]));
+        assert_eq!(meta["artist_name"], "A, B");
+    }
+
+    #[test]
+    fn includes_artist_mbids_when_present() {
+        let meta = ListenBrainzProvider::build_track_metadata(&track(vec![
+            "mbid-a".to_string(),
+            "mbid-b".to_string(),
+        ]));
+        assert_eq!(
+            meta["additional_info"]["artist_mbids"],
+            serde_json::json!(["mbid-a", "mbid-b"])
+        );
+    }
+
+    #[test]
+    fn omits_artist_mbids_when_empty() {
+        let meta = ListenBrainzProvider::build_track_metadata(&track(vec![]));
+        assert!(meta["additional_info"].get("artist_mbids").is_none());
     }
 }
