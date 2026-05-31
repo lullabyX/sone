@@ -353,9 +353,13 @@ export default function Home() {
     );
   }
 
-  const tabBar =
+  // marginCls lets callers tune the gap below the tabs: mb-8 when a card grid
+  // (quick-access or skeleton) follows, mb-6 when a text heading follows — the
+  // heading's line-height adds ~8px of leading, so the smaller margin makes the
+  // visible gap match the card case.
+  const renderTabBar = (marginCls: string) =>
     tabs.length > 0 ? (
-      <div className="flex gap-2 mb-8" role="tablist">
+      <div className={`flex gap-2 ${marginCls}`} role="tablist">
         {tabs.map((tab) => {
           const active = slugOf(tab.tabType) === slugOf(activeType);
           return (
@@ -384,7 +388,7 @@ export default function Home() {
           {/* On a cold reload the tab list isn't known yet (it comes from the
               feed response), so fall back to skeleton pills. */}
           {tabs.length > 0 ? (
-            tabBar
+            renderTabBar("mb-8")
           ) : (
             <div className="flex gap-2 mb-8">
               {[64, 88, 76].map((w, i) => (
@@ -432,7 +436,7 @@ export default function Home() {
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <PageContainer className="px-6 py-8">
-        {tabBar}
+        {renderTabBar(shortcutSection ? "mb-8" : "mb-6")}
         {/* Quick Access Grid (Hero) — SHORTCUT_LIST from v2 feed, For-you only */}
         {shortcutSection && (
           <section className="mb-10">
