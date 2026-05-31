@@ -154,7 +154,7 @@ impl MusicBrainzLookup {
         track_name: &str,
         artist_name: &str,
     ) -> Result<MbidLookup, String> {
-        let url = format!("{MB_API_BASE}/isrc/{isrc}?fmt=json");
+        let url = isrc_lookup_url(isrc);
         let user_agent = format!("SONE/{APP_VERSION} (https://github.com/lullabyX/sone)");
         let client = self.client.lock().unwrap().clone();
         let resp = client
@@ -198,6 +198,13 @@ impl MusicBrainzLookup {
 /// Choose the best lookup result from candidate recordings. The trust gate lives
 /// here: artist MBIDs are returned ONLY for an artist-corroborated match; every
 /// fallback returns a recording MBID (when available) with empty artist MBIDs.
+/// Build the MusicBrainz ISRC lookup URL. `inc=artist-credits` is REQUIRED: without
+/// it the response omits the artist-credit array, so `recording_matches_artist` can
+/// never corroborate and `extract_artist_mbids` always returns empty.
+fn isrc_lookup_url(isrc: &str) -> String {
+    format!("{MB_API_BASE}/isrc/{isrc}?fmt=json&inc=artist-credits")
+}
+
 fn select_lookup(
     recordings: &[serde_json::Value],
     track_lower: &str,
@@ -293,6 +300,20 @@ mod tests {
 
     fn recording(id: &str, credits: serde_json::Value) -> serde_json::Value {
         json!({ "id": id, "title": "Song", "artist-credit": credits })
+    }
+
+    #[test]
+    fn isrc_lookup_url_requests_artist_credits() {
+        // Without inc=artist-credits the MB /isrc response omits artist-credit,
+        // so recording_matches_artist always fails and artist_mbids is always
+        // empty — the corroboration + artist_mbids features become inert.
+        let url = isrc_lookup_url("USLS52081704");
+        assert!(url.contains("/isrc/USLS52081704"), "url: {url}");
+        assert!(url.contains("fmt=json"), "url: {url}");
+        assert!(
+            url.contains("inc=artist-credits"),
+            "ISRC lookup must request artist-credits or corroboration/artist_mbids break: {url}"
+        );
     }
 
     #[test]
