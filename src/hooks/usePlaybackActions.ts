@@ -31,6 +31,7 @@ import {
   volumeNormalizationAtom,
   bitPerfectPreviousStateAtom,
   consecutiveFailCountAtom,
+  userPausedAtom,
 } from "../atoms/playback";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
@@ -174,6 +175,7 @@ export function usePlaybackActions() {
         return { ok: false, reason: "transient" };
       }
       lastPlayInvokeRef.current = now;
+      store.set(userPausedAtom, false);
       const generation = ++playGenerationRef.current;
       const stamped = ensureQid(normalizeTrack(track));
       preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
@@ -251,6 +253,7 @@ export function usePlaybackActions() {
   );
 
   const pauseTrack = useCallback(async () => {
+    store.set(userPausedAtom, true);
     try {
       await invoke("pause_track");
       store.set(isPlayingAtom, false);
@@ -260,6 +263,7 @@ export function usePlaybackActions() {
   }, [store]);
 
   const resumeTrack = useCallback(async () => {
+    store.set(userPausedAtom, false);
     try {
       const track = store.get(currentTrackAtom);
       if (!track) return;
@@ -300,6 +304,59 @@ export function usePlaybackActions() {
       }
     }
   }, [store, showToast]);
+
+  /** Peek the next track for gapless registration. Returns null unless the next track
+   *  is the AVAILABLE head of manual/context queue AND its _source matches the current
+   *  playback source (so gapless never changes the "Playing from" context wrongly).
+   *  Read-only: never mutates any atom. */
+  const predictNextTrack = useCallback((): Track | null => {
+    if (store.get(repeatAtom) === 2) return null; // repeat-one → EOS→playNext path
+    const curSource = store.get(playbackSourceAtom);
+    const head =
+      store.get(manualQueueAtom)[0] ?? store.get(queueAtom)[0] ?? null;
+    if (!head || isTrackUnavailable(head)) return null; // unavailable head → playNext drains it
+    const headSource = (head as QueuedTrack)._source;
+    if (headSource && headSource.id !== curSource?.id) return null; // source switch → not gapless in v1
+    return head;
+  }, [store]);
+
+  /** Bookkeeping for a track the backend is ALREADY playing gaplessly.
+   *  Mirrors playTrack's success path WITHOUT invoking play: bumps the generation
+   *  guard (aborts any in-flight playTrack writes), pushes history, stamps source
+   *  context, sets current/streamInfo, preserves user-pause intent, and fires the
+   *  scrobble notify. */
+  const advanceToTrack = useCallback(
+    (track: Track, info: StreamInfo) => {
+      ++playGenerationRef.current; // abort any in-flight playTrack writes
+      const stamped = ensureQid(normalizeTrack(track));
+      preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
+      preloadImage(getTidalImageUrl(stamped.album?.cover, 1280));
+      const prev = store.get(currentTrackAtom);
+      if (prev) {
+        const h = [...store.get(historyAtom), prev];
+        store.set(
+          historyAtom,
+          h.length > MAX_HISTORY_TRACKS
+            ? h.slice(h.length - MAX_HISTORY_TRACKS)
+            : h,
+        );
+      }
+      (stamped as any)._playingFrom = store.get(playbackSourceAtom);
+      (stamped as any)._contextFrom = store.get(contextSourceAtom);
+      store.set(currentTrackAtom, stamped); // cascades MPRIS/Discord/position reset
+      store.set(streamInfoAtom, info);
+      // At a gapless advance the pipeline is definitionally rolling, so the new track IS
+      // playing unless the USER paused. Use explicit pause intent via the GLOBAL
+      // userPausedAtom (written by every pauseTrack/resumeTrack path, instance-independent),
+      // NOT the per-hook ref and NOT the (possibly transient) isPlayingAtom.
+      store.set(isPlayingAtom, !store.get(userPausedAtom));
+      store.set(consecutiveFailCountAtom, 0);
+      invoke("notify_track_started", {
+        payload: buildTrackStartedPayload(stamped, false),
+      }).catch(() => {});
+    },
+    [store],
+  );
 
   const setVolume = useCallback(
     async (level: number) => {
@@ -551,6 +608,7 @@ export function usePlaybackActions() {
     async (options?: { explicit?: boolean }) => {
       if (playNextLockRef.current) return;
       playNextLockRef.current = true;
+      store.set(userPausedAtom, false);
       try {
         const repeatMode = store.get(repeatAtom);
 
@@ -1245,5 +1303,10 @@ export function usePlaybackActions() {
     setShuffledQueue,
     playFromSource,
     playAllFromSource,
+    predictNextTrack,
+    advanceToTrack,
+    playNextLockRef,
+    playGenerationRef,
+    autoplayIdsRef,
   };
 }
