@@ -63,6 +63,21 @@ export function useGaplessPrefetch(
       return;
     }
     const qid = next._qid ?? String(next.id);
+    // C3 pre-IPC dedup: the backend already dedups attaches by track_id, but for normal
+    // in-order listening the predicted next is stable for the whole track, so every debounced
+    // subscription fire would otherwise repeat the IPC + a backend URL re-resolution. Skip the
+    // round-trip when the predicted next is identical to what's already registered.
+    // - both trackId AND qid unchanged → already prerolled, skip entirely.
+    // - trackId same, qid changed → still invoke so the backend updates its stored qid (the
+    //   backend only re-stamps its qid when we actually call set_next_track).
+    // - trackId changed → invoke as usual (new track to preroll).
+    if (
+      pendingNextRef.current &&
+      pendingNextRef.current.trackId === next.id &&
+      pendingNextRef.current.qid === qid
+    ) {
+      return;
+    }
     try {
       const info = await invoke<StreamInfo>("set_next_track", {
         trackId: next.id,
