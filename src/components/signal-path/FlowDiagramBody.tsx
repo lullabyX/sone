@@ -60,6 +60,7 @@ export default function FlowDiagramBody({
     normAltered,
     isDirectAlsa,
     isPristine,
+    losslessPromotion,
   } = deriveAlterations(sp);
 
   const sourceCodec = streamInfo?.codec?.toUpperCase() ?? null;
@@ -575,7 +576,7 @@ export default function FlowDiagramBody({
         )}
         <span className="text-center">
           {isPristineVerdict
-            ? alteredCount > 0
+            ? losslessPromotion
               ? "PRISTINE · BIT-TRANSPARENT — LOSSLESS PROMOTION"
               : "PRISTINE — NO ALTERATIONS DETECTED"
             : lossyCount > 0
