@@ -575,7 +575,9 @@ export default function FlowDiagramBody({
         )}
         <span className="text-center">
           {isPristineVerdict
-            ? "PRISTINE — NO ALTERATIONS DETECTED"
+            ? alteredCount > 0
+              ? "PRISTINE · BIT-TRANSPARENT — LOSSLESS PROMOTION"
+              : "PRISTINE — NO ALTERATIONS DETECTED"
             : lossyCount > 0
               ? `NOT PRISTINE — ${lossyCount} LOSSY STAGE${lossyCount === 1 ? "" : "S"}${
                   alteredCount > 0 ? ` · ${alteredCount} MODIFIED` : ""
