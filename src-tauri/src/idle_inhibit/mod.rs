@@ -53,13 +53,57 @@ impl IdleInhibitor {
         }
     }
 
-    /// Inhibit. `window` is needed by the Wayland layer to reach the GDK surface.
-    pub async fn inhibit(&mut self, _window: &tauri::WebviewWindow) {
-        // filled in Task 6
+    /// Inhibit screen blanking + system sleep. Runs every applicable layer for
+    /// the detected display server — no short-circuit.
+    pub async fn inhibit(&mut self, window: &tauri::WebviewWindow) {
+        if self.active {
+            return;
+        }
+        self.active = true;
+
+        let server = DisplayServer::detect();
+        log::info!("idle inhibit requested (display server: {server:?})");
+
+        // Layer 1: display-server native.
+        match server {
+            DisplayServer::Wayland => {
+                self.wayland = wayland::WaylandInhibitor::start(window);
+            }
+            DisplayServer::X11 => {
+                self.x11 = x11::X11Inhibitor::start();
+            }
+            DisplayServer::Unknown => {}
+        }
+
+        // Layer 2: D-Bus session (KDE/GNOME screen-off) — always attempt; harmless
+        // where unsupported. Returns whether a screen-keeping inhibition landed.
+        let dbus_screen = self.dbus.inhibit_screen().await;
+
+        // Layer 3: D-Bus system suspend (logind) — always attempt.
+        self.dbus.inhibit_sleep().await;
+
+        // Layer 4: portal fallback — only if NOTHING screen-keeping succeeded.
+        let native_screen = self.wayland.is_some() || self.x11.is_some();
+        if !native_screen && !dbus_screen {
+            log::warn!("no native/D-Bus screen inhibition succeeded; trying portal");
+            self.dbus.inhibit_portal().await;
+        }
     }
 
     pub async fn uninhibit(&mut self) {
-        // filled in Task 6
+        if !self.active {
+            return;
+        }
+        self.active = false;
+
+        if let Some(mut x) = self.x11.take() {
+            x.stop();
+        }
+        if let Some(w) = self.wayland.take() {
+            w.stop();
+        }
+        self.dbus.release().await;
+        log::info!("idle inhibit released");
     }
 }
 
