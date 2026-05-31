@@ -388,9 +388,9 @@ export default function Home() {
           {/* On a cold reload the tab list isn't known yet (it comes from the
               feed response), so fall back to skeleton pills. */}
           {tabs.length > 0 ? (
-            renderTabBar("mb-8")
+            renderTabBar("mb-10")
           ) : (
-            <div className="flex gap-2 mb-8">
+            <div className="flex gap-2 mb-10">
               {[64, 88, 76].map((w, i) => (
                 <div
                   key={i}
