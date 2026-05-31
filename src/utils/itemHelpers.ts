@@ -256,6 +256,21 @@ export function getTrackArtistDisplay(track: { artist?: { name?: string }; artis
   return track.artist?.name || "Unknown Artist";
 }
 
+/** The single primary artist to scrobble to Audioscrobbler providers (Last.fm/Libre.fm).
+ *  The runtime artist field is `type` ("MAIN"/"FEATURED"); `artistType` is accepted as a
+ *  fallback for the (inaccurate) TS interface. Discord/MPRIS/UI display are unaffected. */
+export function getTrackPrimaryArtist(track: {
+  artist?: { name?: string };
+  artists?: { name: string; type?: string; artistType?: string }[];
+}): string {
+  if (track.artists && track.artists.length > 0) {
+    const typeOf = (a: { type?: string; artistType?: string }) => a.artistType ?? a.type;
+    const main = track.artists.find((a) => typeOf(a) === "MAIN");
+    return main?.name ?? track.artists[0].name;
+  }
+  return track.artist?.name || "Unknown Artist";
+}
+
 /** Format artists with "ft." notation for Discord Rich Presence. */
 export function getTrackArtistDiscordDisplay(track: {
   artist?: { name?: string };
