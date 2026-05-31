@@ -3149,11 +3149,11 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
     Ok(result)
 }
 
-/// Gapless requires GStreamer >= 1.24 (data: DASH manifest support) and uridecodebin3.
+/// Gapless (2b architecture) needs the `concat` element. The chain is legacy
+/// `uridecodebin` then a per-branch `queue` then `concat`, which handle Tidal
+/// `data:application/dash+xml` on any GStreamer with the legacy dash demuxer
+/// (no GStreamer 1.24 or uridecodebin3 requirement). `concat` ships in
+/// coreelements, so this is effectively always true.
 pub fn gapless_supported() -> bool {
-    let (major, minor, _, _) = gst::version();
-    if (major, minor) < (1, 24) {
-        return false;
-    }
-    gst::ElementFactory::find("uridecodebin3").is_some()
+    gst::ElementFactory::find("concat").is_some()
 }
