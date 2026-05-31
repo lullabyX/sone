@@ -76,6 +76,7 @@ export default function SignalPathPanel({
     isDirectAlsa,
     isPristine,
     lossyFormatChange,
+    losslessPromotion,
   } = deriveAlterations(sp);
 
   const sourceBits = streamInfo?.bitDepth;
@@ -98,9 +99,11 @@ export default function SignalPathPanel({
   } else if (sp.dac?.state === "Closed") {
     headline = "DAC inactive — output may be routed elsewhere";
   } else if (isPristine) {
-    headline = sourceSummary
-      ? `${sourceSummary} reaches your DAC untouched`
-      : "Source PCM reaches your DAC untouched";
+    headline = losslessPromotion
+      ? `${displayFormat(sp?.decodedFormat)} → ${displayFormat(sp?.outputFormat)} — lossless promotion, every source bit preserved`
+      : sourceSummary
+        ? `${sourceSummary} reaches your DAC untouched`
+        : "Source PCM reaches your DAC untouched";
   } else if (sp?.resampledFrom && sp?.resampledTo) {
     headline = `Resampled ${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`;
   } else if (sp?.formatFallbackFrom && sp?.formatFallbackTo) {
@@ -162,114 +165,114 @@ export default function SignalPathPanel({
               transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
-          <div className="overflow-hidden min-h-0">
-            <div
-              className="transition-opacity duration-300"
-              style={{
-                opacity: expanded ? 0 : 1,
-                transitionDelay: expanded ? "0ms" : "200ms",
-              }}
-            >
-              <div className="px-8 pt-12 pb-7 flex flex-col items-center text-center">
-                <div
-                  className="relative w-44 h-44 mb-7 flex items-center justify-center"
-                  style={{
-                    animation: "signalPathPulse 2.8s ease-in-out infinite",
-                  }}
-                >
+            <div className="overflow-hidden min-h-0">
+              <div
+                className="transition-opacity duration-300"
+                style={{
+                  opacity: expanded ? 0 : 1,
+                  transitionDelay: expanded ? "0ms" : "200ms",
+                }}
+              >
+                <div className="px-8 pt-12 pb-7 flex flex-col items-center text-center">
                   <div
-                    className={`absolute inset-0 rounded-full border-[3px] ${ringColor}`}
-                    style={{ opacity: 0.55 }}
-                  />
-                  <div
-                    className={`absolute inset-2 rounded-full border ${ringColor}`}
-                    style={{ opacity: 0.18 }}
-                  />
-                  <span
-                    className={`text-[19px] font-bold tracking-[0.18em] ${wordColor}`}
-                    style={{ fontFamily: "ui-monospace, monospace" }}
+                    className="relative w-44 h-44 mb-7 flex items-center justify-center"
+                    style={{
+                      animation: "signalPathPulse 2.8s ease-in-out infinite",
+                    }}
                   >
-                    {verdictWord}
-                  </span>
-                </div>
+                    <div
+                      className={`absolute inset-0 rounded-full border-[3px] ${ringColor}`}
+                      style={{ opacity: 0.55 }}
+                    />
+                    <div
+                      className={`absolute inset-2 rounded-full border ${ringColor}`}
+                      style={{ opacity: 0.18 }}
+                    />
+                    <span
+                      className={`text-[19px] font-bold tracking-[0.18em] ${wordColor}`}
+                      style={{ fontFamily: "ui-monospace, monospace" }}
+                    >
+                      {verdictWord}
+                    </span>
+                  </div>
 
-                <div className="text-[13px] text-th-text-primary max-w-[360px] mb-4 leading-relaxed">
-                  {headline}
-                </div>
+                  <div className="text-[13px] text-th-text-primary max-w-[360px] mb-4 leading-relaxed">
+                    {headline}
+                  </div>
 
-                {/* Source quality + DAC name — gives the compact view enough
+                  {/* Source quality + DAC name — gives the compact view enough
                     factual context to be useful without expanding. */}
-                {(sourceSummary || dacDisplayName(sp)) && (
-                  <div className="flex flex-col items-center gap-0.5 mb-4 max-w-[360px]">
-                    {sourceSummary && (
-                      <div className="text-[11px] font-mono text-th-text-muted">
-                        {sourceSummary}
-                        {streamInfo?.audioQuality && (
-                          <>
-                            <span className="text-th-text-faint/40"> · </span>
-                            <span className="text-th-text-faint">
-                              {streamInfo.audioQuality}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    {dacDisplayName(sp) && (
-                      <div className="text-[11px] text-th-text-muted truncate max-w-[360px]">
-                        {dacDisplayName(sp)}
-                      </div>
-                    )}
-                  </div>
-                )}
+                  {(sourceSummary || dacDisplayName(sp)) && (
+                    <div className="flex flex-col items-center gap-0.5 mb-4 max-w-[360px]">
+                      {sourceSummary && (
+                        <div className="text-[11px] font-mono text-th-text-muted">
+                          {sourceSummary}
+                          {streamInfo?.audioQuality && (
+                            <>
+                              <span className="text-th-text-faint/40"> · </span>
+                              <span className="text-th-text-faint">
+                                {streamInfo.audioQuality}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {dacDisplayName(sp) && (
+                        <div className="text-[11px] text-th-text-muted truncate max-w-[360px]">
+                          {dacDisplayName(sp)}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                {(sp?.exclusiveMode ||
-                  sp?.bitPerfect ||
-                  sp?.backend ||
-                  (sp?.osMixer && !isDirectAlsa)) && (
-                  <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-mono text-th-text-faint mb-6 uppercase tracking-wider">
-                    {sp?.exclusiveMode && <span>exclusive</span>}
-                    {sp?.bitPerfect && (
-                      <>
-                        {sp?.exclusiveMode && (
-                          <span className="text-th-text-faint/40">·</span>
-                        )}
-                        <span>bit-perfect</span>
-                      </>
-                    )}
-                    {sp?.osMixer && !isDirectAlsa && (
-                      <>
-                        {(sp?.exclusiveMode || sp?.bitPerfect) && (
-                          <span className="text-th-text-faint/40">·</span>
-                        )}
-                        <span>{sp.osMixer.server}</span>
-                      </>
-                    )}
-                    {sp?.backend && (
-                      <>
-                        {(sp?.exclusiveMode ||
-                          sp?.bitPerfect ||
-                          (sp?.osMixer && !isDirectAlsa)) && (
-                          <span className="text-th-text-faint/40">·</span>
-                        )}
-                        <span>{sp.backend}</span>
-                      </>
-                    )}
-                  </div>
-                )}
+                  {(sp?.exclusiveMode ||
+                    sp?.bitPerfect ||
+                    sp?.backend ||
+                    (sp?.osMixer && !isDirectAlsa)) && (
+                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-mono text-th-text-faint mb-6 uppercase tracking-wider">
+                      {sp?.exclusiveMode && <span>exclusive</span>}
+                      {sp?.bitPerfect && (
+                        <>
+                          {sp?.exclusiveMode && (
+                            <span className="text-th-text-faint/40">·</span>
+                          )}
+                          <span>bit-perfect</span>
+                        </>
+                      )}
+                      {sp?.osMixer && !isDirectAlsa && (
+                        <>
+                          {(sp?.exclusiveMode || sp?.bitPerfect) && (
+                            <span className="text-th-text-faint/40">·</span>
+                          )}
+                          <span>{sp.osMixer.server}</span>
+                        </>
+                      )}
+                      {sp?.backend && (
+                        <>
+                          {(sp?.exclusiveMode ||
+                            sp?.bitPerfect ||
+                            (sp?.osMixer && !isDirectAlsa)) && (
+                            <span className="text-th-text-faint/40">·</span>
+                          )}
+                          <span>{sp.backend}</span>
+                        </>
+                      )}
+                    </div>
+                  )}
 
-                <button
-                  onClick={() => setExpanded(true)}
-                  className="group flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-medium tracking-wider text-th-text-muted bg-th-surface/60 hover:bg-th-button-hover hover:text-th-text-primary transition-all border border-th-border-subtle hover:border-th-text-faint/30"
-                >
-                  <span>SEE THE FULL PATH</span>
-                  <ArrowRight
-                    size={12}
-                    className="transition-transform group-hover:translate-x-0.5"
-                  />
-                </button>
+                  <button
+                    onClick={() => setExpanded(true)}
+                    className="group flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-medium tracking-wider text-th-text-muted bg-th-surface/60 hover:bg-th-button-hover hover:text-th-text-primary transition-all border border-th-border-subtle hover:border-th-text-faint/30"
+                  >
+                    <span>SEE THE FULL PATH</span>
+                    <ArrowRight
+                      size={12}
+                      className="transition-transform group-hover:translate-x-0.5"
+                    />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
           </div>
 
           {/* Flow diagram */}
@@ -280,37 +283,39 @@ export default function SignalPathPanel({
               transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
-          <div className="overflow-hidden min-h-0">
-            <div
-              className="transition-opacity duration-300"
-              style={{
-                opacity: expanded ? 1 : 0,
-                transitionDelay: expanded ? "200ms" : "0ms",
-              }}
-            >
-              <div className="pl-6 pr-24 pt-5 pb-3 flex items-center gap-3 border-b border-th-border-subtle">
-                <div className={`w-2.5 h-2.5 rounded-full ${dotColor} shrink-0`} />
-                <div className="flex-1 min-w-0">
+            <div className="overflow-hidden min-h-0">
+              <div
+                className="transition-opacity duration-300"
+                style={{
+                  opacity: expanded ? 1 : 0,
+                  transitionDelay: expanded ? "200ms" : "0ms",
+                }}
+              >
+                <div className="pl-6 pr-24 pt-5 pb-3 flex items-center gap-3 border-b border-th-border-subtle">
                   <div
-                    className={`text-[14px] font-bold tracking-[0.15em] ${wordColor}`}
-                    style={{ fontFamily: "ui-monospace, monospace" }}
-                  >
-                    {verdictWord}
-                  </div>
-                  <div className="text-[11px] text-th-text-muted mt-0.5 truncate">
-                    {headline}
+                    className={`w-2.5 h-2.5 rounded-full ${dotColor} shrink-0`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className={`text-[14px] font-bold tracking-[0.15em] ${wordColor}`}
+                      style={{ fontFamily: "ui-monospace, monospace" }}
+                    >
+                      {verdictWord}
+                    </div>
+                    <div className="text-[11px] text-th-text-muted mt-0.5 truncate">
+                      {headline}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <FlowDiagramBody
-                sp={sp}
-                streamInfo={streamInfo}
-                currentTrack={currentTrack}
-                onBack={() => setExpanded(false)}
-              />
+                <FlowDiagramBody
+                  sp={sp}
+                  streamInfo={streamInfo}
+                  currentTrack={currentTrack}
+                  onBack={() => setExpanded(false)}
+                />
+              </div>
             </div>
-          </div>
           </div>
         </div>
       </div>

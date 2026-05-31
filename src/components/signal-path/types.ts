@@ -31,7 +31,8 @@ function toGstreamerFormat(s: string): string {
   // ALSA → GStreamer.
   if (ALSA_TO_GSTREAMER[upper]) return ALSA_TO_GSTREAMER[upper];
   // pactl float aliases.
-  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE") return "F32LE";
+  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE")
+    return "F32LE";
   if (upper === "FLOAT64" || upper === "FLOAT64LE") return "F64LE";
   // Already canonical (or unknown — leave as-is).
   return upper;
@@ -191,10 +192,10 @@ export function deriveAlterations(sp: SignalPath | null) {
   // (PipeWire/Pulse owns the device, our pipeline only hands off audio).
   const upstreamFormat = isDirectAlsa
     ? sp?.outputFormat
-    : sp?.osMixer?.sinkFormat ?? sp?.outputFormat;
+    : (sp?.osMixer?.sinkFormat ?? sp?.outputFormat);
   const upstreamRate = isDirectAlsa
     ? sp?.outputRate
-    : sp?.osMixer?.sinkRate ?? sp?.outputRate;
+    : (sp?.osMixer?.sinkRate ?? sp?.outputRate);
 
   const dacMatchesPipeline =
     !sp?.dac ||
@@ -212,6 +213,12 @@ export function deriveAlterations(sp: SignalPath | null) {
   const lossyFormatChange =
     formatChanged &&
     audioBitDepth(sp!.outputFormat) < audioBitDepth(sp!.decodedFormat);
+
+  // A format change that preserved every audio bit (widening to a larger
+  // container, or a same-depth byte-layout repack). Used to distinguish a
+  // truly untouched pristine path from one that stayed bit-transparent
+  // through a lossless promotion.
+  const losslessPromotion = formatChanged && !lossyFormatChange;
 
   const isPristine =
     !!sp &&
@@ -232,5 +239,6 @@ export function deriveAlterations(sp: SignalPath | null) {
     isDirectAlsa,
     isPristine,
     lossyFormatChange,
+    losslessPromotion,
   };
 }
