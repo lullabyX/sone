@@ -114,12 +114,13 @@ export default function HomeSection({ section }: HomeSectionProps) {
       const allTrackItems = items.filter((t: any) =>
         isTrackItem(t, section.sectionType),
       );
-      playFromSource(item, allTrackItems, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      playFromSource(item as any, allTrackItems as any, {
         source: {
           type: "home-section",
           id: section.title,
           name: section.title,
-          allTracks: allTrackItems,
+          allTracks: allTrackItems as any,
         },
       });
     } else if (isMixItem(item, section.sectionType)) {
