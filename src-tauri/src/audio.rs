@@ -33,6 +33,32 @@ struct PcmFormat {
     bytes_per_sample: u32,
 }
 
+/// Pre-resolved next track armed for a gapless `about-to-finish` transition.
+#[derive(Clone)]
+#[allow(dead_code)] // fields consumed in Task 3 (about-to-finish handler)
+struct NextTrack {
+    uri: String,
+    norm_gain: f64,
+    track_id: u64,
+    qid: String,
+    replay_gain: f64,
+    peak_amplitude: f64,
+    is_dash: bool,
+}
+
+/// A gapless advance that has been committed to the pipeline and is awaiting
+/// the confirming STREAM_START on the bus thread.
+#[derive(Clone)]
+#[allow(dead_code)] // fields consumed in Task 3 (STREAM_START arm + HandleGaplessAdvance)
+struct PendingAdvance {
+    track_id: u64,
+    qid: String,
+    norm_gain: f64,
+    replay_gain: f64,
+    peak_amplitude: f64,
+    uri: String,
+}
+
 /// Commands to the ALSA writer thread
 enum WriterCommand {
     Data(AudioChunk),
@@ -1003,6 +1029,32 @@ enum AudioCommand {
         enabled: bool,
         reply: Reply<Result<(), String>>,
     },
+    SetGapless {
+        enabled: bool,
+        reply: Reply<Result<(), String>>,
+    },
+    SetNextTrack {
+        uri: String,
+        norm_gain: f64,
+        track_id: u64,
+        qid: String,
+        replay_gain: f64,
+        peak_amplitude: f64,
+        is_dash: bool,
+        reply: Reply<Result<(), String>>,
+    },
+    ClearNextTrack {
+        reply: Reply<Result<(), String>>,
+    },
+    /// Sent by the bus thread on a confirmed gapless STREAM_START boundary.
+    #[allow(dead_code)] // constructed in Task 3 (STREAM_START arm)
+    HandleGaplessAdvance {
+        track_id: u64,
+        qid: String,
+        norm_gain: f64,
+        replay_gain: f64,
+        peak_amplitude: f64,
+    },
     ListDevices {
         reply: Reply<Result<Vec<AudioDevice>, String>>,
     },
@@ -1023,6 +1075,10 @@ pub struct AudioPlayer {
 impl AudioPlayer {
     pub fn new(app_handle: tauri::AppHandle, signal_path: Arc<SignalPathTracker>) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AudioCommand>();
+        // Clone a self-sender into the worker so the Normal bus thread can send
+        // HandleGaplessAdvance back to this loop (Task 3). `cmd_tx` itself is
+        // owned by AudioPlayer, not the worker closure.
+        let cmd_tx_worker = cmd_tx.clone();
         let exclusive_device: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let exclusive_device_thread = exclusive_device.clone();
         let decoded_caps_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>> =
@@ -1078,6 +1134,16 @@ impl AudioPlayer {
             let mut current_volume: f64 = 1.0;
             let mut current_norm_gain: f64 = 1.0;
             let mut track_generation: u64 = 0;
+
+            // Gapless state. `gapless_setting` defaults to true and is pushed
+            // from saved settings at startup via `set_gapless` (the worker has
+            // no access to AppState). `cmd_tx_worker` is the self-sender the
+            // Normal bus thread clones to deliver HandleGaplessAdvance (Task 3).
+            let mut gapless_setting: bool = true;
+            let gapless_capable: bool = gapless_supported();
+            let next_track: Arc<Mutex<Option<NextTrack>>> = Arc::new(Mutex::new(None));
+            let pending_advance: Arc<Mutex<Option<PendingAdvance>>> = Arc::new(Mutex::new(None));
+            let _cmd_tx_worker = cmd_tx_worker;
 
             for cmd in cmd_rx {
                 match cmd {
@@ -1731,6 +1797,10 @@ impl AudioPlayer {
                         if let Ok(mut cell) = exclusive_device_thread.lock() {
                             *cell = if enabled { device.clone() } else { None };
                         }
+                        // Defense-in-depth: leaving Normal mode invalidates any
+                        // armed gapless slots.
+                        *next_track.lock().unwrap() = None;
+                        *pending_advance.lock().unwrap() = None;
                         reply.send(Ok(())).ok();
                     }
 
@@ -1739,8 +1809,55 @@ impl AudioPlayer {
                         if enabled {
                             exclusive = true;
                         }
+                        // Defense-in-depth: leaving Normal mode invalidates any
+                        // armed gapless slots.
+                        *next_track.lock().unwrap() = None;
+                        *pending_advance.lock().unwrap() = None;
                         reply.send(Ok(())).ok();
                     }
+
+                    AudioCommand::SetGapless { enabled, reply } => {
+                        gapless_setting = enabled;
+                        if !enabled {
+                            *next_track.lock().unwrap() = None;
+                            *pending_advance.lock().unwrap() = None;
+                        }
+                        let _ = reply.send(Ok(()));
+                    }
+
+                    AudioCommand::SetNextTrack {
+                        uri,
+                        norm_gain,
+                        track_id,
+                        qid,
+                        replay_gain,
+                        peak_amplitude,
+                        is_dash,
+                        reply,
+                    } => {
+                        if gapless_setting && gapless_capable && !exclusive && !bit_perfect {
+                            *next_track.lock().unwrap() = Some(NextTrack {
+                                uri,
+                                norm_gain,
+                                track_id,
+                                qid,
+                                replay_gain,
+                                peak_amplitude,
+                                is_dash,
+                            });
+                        } else {
+                            *next_track.lock().unwrap() = None;
+                        }
+                        let _ = reply.send(Ok(()));
+                    }
+
+                    AudioCommand::ClearNextTrack { reply } => {
+                        *next_track.lock().unwrap() = None;
+                        *pending_advance.lock().unwrap() = None;
+                        let _ = reply.send(Ok(()));
+                    }
+
+                    AudioCommand::HandleGaplessAdvance { .. } => { /* Task 3 */ }
 
                     AudioCommand::ListDevices { reply } => {
                         let result = list_alsa_devices_inner();
@@ -1807,6 +1924,34 @@ impl AudioPlayer {
     }
     pub fn set_bit_perfect(&self, enabled: bool) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
+    }
+    pub fn set_gapless(&self, enabled: bool) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_next_track(
+        &self,
+        uri: String,
+        norm_gain: f64,
+        track_id: u64,
+        qid: String,
+        replay_gain: f64,
+        peak_amplitude: f64,
+        is_dash: bool,
+    ) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::SetNextTrack {
+            uri,
+            norm_gain,
+            track_id,
+            qid,
+            replay_gain,
+            peak_amplitude,
+            is_dash,
+            reply,
+        })
+    }
+    pub fn clear_next_track(&self) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::ClearNextTrack { reply })
     }
     pub fn list_devices(&self) -> Result<Vec<AudioDevice>, String> {
         self.send_cmd(|reply| AudioCommand::ListDevices { reply })
@@ -2248,4 +2393,13 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
 
     log::debug!("[list_alsa_devices] returning {} devices", result.len());
     Ok(result)
+}
+
+/// Gapless requires GStreamer >= 1.24 (data: DASH manifest support) and uridecodebin3.
+pub fn gapless_supported() -> bool {
+    let (major, minor, _, _) = gst::version();
+    if (major, minor) < (1, 24) {
+        return false;
+    }
+    gst::ElementFactory::find("uridecodebin3").is_some()
 }
