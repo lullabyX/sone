@@ -40,7 +40,7 @@ import { isTrackUnavailable, isUnplayableError } from "../lib/trackAvailability"
 import type { Track, StreamInfo, ManualTrackSource, QueuedTrack } from "../types";
 import { getTidalImageUrl } from "../types";
 import { preloadImage } from "../components/TidalImage";
-import { getTrackArtistDisplay } from "../utils/itemHelpers";
+import { getTrackArtistDisplay, getTrackPrimaryArtist } from "../utils/itemHelpers";
 
 type PlayResult =
   | { ok: true }
@@ -56,6 +56,24 @@ function normalizeTrack(raw: any): Track {
     track.artist = raw.artists[0];
   }
   return track;
+}
+
+/** Build the notify_track_started payload. Centralized so all call sites send the
+ *  same fields — notably both `artist` (combined, for ListenBrainz) and
+ *  `artistPrimary` (single primary, for Last.fm/Libre.fm). */
+function buildTrackStartedPayload(track: Track, chosenByUser: boolean) {
+  return {
+    artist: getTrackArtistDisplay(track),
+    artistPrimary: getTrackPrimaryArtist(track),
+    title: track.title,
+    album: track.album?.title || null,
+    albumArtist: null,
+    durationSecs: track.duration || 0,
+    trackNumber: track.trackNumber || null,
+    chosenByUser,
+    isrc: track.isrc || null,
+    trackId: track.id || null,
+  };
 }
 
 /** Safely extract a human-readable message from a SoneError (or any thrown value). */
@@ -199,17 +217,7 @@ export function usePlaybackActions() {
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: {
-            artist: getTrackArtistDisplay(stamped),
-            title: stamped.title,
-            album: stamped.album?.title || null,
-            albumArtist: null,
-            durationSecs: stamped.duration || 0,
-            trackNumber: stamped.trackNumber || null,
-            chosenByUser: opts?.chosenByUser ?? true,
-            isrc: stamped.isrc || null,
-            trackId: stamped.id || null,
-          },
+          payload: buildTrackStartedPayload(stamped, opts?.chosenByUser ?? true),
         }).catch(() => {});
         return { ok: true };
       } catch (error: any) {
@@ -270,17 +278,7 @@ export function usePlaybackActions() {
 
         // Notify backend so the replay is scrobbled
         invoke("notify_track_started", {
-          payload: {
-            artist: getTrackArtistDisplay(track),
-            title: track.title,
-            album: track.album?.title || null,
-            albumArtist: null,
-            durationSecs: track.duration || 0,
-            trackNumber: track.trackNumber || null,
-            chosenByUser: true,
-            isrc: track.isrc || null,
-            trackId: track.id || null,
-          },
+          payload: buildTrackStartedPayload(track, true),
         }).catch(() => {});
       } else {
         await invoke("resume_track");
@@ -572,17 +570,7 @@ export function usePlaybackActions() {
             store.set(streamInfoAtom, info);
             store.set(isPlayingAtom, true);
             invoke("notify_track_started", {
-              payload: {
-                artist: getTrackArtistDisplay(current),
-                title: current.title,
-                album: current.album?.title || null,
-                albumArtist: null,
-                durationSecs: current.duration || 0,
-                trackNumber: current.trackNumber || null,
-                chosenByUser: false,
-                isrc: current.isrc || null,
-                trackId: current.id || null,
-              },
+              payload: buildTrackStartedPayload(current, false),
             }).catch(() => {});
           } catch (error: any) {
             console.error("Failed to repeat track:", error);
@@ -908,17 +896,7 @@ export function usePlaybackActions() {
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: {
-            artist: getTrackArtistDisplay(prevTrack),
-            title: prevTrack.title,
-            album: prevTrack.album?.title || null,
-            albumArtist: null,
-            durationSecs: prevTrack.duration || 0,
-            trackNumber: prevTrack.trackNumber || null,
-            chosenByUser: true,
-            isrc: prevTrack.isrc || null,
-            trackId: prevTrack.id || null,
-          },
+          payload: buildTrackStartedPayload(prevTrack, true),
         }).catch(() => {});
       } catch (error: any) {
         // Rollback all state
@@ -1015,17 +993,7 @@ export function usePlaybackActions() {
 
             // Notify backend for scrobbling
             invoke("notify_track_started", {
-              payload: {
-                artist: getTrackArtistDisplay(prevTrack),
-                title: prevTrack.title,
-                album: prevTrack.album?.title || null,
-                albumArtist: null,
-                durationSecs: prevTrack.duration || 0,
-                trackNumber: prevTrack.trackNumber || null,
-                chosenByUser: true,
-                isrc: prevTrack.isrc || null,
-                trackId: prevTrack.id || null,
-              },
+              payload: buildTrackStartedPayload(prevTrack, true),
             }).catch(() => {});
           } catch (error: any) {
             // Rollback all state
