@@ -38,6 +38,7 @@ import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import { notifySeek, getInterpolatedPosition } from "../lib/playbackPosition";
 import { isTrackUnavailable, isUnplayableError } from "../lib/trackAvailability";
+import { pickGaplessNext } from "../lib/gaplessPredict";
 import type { Track, StreamInfo, ManualTrackSource, QueuedTrack } from "../types";
 import { getTidalImageUrl } from "../types";
 import { preloadImage } from "../components/TidalImage";
@@ -310,14 +311,12 @@ export function usePlaybackActions() {
    *  playback source (so gapless never changes the "Playing from" context wrongly).
    *  Read-only: never mutates any atom. */
   const predictNextTrack = useCallback((): Track | null => {
-    if (store.get(repeatAtom) === 2) return null; // repeat-one → EOS→playNext path
-    const curSource = store.get(playbackSourceAtom);
-    const head =
-      store.get(manualQueueAtom)[0] ?? store.get(queueAtom)[0] ?? null;
-    if (!head || isTrackUnavailable(head)) return null; // unavailable head → playNext drains it
-    const headSource = (head as QueuedTrack)._source;
-    if (headSource && headSource.id !== curSource?.id) return null; // source switch → not gapless in v1
-    return head;
+    return pickGaplessNext({
+      repeat: store.get(repeatAtom),
+      manualHead: store.get(manualQueueAtom)[0] ?? null,
+      contextHead: store.get(queueAtom)[0] ?? null,
+      currentSourceId: store.get(playbackSourceAtom)?.id,
+    });
   }, [store]);
 
   /** Bookkeeping for a track the backend is ALREADY playing gaplessly.
