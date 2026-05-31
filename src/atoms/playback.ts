@@ -97,3 +97,8 @@ export const bitPerfectPreviousStateAtom =
 /** Consecutive auto-advance failures for unplayable tracks.
  *  Only mutated by playNext's skip-loop; reset on successful play. */
 export const consecutiveFailCountAtom = atom(0);
+
+/** Global explicit user-pause intent. Written by every pauseTrack/resumeTrack/
+ *  playTrack/playNext path (instance-independent, unlike a per-hook ref) so that
+ *  gapless advanceToTrack can never resume audio the user paused. */
+export const userPausedAtom = atom(false);
