@@ -395,7 +395,6 @@ impl ScrobbleProvider for AudioscrobblerProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::scrobble::ScrobbleTrack;
 
     fn track(artist: &str, primary: &str) -> ScrobbleTrack {
