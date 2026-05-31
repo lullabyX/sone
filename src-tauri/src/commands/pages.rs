@@ -227,7 +227,7 @@ pub async fn get_home_page(
                             let st = handle.state::<AppState>();
                             let result = {
                                 let mut client = st.tidal_client.lock().await;
-                                client.get_home_page().await
+                                client.get_home_page("static").await
                             };
                             if let Ok(fresh) = result {
                                 if let Ok(json) = serde_json::to_vec(&fresh) {
@@ -253,7 +253,7 @@ pub async fn get_home_page(
     }
 
     let mut client = state.tidal_client.lock().await;
-    let home = client.get_home_page().await?;
+    let home = client.get_home_page("static").await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&home) {
@@ -273,7 +273,7 @@ pub async fn get_home_page(
 pub async fn refresh_home_page(state: State<'_, AppState>) -> Result<HomePageResponse, SoneError> {
     log::debug!("[refresh_home_page]");
     let mut client = state.tidal_client.lock().await;
-    let home = client.get_home_page().await?;
+    let home = client.get_home_page("static").await?;
     drop(client);
 
     if let Ok(json) = serde_json::to_vec(&home) {
@@ -296,7 +296,8 @@ pub async fn get_home_page_more(
         &cursor[..cursor.len().min(32)]
     );
     let mut client = state.tidal_client.lock().await;
-    let (mut sections, next_cursor) = client.fetch_v2_home_feed(Some(&cursor)).await;
+    let (_tabs, mut sections, next_cursor) =
+        client.fetch_v2_home_feed("static", Some(&cursor)).await;
     drop(client);
 
     sections.retain(|s| {
@@ -312,6 +313,7 @@ pub async fn get_home_page_more(
         next_cursor.is_some()
     );
     Ok(HomePageResponse {
+        tabs: vec![],
         sections,
         cursor: next_cursor,
     })
