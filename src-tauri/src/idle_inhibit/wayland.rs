@@ -96,7 +96,13 @@ impl WaylandInhibitor {
         }).is_err() {
             return None;
         }
-        rx.recv().ok().flatten()
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(inhibitor) => inhibitor,
+            Err(e) => {
+                log::warn!("Wayland inhibitor build timed out or disconnected: {e}");
+                None
+            }
+        }
     }
 
     pub fn stop(self) {
