@@ -9,6 +9,7 @@ import {
 } from "../api/tidal";
 import {
   type HomeSection as HomeSectionType,
+  type HomeTab as HomeTabType,
   type MediaItemType,
 } from "../types";
 import HomeSection from "./HomeSection";
@@ -23,11 +24,16 @@ import {
 } from "../utils/itemHelpers";
 import PageContainer from "./PageContainer";
 
-// Simple in-memory cache to prevent skeleton flash on navigation
-let cachedHomeData: {
+// Per-tab in-memory cache to prevent skeleton flash on navigation and to keep
+// each tab's sections/cursor/pagination state independent across switches.
+type TabCacheEntry = {
   sections: HomeSectionType[];
-  cursor?: string | null;
-} | null = null;
+  cursor: string | null;
+  hasPaginated: boolean;
+};
+const tabCache = new Map<string, TabCacheEntry>();
+let cachedTabs: HomeTabType[] = [];
+const slugOf = (feedType: string) => feedType.toLowerCase();
 
 export default function Home() {
   const {
@@ -38,26 +44,24 @@ export default function Home() {
     navigateToMix,
   } = useNavigation();
 
-  const [sections, setSections] = useState<HomeSectionType[]>(
-    cachedHomeData?.sections || [],
+  const [tabs, setTabs] = useState<HomeTabType[]>(cachedTabs);
+  const [activeType, setActiveType] = useState<string>(
+    cachedTabs[0]?.tabType ?? "STATIC",
   );
-  // If we have cached data, don't show loading skeleton
-  const [loading, setLoading] = useState(!cachedHomeData);
-  const [greeting] = useState(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 18) return "Good afternoon";
-    return "Good evening";
-  });
-  const hasLoadedRef = useRef(false);
+  const activeEntry = tabCache.get(slugOf(activeType));
+  const sections = activeEntry?.sections ?? [];
+  const cursor = activeEntry?.cursor ?? null;
+  const [loading, setLoading] = useState<boolean>(!activeEntry);
+  const [, forceRender] = useState(0); // bump to re-render after async cache writes
+  const activeTypeRef = useRef(activeType);
+  useEffect(() => {
+    activeTypeRef.current = activeType;
+  }, [activeType]);
+
   const lastLoadedAtRef = useRef<number>(Date.now());
   const revalidatingRef = useRef(false);
-  const [cursor, setCursor] = useState<string | null>(
-    cachedHomeData?.cursor ?? null,
-  );
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const hasPaginatedRef = useRef(false);
 
   // Context menu state for quick-access shortcut cards
   const [contextMenu, setContextMenu] = useState<{
@@ -123,6 +127,14 @@ export default function Home() {
 
   const handleShortcutClick = useCallback(
     (item: any) => {
+      if (item.type === "DEEP_LINK" || item._itemType === "DEEP_LINK") {
+        const url = item.data?.url ?? item.data?.id;
+        if (url === "tidal://my-collection/tracks") {
+          navigateToFavorites();
+        }
+        // other tidal:// targets have no matching route yet — ignore
+        return;
+      }
       if (isMyTracksItem(item)) {
         navigateToFavorites();
         return;
@@ -169,78 +181,86 @@ export default function Home() {
     ],
   );
 
-  const loadHomeData = useCallback(async (isRevalidation: boolean) => {
-    if (isRevalidation) {
-      if (revalidatingRef.current) return;
-      revalidatingRef.current = true;
-      // Drop the frontend in-memory cache so getHomePage actually re-consults
-      // the Rust backend — otherwise the 2h TTL on the cached() wrapper short-
-      // circuits the revalidation entirely.
-      invalidateCache("home");
-    }
-
-    try {
-      const result = await getHomePage();
-      console.log(
-        "[Home] Loaded sections:",
-        result.home.sections.map(
-          (s) =>
-            `${s.sectionType}: "${s.title}" (${Array.isArray(s.items) ? s.items.length : 0} items)`,
-        ),
-        "isStale:",
-        result.isStale,
-        "revalidation:",
-        isRevalidation,
-      );
-
-      // If user has paginated, leave the merged list alone — replacing it
-      // would wipe out cursor-loaded sections.
-      if (!(isRevalidation && hasPaginatedRef.current)) {
-        setSections(result.home.sections);
-        setCursor(result.home.cursor ?? null);
+  const loadTab = useCallback(
+    async (feedType: string, isRevalidation: boolean) => {
+      const slug = slugOf(feedType);
+      if (isRevalidation) {
+        if (revalidatingRef.current) return;
+        revalidatingRef.current = true;
+        // Drop the frontend in-memory cache so getHomePage actually re-consults
+        // the Rust backend — otherwise the 2h TTL on the cached() wrapper short-
+        // circuits the revalidation entirely.
+        invalidateCache("home");
       }
 
-      if (!cachedHomeData) cachedHomeData = { sections: [] };
-      if (!(isRevalidation && hasPaginatedRef.current)) {
-        cachedHomeData.sections = result.home.sections;
-        cachedHomeData.cursor = result.home.cursor ?? null;
-      }
-
-      if (result.isStale) {
-        refreshHomePage()
-          .then((fresh) => {
-            if (!hasPaginatedRef.current) {
-              setSections(fresh.sections);
-              setCursor(fresh.cursor ?? null);
-            }
-            if (cachedHomeData) {
-              cachedHomeData.sections = hasPaginatedRef.current
-                ? cachedHomeData.sections
-                : fresh.sections;
-              cachedHomeData.cursor = hasPaginatedRef.current
-                ? cachedHomeData.cursor
-                : (fresh.cursor ?? null);
-            }
-          })
-          .catch((err) => {
-            console.error("Background refresh failed:", err);
+      try {
+        const result = await getHomePage(feedType);
+        const prev = tabCache.get(slug);
+        if (!prev?.hasPaginated) {
+          tabCache.set(slug, {
+            sections: result.home.sections,
+            cursor: result.home.cursor ?? null,
+            hasPaginated: false,
           });
+        }
+        if (result.home.tabs.length) {
+          cachedTabs = result.home.tabs;
+          setTabs(result.home.tabs);
+        }
+        forceRender((n) => n + 1);
+
+        if (result.isStale) {
+          refreshHomePage(feedType)
+            .then((fresh) => {
+              const cur = tabCache.get(slug);
+              if (cur && !cur.hasPaginated) {
+                tabCache.set(slug, {
+                  sections: fresh.sections,
+                  cursor: fresh.cursor ?? null,
+                  hasPaginated: false,
+                });
+                forceRender((n) => n + 1);
+              }
+            })
+            .catch((e) => console.error("home refresh failed", e));
+        }
+
+        lastLoadedAtRef.current = Date.now();
+      } catch (e) {
+        console.error("Failed to load home tab", feedType, e);
+      } finally {
+        if (isRevalidation) revalidatingRef.current = false;
+        if (slugOf(activeTypeRef.current) === slug) setLoading(false);
       }
+    },
+    [],
+  );
 
-      lastLoadedAtRef.current = Date.now();
-    } catch (err) {
-      console.error("Failed to load home page:", err);
-    } finally {
-      if (!isRevalidation) setLoading(false);
-      if (isRevalidation) revalidatingRef.current = false;
-    }
-  }, []);
-
+  const hasLoadedRef = useRef(false);
   useEffect(() => {
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
-    loadHomeData(false);
-  }, [loadHomeData]);
+    const first = cachedTabs[0]?.tabType ?? "STATIC";
+    loadTab(first, false).then(() => {
+      for (const t of cachedTabs) {
+        const s = slugOf(t.tabType);
+        if (s !== slugOf(first) && !tabCache.has(s)) loadTab(t.tabType, false);
+      }
+    });
+  }, [loadTab]);
+
+  const handleTabClick = useCallback(
+    (feedType: string) => {
+      setActiveType(feedType);
+      if (!tabCache.has(slugOf(feedType))) {
+        setLoading(true);
+        loadTab(feedType, false);
+      } else {
+        setLoading(false);
+      }
+    },
+    [loadTab],
+  );
 
   // Revalidate on window focus / tab visibility — covers the case where the
   // app stays open past the cache TTL and nothing else triggers a re-fetch.
@@ -249,11 +269,12 @@ export default function Home() {
 
     const revalidate = () => {
       if (document.visibilityState !== "visible") return;
-      if (hasPaginatedRef.current) return;
+      const active = activeTypeRef.current;
+      if (tabCache.get(slugOf(active))?.hasPaginated) return;
       if (revalidatingRef.current) return;
       if (Date.now() - lastLoadedAtRef.current < REVALIDATE_MIN_INTERVAL_MS)
         return;
-      loadHomeData(true);
+      loadTab(active, true);
     };
 
     document.addEventListener("visibilitychange", revalidate);
@@ -262,7 +283,7 @@ export default function Home() {
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);
     };
-  }, [loadHomeData]);
+  }, [loadTab]);
 
   // Infinite scroll: load more sections when sentinel becomes visible
   useEffect(() => {
@@ -273,17 +294,18 @@ export default function Home() {
       (entries) => {
         if (entries[0].isIntersecting && cursor && !loadingMore) {
           setLoadingMore(true);
-          hasPaginatedRef.current = true;
-          getHomePageMore(cursor)
+          getHomePageMore(cursor, activeType)
             .then((result) => {
-              setSections((prev) => {
-                const merged = [...prev, ...result.sections];
-                if (cachedHomeData) cachedHomeData.sections = merged;
-                return merged;
-              });
-              const nextCursor = result.cursor ?? null;
-              setCursor(nextCursor);
-              if (cachedHomeData) cachedHomeData.cursor = nextCursor;
+              const slug = slugOf(activeType);
+              const prev = tabCache.get(slug);
+              if (prev) {
+                tabCache.set(slug, {
+                  sections: [...prev.sections, ...result.sections],
+                  cursor: result.cursor ?? null,
+                  hasPaginated: true,
+                });
+                forceRender((n) => n + 1);
+              }
             })
             .catch((err) => {
               console.error("Failed to load more home sections:", err);
@@ -298,7 +320,7 @@ export default function Home() {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [cursor, loadingMore]);
+  }, [cursor, loadingMore, activeType]);
 
   // Extract SHORTCUT_LIST section for the quick-access grid, pass the rest to HomeSection
   const shortcutSection = sections.find(
@@ -332,8 +354,6 @@ export default function Home() {
     return (
       <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
         <PageContainer className="px-6 py-8">
-          {/* Skeleton greeting */}
-          <div className="h-10 w-64 bg-th-surface-hover rounded-lg animate-pulse mb-6" />
           {/* Skeleton quick access */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-10">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -370,9 +390,28 @@ export default function Home() {
       <PageContainer className="px-6 py-8">
         {/* Quick Access Grid (Hero) — SHORTCUT_LIST from v2 feed */}
         <section className="mb-10">
-          <h1 className="text-[32px] font-bold text-th-text-primary mb-6 tracking-tight">
-            {greeting}
-          </h1>
+          {tabs.length > 0 && (
+            <div className="flex gap-2 mb-6" role="tablist">
+              {tabs.map((tab) => {
+                const active = slugOf(tab.tabType) === slugOf(activeType);
+                return (
+                  <button
+                    key={tab.tabType}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => handleTabClick(tab.tabType)}
+                    className={
+                      active
+                        ? "px-4 py-2 rounded-full text-[14px] font-bold bg-th-text-primary text-th-base transition-colors"
+                        : "px-4 py-2 rounded-full text-[14px] font-bold bg-th-surface-hover/60 text-th-text-primary hover:bg-th-surface-hover transition-colors"
+                    }
+                  >
+                    {tab.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {/* Loved Tracks - always first */}
             <div
