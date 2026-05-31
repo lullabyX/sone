@@ -846,6 +846,9 @@ pub fn run() {
             commands::metadata::get_track_credits,
             // playback
             commands::playback::play_tidal_track,
+            commands::playback::set_next_track,
+            commands::playback::clear_next_track,
+            commands::playback::get_stream_info,
             commands::playback::pause_track,
             commands::playback::resume_track,
             commands::playback::stop_track,
