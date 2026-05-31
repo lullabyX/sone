@@ -270,15 +270,17 @@ fn attach_next_bin(
 ) -> Result<(gst::Element, gst::Element), String> {
     let udb = gst::ElementFactory::make("uridecodebin")
         .property("uri", uri)
-        // Smaller next-bin buffer (C3): ~3s. `use-buffering=true` is fine —
-        // the per-branch queue + lead time handle the gapless hand-off.
-        .property("buffer-duration", 3_000_000_000i64)
+        // 15s compressed buffer so the next track (and the current one once this
+        // becomes active) rides out network jitter on slow connections. We have
+        // the whole current track as lead time to fill it during preroll.
+        .property("buffer-duration", 15_000_000_000i64)
         .property("use-buffering", true)
         .build()
         .map_err(|e| format!("Failed to create next uridecodebin: {e}"))?;
-    // Same props as the first branch's queue.
+    // Same props as the first branch's queue: 15s of decoded reservoir ahead of
+    // concat — comfortable cushion against slow-internet rebuffering.
     let branch_queue = gst::ElementFactory::make("queue")
-        .property("max-size-time", 5_000_000_000u64)
+        .property("max-size-time", 15_000_000_000u64)
         .property("max-size-buffers", 0u32)
         .property("max-size-bytes", 0u32)
         .build()
@@ -1769,8 +1771,9 @@ impl AudioPlayer {
                                 // Per-branch upstream queue (C1): decouples the decoder from
                                 // concat's gate so the next branch can pre-buffer ahead while
                                 // the current track plays. With one branch it's a passthrough.
+                                // 15s of decoded reservoir for slow-internet cushion.
                                 let branch_queue = gst::ElementFactory::make("queue")
-                                    .property("max-size-time", 5_000_000_000u64)
+                                    .property("max-size-time", 15_000_000_000u64)
                                     .property("max-size-buffers", 0u32)
                                     .property("max-size-bytes", 0u32)
                                     .build()
@@ -1844,13 +1847,31 @@ impl AudioPlayer {
                                     let prev = notify_count.fetch_add(1, Ordering::AcqRel);
                                     if prev == 0 {
                                         // Initial sink_0 activation from request_pad_simple.
+                                        log::debug!("[gapless-diag] notify active-pad fire #1 (initial sink_0), suppressed");
                                         return;
                                     }
                                     // Read the new active pad. None → final EOS transition; ignore.
                                     let Some(active_pad) = concat.property::<Option<gst::Pad>>("active-pad")
                                     else {
+                                        // Dump concat's sink-pad situation so we can tell WHY it
+                                        // went terminal: did sink_1 exist at all (timing), and was
+                                        // it linked / already-EOS?
+                                        let pads: Vec<String> = concat
+                                            .sink_pads()
+                                            .into_iter()
+                                            .map(|p| {
+                                                let linked = p.peer().is_some();
+                                                format!("{}(linked={linked})", p.name())
+                                            })
+                                            .collect();
+                                        log::debug!(
+                                            "[gapless-diag] notify active-pad fire #{} → None (terminal). concat sink pads: [{}]",
+                                            prev + 1,
+                                            pads.join(", ")
+                                        );
                                         return;
                                     };
+                                    log::debug!("[gapless-diag] notify active-pad fire #{} → pad {}", prev + 1, active_pad.name());
                                     // Identity: the active pad's peer (a queue src) must belong
                                     // to the prerolled next bin's branch_queue. This is the only
                                     // transition we treat as a gapless advance.
@@ -1868,8 +1889,10 @@ impl AudioPlayer {
                                     };
                                     if !is_next {
                                         // Stale pad / not our next bin → not an advance.
+                                        log::debug!("[gapless-diag] notify active-pad: peer_parent does NOT match next_bin.branch_queue (next_bin present={}); not an advance", next_bin_notify.lock().map(|g| g.is_some()).unwrap_or(false));
                                         return;
                                     }
+                                    log::debug!("[gapless-diag] notify active-pad: MATCH next bin → dispatching HandleGaplessAdvance");
                                     // Mark the advance in-flight (gates detach/replace, C5)
                                     // and hand off to the worker. Keep this minimal — we're
                                     // on the streaming thread.
@@ -1995,6 +2018,7 @@ impl AudioPlayer {
                                         for msg in bus.iter_timed(gst::ClockTime::NONE) {
                                             match msg.view() {
                                                 gst::MessageView::Eos(..) => {
+                                                    log::debug!("[gapless-diag] bus EOS (terminal) → emitting track-finished (concat did NOT switch to a next branch)");
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
                                                         app_handle_clone
@@ -2245,28 +2269,19 @@ impl AudioPlayer {
                         position_secs,
                         reply,
                     } => {
-                        // 2b-A3 (detach matrix): a flush seek within the current track
-                        // invalidates the prerolled next branch's relationship to
-                        // concat's running time, so detach it (real executor detach,
-                        // pipeline stays alive). Gated on !next_active (C5): if concat
-                        // is already switching, leave it for HandleGaplessAdvance.
-                        if !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
-                                next_bin.lock().ok().and_then(|mut g| g.take()),
-                                backend.as_ref(),
-                            ) {
-                                let _ = attach_tx.send(AttachJob::Detach {
-                                    pipeline: pipeline.clone(),
-                                    concat: concat.clone(),
-                                    bin: stale.bin,
-                                    branch_queue: stale.branch_queue,
-                                });
-                            }
-                        }
+                        // 2b-A3 (detach matrix): a flush seek must NOT detach the
+                        // prerolled next branch. Empirically verified on GStreamer
+                        // 1.24.2 (python-gi, concat + dual uridecodebin→queue): a
+                        // `seek_simple(FLUSH|KEY_UNIT)` on the pipeline forwards the
+                        // FLUSH_START/FLUSH_STOP + new SEGMENT only to concat's ACTIVE
+                        // sink pad (sink_0). The inactive prerolled branch on sink_1
+                        // sees ZERO flush events, stays linked + PLAYING, and concat
+                        // still switches to it at the active branch's EOS (gapless
+                        // advance intact). Detaching here was the bug: it threw away a
+                        // valid preroll on every seek, forcing a frontend rebuild (gap)
+                        // at the boundary. Concat re-bases running time per active
+                        // segment, so the seek touches only the current track; the next
+                        // branch's relationship to concat is unaffected. Leave it armed.
                         let result = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 let pos = gst::ClockTime::from_nseconds(
@@ -2458,6 +2473,7 @@ impl AudioPlayer {
                             }) => Some((pipeline.clone(), concat.clone())),
                             _ => None,
                         };
+                        log::debug!("[gapless-diag] SetNextTrack track={track_id}: effective_gapless={effective_gapless} (setting={gapless_setting} excl={exclusive} bp={bit_perfect}), backend_normal={}", normal_clones.is_some());
 
                         if !effective_gapless || normal_clones.is_none() {
                             // Gapless off / wrong mode: detach any existing next_bin
@@ -2522,6 +2538,7 @@ impl AudioPlayer {
                         }
 
                         boundary_counter += 1;
+                        log::debug!("[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id} (boundary {boundary_counter})");
                         let _ = attach_tx.send(AttachJob::Attach {
                             pipeline,
                             concat,
