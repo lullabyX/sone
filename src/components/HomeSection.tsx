@@ -110,6 +110,16 @@ export default function HomeSection({ section }: HomeSectionProps) {
       navigateToFavorites();
       return;
     }
+    if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+      const d = item.data;
+      if (d?.type === "PLAYLIST" && d?.artifactId) {
+        navigateToPlaylist(d.artifactId, {
+          title: d.shortHeader ?? "",
+          image: d.imageURL,
+        });
+      }
+      return;
+    }
     if (isTrackItem(item, section.sectionType)) {
       const allTrackItems = items.filter((t: any) =>
         isTrackItem(t, section.sectionType),

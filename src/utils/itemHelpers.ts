@@ -6,6 +6,14 @@ import { getTidalImageUrl, type MediaItemType } from "../types";
  */
 
 export function getItemImage(item: any, size: number = 320): string {
+  // MAGAZINE: data.imageURL is already a full URL — return as-is, no CDN builder.
+  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+    return item.data?.imageURL ?? "";
+  }
+  // DEEP_LINK: no image in payload.
+  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+    return "";
+  }
   // Mix items: images.SMALL/MEDIUM/LARGE
   if (item.images) {
     if (typeof item.images === "object" && !Array.isArray(item.images)) {
@@ -60,6 +68,12 @@ export function getItemImage(item: any, size: number = 320): string {
 }
 
 export function getItemTitle(item: any): string {
+  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+    return item.data?.shortHeader ?? "";
+  }
+  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+    return item.data?.title ?? "";
+  }
   if (item.title) return item.title;
   if (item.name) return item.name;
   if (item.titleTextInfo?.text) return item.titleTextInfo.text;
@@ -67,6 +81,9 @@ export function getItemTitle(item: any): string {
 }
 
 export function getItemSubtitle(item: any, userId?: number): string {
+  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+    return item.data?.shortSubHeader ?? "";
+  }
   if (item.subTitle) return item.subTitle;
   if (item.shortSubtitle) return item.shortSubtitle;
   if (item.subtitleTextInfo?.text) return item.subtitleTextInfo.text;
@@ -96,6 +113,12 @@ export function getItemSubtitle(item: any, userId?: number): string {
 }
 
 export function getItemId(item: any): string {
+  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+    return item.data?.artifactId ?? String(item.data?.id ?? "");
+  }
+  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+    return String(item.data?.id ?? item.data?.url ?? "");
+  }
   return (
     item.id?.toString() ||
     item.uuid ||
@@ -146,6 +169,10 @@ export function isMyTracksItem(item: any): boolean {
   if (typeof item?.id === "string" && item.id === "tidal://my-collection/tracks") {
     return true;
   }
+  if (item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK") {
+    const url = item.data?.url ?? item.data?.id;
+    return url === "tidal://my-collection/tracks";
+  }
   return (
     getItemTitle(item) === "My Tracks" &&
     !item.uuid &&
@@ -159,6 +186,19 @@ export function buildMediaItem(
   item: any,
   sectionType?: string,
 ): MediaItemType | null {
+  // MAGAZINE promo card wraps a playlist artifact.
+  if (item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE") {
+    const d = item.data;
+    if (d?.type === "PLAYLIST" && d?.artifactId) {
+      return {
+        type: "playlist",
+        uuid: d.artifactId,
+        title: d.shortHeader ?? "",
+        image: d.imageURL,
+      };
+    }
+    return null;
+  }
   if (isMixItem(item, sectionType)) {
     const mixId = item.mixId || item.id?.toString();
     if (mixId) {
