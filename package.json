@@ -19,6 +19,7 @@
     "fmt:rust": "cd src-tauri && cargo fmt",
     "fmt:rust:check": "cd src-tauri && cargo fmt --check",
     "knip": "knip",
+    "test": "vitest run",
     "check": "eslint src/ && prettier --check \"src/**/*.{ts,tsx,css}\" && cd src-tauri && cargo clippy -- -D warnings && cargo fmt --check && cd .. && knip"
   },
   "dependencies": {
@@ -50,6 +51,7 @@
     "tailwindcss": "^4.1.18",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "vitest": "^4.1.7"
   }
 }
