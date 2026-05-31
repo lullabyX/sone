@@ -336,7 +336,34 @@ fn attach_next_bin(
         }
     });
 
-    // Start prerolling: bring both elements up to the pipeline's state.
+    // Preroll-before-PLAYING (fixes the `not-linked` race on async/network/DASH
+    // sources). Going straight to PLAYING via `sync_state_with_parent` lets the
+    // demuxer's streaming thread emit its decoded src pad AND push the first
+    // buffer before the `pad_added` handler above links it into `branch_queue` —
+    // the buffer hits an unlinked pad and `not-linked` (-1) propagates up to the
+    // demuxer ("GstDashDemux: streaming stopped, reason not-linked"). Local files
+    // decode instantly so the link always wins, masking the bug.
+    //
+    // Instead, bring B up to PAUSED only and BLOCK until the async preroll
+    // settles (`get_state` returns once the state change is ASYNC-DONE). In
+    // PAUSED no data flows past the prerolled pad, so `pad_added` fires and links
+    // during preroll — guaranteeing the link is in place before any buffer moves.
+    // Only then promote to PLAYING. `concat` back-pressures the inactive sink pad,
+    // so the branch holds prerolled and switches in gap-free at sink_0's EOS.
+    if let Err(e) = branch_queue.set_state(gst::State::Paused) {
+        log::error!("next branch queue set Paused failed: {e}");
+    }
+    if let Err(e) = udb.set_state(gst::State::Paused) {
+        log::error!("next uridecodebin set Paused failed: {e}");
+    }
+    // Wait for the preroll to complete so pad_added has fired + linked. Bounded
+    // so a stalled network source can't hang the executor thread.
+    let (ret, cur, pend) = udb.state(gst::ClockTime::from_seconds(15));
+    log::debug!(
+        "[audio] gapless: next bin preroll state ret={ret:?} cur={cur:?} pend={pend:?}"
+    );
+
+    // Preroll done + pad linked: now safe to promote to PLAYING.
     if let Err(e) = branch_queue.sync_state_with_parent() {
         log::error!("next branch queue sync_state failed: {e}");
     }
@@ -360,10 +387,13 @@ fn detach_bin(
     bin: &gst::Element,
     branch_queue: &gst::Element,
 ) {
-    let _ = bin.set_state(gst::State::Null);
-    let _ = branch_queue.set_state(gst::State::Null);
-
-    // Release the concat request pad linked to this branch's queue src.
+    // Order matters. Unlink + release the concat request pad FIRST, BEFORE
+    // nulling the bin. The branch queue's src is linked to concat's INACTIVE sink
+    // pad, which concat hard-blocks (it only pulls from the active pad). If we
+    // null the bin while still linked, its streaming threads are stuck pushing
+    // into that blocked pad and the NULL transition can't complete — the
+    // `set_state(Null)` call blocks the executor thread indefinitely on a live
+    // network source. Releasing the pad first unblocks them so NULL completes.
     let sink_pads: Vec<gst::Pad> = concat
         .sink_pads()
         .into_iter()
@@ -379,6 +409,20 @@ fn detach_bin(
         }
         concat.release_request_pad(&pad);
     }
+
+    // Now drive both elements to NULL and BLOCK until the (possibly async)
+    // transition actually completes. Removing/dropping an element still mid-
+    // transition disposes it in a non-NULL state, which emits GStreamer
+    // CRITICALs ("Trying to dispose element … in PLAYING instead of the NULL
+    // state") + GST_IS_ELEMENT assertion failures. `get_state` with a bounded
+    // timeout guarantees we only `remove_many` once both are truly NULL.
+    let _ = bin.set_state(gst::State::Null);
+    let _ = branch_queue.set_state(gst::State::Null);
+    let (br, bcur, _) = bin.state(gst::ClockTime::from_seconds(10));
+    let (qr, qcur, _) = branch_queue.state(gst::ClockTime::from_seconds(10));
+    log::debug!(
+        "[audio] gapless: next bin NULL wait bin={br:?}/{bcur:?} queue={qr:?}/{qcur:?}"
+    );
 
     let _ = pipeline.remove_many([bin, branch_queue]);
     log::debug!("[audio] gapless: detached next bin");
