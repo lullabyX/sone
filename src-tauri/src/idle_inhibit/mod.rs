@@ -62,3 +62,28 @@ impl IdleInhibitor {
         // filled in Task 6
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DisplayServer;
+
+    #[test]
+    fn wayland_wins_when_both_set() {
+        assert_eq!(DisplayServer::detect_from(true, true), DisplayServer::Wayland);
+    }
+
+    #[test]
+    fn x11_when_only_display_set() {
+        assert_eq!(DisplayServer::detect_from(false, true), DisplayServer::X11);
+    }
+
+    #[test]
+    fn wayland_when_only_wayland_set() {
+        assert_eq!(DisplayServer::detect_from(true, false), DisplayServer::Wayland);
+    }
+
+    #[test]
+    fn unknown_when_neither_set() {
+        assert_eq!(DisplayServer::detect_from(false, false), DisplayServer::Unknown);
+    }
+}
