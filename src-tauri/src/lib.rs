@@ -632,6 +632,44 @@ pub fn run() {
                 });
             }
 
+            // Scrobble outgoing track AND store rg/peak on gapless track-advanced
+            // (this listener has AppState, which the audio worker does not).
+            {
+                let handle = app.handle().clone();
+                app.listen("track-advanced", move |event| {
+                    // Store this track's replay gain / peak so a live volume-normalization
+                    // toggle is correct. Absent (null/NaN) → store NaN (→ unity gain).
+                    // Payload: { trackId, qid, replayGain, peakAmplitude }.
+                    let (rg, peak) = serde_json::from_str::<serde_json::Value>(event.payload())
+                        .ok()
+                        .map(|v| {
+                            (
+                                v.get("replayGain")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(f64::NAN),
+                                v.get("peakAmplitude")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(f64::NAN),
+                            )
+                        })
+                        .unwrap_or((f64::NAN, f64::NAN));
+                    let st = handle.state::<AppState>();
+                    st.last_replay_gain
+                        .store(rg.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    st.last_peak_amplitude
+                        .store(peak.to_bits(), std::sync::atomic::Ordering::Relaxed);
+
+                    let handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle
+                            .state::<AppState>()
+                            .scrobble_manager
+                            .try_scrobble_finished()
+                            .await;
+                    });
+                });
+            }
+
             if let Some(window) = app.get_webview_window("main") {
                 let state = app.state::<AppState>();
                 // Set window icon at runtime (needed for dev mode taskbar icon)
