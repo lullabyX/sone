@@ -67,7 +67,9 @@ export default function UserMenu() {
 
   // Hydrate gapless setting + capability from the backend
   useEffect(() => {
-    invoke<boolean>("get_gapless").then(setGapless).catch(() => {});
+    invoke<boolean>("get_gapless")
+      .then(setGapless)
+      .catch(() => {});
     invoke<boolean>("get_gapless_supported")
       .then(setGaplessSupported)
       .catch(() => {});
