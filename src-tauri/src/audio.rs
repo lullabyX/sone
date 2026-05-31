@@ -1151,6 +1151,12 @@ impl AudioPlayer {
             let mut current_volume: f64 = 1.0;
             let mut current_norm_gain: f64 = 1.0;
             let mut track_generation: u64 = 0;
+            // Per-track position offset (Normal mode only). After a gapless A→B
+            // transition, `pipeline.query_position(TIME)` is CUMULATIVE running-time
+            // (empirically GStreamer 1.24.2: at B's start it reads ~A_duration and
+            // keeps climbing). We capture that baseline at the boundary and subtract
+            // it in GetPosition so the UI reports B-relative elapsed time.
+            let mut position_offset_ns: u64 = 0;
 
             // Gapless state. `gapless_setting` defaults to true and is pushed
             // from saved settings at startup via `set_gapless` (the worker has
@@ -1170,6 +1176,8 @@ impl AudioPlayer {
                             // armed gapless slots so a stale next/pending can't fire.
                             *next_track.lock().unwrap() = None;
                             *pending_advance.lock().unwrap() = None;
+                            // Fresh pipeline resets the running-time baseline.
+                            position_offset_ns = 0;
                             // ── Teardown old backend (GStreamer pipeline only) ──
                             if let Some(old_backend) = backend.take() {
                                 tearing_down.store(true, Ordering::SeqCst);
@@ -1750,6 +1758,8 @@ impl AudioPlayer {
                         // Non-advance boundary: clear armed gapless slots.
                         *next_track.lock().unwrap() = None;
                         *pending_advance.lock().unwrap() = None;
+                        // Stop resets the running-time baseline.
+                        position_offset_ns = 0;
                         let result = match backend.take() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 if let Some(bus) = pipeline.bus() {
@@ -1847,12 +1857,21 @@ impl AudioPlayer {
                                 let pos = gst::ClockTime::from_nseconds(
                                     (position_secs as f64 * 1_000_000_000.0) as u64,
                                 );
-                                pipeline
+                                let r = pipeline
                                     .seek_simple(
                                         gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
                                         pos,
                                     )
-                                    .map_err(|e| format!("Seek failed: {e}"))
+                                    .map_err(|e| format!("Seek failed: {e}"));
+                                // Empirically (GStreamer 1.24.2): seek_simple(TIME, T) is
+                                // STREAM-RELATIVE — it lands at T within the current track's
+                                // timeline. After the FLUSH seek, query_position re-bases and
+                                // reads ~T (not the prior cumulative offset+T). So clear the
+                                // boundary offset to keep GetPosition correct post-seek.
+                                if r.is_ok() {
+                                    position_offset_ns = 0;
+                                }
+                                r
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 let was_paused = paused.load(Ordering::Acquire);
@@ -1889,7 +1908,13 @@ impl AudioPlayer {
                         let pos = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
                                 .query_position::<gst::ClockTime>()
-                                .map(|pos| pos.nseconds() as f32 / 1_000_000_000.0)
+                                // query_position is CUMULATIVE running-time across
+                                // gapless transitions; subtract the boundary offset
+                                // to get B-relative elapsed time (0 on the first track).
+                                .map(|pos| {
+                                    pos.nseconds().saturating_sub(position_offset_ns) as f32
+                                        / 1_000_000_000.0
+                                })
                                 .unwrap_or(0.0),
                             Some(PlaybackBackend::DirectAlsa { .. }) => {
                                 let frames = frames_written.load(Ordering::Relaxed);
@@ -2006,6 +2031,19 @@ impl AudioPlayer {
                         );
                         eos.store(false, Ordering::SeqCst);
                         has_uri.store(true, Ordering::SeqCst);
+                        // Capture the running-time baseline at the gapless boundary.
+                        // We run on the new track's STREAM_START, so the pipeline's
+                        // query_position here ≈ the previous track's accumulated
+                        // running-time. GetPosition subtracts this to report the new
+                        // track's elapsed time. (Empirical, GStreamer 1.24.2.)
+                        if let Some(p) = backend.as_ref().and_then(|b| match b {
+                            PlaybackBackend::Normal { pipeline, .. } => {
+                                pipeline.query_position::<gst::ClockTime>()
+                            }
+                            _ => None,
+                        }) {
+                            position_offset_ns = p.nseconds();
+                        }
                         log::debug!("[audio] gapless: advanced to track {track_id}");
                         // rg/peak are carried in the payload; the lib.rs track-advanced
                         // listener (Task 5), which has AppState, stores them into
