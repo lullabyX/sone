@@ -338,23 +338,32 @@ export async function getSuggestions(
 
 // ==================== Home Page ====================
 
-export async function getHomePage(): Promise<HomePageCached> {
+export async function getHomePage(
+  feedType?: string,
+): Promise<HomePageCached> {
+  const slug = (feedType ?? "static").toLowerCase();
   return cached(
-    "home-page",
+    `home-page:${slug}`,
     ["home"],
-    () => invoke<HomePageCached>("get_home_page"),
+    () => invoke<HomePageCached>("get_home_page", { feedType }),
     TTL.MEDIUM,
   );
 }
 
-export async function refreshHomePage(): Promise<HomePageResponse> {
-  return await invoke<HomePageResponse>("refresh_home_page");
+export async function refreshHomePage(
+  feedType?: string,
+): Promise<HomePageResponse> {
+  return await invoke<HomePageResponse>("refresh_home_page", { feedType });
 }
 
 export async function getHomePageMore(
   cursor: string,
+  feedType?: string,
 ): Promise<HomePageResponse> {
-  return await invoke<HomePageResponse>("get_home_page_more", { cursor });
+  return await invoke<HomePageResponse>("get_home_page_more", {
+    feedType,
+    cursor,
+  });
 }
 
 export async function getPageSection(
