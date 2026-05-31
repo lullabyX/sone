@@ -310,11 +310,24 @@ export default function FlowDiagramBody({
     (!formatsEquivalent(sp.dac.format, upstreamFormat) ||
       sp.dac.rate !== upstreamRate);
   if (dacDiverges) {
+    const dacState = conversionState(
+      upstreamFormat,
+      sp!.dac!.format,
+      upstreamRate,
+      sp!.dac!.rate,
+    );
+    const dacRateChanged = sp!.dac!.rate !== upstreamRate;
+    const dacServer = sp?.osMixer?.server ?? "OS mixer";
     cable2Alterations.push({
-      state: "lossy",
+      state: dacState,
       label: "OS-LAYER CONVERSION",
       detail: `${isDirectAlsa ? "pipeline" : "mixer"} ${displayFormat(upstreamFormat)}/${formatRate(upstreamRate)} → DAC ${displayFormat(sp!.dac!.format)}/${formatRate(sp!.dac!.rate)}`,
-      reason: `${sp?.osMixer?.server ?? "OS mixer"} converted the stream before it reached ALSA`,
+      reason:
+        dacState === "altered"
+          ? `${dacServer} widened/repacked the stream before it reached ALSA — audio bits preserved`
+          : dacRateChanged
+            ? `${dacServer} resampled the stream before it reached ALSA`
+            : `${dacServer} reduced bit depth before it reached ALSA`,
     });
   }
   const cable2State: CableState = cable2Alterations.some(
