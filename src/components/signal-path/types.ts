@@ -140,6 +140,29 @@ function audioBitDepth(format: string | null | undefined): number {
   }
 }
 
+/**
+ * Classify a PCM format/rate transition between two pipeline stages.
+ *
+ * Lossy ONLY when audio bits are discarded — i.e. the destination has fewer
+ * audio bits than the source (narrowing), or the sample rate changes (a
+ * resample alters the timeline). Bit-depth WIDENING (16/24 → 32) and pure
+ * container/byte-layout repacks (S24_32LE ↔ S24LE) preserve every audio bit
+ * and are therefore "altered" (lossless), not "lossy".
+ *
+ * Mirrors the `lossyFormatChange` rule used by `deriveAlterations` so the
+ * detailed flow view and the minimalist verdict agree.
+ */
+export function conversionState(
+  fromFmt: string | null | undefined,
+  toFmt: string | null | undefined,
+  fromRate: number | null | undefined,
+  toRate: number | null | undefined,
+): "altered" | "lossy" {
+  const rateChanged = fromRate != null && toRate != null && fromRate !== toRate;
+  const narrowed = audioBitDepth(toFmt) < audioBitDepth(fromFmt);
+  return rateChanged || narrowed ? "lossy" : "altered";
+}
+
 export function deriveAlterations(sp: SignalPath | null) {
   const userVol = sp?.userVolume ?? 1.0;
   const normFactor = sp?.normGainFactor ?? 1.0;
