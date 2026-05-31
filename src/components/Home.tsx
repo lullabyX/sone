@@ -381,7 +381,21 @@ export default function Home() {
     return (
       <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
         <PageContainer className="px-6 py-8">
-          {tabBar}
+          {/* On a cold reload the tab list isn't known yet (it comes from the
+              feed response), so fall back to skeleton pills. */}
+          {tabs.length > 0 ? (
+            tabBar
+          ) : (
+            <div className="flex gap-2 mb-8">
+              {[64, 88, 76].map((w, i) => (
+                <div
+                  key={i}
+                  className="h-9 rounded-full bg-th-surface-hover/60 animate-pulse"
+                  style={{ width: w }}
+                />
+              ))}
+            </div>
+          )}
           {/* Skeleton quick access — only on the static/For-you feed */}
           {slugOf(activeType) === "static" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-10">
