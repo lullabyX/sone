@@ -1,11 +1,11 @@
 import { useCallback, startTransition } from "react";
-import { useAtom, useSetAtom } from "jotai";
+import { useSetAtom } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import type { AppView } from "../types";
 
 export function useNavigation() {
-  const [currentView, setCurrentView] = useAtom(currentViewAtom);
+  const setCurrentView = useSetAtom(currentViewAtom);
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
   const setMaximized = useSetAtom(maximizedPlayerAtom);
 
@@ -131,7 +131,6 @@ export function useNavigation() {
   );
 
   return {
-    currentView,
     navigateToAlbum,
     navigateToPlaylist,
     navigateToFavorites,

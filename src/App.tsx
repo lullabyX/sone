@@ -21,6 +21,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useAtomValue } from "jotai";
+import { currentViewAtom } from "./atoms/navigation";
 import { isAuthCheckingAtom } from "./atoms/auth";
 import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
 import { ToastProvider } from "./contexts/ToastContext";
@@ -85,7 +86,8 @@ function AppChrome({ children }: { children: ReactNode }) {
 function AppContent() {
   const { isAuthenticated } = useAuth();
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
-  const { currentView, navigateHome, navigateToExplore } = useNavigation();
+  const { navigateHome, navigateToExplore } = useNavigation();
+  const currentView = useAtomValue(currentViewAtom);
 
   if (isAuthChecking) {
     return (
