@@ -49,19 +49,10 @@ struct NextBinState {
     branch_queue: gst::Element,
     track_id: u64,
     qid: String,
-    // 2b-A3 reads these to apply gain + emit `track-advanced` on the switch.
-    #[allow(dead_code)]
+    // Read by HandleGaplessAdvance to apply gain + emit `track-advanced` on the switch.
     norm_gain: f64,
-    #[allow(dead_code)]
     replay_gain: f64,
-    #[allow(dead_code)]
     peak_amplitude: f64,
-    #[allow(dead_code)]
-    is_dash: bool,
-    /// Per-boundary token (C4). 2b-A3 carries it to `HandleGaplessAdvance` and
-    /// ignores advances whose token ≠ current, making double-advance impossible.
-    #[allow(dead_code)]
-    boundary_id: u64,
 }
 
 /// Jobs for the serialized attach/detach executor thread (C3). Pad-slot
@@ -82,7 +73,6 @@ enum AttachJob {
         norm_gain: f64,
         replay_gain: f64,
         peak_amplitude: f64,
-        boundary_id: u64,
     },
     /// Tear down a specific bin (+ its branch queue): set Null, release the
     /// concat request pad whose peer is the queue, and remove from the pipeline.
@@ -450,7 +440,6 @@ fn run_attach_executor(
                 norm_gain,
                 replay_gain,
                 peak_amplitude,
-                boundary_id,
             } => {
                 match attach_next_bin(&pipeline, &concat, &uri, is_dash) {
                     Ok((bin, branch_queue)) => {
@@ -463,8 +452,6 @@ fn run_attach_executor(
                                 norm_gain,
                                 replay_gain,
                                 peak_amplitude,
-                                is_dash,
-                                boundary_id,
                             });
                         }
                     }
@@ -1480,9 +1467,6 @@ impl AudioPlayer {
             // next bin; gates detach/replace (C5) so we never tear down a bin
             // mid-advance. Read by 2b-A3.
             let next_active = Arc::new(AtomicBool::new(false));
-            // Monotonic per-boundary token (C4). Stamped on each attach; 2b-A3
-            // matches it on advance to reject stale/double switches.
-            let mut boundary_counter: u64 = 0;
             // 2b-A3: the (uridecodebin, branch_queue) of the CURRENTLY-PLAYING
             // track's branch (concat sink_0 at build time). On a gapless advance
             // this finished branch is detached and replaced by the promoted next
@@ -2537,8 +2521,7 @@ impl AudioPlayer {
                             });
                         }
 
-                        boundary_counter += 1;
-                        log::debug!("[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id} (boundary {boundary_counter})");
+                        log::debug!("[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id}");
                         let _ = attach_tx.send(AttachJob::Attach {
                             pipeline,
                             concat,
@@ -2549,7 +2532,6 @@ impl AudioPlayer {
                             norm_gain,
                             replay_gain,
                             peak_amplitude,
-                            boundary_id: boundary_counter,
                         });
                         let _ = reply.send(Ok(()));
                     }
