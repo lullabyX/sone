@@ -180,6 +180,7 @@ export function AppInitializer() {
     useFavorites();
   useMcpBridge();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
+  const setMaximized = useSetAtom(maximizedPlayerAtom);
   const setDecorations = useSetAtom(decorationsAtom);
   const { showToast } = useToast();
 
@@ -1280,12 +1281,15 @@ export function AppInitializer() {
         window.history.back();
         return;
       }
+      // Back/forward bypasses useNavigation, so close the overlays here too.
+      setDrawerOpen(false);
+      setMaximized(false);
       startTransition(() => setCurrentView(event.state));
     };
 
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
-  }, [setCurrentView]);
+  }, [setCurrentView, setDrawerOpen, setMaximized]);
 
   // ================================================================
   //  PLAYBACK POSITION INTERPOLATOR
