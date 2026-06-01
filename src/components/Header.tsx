@@ -1,10 +1,11 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useNavigation } from "../hooks/useNavigation";
+import { useAtomValue } from "jotai";
+import { currentViewAtom } from "../atoms/navigation";
 import UserMenu from "./UserMenu";
 import SearchBar from "./SearchBar";
 
 export default function Header() {
-  const { currentView } = useNavigation();
+  const currentView = useAtomValue(currentViewAtom);
 
   const getHeaderTitle = () => {
     if (currentView.type === "search") {
