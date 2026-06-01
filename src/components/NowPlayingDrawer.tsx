@@ -109,7 +109,6 @@ const QueueTab = memo(function QueueTab({
     navigateToArtistTracks,
     navigateToFavorites,
   } = useNavigation();
-  const { setDrawerOpen } = useDrawer();
   const { showToast } = useToast();
 
   const navigableSourceTypes = new Set([
@@ -125,7 +124,6 @@ const QueueTab = memo(function QueueTab({
 
   const navigateToSource = useCallback(() => {
     if (!source) return;
-    setDrawerOpen(false);
     switch (source.type) {
       case "album":
         navigateToAlbum(source.id as number);
@@ -163,7 +161,6 @@ const QueueTab = memo(function QueueTab({
     }
   }, [
     source,
-    setDrawerOpen,
     navigateToAlbum,
     navigateToPlaylist,
     navigateToMix,
@@ -175,7 +172,6 @@ const QueueTab = memo(function QueueTab({
   const navigateToContextQueueSource = useCallback(() => {
     const s = contextQueueSource;
     if (!s) return;
-    setDrawerOpen(false);
     switch (s.type) {
       case "album":
         navigateToAlbum(s.id as number);
@@ -199,7 +195,7 @@ const QueueTab = memo(function QueueTab({
         navigateToMix(s.id.toString(), { title: s.name, image: s.image, mixType: "TRACK_MIX" });
         break;
     }
-  }, [contextQueueSource, setDrawerOpen, navigateToAlbum, navigateToPlaylist, navigateToMix, navigateToArtist, navigateToArtistTracks, navigateToFavorites]);
+  }, [contextQueueSource, navigateToAlbum, navigateToPlaylist, navigateToMix, navigateToArtist, navigateToArtistTracks, navigateToFavorites]);
 
   // Use refs so drag/drop handlers always read the current values
   const dragIdxRef = useRef<number | null>(null);
@@ -287,20 +283,18 @@ const QueueTab = memo(function QueueTab({
   const handleArtistClick = useCallback(
     (artist: ArtistInfo) => {
       if (artist.id) {
-        setDrawerOpen(false);
         navigateToArtist(artist.id, {
           name: artist.name,
           picture: artist.picture,
         });
       }
     },
-    [navigateToArtist, setDrawerOpen],
+    [navigateToArtist],
   );
 
   const handleAlbumClick = useCallback(
     (track: Track) => {
       if (track.album?.id) {
-        setDrawerOpen(false);
         navigateToAlbum(track.album.id, {
           title: track.album.title,
           cover: track.album.cover,
@@ -308,7 +302,7 @@ const QueueTab = memo(function QueueTab({
         });
       }
     },
-    [navigateToAlbum, setDrawerOpen],
+    [navigateToAlbum],
   );
 
   /** Shared props builder for TrackRow to avoid repetition */
@@ -748,7 +742,6 @@ const SuggestedTab = memo(function SuggestedTab() {
   const { favoriteTrackIds, addFavoriteTrack, removeFavoriteTrack } =
     useFavorites();
   const { navigateToArtist, navigateToAlbum } = useNavigation();
-  const { setDrawerOpen } = useDrawer();
   const { showToast } = useToast();
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -818,20 +811,18 @@ const SuggestedTab = memo(function SuggestedTab() {
   const handleArtistClick = useCallback(
     (artist: ArtistInfo) => {
       if (artist.id) {
-        setDrawerOpen(false);
         navigateToArtist(artist.id, {
           name: artist.name,
           picture: artist.picture,
         });
       }
     },
-    [navigateToArtist, setDrawerOpen],
+    [navigateToArtist],
   );
 
   const handleAlbumClick = useCallback(
     (track: Track) => {
       if (track.album?.id) {
-        setDrawerOpen(false);
         navigateToAlbum(track.album.id, {
           title: track.album.title,
           cover: track.album.cover,
@@ -839,7 +830,7 @@ const SuggestedTab = memo(function SuggestedTab() {
         });
       }
     },
-    [navigateToAlbum, setDrawerOpen],
+    [navigateToAlbum],
   );
 
   if (loading) {
@@ -1151,7 +1142,6 @@ function SkeletonRow({ first = false }: { first?: boolean }) {
 const CreditsTab = memo(function CreditsTab() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { navigateToArtist } = useNavigation();
-  const { setDrawerOpen } = useDrawer();
   const [credits, setCredits] = useState<Credit[]>([]);
   const [creditsLoading, setCreditsLoading] = useState(true);
   const [creditsError, setCreditsError] = useState<string | null>(null);
@@ -1211,10 +1201,9 @@ const CreditsTab = memo(function CreditsTab() {
 
   const handleArtistLink = useCallback(
     (artistId: number, name: string) => {
-      setDrawerOpen(false);
       navigateToArtist(artistId, { name });
     },
-    [navigateToArtist, setDrawerOpen],
+    [navigateToArtist],
   );
 
   const hasNoCredits =
