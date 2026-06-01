@@ -644,7 +644,7 @@ function NarrowTier({
         <span
           className="text-[15px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
           style={{ color: colors.textPrimary }}
-          onClick={() => sendCommand("focus-main")}
+          onClick={() => sendCommand("show-album")}
         >
           {title}
         </span>
@@ -791,7 +791,7 @@ function CompactTier({
           <span
             className="text-[16px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
             style={{ color: colors.textPrimary }}
-            onClick={() => sendCommand("focus-main")}
+            onClick={() => sendCommand("show-album")}
           >
             {title}
           </span>
@@ -972,7 +972,7 @@ function FullTier({
           <span
             className="text-[18px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
             style={{ color: colors.textPrimary }}
-            onClick={() => sendCommand("focus-main")}
+            onClick={() => sendCommand("show-album")}
           >
             {title}
           </span>
