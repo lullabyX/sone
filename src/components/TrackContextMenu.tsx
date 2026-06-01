@@ -19,6 +19,7 @@ import { getTrackShareUrl } from "../utils/itemHelpers";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
+import { getTrack } from "../api/tidal";
 
 interface TrackContextMenuProps {
   track: Track;
@@ -51,6 +52,7 @@ export default function TrackContextMenu({
   const { showToast } = useToast();
 
   const [showPlaylistSubmenu, setShowPlaylistSubmenu] = useState(false);
+  const [radioLoading, setRadioLoading] = useState(false);
 
   // Fake anchor ref for AddToPlaylistMenu positioning — we'll use the menu itself
   const playlistBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -110,17 +112,35 @@ export default function TrackContextMenu({
     onClose,
   ]);
 
-  const handleGoToTrackRadio = useCallback(() => {
-    const trackMixId = track.mixes?.TRACK_MIX;
-    if (!trackMixId) return;
-    navigateToMix(trackMixId, {
+  const handleGoToTrackRadio = useCallback(async () => {
+    if (radioLoading) return; // guard against double-click during fetch
+    let mixId = track.mixes?.TRACK_MIX;
+    if (!mixId) {
+      // Tracks loaded into playback often lack `mixes`; the track-detail
+      // endpoint (/tracks/{id}) carries it.
+      setRadioLoading(true);
+      try {
+        const detail = await getTrack(track.id);
+        mixId = detail.mixes?.TRACK_MIX;
+      } catch {
+        /* fall through to the unavailable toast */
+      } finally {
+        setRadioLoading(false);
+      }
+    }
+    if (!mixId) {
+      showToast("Track radio unavailable", "info");
+      onClose();
+      return;
+    }
+    navigateToMix(mixId, {
       title: `${track.title} Radio`,
       image: track.album?.cover ? getTidalImageUrl(track.album.cover, 640) : undefined,
       subtitle: `Based on ${track.artist?.name ?? ""}`,
       mixType: "TRACK_MIX",
     });
     onClose();
-  }, [track, navigateToMix, onClose]);
+  }, [radioLoading, track, navigateToMix, showToast, onClose]);
 
   const handleRemoveFromPlaylist = useCallback(async () => {
     if (!playlistId) return;
@@ -213,9 +233,13 @@ export default function TrackContextMenu({
         {(!track.mixes || !!track.mixes?.TRACK_MIX) && (
           <>
             <div className="my-1 border-t border-th-inset" />
-            <button className={menuItemClass} onClick={handleGoToTrackRadio}>
+            <button
+              className={`${menuItemClass} ${radioLoading ? "opacity-60 pointer-events-none" : ""}`}
+              onClick={handleGoToTrackRadio}
+              disabled={radioLoading}
+            >
               <Radio size={18} className="shrink-0 text-th-text-muted" />
-              <span>Go to track radio</span>
+              <span>{radioLoading ? "Loading radio…" : "Go to track radio"}</span>
             </button>
           </>
         )}
