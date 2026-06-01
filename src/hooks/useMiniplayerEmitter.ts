@@ -229,6 +229,18 @@ export function useMiniplayerEmitter() {
             await focusMainWindow();
             break;
           }
+          case "show-album": {
+            const t = store.get(currentTrackAtom);
+            await focusMainWindow();
+            if (t?.album?.id) {
+              navigateToAlbum(t.album.id, {
+                title: t.album.title,
+                cover: t.album.cover,
+                artistName: t.artist?.name,
+              });
+            }
+            break;
+          }
           case "show-now-playing": {
             await focusMainWindow();
             openDrawerToTab("queue");
