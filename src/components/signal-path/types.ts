@@ -31,7 +31,8 @@ function toGstreamerFormat(s: string): string {
   // ALSA → GStreamer.
   if (ALSA_TO_GSTREAMER[upper]) return ALSA_TO_GSTREAMER[upper];
   // pactl float aliases.
-  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE") return "F32LE";
+  if (upper === "FLOAT" || upper === "FLOAT32" || upper === "FLOAT32LE")
+    return "F32LE";
   if (upper === "FLOAT64" || upper === "FLOAT64LE") return "F64LE";
   // Already canonical (or unknown — leave as-is).
   return upper;
@@ -140,6 +141,29 @@ function audioBitDepth(format: string | null | undefined): number {
   }
 }
 
+/**
+ * Classify a PCM format/rate transition between two pipeline stages.
+ *
+ * Lossy ONLY when audio bits are discarded — i.e. the destination has fewer
+ * audio bits than the source (narrowing), or the sample rate changes (a
+ * resample alters the timeline). Bit-depth WIDENING (16/24 → 32) and pure
+ * container/byte-layout repacks (S24_32LE ↔ S24LE) preserve every audio bit
+ * and are therefore "altered" (lossless), not "lossy".
+ *
+ * Mirrors the `lossyFormatChange` rule used by `deriveAlterations` so the
+ * detailed flow view and the minimalist verdict agree.
+ */
+export function conversionState(
+  fromFmt: string | null | undefined,
+  toFmt: string | null | undefined,
+  fromRate: number | null | undefined,
+  toRate: number | null | undefined,
+): "altered" | "lossy" {
+  const rateChanged = fromRate != null && toRate != null && fromRate !== toRate;
+  const narrowed = audioBitDepth(toFmt) < audioBitDepth(fromFmt);
+  return rateChanged || narrowed ? "lossy" : "altered";
+}
+
 export function deriveAlterations(sp: SignalPath | null) {
   const userVol = sp?.userVolume ?? 1.0;
   const normFactor = sp?.normGainFactor ?? 1.0;
@@ -168,10 +192,10 @@ export function deriveAlterations(sp: SignalPath | null) {
   // (PipeWire/Pulse owns the device, our pipeline only hands off audio).
   const upstreamFormat = isDirectAlsa
     ? sp?.outputFormat
-    : sp?.osMixer?.sinkFormat ?? sp?.outputFormat;
+    : (sp?.osMixer?.sinkFormat ?? sp?.outputFormat);
   const upstreamRate = isDirectAlsa
     ? sp?.outputRate
-    : sp?.osMixer?.sinkRate ?? sp?.outputRate;
+    : (sp?.osMixer?.sinkRate ?? sp?.outputRate);
 
   const dacMatchesPipeline =
     !sp?.dac ||
@@ -189,6 +213,12 @@ export function deriveAlterations(sp: SignalPath | null) {
   const lossyFormatChange =
     formatChanged &&
     audioBitDepth(sp!.outputFormat) < audioBitDepth(sp!.decodedFormat);
+
+  // A format change that preserved every audio bit (widening to a larger
+  // container, or a same-depth byte-layout repack). Used to distinguish a
+  // truly untouched pristine path from one that stayed bit-transparent
+  // through a lossless promotion.
+  const losslessPromotion = formatChanged && !lossyFormatChange;
 
   const isPristine =
     !!sp &&
@@ -209,5 +239,6 @@ export function deriveAlterations(sp: SignalPath | null) {
     isDirectAlsa,
     isPristine,
     lossyFormatChange,
+    losslessPromotion,
   };
 }

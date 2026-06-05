@@ -21,9 +21,12 @@ function isNavLinkSection(section: HomeSectionType): boolean {
     section.sectionType === "PAGE_LINKS" ||
     (Array.isArray(section.items) &&
       section.items.length > 0 &&
-      section.items[0].apiPath !== undefined &&
-      section.items[0].uuid === undefined &&
-      section.items[0].id === undefined)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (section.items[0] as any).apiPath !== undefined &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (section.items[0] as any).uuid === undefined &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (section.items[0] as any).id === undefined)
   );
 }
 

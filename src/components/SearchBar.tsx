@@ -2,6 +2,8 @@ import { Search, X, Loader2, MoreHorizontal, Clock, Play } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useNavigation } from "../hooks/useNavigation";
+import { useAtomValue } from "jotai";
+import { currentViewAtom } from "../atoms/navigation";
 import { getSuggestions } from "../api/tidal";
 import {
   getTidalImageUrl,
@@ -43,12 +45,12 @@ function saveHistory(history: string[]) {
 export default function SearchBar() {
   const { playTrack, setQueueTracks } = usePlaybackActions();
   const {
-    currentView,
     navigateToAlbum,
     navigateToArtist,
     navigateToSearch,
     navigateToPlaylist,
   } = useNavigation();
+  const currentView = useAtomValue(currentViewAtom);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);

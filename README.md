@@ -1,11 +1,11 @@
 <div align="center">
   <img src="sone.png" alt="SONE" width="150">
   <h1>SONE</h1>
-  <p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
+<p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
 
-  [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-  [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
-  [![Built with Tauri 2](https://img.shields.io/badge/Built_with-Tauri_2-orange.svg)](https://v2.tauri.app/)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
+[![Built with Tauri 2](https://img.shields.io/badge/Built_with-Tauri_2-orange.svg)](https://v2.tauri.app/)
 
   <a href="https://flathub.org/apps/io.github.lullabyX.sone">
     <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
@@ -25,9 +25,9 @@ https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 
 ## The Vision
 
-The Linux desktop app TIDAL never built. 
+The Linux desktop app TIDAL never built.
 
-SONE finally gives Linux users a first-class streaming client. It delivers the complete, fully-featured experience you expect with seamless library management and a sleek, familiar workflow—and then supercharges it. 
+SONE finally gives Linux users a first-class streaming client. It delivers the complete, fully-featured experience you expect with seamless library management and a sleek, familiar workflow—and then supercharges it.
 
 We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizable-adaptive floating miniplayer, custom themes, Discord Rich Presence, and multi-service scrobbling (Last.fm, Libre.fm, ListenBrainz)—all wrapped in a fast, native Linux app.
 
@@ -54,6 +54,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Bit-perfect output** — no resampling, no dithering. Your DAC receives the unaltered decoded signal
 - **Exclusive ALSA** — bypasses PipeWire/PulseAudio entirely for direct hardware access
 - **Smart DAC matching** — automatically detects your hardware's supported formats and sample rates, picking the best fit
+- **Signal Path Transparency** — see exactly what your audio is going through end-to-end. Probes the live GStreamer pipeline, OS mixer (`pactl`), and ALSA card (`/proc/asound`); flags every conversion, format mismatch, or volume alteration with a PRISTINE verdict for bit-clean playback
 - **Volume normalization** (ReplayGain) with automatic context switching between album and track gain
 - **Autoplay** — discovers and plays similar tracks when your queue ends
 
@@ -65,9 +66,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, shuffle, repeat, seek, and desktop widget support
-- **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
 - **Proxy support** — route traffic through HTTP, HTTPS, or SOCKS5 proxies
-- **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 - **System tray** with playback controls and minimize-to-tray
 - **Keyboard shortcuts** for all common actions with a built-in shortcut overlay
 
@@ -76,6 +75,12 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Library management** — browse and sort your playlists, albums, artists, and mixes with playlist folder support
 - **Share** — share tracks, albums, playlists, artists, and mixes with your friends via a direct TIDAL link
 - **Deep links** — open `tidal://` URLs directly in SONE
+
+### Integrations
+
+- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) server on port 5577 lets external AI agents (Claude Code, etc.) search your library, control playback, and manage playlists/favorites. Off by default; enable in Settings with one-click token generation
+- **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
+- **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 
 ## Why SONE?
 
@@ -88,7 +93,27 @@ SONE is a lightweight, native alternative to the official TIDAL web player and E
 - **Encrypted at rest** — credentials, cache, and settings are encrypted with AES-256-GCM
 - **No telemetry, no tracking** — fully open source under GPL-3.0. Your listening data stays on your machine
 
-## Installation / Download
+## Installation
+
+### Flathub
+
+SONE is officially available on Flathub, making it easy to install on any Linux distribution. You can install it via your software center or by using the CLI:
+
+**Install the application**
+
+```
+flatpak install flathub io.github.lullabyX.sone
+```
+
+**Run the application**
+
+```
+flatpak run io.github.lullabyX.sone
+```
+
+<a href="https://flathub.org/apps/io.github.lullabyX.sone">
+  <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
+</a>
 
 ### OS Packages
 
@@ -115,22 +140,54 @@ Pre-built packages for Ubuntu/Debian (.deb), Fedora (.rpm), openSUSE (.rpm), and
   </a>
 </p>
 
-### Flathub
-SONE is also officially available on Flathub, making it easy to install on any Linux distribution. You can install it via your software center or by using the CLI:
-  
-**Install the application**
-```
-flatpak install flathub io.github.lullabyX.sone
+Or add the repository so `apt upgrade` / `dnf upgrade` / `zypper up` keep SONE current automatically (the setup script auto-detects your distro and imports the signing key):
+
+<details>
+<summary><b>Debian / Ubuntu (apt)</b></summary>
+
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.deb.sh' | sudo -E bash
+sudo apt install sone
 ```
 
-**Run the application**
-```
-flatpak run io.github.lullabyX.sone
+Derivatives (Kubuntu, Linux Mint, Pop!\_OS, Zorin, MX, LMDE) use the same command.
+
+</details>
+
+<details>
+<summary><b>Fedora (dnf)</b></summary>
+
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.rpm.sh' | sudo -E bash
+sudo dnf install sone
 ```
 
-<a href="https://flathub.org/apps/io.github.lullabyX.sone">
-  <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
-</a>
+</details>
+
+<details>
+<summary><b>openSUSE (zypper)</b></summary>
+
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/lullabyx/sone/setup.rpm.sh' | sudo -E bash
+sudo zypper install sone
+```
+
+</details>
+
+<details>
+<summary><b>Arch Linux (AUR)</b></summary>
+
+```bash
+yay -S sone-bin    # prebuilt binary — or 'yay -S sone' to build from source
+```
+
+</details>
+
+<p align="center">
+  <a href="https://cloudsmith.com">
+    <img src="https://img.shields.io/badge/OSS%20hosting%20by-cloudsmith-blue?logo=cloudsmith&style=for-the-badge" alt="Package hosting by Cloudsmith" />
+  </a>
+</p>
 
 ### Building from source
 
@@ -141,7 +198,15 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 ```
 
-**Node.js** 18+ (via [nvm](https://github.com/nvm-sh/nvm), [fnm](https://github.com/Schniz/fnm), or your preferred method)
+**Node.js** 22+ (via [nvm](https://github.com/nvm-sh/nvm), [fnm](https://github.com/Schniz/fnm), or your preferred method)
+
+**pnpm** 11.x:
+
+```bash
+npm install -g pnpm@11.1.3
+# or, if corepack ships with your Node install:
+corepack enable
+```
 
 **System dependencies:**
 
@@ -165,6 +230,7 @@ Optional (for exclusive ALSA output):
 ```bash
 sudo apt install -y gstreamer1.0-alsa
 ```
+
 </details>
 
 <details>
@@ -187,6 +253,7 @@ Optional (for exclusive ALSA output):
 ```bash
 sudo dnf install -y gstreamer1-plugins-base-tools
 ```
+
 </details>
 
 <details>
@@ -200,6 +267,7 @@ SONE is available on the AUR in two variants:
 - [`sone-bin`](https://aur.archlinux.org/packages/sone-bin) — pre-built binary, no compilation required
 
 **Install with your AUR helper:**
+
 ```bash
 yay -S sone       # build from source
 # or
@@ -224,6 +292,7 @@ Optional (for exclusive ALSA output):
 ```bash
 sudo pacman -S --needed gst-plugin-pipewire alsa-plugins
 ```
+
 </details>
 
 **Build and run:**
@@ -258,6 +327,7 @@ Output goes to `dist/<format>/`. Pass `--no-cache` to force a clean Docker build
 
 > [!NOTE]
 > **NVIDIA GPU users:** If you see a blank window, rendering glitches, or a Wayland protocol error on launch, start the app with:
+>
 > ```bash
 > WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
 > ```
@@ -292,6 +362,34 @@ This is a known issue with NVIDIA's proprietary drivers and WebKitGTK hardware a
 </details>
 
 ## FAQ
+
+<details>
+<summary>Is SONE free and open source?</summary>
+
+Yes. SONE is fully open source under the GPL-3.0 license, with no telemetry or tracking — your listening data stays on your machine.
+
+</details>
+
+<details>
+<summary>Do I need a TIDAL subscription?</summary>
+
+Yes. SONE is a client for TIDAL and requires an active paid TIDAL subscription. SONE is an independent project and is not affiliated with or endorsed by TIDAL.
+
+</details>
+
+<details>
+<summary>Which Linux distributions are supported?</summary>
+
+Any modern Linux distribution. SONE is on Flathub (works everywhere), and ships native packages for Debian/Ubuntu (`.deb`), Fedora and openSUSE (`.rpm`), and Arch Linux (AUR).
+
+</details>
+
+<details>
+<summary>Does SONE support offline downloads?</summary>
+
+No. SONE is a streaming client only — it streams directly from TIDAL and does not download tracks for offline playback.
+
+</details>
 
 <details>
 <summary>I'm getting a "Device busy" error in exclusive or bit-perfect mode</summary>

@@ -140,6 +140,8 @@ pub struct Settings {
     pub exclusive_device: Option<String>,
     #[serde(default)]
     pub bit_perfect: bool,
+    #[serde(default = "defaults::yes")]
+    pub gapless: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
@@ -178,6 +180,7 @@ impl Default for Settings {
             exclusive_mode: false,
             exclusive_device: None,
             bit_perfect: false,
+            gapless: true,
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
@@ -203,6 +206,7 @@ pub struct AppState {
     pub volume_normalization: AtomicBool,
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
+    pub gapless: AtomicBool,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
@@ -305,6 +309,7 @@ impl AppState {
             .unwrap_or(false);
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
+        let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
         let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
@@ -361,6 +366,7 @@ impl AppState {
             volume_normalization: AtomicBool::new(volume_normalization),
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
+            gapless: AtomicBool::new(gapless),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
@@ -519,6 +525,9 @@ pub fn run() {
                 if bp {
                     state.audio_player.set_bit_perfect(true).ok();
                 }
+                let _ = state
+                    .audio_player
+                    .set_gapless(state.gapless.load(std::sync::atomic::Ordering::Relaxed));
             }
 
             // Pre-warm audio device cache in background (GStreamer probe is slow)
@@ -619,6 +628,44 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<AppState>();
                         state.scrobble_manager.try_scrobble_finished().await;
+                    });
+                });
+            }
+
+            // Scrobble outgoing track AND store rg/peak on gapless track-advanced
+            // (this listener has AppState, which the audio worker does not).
+            {
+                let handle = app.handle().clone();
+                app.listen("track-advanced", move |event| {
+                    // Store this track's replay gain / peak so a live volume-normalization
+                    // toggle is correct. Absent (null/NaN) → store NaN (→ unity gain).
+                    // Payload: { trackId, qid, replayGain, peakAmplitude }.
+                    let (rg, peak) = serde_json::from_str::<serde_json::Value>(event.payload())
+                        .ok()
+                        .map(|v| {
+                            (
+                                v.get("replayGain")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(f64::NAN),
+                                v.get("peakAmplitude")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(f64::NAN),
+                            )
+                        })
+                        .unwrap_or((f64::NAN, f64::NAN));
+                    let st = handle.state::<AppState>();
+                    st.last_replay_gain
+                        .store(rg.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    st.last_peak_amplitude
+                        .store(peak.to_bits(), std::sync::atomic::Ordering::Relaxed);
+
+                    let handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle
+                            .state::<AppState>()
+                            .scrobble_manager
+                            .try_scrobble_finished()
+                            .await;
                     });
                 });
             }
@@ -837,6 +884,9 @@ pub fn run() {
             commands::metadata::get_track_credits,
             // playback
             commands::playback::play_tidal_track,
+            commands::playback::set_next_track,
+            commands::playback::clear_next_track,
+            commands::playback::get_stream_info,
             commands::playback::pause_track,
             commands::playback::resume_track,
             commands::playback::stop_track,
@@ -881,6 +931,9 @@ pub fn run() {
             commands::utility::set_exclusive_mode,
             commands::utility::get_bit_perfect,
             commands::utility::set_bit_perfect,
+            commands::utility::get_gapless,
+            commands::utility::get_gapless_supported,
+            commands::utility::set_gapless,
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,

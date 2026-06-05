@@ -43,6 +43,7 @@ import {
   preMuteVolumeAtom,
   exclusiveModeAtom,
   bitPerfectAtom,
+  gaplessAtom,
   exclusiveDeviceAtom,
   volumeNormalizationAtom,
   originalQueueAtom,
@@ -53,6 +54,7 @@ import {
   repeatAtom,
   streamInfoAtom,
   signalPathAtom,
+  useTrackGainAtom,
   type SignalPath,
 } from "../atoms/playback";
 import { decorationsAtom, drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
@@ -60,6 +62,7 @@ import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useGaplessPrefetch, type PendingNext } from "../hooks/useGaplessPrefetch";
 import { useFavorites } from "../hooks/useFavorites";
 import { useShortcuts } from "../hooks/useShortcuts";
 import { useMcpBridge } from "../hooks/useMcpBridge";
@@ -85,6 +88,7 @@ import type {
   QueuedTrack,
   PlaybackSnapshot,
   PlaylistOrFolder,
+  StreamInfo,
 } from "../types";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import {
@@ -156,12 +160,27 @@ export function AppInitializer() {
   const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
-  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, setBitPerfect, toggleShuffle, seekTo } =
-    usePlaybackActions();
+  const {
+    playTrack,
+    playNext,
+    playPrevious,
+    pauseTrack,
+    resumeTrack,
+    setVolume,
+    setBitPerfect,
+    toggleShuffle,
+    seekTo,
+    predictNextTrack,
+    advanceToTrack,
+    autoplayIdsRef,
+  } = usePlaybackActions();
+  const pendingNextRef = useRef<PendingNext | null>(null);
+  useGaplessPrefetch(predictNextTrack, pendingNextRef);
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
   useMcpBridge();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
+  const setMaximized = useSetAtom(maximizedPlayerAtom);
   const setDecorations = useSetAtom(decorationsAtom);
   const { showToast } = useToast();
 
@@ -242,6 +261,9 @@ export function AppInitializer() {
           .catch(() => {});
         invoke<boolean>("get_bit_perfect")
           .then((v) => store.set(bitPerfectAtom, v))
+          .catch(() => {});
+        invoke<boolean>("get_gapless")
+          .then((v) => store.set(gaplessAtom, v))
           .catch(() => {});
         invoke<string | null>("get_exclusive_device")
           .then((v) => store.set(exclusiveDeviceAtom, v))
@@ -676,6 +698,87 @@ export function AppInitializer() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ================================================================
+  //  GAPLESS ADVANCE — adopt the next track the backend already switched to.
+  //  AUDIO REALITY WINS: the backend commits the gapless audio switch
+  //  unilaterally, so this listener is undroppable — it always reconciles
+  //  the queue and adopts the now-playing track. NEVER gated on
+  //  playNextLockRef (a gapless advance is not a skip).
+  // ================================================================
+  useEffect(() => {
+    const unlisten = listen<{ trackId: number; qid: string }>(
+      "track-advanced",
+      (e) => {
+        const { trackId, qid } = e.payload;
+        const pending = pendingNextRef.current;
+        pendingNextRef.current = null;
+
+        // Reconcile: remove EXACTLY ONE instance — the one matching qid — from
+        // whichever queue holds it. Do NOT broadly filter by id: a playlist/queue
+        // can contain the same id twice (distinct _qid).
+        const qidOf = (t: Track) => (t as { _qid?: string })._qid ?? String(t.id);
+        const removeAt = (arr: Track[], i: number) => [
+          ...arr.slice(0, i),
+          ...arr.slice(i + 1),
+        ];
+        const mq = store.get(manualQueueAtom);
+        const mi = mq.findIndex((t) => qidOf(t) === qid);
+        if (mi >= 0) {
+          // Manual-queue removal — like playNext's manual drain, do NOT touch originalQueueAtom.
+          store.set(manualQueueAtom, removeAt(mq, mi));
+        } else {
+          const q = store.get(queueAtom);
+          let qi = q.findIndex((t) => qidOf(t) === qid);
+          // Fallback: a reshuffle in the sub-debounce window can re-stamp qids, so the
+          // armed qid may not match. Remove the first instance by trackId instead, so no
+          // duplicate lingers.
+          if (qi < 0) qi = q.findIndex((t) => t.id === trackId);
+          if (qi >= 0) {
+            store.set(queueAtom, removeAt(q, qi));
+            // CRITICAL: mirror playNext's context drain — keep originalQueueAtom in sync, or
+            // it accumulates phantom played tracks and corrupts playPrevious's source-fallback
+            // splice and shuffle-off ordering.
+            const orig = store.get(originalQueueAtom);
+            if (orig)
+              // Filter by _qid ONLY (mirrors playNext's drain) — a broad `t.id` filter
+              // would wipe duplicate-id tracks (the Bug 7b regression). qid is per-instance.
+              store.set(
+                originalQueueAtom,
+                orig.filter((t) => qidOf(t) !== qid),
+              );
+          }
+          // Parity with playNext's context drain: an autoplay track can be gapless-armed.
+          autoplayIdsRef?.current?.delete(trackId);
+        }
+
+        if (pending && pending.trackId === trackId) {
+          advanceToTrack(pending.track, pending.streamInfo);
+        } else {
+          // Rare: stash missing/mismatched but audio IS already playing trackId (audio reality
+          // wins). Use the PURE get_stream_info — NOT set_next_track (which would re-arm the
+          // now-playing track as the next-to-play, causing a repeat loop). Then adopt it.
+          Promise.all([
+            invoke<StreamInfo>("get_stream_info", {
+              trackId,
+              useTrackGain: store.get(useTrackGainAtom),
+            }),
+            invoke<Track>("get_track", { trackId }),
+          ])
+            .then(([info, t]) => advanceToTrack(t, info))
+            .catch((err) => {
+              // give up; signal-path heartbeat + next user action recover
+              console.warn("[gapless] track-advanced stash-miss recovery failed", err);
+            });
+        }
+        // prefetch hook re-fires on the queue/currentTrack change → registers the new next
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, advanceToTrack]);
 
   // ================================================================
   //  AUTO-PLAY next track when current finishes
@@ -1178,12 +1281,15 @@ export function AppInitializer() {
         window.history.back();
         return;
       }
+      // Back/forward bypasses useNavigation, so close the overlays here too.
+      setDrawerOpen(false);
+      setMaximized(false);
       startTransition(() => setCurrentView(event.state));
     };
 
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
-  }, [setCurrentView]);
+  }, [setCurrentView, setDrawerOpen, setMaximized]);
 
   // ================================================================
   //  PLAYBACK POSITION INTERPOLATOR

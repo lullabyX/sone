@@ -206,6 +206,29 @@ pub fn set_bit_perfect(state: State<'_, AppState>, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn get_gapless(state: State<'_, AppState>) -> bool {
+    state.gapless.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn get_gapless_supported() -> bool {
+    crate::audio::gapless_supported()
+}
+
+#[tauri::command]
+pub fn set_gapless(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    state.gapless.store(enabled, Ordering::Relaxed);
+    state
+        .audio_player
+        .set_gapless(enabled)
+        .map_err(SoneError::Audio)?;
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.gapless = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_exclusive_device(state: State<'_, AppState>) -> Option<String> {
     state.exclusive_device.lock().unwrap().clone()
 }
@@ -318,8 +341,11 @@ pub async fn set_proxy_settings(
 }
 
 #[tauri::command]
-pub async fn inhibit_idle(state: State<'_, AppState>) -> Result<(), SoneError> {
-    state.idle_inhibitor.lock().await.inhibit().await;
+pub async fn inhibit_idle(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), SoneError> {
+    state.idle_inhibitor.lock().await.inhibit(&window).await;
     Ok(())
 }
 

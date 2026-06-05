@@ -1,7 +1,7 @@
 {
   "name": "sone",
   "private": true,
-  "version": "0.17.0",
+  "version": "0.18.1",
   "packageManager": "pnpm@11.1.3",
   "license": "GPL-3.0-only",
   "type": "module",
@@ -19,6 +19,7 @@
     "fmt:rust": "cd src-tauri && cargo fmt",
     "fmt:rust:check": "cd src-tauri && cargo fmt --check",
     "knip": "knip",
+    "test": "vitest run",
     "check": "eslint src/ && prettier --check \"src/**/*.{ts,tsx,css}\" && cd src-tauri && cargo clippy -- -D warnings && cargo fmt --check && cd .. && knip"
   },
   "dependencies": {
@@ -36,6 +37,8 @@
     "@eslint/js": "^9.39.3",
     "@tailwindcss/postcss": "^4.1.18",
     "@tauri-apps/cli": "2.11.2",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/react": "16.3.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
@@ -44,12 +47,14 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "jsdom": "29.1.1",
     "knip": "^5.85.0",
     "postcss": "^8.5.10",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "vitest": "^4.1.7"
   }
 }

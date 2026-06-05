@@ -28,6 +28,7 @@ import {
   isTrackItem,
   isMixItem,
   isMyTracksItem,
+  isMagazineItem,
   buildMediaItem,
 } from "../utils/itemHelpers";
 
@@ -110,16 +111,27 @@ export default function HomeSection({ section }: HomeSectionProps) {
       navigateToFavorites();
       return;
     }
+    if (isMagazineItem(item)) {
+      const d = item.data;
+      if (d?.type === "PLAYLIST" && d?.artifactId) {
+        navigateToPlaylist(d.artifactId, {
+          title: d.shortHeader ?? "",
+          image: d.imageURL,
+        });
+      }
+      return;
+    }
     if (isTrackItem(item, section.sectionType)) {
       const allTrackItems = items.filter((t: any) =>
         isTrackItem(t, section.sectionType),
       );
-      playFromSource(item, allTrackItems, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      playFromSource(item as any, allTrackItems as any, {
         source: {
           type: "home-section",
           id: section.title,
           name: section.title,
-          allTracks: allTrackItems,
+          allTracks: allTrackItems as any,
         },
       });
     } else if (isMixItem(item, section.sectionType)) {

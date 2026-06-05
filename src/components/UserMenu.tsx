@@ -10,6 +10,7 @@ import {
   Settings,
   Radio,
   Info,
+  Zap,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,6 +21,7 @@ import {
   exclusiveModeAtom,
   bitPerfectAtom,
   exclusiveDeviceAtom,
+  gaplessAtom,
 } from "../atoms/playback";
 import { useToast } from "../contexts/ToastContext";
 import {
@@ -53,6 +55,8 @@ export default function UserMenu() {
   const [exclusiveMode, setExclusiveMode] = useAtom(exclusiveModeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const [exclusiveDevice, setExclusiveDevice] = useAtom(exclusiveDeviceAtom);
+  const [gapless, setGapless] = useAtom(gaplessAtom);
+  const [gaplessSupported, setGaplessSupported] = useState(false); // assume unsupported until confirmed
   const { setBitPerfect } = usePlaybackActions();
   const [audioDevices, setAudioDevices] = useState<
     Array<{ id: string; name: string }>
@@ -60,6 +64,16 @@ export default function UserMenu() {
   const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate gapless setting + capability from the backend
+  useEffect(() => {
+    invoke<boolean>("get_gapless")
+      .then(setGapless)
+      .catch(() => {});
+    invoke<boolean>("get_gapless_supported")
+      .then(setGaplessSupported)
+      .catch(() => {});
+  }, [setGapless]);
 
   // Toggle shortcuts modal from ? key
   useEffect(() => {
@@ -267,6 +281,30 @@ export default function UserMenu() {
               <Toggle on={bitPerfect} />
             </button>
           )}
+
+          {/* Gapless playback (normal mode only) */}
+          <button
+            className={`${menuItemClass} disabled:opacity-40 disabled:cursor-not-allowed`}
+            disabled={!gaplessSupported || exclusiveMode || bitPerfect}
+            title={
+              !gaplessSupported
+                ? "Requires GStreamer 1.24 or newer"
+                : exclusiveMode || bitPerfect
+                  ? "Gapless is available in normal mode only"
+                  : ""
+            }
+            onClick={async () => {
+              const next = !gapless;
+              setGapless(next);
+              await invoke("set_gapless", { enabled: next }).catch(() => {});
+            }}
+          >
+            <Zap size={16} />
+            <span className="flex-1 text-left">Gapless playback</span>
+            <Toggle
+              on={gapless && gaplessSupported && !exclusiveMode && !bitPerfect}
+            />
+          </button>
 
           {/* ── Scrobbling ── */}
           <div className="border-t border-th-border-subtle my-1" />

@@ -267,6 +267,7 @@ const ProgressScrubber = memo(function ProgressScrubber() {
     setIsHoveringProgress,
     handleProgressMouseDown,
   } = useProgressScrub();
+  const [showTimeLeft, setShowTimeLeft] = useState(false);
 
   return (
     <div className="w-full flex items-center gap-2 text-th-text-muted">
@@ -308,8 +309,15 @@ const ProgressScrubber = memo(function ProgressScrubber() {
           }}
         />
       </div>
-      <span className="min-w-[40px] text-[11px] tabular-nums select-none">
-        {currentTrack ? formatTime(duration) : "0:00"}
+      <span
+        className="min-w-[40px] text-[11px] tabular-nums select-none cursor-pointer"
+        onClick={() => currentTrack && setShowTimeLeft((v) => !v)}
+      >
+        {currentTrack
+          ? showTimeLeft
+            ? `-${formatTime(Math.max(0, duration - displayTime))}`
+            : formatTime(duration)
+          : "0:00"}
       </span>
     </div>
   );

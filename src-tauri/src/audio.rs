@@ -33,6 +33,59 @@ struct PcmFormat {
     bytes_per_sample: u32,
 }
 
+// NOTE (2b): the old `NextTrack` / `PendingAdvance` slot structs (used by the
+// 2a `about-to-finish` machinery) were removed in 2b-A1.
+
+/// 2b-A2: the prerolled next-track branch. Built on the attach executor thread
+/// and stored in the shared `Arc<Mutex<Option<NextBinState>>>` that the worker
+/// (dedup/replace/gating), the executor (attach/detach), and the notify
+/// handler (2b-A3 advance) all read.
+struct NextBinState {
+    /// The legacy `uridecodebin` for the next track. Linked through
+    /// `branch_queue` → `concat sink_1`. Owned here so detach can null + remove it.
+    bin: gst::Element,
+    /// The per-branch upstream queue (C1) decoupling this decoder from concat's
+    /// gate so it pre-buffers while the current track plays.
+    branch_queue: gst::Element,
+    track_id: u64,
+    qid: String,
+    // Read by HandleGaplessAdvance to apply gain + emit `track-advanced` on the switch.
+    norm_gain: f64,
+    replay_gain: f64,
+    peak_amplitude: f64,
+}
+
+/// Jobs for the serialized attach/detach executor thread (C3). Pad-slot
+/// operations on `concat` must never race, so they are all funneled through
+/// this single thread's mpsc. The worker dispatches and returns immediately;
+/// the executor does the blocking `pipeline.add` / `sync_state_with_parent` /
+/// `set_state(Null)` work off the worker thread.
+enum AttachJob {
+    /// Build a second `uridecodebin → branch_queue → concat sink_1`, preroll it,
+    /// and store the resulting `NextBinState` into the shared slot.
+    Attach {
+        pipeline: gst::Pipeline,
+        concat: gst::Element,
+        uri: String,
+        is_dash: bool,
+        track_id: u64,
+        qid: String,
+        norm_gain: f64,
+        replay_gain: f64,
+        peak_amplitude: f64,
+    },
+    /// Tear down a specific bin (+ its branch queue): set Null, release the
+    /// concat request pad whose peer is the queue, and remove from the pipeline.
+    /// Captured `pipeline`/`concat` clones are Normal-only (per C5 — the worker
+    /// never dispatches this on DirectAlsa).
+    Detach {
+        pipeline: gst::Pipeline,
+        concat: gst::Element,
+        bin: gst::Element,
+        branch_queue: gst::Element,
+    },
+}
+
 /// Commands to the ALSA writer thread
 enum WriterCommand {
     Data(AudioChunk),
@@ -51,9 +104,12 @@ enum WriterCommand {
 /// The ALSA writer sender + thread handle live as separate state variables
 /// so they persist across PlayUrl calls (track changes keep DAC open).
 enum PlaybackBackend {
-    /// Normal: full GStreamer pipeline with autoaudiosink (unchanged)
+    /// Normal: full GStreamer pipeline with autoaudiosink.
+    /// `concat` sits at the head (per-branch `queue` → concat → chain → sink)
+    /// so the next track's decoder can preroll ahead for gapless (2b).
     Normal {
         pipeline: gst::Pipeline,
+        concat: gst::Element,
         user_volume_el: Option<gst::Element>,
         norm_volume_el: Option<gst::Element>,
     },
@@ -77,6 +133,28 @@ impl PlaybackBackend {
         match self {
             PlaybackBackend::Normal { norm_volume_el, .. }
             | PlaybackBackend::DirectAlsa { norm_volume_el, .. } => norm_volume_el.as_ref(),
+        }
+    }
+
+    /// The backend's GStreamer pipeline. Both variants own a `gst::Pipeline`.
+    #[allow(dead_code)]
+    fn pipeline(&self) -> &gst::Pipeline {
+        match self {
+            PlaybackBackend::Normal { pipeline, .. }
+            | PlaybackBackend::DirectAlsa { pipeline, .. } => pipeline,
+        }
+    }
+
+    /// The head `concat` element. Normal-only — gapless never runs on
+    /// DirectAlsa (the mode gate prevents this path), so calling it on
+    /// DirectAlsa is a programming error.
+    #[allow(dead_code)]
+    fn concat(&self) -> &gst::Element {
+        match self {
+            PlaybackBackend::Normal { concat, .. } => concat,
+            PlaybackBackend::DirectAlsa { .. } => {
+                panic!("PlaybackBackend::concat() called on DirectAlsa — gapless is normal-only")
+            }
         }
     }
 }
@@ -140,6 +218,263 @@ fn alsa_format_to_gst(alsa_fmt: alsa::pcm::Format) -> (&'static str, u32) {
 #[inline]
 fn slider_to_amplitude(slider_val: f64) -> f64 {
     slider_val.clamp(0.0, 1.0).powi(3)
+}
+
+/// Applies a normalization gain across all volume sinks: the GStreamer
+/// `norm_vol` element (if present), the local `current_norm_gain` mirror, the
+/// combined-volume atom (read by the ALSA writer), and the signal-path tracker.
+/// Shared by `SetNormalizationGain` and the gapless `HandleGaplessAdvance` path.
+fn apply_normalization_gain(
+    gain: f64,
+    current_norm_gain: &mut f64,
+    norm_volume_el: Option<&gst::Element>,
+    combined_vol: &Arc<AtomicU32>,
+    current_volume: f64,
+    signal_path: &SignalPathTracker,
+) {
+    *current_norm_gain = gain;
+    if let Some(el) = norm_volume_el {
+        el.set_property("volume", gain);
+    }
+    let amp = slider_to_amplitude(current_volume);
+    combined_vol.store(((amp * gain) as f32).to_bits(), Ordering::Relaxed);
+    signal_path.set_norm_gain_factor(gain as f32);
+}
+
+/// 2b-A2: build + preroll the next-track branch on the executor thread.
+///
+/// Mirrors the first branch's wiring (sink_0): legacy `uridecodebin` →
+/// per-branch `queue` → `concat sink_1`. The branch queue (C1) decouples this
+/// decoder from concat's back-pressure on the inactive sink pad so it
+/// pre-buffers ahead while the current track plays. A smaller `buffer-duration`
+/// (~3s, per C3) prerolls the source without fully pre-downloading it.
+///
+/// Returns the constructed elements so the caller can stash them in
+/// `NextBinState`. On any error the partially-added elements are removed so the
+/// pipeline isn't left with a dangling half-attached bin.
+fn attach_next_bin(
+    pipeline: &gst::Pipeline,
+    concat: &gst::Element,
+    uri: &str,
+    is_dash: bool,
+) -> Result<(gst::Element, gst::Element), String> {
+    let udb = gst::ElementFactory::make("uridecodebin")
+        .property("uri", uri)
+        // 15s compressed buffer so the next track (and the current one once this
+        // becomes active) rides out network jitter on slow connections. We have
+        // the whole current track as lead time to fill it during preroll.
+        .property("buffer-duration", 15_000_000_000i64)
+        .property("use-buffering", true)
+        .build()
+        .map_err(|e| format!("Failed to create next uridecodebin: {e}"))?;
+    // Same props as the first branch's queue: 15s of decoded reservoir ahead of
+    // concat — comfortable cushion against slow-internet rebuffering.
+    let branch_queue = gst::ElementFactory::make("queue")
+        .property("max-size-time", 15_000_000_000u64)
+        .property("max-size-buffers", 0u32)
+        .property("max-size-bytes", 0u32)
+        .build()
+        .map_err(|e| format!("Failed to create next branch queue: {e}"))?;
+
+    if let Err(e) = pipeline.add_many([&udb, &branch_queue]) {
+        return Err(format!("Failed to add next bin elements: {e}"));
+    }
+
+    // Link branch_queue.src → concat sink_1 (sink_0 is taken by the first
+    // branch, so this request deterministically gets sink_1).
+    let concat_sink = match concat.request_pad_simple("sink_%u") {
+        Some(p) => p,
+        None => {
+            let _ = pipeline.remove_many([&udb, &branch_queue]);
+            return Err("concat refused next sink pad".to_string());
+        }
+    };
+    let queue_src = match branch_queue.static_pad("src") {
+        Some(p) => p,
+        None => {
+            concat.release_request_pad(&concat_sink);
+            let _ = pipeline.remove_many([&udb, &branch_queue]);
+            return Err("next branch queue has no src pad".to_string());
+        }
+    };
+    if let Err(e) = queue_src.link(&concat_sink) {
+        concat.release_request_pad(&concat_sink);
+        let _ = pipeline.remove_many([&udb, &branch_queue]);
+        return Err(format!("Failed to link next queue→concat: {e}"));
+    }
+
+    // uridecodebin(B) → branch_queue (dynamic). Mirror sink_0's pad_added guard:
+    // skip already-linked + non-audio pads.
+    let branch_queue_weak = branch_queue.downgrade();
+    udb.connect_pad_added(move |_src, src_pad| {
+        let Some(branch_queue) = branch_queue_weak.upgrade() else {
+            return;
+        };
+        let Some(sink_pad) = branch_queue.static_pad("sink") else {
+            return;
+        };
+        if sink_pad.is_linked() {
+            return;
+        }
+        if let Some(caps) = src_pad.current_caps() {
+            if let Some(s) = caps.structure(0) {
+                if !s.name().as_str().starts_with("audio/") {
+                    return;
+                }
+            }
+        }
+        if let Err(e) = src_pad.link(&sink_pad) {
+            log::error!("Failed to link next uridecodebin pad: {e:?}");
+        }
+    });
+
+    // Preroll-before-PLAYING (fixes the `not-linked` race on async/network/DASH
+    // sources). Going straight to PLAYING via `sync_state_with_parent` lets the
+    // demuxer's streaming thread emit its decoded src pad AND push the first
+    // buffer before the `pad_added` handler above links it into `branch_queue` —
+    // the buffer hits an unlinked pad and `not-linked` (-1) propagates up to the
+    // demuxer ("GstDashDemux: streaming stopped, reason not-linked"). Local files
+    // decode instantly so the link always wins, masking the bug.
+    //
+    // Instead, bring B up to PAUSED only and BLOCK until the async preroll
+    // settles (`get_state` returns once the state change is ASYNC-DONE). In
+    // PAUSED no data flows past the prerolled pad, so `pad_added` fires and links
+    // during preroll — guaranteeing the link is in place before any buffer moves.
+    // Only then promote to PLAYING. `concat` back-pressures the inactive sink pad,
+    // so the branch holds prerolled and switches in gap-free at sink_0's EOS.
+    if let Err(e) = branch_queue.set_state(gst::State::Paused) {
+        log::error!("next branch queue set Paused failed: {e}");
+    }
+    if let Err(e) = udb.set_state(gst::State::Paused) {
+        log::error!("next uridecodebin set Paused failed: {e}");
+    }
+    // Wait for the preroll to complete so pad_added has fired + linked. Bounded
+    // so a stalled network source can't hang the executor thread.
+    let (ret, cur, pend) = udb.state(gst::ClockTime::from_seconds(15));
+    log::debug!(
+        "[audio] gapless: next bin preroll state ret={ret:?} cur={cur:?} pend={pend:?}"
+    );
+
+    // Preroll done + pad linked: now safe to promote to PLAYING.
+    if let Err(e) = branch_queue.sync_state_with_parent() {
+        log::error!("next branch queue sync_state failed: {e}");
+    }
+    if let Err(e) = udb.sync_state_with_parent() {
+        log::error!("next uridecodebin sync_state failed: {e}");
+    }
+    log::debug!("[audio] gapless: attached next bin (is_dash={is_dash})");
+
+    Ok((udb, branch_queue))
+}
+
+/// 2b-A2: tear down a next-track branch on the executor thread.
+///
+/// Sets the bin + its branch queue to Null, finds the `concat` sink pad whose
+/// peer's parent is this bin's queue, unlinks + releases that request pad, then
+/// removes both elements from the pipeline. Only ever called with Normal-mode
+/// `pipeline`/`concat` clones (the worker gates dispatch — never DirectAlsa, C5).
+fn detach_bin(
+    pipeline: &gst::Pipeline,
+    concat: &gst::Element,
+    bin: &gst::Element,
+    branch_queue: &gst::Element,
+) {
+    // Order matters. Unlink + release the concat request pad FIRST, BEFORE
+    // nulling the bin. The branch queue's src is linked to concat's INACTIVE sink
+    // pad, which concat hard-blocks (it only pulls from the active pad). If we
+    // null the bin while still linked, its streaming threads are stuck pushing
+    // into that blocked pad and the NULL transition can't complete — the
+    // `set_state(Null)` call blocks the executor thread indefinitely on a live
+    // network source. Releasing the pad first unblocks them so NULL completes.
+    let sink_pads: Vec<gst::Pad> = concat
+        .sink_pads()
+        .into_iter()
+        .filter(|pad| {
+            pad.peer()
+                .and_then(|peer| peer.parent_element())
+                .is_some_and(|parent| &parent == branch_queue)
+        })
+        .collect();
+    for pad in sink_pads {
+        if let Some(peer) = pad.peer() {
+            let _ = peer.unlink(&pad);
+        }
+        concat.release_request_pad(&pad);
+    }
+
+    // Now drive both elements to NULL and BLOCK until the (possibly async)
+    // transition actually completes. Removing/dropping an element still mid-
+    // transition disposes it in a non-NULL state, which emits GStreamer
+    // CRITICALs ("Trying to dispose element … in PLAYING instead of the NULL
+    // state") + GST_IS_ELEMENT assertion failures. `get_state` with a bounded
+    // timeout guarantees we only `remove_many` once both are truly NULL.
+    let _ = bin.set_state(gst::State::Null);
+    let _ = branch_queue.set_state(gst::State::Null);
+    let (br, bcur, _) = bin.state(gst::ClockTime::from_seconds(10));
+    let (qr, qcur, _) = branch_queue.state(gst::ClockTime::from_seconds(10));
+    log::debug!(
+        "[audio] gapless: next bin NULL wait bin={br:?}/{bcur:?} queue={qr:?}/{qcur:?}"
+    );
+
+    let _ = pipeline.remove_many([bin, branch_queue]);
+    log::debug!("[audio] gapless: detached next bin");
+}
+
+/// 2b-A2: the serialized attach/detach executor loop (C3). One dedicated thread
+/// owns this so pad-slot operations on `concat` are strictly ordered and never
+/// block the worker command thread. `next_bin` is the shared slot the worker /
+/// executor / notify handler (2b-A3) all read.
+fn run_attach_executor(
+    job_rx: mpsc::Receiver<AttachJob>,
+    next_bin: Arc<Mutex<Option<NextBinState>>>,
+) {
+    for job in job_rx {
+        match job {
+            AttachJob::Attach {
+                pipeline,
+                concat,
+                uri,
+                is_dash,
+                track_id,
+                qid,
+                norm_gain,
+                replay_gain,
+                peak_amplitude,
+            } => {
+                match attach_next_bin(&pipeline, &concat, &uri, is_dash) {
+                    Ok((bin, branch_queue)) => {
+                        if let Ok(mut guard) = next_bin.lock() {
+                            *guard = Some(NextBinState {
+                                bin,
+                                branch_queue,
+                                track_id,
+                                qid,
+                                norm_gain,
+                                replay_gain,
+                                peak_amplitude,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        // Preload failure is non-fatal: leave the slot empty so
+                        // the natural track boundary falls back to playNext.
+                        log::warn!("[audio] gapless: attach_next_bin failed: {e}");
+                        if let Ok(mut guard) = next_bin.lock() {
+                            *guard = None;
+                        }
+                    }
+                }
+            }
+            AttachJob::Detach {
+                pipeline,
+                concat,
+                bin,
+                branch_queue,
+            } => {
+                detach_bin(&pipeline, &concat, &bin, &branch_queue);
+            }
+        }
+    }
 }
 
 /// Probe which GStreamer format strings an ALSA device supports.
@@ -1003,6 +1338,32 @@ enum AudioCommand {
         enabled: bool,
         reply: Reply<Result<(), String>>,
     },
+    SetGapless {
+        enabled: bool,
+        reply: Reply<Result<(), String>>,
+    },
+    // 2b-A2: fields drive the preroll attach (uri, gating metadata, qid).
+    SetNextTrack {
+        uri: String,
+        norm_gain: f64,
+        track_id: u64,
+        qid: String,
+        replay_gain: f64,
+        peak_amplitude: f64,
+        is_dash: bool,
+        reply: Reply<Result<(), String>>,
+    },
+    ClearNextTrack {
+        reply: Reply<Result<(), String>>,
+    },
+    /// 2b-A3: emitted by concat's notify::active-pad handler once it has verified
+    /// (by pad identity) that concat switched to the prerolled next branch.
+    /// Fieldless (C6) — the handler reads everything from the `next_bin` slot.
+    HandleGaplessAdvance,
+    /// 2b-A3: forwarded by the Normal bus watcher when an Error originates inside
+    /// the prerolled next bin. The worker detaches that bin (gated on
+    /// !next_active) without disturbing the currently-playing track.
+    HandleNextBinError,
     ListDevices {
         reply: Reply<Result<Vec<AudioDevice>, String>>,
     },
@@ -1023,6 +1384,10 @@ pub struct AudioPlayer {
 impl AudioPlayer {
     pub fn new(app_handle: tauri::AppHandle, signal_path: Arc<SignalPathTracker>) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AudioCommand>();
+        // Clone a self-sender into the worker so the Normal bus thread can send
+        // HandleGaplessAdvance back to this loop (Task 3). `cmd_tx` itself is
+        // owned by AudioPlayer, not the worker closure.
+        let cmd_tx_worker = cmd_tx.clone();
         let exclusive_device: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let exclusive_device_thread = exclusive_device.clone();
         let decoded_caps_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>> =
@@ -1078,6 +1443,43 @@ impl AudioPlayer {
             let mut current_volume: f64 = 1.0;
             let mut current_norm_gain: f64 = 1.0;
             let mut track_generation: u64 = 0;
+            // 2b: under `concat` (adjust-base=true), `query_position(TIME)` re-bases
+            // to ~0 at each track boundary — it is per-track, NOT cumulative. So the
+            // 2a `position_offset_ns` capture/subtract mechanism is gone (C2).
+
+            // Gapless state. `gapless_setting` defaults to true and is pushed
+            // from saved settings at startup via `set_gapless` (the worker has
+            // no access to AppState). `cmd_tx_worker` is the self-sender the
+            // Normal bus thread clones for gapless advance handling (2b-A3).
+            let mut gapless_setting: bool = true;
+            let cmd_tx_worker = cmd_tx_worker;
+
+            // 2b-A2: the prerolled next bin. Shared between this worker (dedup /
+            // replace / gating), the attach executor (which fills it), and the
+            // notify::active-pad handler (2b-A3 advance). Locking is brief and
+            // never held across a blocking GStreamer call: the worker locks only
+            // to read `track_id`/`qid` for dedup or to overwrite the slot on
+            // dispatch; the executor locks only to store/clear after the
+            // (off-thread) attach completes. No lock is held across `pipeline.add`
+            // / `sync_state_with_parent` / `set_state(Null)` → no deadlock path.
+            let next_bin: Arc<Mutex<Option<NextBinState>>> = Arc::new(Mutex::new(None));
+            // Set true by 2b-A3's notify handler while concat is switching to the
+            // next bin; gates detach/replace (C5) so we never tear down a bin
+            // mid-advance. Read by 2b-A3.
+            let next_active = Arc::new(AtomicBool::new(false));
+            // 2b-A3: the (uridecodebin, branch_queue) of the CURRENTLY-PLAYING
+            // track's branch (concat sink_0 at build time). On a gapless advance
+            // this finished branch is detached and replaced by the promoted next
+            // branch. None when no Normal pipeline is live (or DirectAlsa).
+            let mut current_branch: Option<(gst::Element, gst::Element)> = None;
+
+            // Serialized attach/detach executor thread (C3). The worker dispatches
+            // jobs here and returns immediately — it never blocks on pad-slot ops.
+            let (attach_tx, attach_rx) = mpsc::channel::<AttachJob>();
+            {
+                let next_bin_exec = Arc::clone(&next_bin);
+                std::thread::spawn(move || run_attach_executor(attach_rx, next_bin_exec));
+            }
 
             for cmd in cmd_rx {
                 match cmd {
@@ -1132,6 +1534,18 @@ impl AudioPlayer {
 
                                 log::debug!("[audio] teardown: complete");
                             }
+                            // 2b-A3 (detach matrix): the whole old pipeline is being
+                            // torn down (its elements die with it), so we don't dispatch
+                            // an executor detach — just null the gapless slots. The
+                            // executor detach would be moot (and could race the new
+                            // pipeline). Clearing `next_active` releases any in-flight
+                            // advance gate, which is correct on a hard re-play.
+                            if let Ok(mut g) = next_bin.lock() {
+                                *g = None;
+                            }
+                            next_active.store(false, Ordering::Release);
+                            current_branch = None;
+
                             tearing_down.store(false, Ordering::SeqCst);
                             eos.store(false, Ordering::SeqCst);
                             has_uri.store(true, Ordering::SeqCst);
@@ -1319,6 +1733,11 @@ impl AudioPlayer {
 
                                 let pipe = gst::Pipeline::new();
                                 let is_dash = uri.starts_with("data:application/dash");
+                                // 2b: legacy `uridecodebin` per branch. `concat` does the
+                                // gapless switching, so we no longer need uridecodebin3 /
+                                // about-to-finish. Legacy uridecodebin handles Tidal
+                                // `data:application/dash+xml` URIs and works on GStreamer
+                                // < 1.24.
                                 let mut udb =
                                     gst::ElementFactory::make("uridecodebin").property("uri", &uri);
                                 if is_dash {
@@ -1333,6 +1752,23 @@ impl AudioPlayer {
                                 let uridecodebin = udb
                                     .build()
                                     .map_err(|e| format!("Failed to create uridecodebin: {e}"))?;
+                                // Per-branch upstream queue (C1): decouples the decoder from
+                                // concat's gate so the next branch can pre-buffer ahead while
+                                // the current track plays. With one branch it's a passthrough.
+                                // 15s of decoded reservoir for slow-internet cushion.
+                                let branch_queue = gst::ElementFactory::make("queue")
+                                    .property("max-size-time", 15_000_000_000u64)
+                                    .property("max-size-buffers", 0u32)
+                                    .property("max-size-bytes", 0u32)
+                                    .build()
+                                    .map_err(|e| format!("Failed to create branch queue: {e}"))?;
+                                // `concat` at the head of the chain. With a single sink pad it
+                                // is a passthrough (identical signal path to the old direct
+                                // chain); the gapless second branch attaches in 2b-A2.
+                                let concat = gst::ElementFactory::make("concat")
+                                    .name("gapless-concat")
+                                    .build()
+                                    .map_err(|e| format!("Failed to create concat: {e}"))?;
                                 let audioconvert = gst::ElementFactory::make("audioconvert")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioconvert: {e}"))?;
@@ -1353,6 +1789,8 @@ impl AudioPlayer {
 
                                 pipe.add_many([
                                     &uridecodebin,
+                                    &branch_queue,
+                                    &concat,
                                     &audioconvert,
                                     &audioresample,
                                     &norm_vol,
@@ -1360,7 +1798,11 @@ impl AudioPlayer {
                                     &sink,
                                 ])
                                 .map_err(|e| format!("Failed to add elements: {e}"))?;
+                                // Static chain: concat → audioconvert → … → sink.
+                                // (uridecodebin → branch_queue is dynamic via pad_added;
+                                // branch_queue.src → concat sink_0 is linked below.)
                                 gst::Element::link_many([
+                                    &concat,
                                     &audioconvert,
                                     &audioresample,
                                     &norm_vol,
@@ -1368,6 +1810,90 @@ impl AudioPlayer {
                                     &sink,
                                 ])
                                 .map_err(|e| format!("Failed to link chain: {e}"))?;
+
+                                // N2: connect notify::active-pad BEFORE requesting sink_0.
+                                // gstconcat fires `notify` synchronously inside
+                                // request_pad_simple when current_sinkpad is NULL; the
+                                // first-fire-suppressing counter absorbs that.
+                                //
+                                // 2b-A3 (C4): on every subsequent fire we gate on
+                                // active-pad IDENTITY, not a bare counter. We read
+                                // `concat.active-pad` and only treat it as a gapless
+                                // advance when its peer's parent is the currently-prerolled
+                                // next bin's `branch_queue`. A transition to `None` (final
+                                // EOS) or to a stale/unknown pad is ignored. This makes the
+                                // handler robust across attach/detach churn.
+                                let notify_count = Arc::new(AtomicU32::new(0));
+                                let next_bin_notify = Arc::clone(&next_bin);
+                                let next_active_notify = Arc::clone(&next_active);
+                                let cmd_tx_notify = cmd_tx_worker.clone();
+                                concat.connect_notify(Some("active-pad"), move |concat, _pspec| {
+                                    let prev = notify_count.fetch_add(1, Ordering::AcqRel);
+                                    if prev == 0 {
+                                        // Initial sink_0 activation from request_pad_simple.
+                                        log::debug!("[gapless-diag] notify active-pad fire #1 (initial sink_0), suppressed");
+                                        return;
+                                    }
+                                    // Read the new active pad. None → final EOS transition; ignore.
+                                    let Some(active_pad) = concat.property::<Option<gst::Pad>>("active-pad")
+                                    else {
+                                        // Dump concat's sink-pad situation so we can tell WHY it
+                                        // went terminal: did sink_1 exist at all (timing), and was
+                                        // it linked / already-EOS?
+                                        let pads: Vec<String> = concat
+                                            .sink_pads()
+                                            .into_iter()
+                                            .map(|p| {
+                                                let linked = p.peer().is_some();
+                                                format!("{}(linked={linked})", p.name())
+                                            })
+                                            .collect();
+                                        log::debug!(
+                                            "[gapless-diag] notify active-pad fire #{} → None (terminal). concat sink pads: [{}]",
+                                            prev + 1,
+                                            pads.join(", ")
+                                        );
+                                        return;
+                                    };
+                                    log::debug!("[gapless-diag] notify active-pad fire #{} → pad {}", prev + 1, active_pad.name());
+                                    // Identity: the active pad's peer (a queue src) must belong
+                                    // to the prerolled next bin's branch_queue. This is the only
+                                    // transition we treat as a gapless advance.
+                                    let peer_parent =
+                                        active_pad.peer().and_then(|p| p.parent_element());
+                                    let is_next = {
+                                        match next_bin_notify.lock() {
+                                            Ok(guard) => guard.as_ref().is_some_and(|nb| {
+                                                peer_parent
+                                                    .as_ref()
+                                                    .is_some_and(|parent| parent == &nb.branch_queue)
+                                            }),
+                                            Err(_) => false,
+                                        }
+                                    };
+                                    if !is_next {
+                                        // Stale pad / not our next bin → not an advance.
+                                        log::debug!("[gapless-diag] notify active-pad: peer_parent does NOT match next_bin.branch_queue (next_bin present={}); not an advance", next_bin_notify.lock().map(|g| g.is_some()).unwrap_or(false));
+                                        return;
+                                    }
+                                    log::debug!("[gapless-diag] notify active-pad: MATCH next bin → dispatching HandleGaplessAdvance");
+                                    // Mark the advance in-flight (gates detach/replace, C5)
+                                    // and hand off to the worker. Keep this minimal — we're
+                                    // on the streaming thread.
+                                    next_active_notify.store(true, Ordering::Release);
+                                    let _ = cmd_tx_notify.send(AudioCommand::HandleGaplessAdvance);
+                                });
+
+                                // Request concat sink_0 and link the branch queue into it.
+                                let concat_sink_0 = concat
+                                    .request_pad_simple("sink_%u")
+                                    .ok_or_else(|| "concat refused initial sink pad".to_string())?;
+                                let queue_src = branch_queue
+                                    .static_pad("src")
+                                    .ok_or_else(|| "branch queue has no src pad".to_string())?;
+                                queue_src
+                                    .link(&concat_sink_0)
+                                    .map_err(|e| format!("Failed to link queue→concat: {e}"))?;
 
                                 // Pad probe on audioconvert.sink — captures the codec's raw output
                                 // (pre-conversion). audioconvert.src would show the post-promotion
@@ -1428,12 +1954,14 @@ impl AudioPlayer {
                                     });
                                 }
 
-                                let convert_weak = audioconvert.downgrade();
+                                // uridecodebin(A) → branch_queue (dynamic). The branch
+                                // queue's src is already linked to concat sink_0.
+                                let branch_queue_weak = branch_queue.downgrade();
                                 uridecodebin.connect_pad_added(move |_src, src_pad| {
-                                    let Some(convert) = convert_weak.upgrade() else {
+                                    let Some(branch_queue) = branch_queue_weak.upgrade() else {
                                         return;
                                     };
-                                    let Some(sink_pad) = convert.static_pad("sink") else {
+                                    let Some(sink_pad) = branch_queue.static_pad("sink") else {
                                         return;
                                     };
                                     if sink_pad.is_linked() {
@@ -1454,15 +1982,27 @@ impl AudioPlayer {
                                 pipe.set_state(gst::State::Playing)
                                     .map_err(|e| format!("Failed to start playback: {e}"))?;
 
-                                // Bus watcher (normal mode — unchanged)
+                                // Bus watcher (normal mode). 2b: the StreamStart arm
+                                // (2a gapless trigger) is gone; advance is driven by
+                                // concat's notify::active-pad (2b-A3). The bus keeps
+                                // Eos / Error / Buffering.
                                 let eos_flag = Arc::clone(&eos);
                                 let tearing_down_flag = Arc::clone(&tearing_down);
                                 let app_handle_clone = app_handle.clone();
+                                // 2b-A3: next-bin error isolation. The bus thread reads
+                                // the shared next_bin to decide whether an Error message
+                                // originated inside the prerolled next branch (parent
+                                // walk). If so it forwards HandleNextBinError to the
+                                // worker (which detaches it) and keeps the current track
+                                // playing — NO audio-error, no teardown.
+                                let next_bin_bus = Arc::clone(&next_bin);
+                                let cmd_tx_bus = cmd_tx_worker.clone();
                                 if let Some(bus) = pipe.bus() {
                                     std::thread::spawn(move || {
                                         for msg in bus.iter_timed(gst::ClockTime::NONE) {
                                             match msg.view() {
                                                 gst::MessageView::Eos(..) => {
+                                                    log::debug!("[gapless-diag] bus EOS (terminal) → emitting track-finished (concat did NOT switch to a next branch)");
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
                                                         app_handle_clone
@@ -1482,6 +2022,60 @@ impl AudioPlayer {
                                                         err_msg,
                                                         debug_str
                                                     );
+
+                                                    // Did this error originate inside the
+                                                    // prerolled next bin? Walk the src's
+                                                    // parent chain and compare against the
+                                                    // next bin's element.
+                                                    let is_next_bin_error = {
+                                                        let next_el = next_bin_bus
+                                                            .lock()
+                                                            .ok()
+                                                            .and_then(|g| {
+                                                                g.as_ref().map(|nb| nb.bin.clone())
+                                                            });
+                                                        match (err.src(), next_el) {
+                                                            (Some(src), Some(next_el)) => {
+                                                                let mut cur: Option<gst::Object> =
+                                                                    Some(src.clone());
+                                                                let mut found = false;
+                                                                while let Some(obj) = cur.take() {
+                                                                    if let Ok(el) = obj
+                                                                        .clone()
+                                                                        .downcast::<gst::Element>(
+                                                                        )
+                                                                    {
+                                                                        if el == next_el {
+                                                                            found = true;
+                                                                            break;
+                                                                        }
+                                                                        cur = el.parent();
+                                                                    } else {
+                                                                        cur = obj.parent();
+                                                                    }
+                                                                }
+                                                                found
+                                                            }
+                                                            _ => false,
+                                                        }
+                                                    };
+
+                                                    if is_next_bin_error {
+                                                        // Isolate: detach the bad next bin,
+                                                        // keep the current track playing. The
+                                                        // natural EOS will fall back to
+                                                        // track-finished → playNext fresh.
+                                                        log::warn!(
+                                                            "[audio] gapless: next-bin bus error, isolating: {err_msg}"
+                                                        );
+                                                        let _ = cmd_tx_bus.send(
+                                                            AudioCommand::HandleNextBinError,
+                                                        );
+                                                        // Do NOT set eos / emit audio-error /
+                                                        // break — current track is unaffected.
+                                                        continue;
+                                                    }
+
                                                     eos_flag.store(true, Ordering::SeqCst);
                                                     if !tearing_down_flag.load(Ordering::SeqCst) {
                                                         let is_busy = err_msg.contains("busy")
@@ -1513,9 +2107,15 @@ impl AudioPlayer {
 
                                 backend = Some(PlaybackBackend::Normal {
                                     pipeline: pipe,
+                                    concat,
                                     user_volume_el: Some(user_vol),
                                     norm_volume_el: Some(norm_vol),
                                 });
+
+                                // 2b-A3: this is the sink_0 branch — the currently
+                                // playing track. On a gapless advance it gets detached
+                                // and replaced by the promoted next branch.
+                                current_branch = Some((uridecodebin, branch_queue));
                             }
                             Ok(())
                         })();
@@ -1559,6 +2159,15 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::Stop { reply } => {
+                        // 2b-A3 (detach matrix): Stop tears down the whole pipeline,
+                        // so the next-bin + current-branch elements die with it. Just
+                        // null the gapless slots (no executor detach — moot, and it
+                        // would race the impending set_state(Null)).
+                        if let Ok(mut g) = next_bin.lock() {
+                            *g = None;
+                        }
+                        next_active.store(false, Ordering::Release);
+                        current_branch = None;
                         let result = match backend.take() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 if let Some(bus) = pipeline.bus() {
@@ -1629,15 +2238,14 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::SetNormalizationGain { gain, reply } => {
-                        current_norm_gain = gain;
-                        if let Some(vol) = backend.as_ref().and_then(|b| b.norm_volume_el()) {
-                            vol.set_property("volume", gain);
-                        }
-                        combined_vol.store(
-                            ((slider_to_amplitude(current_volume) * current_norm_gain) as f32).to_bits(),
-                            Ordering::Relaxed,
+                        apply_normalization_gain(
+                            gain,
+                            &mut current_norm_gain,
+                            backend.as_ref().and_then(|b| b.norm_volume_el()),
+                            &combined_vol,
+                            current_volume,
+                            &signal_path,
                         );
-                        signal_path.set_norm_gain_factor(gain as f32);
                         reply.send(Ok(())).ok();
                     }
 
@@ -1645,6 +2253,19 @@ impl AudioPlayer {
                         position_secs,
                         reply,
                     } => {
+                        // 2b-A3 (detach matrix): a flush seek must NOT detach the
+                        // prerolled next branch. Empirically verified on GStreamer
+                        // 1.24.2 (python-gi, concat + dual uridecodebin→queue): a
+                        // `seek_simple(FLUSH|KEY_UNIT)` on the pipeline forwards the
+                        // FLUSH_START/FLUSH_STOP + new SEGMENT only to concat's ACTIVE
+                        // sink pad (sink_0). The inactive prerolled branch on sink_1
+                        // sees ZERO flush events, stays linked + PLAYING, and concat
+                        // still switches to it at the active branch's EOS (gapless
+                        // advance intact). Detaching here was the bug: it threw away a
+                        // valid preroll on every seek, forcing a frontend rebuild (gap)
+                        // at the boundary. Concat re-bases running time per active
+                        // segment, so the seek touches only the current track; the next
+                        // branch's relationship to concat is unaffected. Leave it armed.
                         let result = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => {
                                 let pos = gst::ClockTime::from_nseconds(
@@ -1692,6 +2313,9 @@ impl AudioPlayer {
                         let pos = match backend.as_ref() {
                             Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
                                 .query_position::<gst::ClockTime>()
+                                // 2b (C2): under concat (adjust-base=true) query_position
+                                // re-bases per track, so it is already B-relative — no
+                                // offset subtraction needed.
                                 .map(|pos| pos.nseconds() as f32 / 1_000_000_000.0)
                                 .unwrap_or(0.0),
                             Some(PlaybackBackend::DirectAlsa { .. }) => {
@@ -1731,6 +2355,25 @@ impl AudioPlayer {
                         if let Ok(mut cell) = exclusive_device_thread.lock() {
                             *cell = if enabled { device.clone() } else { None };
                         }
+                        // 2b-A3 (detach matrix): enabling exclusive invalidates any
+                        // Normal-pipeline next bin. Detach it (gated on !next_active).
+                        if enabled && !next_active.load(Ordering::Acquire) {
+                            if let (Some(stale), Some(PlaybackBackend::Normal {
+                                pipeline,
+                                concat,
+                                ..
+                            })) = (
+                                next_bin.lock().ok().and_then(|mut g| g.take()),
+                                backend.as_ref(),
+                            ) {
+                                let _ = attach_tx.send(AttachJob::Detach {
+                                    pipeline: pipeline.clone(),
+                                    concat: concat.clone(),
+                                    bin: stale.bin,
+                                    branch_queue: stale.branch_queue,
+                                });
+                            }
+                        }
                         reply.send(Ok(())).ok();
                     }
 
@@ -1739,7 +2382,278 @@ impl AudioPlayer {
                         if enabled {
                             exclusive = true;
                         }
+                        // 2b-A3 (detach matrix): enabling bit-perfect invalidates any
+                        // Normal-pipeline next bin. Detach it (gated on !next_active).
+                        if enabled && !next_active.load(Ordering::Acquire) {
+                            if let (Some(stale), Some(PlaybackBackend::Normal {
+                                pipeline,
+                                concat,
+                                ..
+                            })) = (
+                                next_bin.lock().ok().and_then(|mut g| g.take()),
+                                backend.as_ref(),
+                            ) {
+                                let _ = attach_tx.send(AttachJob::Detach {
+                                    pipeline: pipeline.clone(),
+                                    concat: concat.clone(),
+                                    bin: stale.bin,
+                                    branch_queue: stale.branch_queue,
+                                });
+                            }
+                        }
                         reply.send(Ok(())).ok();
+                    }
+
+                    AudioCommand::SetGapless { enabled, reply } => {
+                        // 2b-A2: drives SetNextTrack's effective-gapless gate.
+                        gapless_setting = enabled;
+                        // 2b-A3 (detach matrix): disabling gapless invalidates any
+                        // prerolled next bin. Detach it (gated on !next_active).
+                        if !enabled && !next_active.load(Ordering::Acquire) {
+                            if let (Some(stale), Some(PlaybackBackend::Normal {
+                                pipeline,
+                                concat,
+                                ..
+                            })) = (
+                                next_bin.lock().ok().and_then(|mut g| g.take()),
+                                backend.as_ref(),
+                            ) {
+                                let _ = attach_tx.send(AttachJob::Detach {
+                                    pipeline: pipeline.clone(),
+                                    concat: concat.clone(),
+                                    bin: stale.bin,
+                                    branch_queue: stale.branch_queue,
+                                });
+                            }
+                        }
+                        let _ = reply.send(Ok(()));
+                    }
+
+                    // 2b-A2: preroll the next track via a second uridecodebin
+                    // attached to concat sink_1, OFF the worker thread (C3). The
+                    // worker only validates gating + dedup + records intent, then
+                    // dispatches to the attach executor and replies immediately.
+                    AudioCommand::SetNextTrack {
+                        uri,
+                        norm_gain,
+                        track_id,
+                        qid,
+                        replay_gain,
+                        peak_amplitude,
+                        is_dash,
+                        reply,
+                    } => {
+                        // Effective gapless = setting on AND normal mode (C5: never
+                        // attach a concat branch under exclusive/bit-perfect — the
+                        // DirectAlsa path has no concat).
+                        let effective_gapless = gapless_setting && !exclusive && !bit_perfect;
+
+                        // Normal-mode pipeline/concat clones for the executor. If the
+                        // backend isn't Normal (or absent), we can't (and mustn't,
+                        // C5) touch concat — treat as "no preroll".
+                        let normal_clones = match backend.as_ref() {
+                            Some(PlaybackBackend::Normal {
+                                pipeline, concat, ..
+                            }) => Some((pipeline.clone(), concat.clone())),
+                            _ => None,
+                        };
+                        log::debug!("[gapless-diag] SetNextTrack track={track_id}: effective_gapless={effective_gapless} (setting={gapless_setting} excl={exclusive} bp={bit_perfect}), backend_normal={}", normal_clones.is_some());
+
+                        if !effective_gapless || normal_clones.is_none() {
+                            // Gapless off / wrong mode: detach any existing next_bin
+                            // (gated on !next_active per C5) and do nothing else.
+                            if !next_active.load(Ordering::Acquire) {
+                                if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take()) {
+                                    if let Some(PlaybackBackend::Normal {
+                                        pipeline, concat, ..
+                                    }) = backend.as_ref()
+                                    {
+                                        let _ = attach_tx.send(AttachJob::Detach {
+                                            pipeline: pipeline.clone(),
+                                            concat: concat.clone(),
+                                            bin: stale.bin,
+                                            branch_queue: stale.branch_queue,
+                                        });
+                                    }
+                                    // If not Normal we can't detach via concat; the
+                                    // bin was attached under Normal so backend is
+                                    // Normal here in practice. Drop silently otherwise.
+                                }
+                            }
+                            let _ = reply.send(Ok(()));
+                            continue;
+                        }
+
+                        let (pipeline, concat) = normal_clones.unwrap();
+
+                        // Dedup (C5): if an existing next_bin targets the same track,
+                        // just refresh its stored qid (so the eventual track-advanced
+                        // payload matches the frontend queue) — no re-attach.
+                        {
+                            let mut guard = next_bin.lock().unwrap();
+                            if let Some(existing) = guard.as_mut() {
+                                if existing.track_id == track_id {
+                                    existing.qid = qid.clone();
+                                    drop(guard);
+                                    let _ = reply.send(Ok(()));
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // A different next track is requested. Only replace if concat
+                        // isn't already switching (C5) — otherwise let 2b-A3's advance
+                        // complete and skip.
+                        if next_active.load(Ordering::Acquire) {
+                            let _ = reply.send(Ok(()));
+                            continue;
+                        }
+
+                        // Detach the stale (different) bin, then attach the new one.
+                        // Both jobs are serialized on the executor, so detach-then-
+                        // attach is ordered correctly.
+                        if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take()) {
+                            let _ = attach_tx.send(AttachJob::Detach {
+                                pipeline: pipeline.clone(),
+                                concat: concat.clone(),
+                                bin: stale.bin,
+                                branch_queue: stale.branch_queue,
+                            });
+                        }
+
+                        log::debug!("[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id}");
+                        let _ = attach_tx.send(AttachJob::Attach {
+                            pipeline,
+                            concat,
+                            uri,
+                            is_dash,
+                            track_id,
+                            qid,
+                            norm_gain,
+                            replay_gain,
+                            peak_amplitude,
+                        });
+                        let _ = reply.send(Ok(()));
+                    }
+
+                    // 2b-A2: detach the prerolled next bin (gated on !next_active per
+                    // C5 — if concat is already switching, leave it for 2b-A3).
+                    AudioCommand::ClearNextTrack { reply } => {
+                        if !next_active.load(Ordering::Acquire) {
+                            if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take()) {
+                                if let Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }) = backend.as_ref()
+                                {
+                                    let _ = attach_tx.send(AttachJob::Detach {
+                                        pipeline: pipeline.clone(),
+                                        concat: concat.clone(),
+                                        bin: stale.bin,
+                                        branch_queue: stale.branch_queue,
+                                    });
+                                }
+                            }
+                        }
+                        let _ = reply.send(Ok(()));
+                    }
+
+                    // 2b-A3: concat switched its active pad to the prerolled next
+                    // branch (verified by the notify identity gate). Run the
+                    // now-playing cascade: detach the finished branch, promote the
+                    // next branch to current, apply its normalization gain, and emit
+                    // `track-advanced`. Fieldless (C6): all data comes from the
+                    // single `next_bin` slot, which we `take()` — the empty-take
+                    // guard makes a double-advance a no-op.
+                    AudioCommand::HandleGaplessAdvance => {
+                        let promoted = match next_bin.lock().ok().and_then(|mut g| g.take()) {
+                            Some(p) => p,
+                            None => {
+                                // Spurious / double advance (e.g. a stray notify, or
+                                // the slot was already taken/cleared). Release the gate
+                                // and ignore.
+                                log::debug!(
+                                    "[audio] gapless: HandleGaplessAdvance with empty next_bin — ignoring"
+                                );
+                                next_active.store(false, Ordering::Release);
+                                continue;
+                            }
+                        };
+
+                        // Detach the now-finished current branch (sink_0). Safe to
+                        // detach now that concat has switched away from it. Gated to
+                        // Normal (C5) — the worker never reaches here on DirectAlsa
+                        // (gapless is mode-gated off), but be defensive.
+                        if let (Some((old_bin, old_queue)), Some(PlaybackBackend::Normal {
+                            pipeline,
+                            concat,
+                            ..
+                        })) = (current_branch.take(), backend.as_ref())
+                        {
+                            let _ = attach_tx.send(AttachJob::Detach {
+                                pipeline: pipeline.clone(),
+                                concat: concat.clone(),
+                                bin: old_bin,
+                                branch_queue: old_queue,
+                            });
+                        }
+
+                        // Promote the next branch to current.
+                        current_branch = Some((promoted.bin, promoted.branch_queue));
+
+                        // Apply the promoted track's normalization gain across the
+                        // shared volume chain (concat is upstream of norm_vol, so the
+                        // gain applies to the now-active branch).
+                        apply_normalization_gain(
+                            promoted.norm_gain,
+                            &mut current_norm_gain,
+                            backend.as_ref().and_then(|b| b.norm_volume_el()),
+                            &combined_vol,
+                            current_volume,
+                            &signal_path,
+                        );
+                        signal_path.reset_for_track();
+
+                        // Emit track-advanced (unchanged payload, C4). The lib.rs
+                        // listener stores rg/peak + scrobbles; the frontend reconciles
+                        // its queue by trackId/qid.
+                        let _ = app_handle.emit(
+                            "track-advanced",
+                            serde_json::json!({
+                                "trackId": promoted.track_id,
+                                "qid": promoted.qid,
+                                "replayGain": promoted.replay_gain,
+                                "peakAmplitude": promoted.peak_amplitude,
+                            }),
+                        );
+
+                        // A new track is now playing on the same pipeline: clear EOS,
+                        // keep has_uri true. The boundary is resolved.
+                        eos.store(false, Ordering::SeqCst);
+                        has_uri.store(true, Ordering::SeqCst);
+                        next_active.store(false, Ordering::Release);
+                    }
+
+                    // 2b-A3: a prerolled next bin reported a decode error on the bus.
+                    // Detach it (gated on !next_active per C5) without touching the
+                    // current track — the natural boundary falls back to playNext.
+                    AudioCommand::HandleNextBinError => {
+                        if !next_active.load(Ordering::Acquire) {
+                            if let (Some(stale), Some(PlaybackBackend::Normal {
+                                pipeline,
+                                concat,
+                                ..
+                            })) = (
+                                next_bin.lock().ok().and_then(|mut g| g.take()),
+                                backend.as_ref(),
+                            ) {
+                                let _ = attach_tx.send(AttachJob::Detach {
+                                    pipeline: pipeline.clone(),
+                                    concat: concat.clone(),
+                                    bin: stale.bin,
+                                    branch_queue: stale.branch_queue,
+                                });
+                            }
+                        }
                     }
 
                     AudioCommand::ListDevices { reply } => {
@@ -1807,6 +2721,34 @@ impl AudioPlayer {
     }
     pub fn set_bit_perfect(&self, enabled: bool) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
+    }
+    pub fn set_gapless(&self, enabled: bool) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_next_track(
+        &self,
+        uri: String,
+        norm_gain: f64,
+        track_id: u64,
+        qid: String,
+        replay_gain: f64,
+        peak_amplitude: f64,
+        is_dash: bool,
+    ) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::SetNextTrack {
+            uri,
+            norm_gain,
+            track_id,
+            qid,
+            replay_gain,
+            peak_amplitude,
+            is_dash,
+            reply,
+        })
+    }
+    pub fn clear_next_track(&self) -> Result<(), String> {
+        self.send_cmd(|reply| AudioCommand::ClearNextTrack { reply })
     }
     pub fn list_devices(&self) -> Result<Vec<AudioDevice>, String> {
         self.send_cmd(|reply| AudioCommand::ListDevices { reply })
@@ -2248,4 +3190,13 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
 
     log::debug!("[list_alsa_devices] returning {} devices", result.len());
     Ok(result)
+}
+
+/// Gapless (2b architecture) needs the `concat` element. The chain is legacy
+/// `uridecodebin` then a per-branch `queue` then `concat`, which handle Tidal
+/// `data:application/dash+xml` on any GStreamer with the legacy dash demuxer
+/// (no GStreamer 1.24 or uridecodebin3 requirement). `concat` ships in
+/// coreelements, so this is effectively always true.
+pub fn gapless_supported() -> bool {
+    gst::ElementFactory::find("concat").is_some()
 }

@@ -338,23 +338,32 @@ export async function getSuggestions(
 
 // ==================== Home Page ====================
 
-export async function getHomePage(): Promise<HomePageCached> {
+export async function getHomePage(
+  feedType?: string,
+): Promise<HomePageCached> {
+  const slug = (feedType ?? "static").toLowerCase();
   return cached(
-    "home-page",
+    `home-page:${slug}`,
     ["home"],
-    () => invoke<HomePageCached>("get_home_page"),
+    () => invoke<HomePageCached>("get_home_page", { feedType }),
     TTL.MEDIUM,
   );
 }
 
-export async function refreshHomePage(): Promise<HomePageResponse> {
-  return await invoke<HomePageResponse>("refresh_home_page");
+export async function refreshHomePage(
+  feedType?: string,
+): Promise<HomePageResponse> {
+  return await invoke<HomePageResponse>("refresh_home_page", { feedType });
 }
 
 export async function getHomePageMore(
   cursor: string,
+  feedType?: string,
 ): Promise<HomePageResponse> {
-  return await invoke<HomePageResponse>("get_home_page_more", { cursor });
+  return await invoke<HomePageResponse>("get_home_page_more", {
+    feedType,
+    cursor,
+  });
 }
 
 export async function getPageSection(
@@ -597,20 +606,29 @@ function parseArtistPageV1(json: any): ArtistPageData {
 export async function getArtistViewAll(
   artistId: number,
   viewAllPath: string,
-): Promise<any[]> {
-  return cached(
-    `artist-view-all:${artistId}:${viewAllPath}`,
-    ["artist"],
-    async () => {
-      const raw = await invoke<any>("get_artist_view_all", {
-        artistId,
-        viewAllPath,
-      });
-      const items = raw?.items || [];
-      return items.map((item: any) => item.data || item);
-    },
-    TTL.MEDIUM,
-  );
+  offset: number = 0,
+  limit: number = 50,
+): Promise<{ items: any[]; hasMore: boolean }> {
+  const fetcher = async () => {
+    const raw = await invoke<any>("get_artist_view_all", {
+      artistId,
+      viewAllPath,
+      offset,
+      limit,
+    });
+    const rawItems = raw?.items || [];
+    const items = rawItems.map((item: any) => item.data || item);
+    return { items, hasMore: items.length >= limit };
+  };
+  if (offset === 0) {
+    return cached(
+      `artist-view-all:${artistId}:${viewAllPath}`,
+      ["artist"],
+      fetcher,
+      TTL.MEDIUM,
+    );
+  }
+  return fetcher();
 }
 
 export async function getArtistTopTracksAll(

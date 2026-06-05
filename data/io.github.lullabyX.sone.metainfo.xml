@@ -78,6 +78,43 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.18.1" date="2026-05-21">
+      <description>
+        <p>MCP Server</p>
+        <ul>
+          <li>Embedded Model Context Protocol server on port 5577 so external agents like Claude Code can drive your library and playback</li>
+          <li>Tools for search, favorites, playlists (full CRUD), now-playing, queue, lyrics, track radio, artist top tracks, and album tracks</li>
+          <li>Playback control: play, pause, next, seek, volume, shuffle, and queue</li>
+          <li>Settings tab with live enable toggle and token regeneration; off by default; stateless transport survives restarts</li>
+        </ul>
+        <p>Signal Path Transparency</p>
+        <ul>
+          <li>New panel that shows exactly what your audio is going through, end to end — open it by clicking the format/quality badge next to the now-playing track</li>
+          <li>Probes the live GStreamer pipeline including autoaudiosink children</li>
+          <li>Maps `pactl` sink to ALSA card and surfaces OS mixer as a cable alteration</li>
+          <li>PRISTINE verdict based on audio-bit integrity, not just bit-perfect mode</li>
+          <li>Expand-to-flow-diagram view with friendly DAC names</li>
+          <li>Reads only from local sources (GStreamer pad caps, pactl info, /proc/asound hw_params); nothing is sent off-device</li>
+        </ul>
+        <p>Tooltips</p>
+        <ul>
+          <li>Native browser tooltips replaced with a themed TooltipLayer that matches the rest of the UI</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Bit-perfect mode now forces unity volume and disables normalization, with a smooth ramp back to normal on disable</li>
+          <li>Truthful bit-depth promotion toast</li>
+          <li>Skip metadata-unavailable tracks instead of stalling source playback</li>
+          <li>Custom title bar restored on login and auth-check screens</li>
+        </ul>
+        <p>Build &amp; Packaging</p>
+        <ul>
+          <li>Migrated package manager from `npm` to `pnpm` in light of recent supply-chain incidents in the `npm` ecosystem (Node 22+ required)</li>
+          <li>Tauri JS and Rust pinned to 2.11.x</li>
+          <li>Arch PKGBUILD: libpulse and pulseaudio-utils added for pactl</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.17.0" date="2026-05-17">
       <description>
         <p>Logging</p>

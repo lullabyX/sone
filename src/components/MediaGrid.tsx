@@ -15,16 +15,23 @@ export default function MediaGrid({ children }: MediaGridProps) {
   );
 }
 
+/** Single skeleton card for the media grid. */
+export function MediaCardSkeleton() {
+  return (
+    <div className="p-3">
+      <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
+      <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
+      <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
+    </div>
+  );
+}
+
 /** Loading skeleton for the media grid. */
 export function MediaGridSkeleton({ count = 18 }: { count?: number }) {
   return (
     <MediaGrid>
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="p-3">
-          <div className="aspect-square bg-th-surface-hover rounded-md animate-pulse mb-2" />
-          <div className="h-4 w-3/4 bg-th-surface-hover rounded animate-pulse mb-1" />
-          <div className="h-3 w-1/2 bg-th-surface-hover rounded animate-pulse" />
-        </div>
+        <MediaCardSkeleton key={i} />
       ))}
     </MediaGrid>
   );
