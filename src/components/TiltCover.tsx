@@ -2,13 +2,15 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 // WebKitGTK rasterizes CSS 3D perspective transforms as affine approximations
 // (parallelogram, no keystone) — see docs/webkitgtk-perspective-bug.md. The tilt
-// is therefore rendered with WebGL: a margin-padded canvas overlays the static
-// DOM cover during hover and draws the cover + inner border + glare with a real
+// is therefore rendered with WebGL: a margin-padded canvas overlays the DOM
+// cover during hover and draws the cover + drop shadow + glare with a real
 // perspective projection. Edge AA is screen-space (fwidth); the cover texture
 // uses mipmaps + anisotropic filtering so it stays sharp under the tilt rather
-// than bilinear-blurry. Shadow is a static CSS underlay; glare is the original
-// CSS radial-gradient profile, painted in flat cover space so it tilts with the
-// cover. CSS-transform path is the fallback when WebGL2 is unavailable.
+// than bilinear-blurry. The 3-layer COVER_SHADOW is drawn in-shader in the same
+// projected space so it foreshortens/leans with the cover (the static CSS
+// shadow underlay cross-fades out while the canvas is active); glare is the
+// original CSS radial-gradient profile, painted in flat cover space so it tilts
+// with the cover. CSS-transform path is the fallback when WebGL2 is unavailable.
 
 const prefersReducedMotion =
   typeof window !== "undefined" &&
@@ -19,13 +21,13 @@ const glareBg = (gx: number, gy: number) =>
 
 const COVER_SHADOW =
   "0 1px 3px rgba(0,0,0,0.1), 0 8px 20px rgba(0,0,0,0.1), 0 16px 48px -8px rgba(0,0,0,0.12)";
-const COVER_BORDER = "1px solid rgba(255,255,255,0.1)";
 
 const LERP_TAU_MS = 108;
 const GLARE_TAU_MS = 120;
 const EDGE = 0.15;
 const MARGIN_FRAC = 0.12; // canvas overhang per side (perspective-expanded quad)
-const SUPERSAMPLE = 1; // bump to 1.5–2 for extra crispness at GPU cost
+const SHADOW_MARGIN_PX = 64; // extra overhang to contain the soft drop shadow
+const SUPERSAMPLE = 2; // render backing at 2x then downscale → crisp texture
 
 const VS = `#version 300 es
 in vec2 aPos;
@@ -74,20 +76,42 @@ float glareProfile(float t) {
   return mix(0.15, 0.12, t / 0.10);
 }
 
+// One CSS box-shadow layer (offset 0 oy, blur, spread), as coverage 0..1.
+// The shadow box = cover rect grown by spread, offset down by oy; the edge is
+// feathered over the blur radius (50% at the box edge), matching CSS blur.
+float shadowLayer(vec2 px, float oy, float blur, float spread) {
+  float sd = sdRound(px - vec2(0.0, oy), uHalf + spread, max(uRadius + spread, 0.0));
+  return 1.0 - smoothstep(-blur, blur, sd);
+}
+
 void main() {
   vec2 px = vPos * uHalf;
+
+  // Cover coverage (rounded rect, screen-space AA — crisp ~1px regardless of
+  // how perspective magnifies the quad).
   float sd = sdRound(px, uHalf, uRadius);
-  // Screen-space AA: fwidth(sd) is flat-px per screen-px, so the edge stays a
-  // crisp ~1px on screen regardless of how perspective magnifies the quad.
   float aaw = fwidth(sd);
-  float aa = 1.0 - smoothstep(-aaw, aaw, sd);
+  float coverA = 1.0 - smoothstep(-aaw, aaw, sd);
+
+  // Cover color: texture + glare (only meaningful where covered).
   vec2 uv = clamp((vPos + 1.0) * 0.5, 0.0, 1.0);
   vec3 col = texture(uTex, uv).rgb;
-  float borderMix = smoothstep(-2.0, -0.8, sd);
-  col = mix(col, vec3(1.0), 0.12 * borderMix);
   float t = distance(px, uGlare) / uGlareR;
   col = mix(col, vec3(1.0), uGlareO * glareProfile(t));
-  fragColor = vec4(col * aa, aa);
+
+  // Soft drop shadow = COVER_SHADOW's 3 layers, evaluated in THIS perspective
+  // space so it foreshortens/leans with the cover instead of being a fixed box.
+  //   0 1px  3px        rgba(0,0,0,0.10)
+  //   0 8px  20px       rgba(0,0,0,0.10)
+  //   0 16px 48px -8px  rgba(0,0,0,0.12)
+  float s1 = shadowLayer(px, 1.0, 3.0, 0.0) * 0.10;
+  float s2 = shadowLayer(px, 8.0, 20.0, 0.0) * 0.10;
+  float s3 = shadowLayer(px, 16.0, 48.0, -8.0) * 0.12;
+  float shadowA = 1.0 - (1.0 - s1) * (1.0 - s2) * (1.0 - s3);
+
+  // Cover composited OVER its (black) shadow, premultiplied.
+  float outA = coverA + shadowA * (1.0 - coverA);
+  fragColor = vec4(col * coverA, outA);
 }`;
 
 interface GlState {
@@ -171,11 +195,7 @@ function initGl(canvas: HTMLCanvasElement): GlState | null {
   );
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   if (maxAniso > 0 && aniso) {
-    gl.texParameterf(
-      gl.TEXTURE_2D,
-      aniso.TEXTURE_MAX_ANISOTROPY_EXT,
-      maxAniso,
-    );
+    gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
   }
 
   gl.enable(gl.BLEND);
@@ -221,20 +241,27 @@ export function TiltCover({
   const outerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const glareRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<GlState | null>(null);
   const rafRef = useRef(0);
   const lastTsRef = useRef(0);
   const activeRef = useRef(false);
   const cur = useRef({ rx: 0, ry: 0, gl: 0 });
-  const tgt = useRef({ rx: 0, ry: 0, gl: 0, gx: 0.5, gy: 0.5, returning: false });
+  const tgt = useRef({
+    rx: 0,
+    ry: 0,
+    gl: 0,
+    gx: 0.5,
+    gy: 0.5,
+    returning: false,
+  });
 
   // Shadow lives on a static underlay (see render JSX), not on the root — so it
   // stays put and identical whether the WebGL canvas or the DOM cover is shown.
   const innerStyle: CSSProperties = {
     borderRadius: "inherit",
     transformOrigin: "center",
-    border: COVER_BORDER,
   };
 
   useEffect(() => {
@@ -265,7 +292,7 @@ export function TiltCover({
     return (
       <div
         className={`relative overflow-hidden ${className} ${innerClassName}`}
-        style={{ ...style, boxShadow: COVER_SHADOW }}
+        style={{ ...style }}
       >
         {children}
       </div>
@@ -310,7 +337,8 @@ export function TiltCover({
     const size = outer.clientWidth;
     if (size <= 0) return;
     const half = size / 2;
-    const margin = Math.round(size * MARGIN_FRAC);
+    // Margin holds both the perspective bulge and the soft shadow spread.
+    const margin = Math.round(Math.max(size * MARGIN_FRAC, SHADOW_MARGIN_PX));
     const cssSide = size + 2 * margin;
     const dpr = (window.devicePixelRatio || 1) * SUPERSAMPLE;
     const px = Math.ceil(cssSide * dpr);
@@ -344,7 +372,10 @@ export function TiltCover({
     gl.uniform2f(s.uAng, c.rx * rad, c.ry * rad);
     gl.uniform1f(s.uDist, perspective / half);
     gl.uniform1f(s.uScale, half / (half + margin));
-    gl.uniform1f(s.uGrow, (half + 3) / half);
+    // Quad fills the entire (margin-padded) canvas so the fragment shader has
+    // pixels in the margin to draw the shadow. The cover stays the inner sd<0
+    // region; being coplanar, its projection is unchanged by the larger quad.
+    gl.uniform1f(s.uGrow, (half + margin) / half);
     gl.uniform1f(s.uHalf, half);
     gl.uniform1f(s.uRadius, radius);
     gl.uniform2f(s.uGlare, glareX, glareY);
@@ -357,14 +388,24 @@ export function TiltCover({
     if (activeRef.current === on) return;
     activeRef.current = on;
     const canvas = canvasRef.current;
-    const root = rootRef.current;
     if (canvas) {
-      // Instant swap in (canvas pixels match the DOM cover, which hides at the
-      // same moment); soft fade out to ease the canvas→DOM hand-off on leave.
+      // Instant swap in (canvas matches the DOM cover at rest); soft fade out.
       canvas.style.transition = on ? "none" : "opacity 150ms ease-out";
       canvas.style.opacity = on ? "1" : "0";
     }
+    // Hide the flat DOM cover while the canvas is active — otherwise the
+    // full-size static cover shows behind the tilted (foreshortened) quad.
+    // visibility:hidden keeps the <img> laid out so syncTexture can read it.
+    const root = rootRef.current;
     if (root) root.style.visibility = on ? "hidden" : "";
+    // Cross-fade the CSS shadow with the canvas: the shader draws the shadow
+    // while active, so hide the static underlay (else it doubles and reappears
+    // as the fixed box). Fades back in as the canvas fades out on leave.
+    const shadow = shadowRef.current;
+    if (shadow) {
+      shadow.style.transition = on ? "none" : "opacity 150ms ease-out";
+      shadow.style.opacity = on ? "0" : "1";
+    }
   };
 
   const webglUsable = () => {
@@ -387,15 +428,18 @@ export function TiltCover({
       renderGl();
       setActive(true);
     } else if (rootRef.current) {
-      // CSS fallback (affine on WebKitGTK, correct elsewhere)
+      // CSS fallback (affine on WebKitGTK, correct elsewhere). The shader path
+      // is unavailable, so lean the root + its shadow underlay together.
       const root = rootRef.current;
       const ang = Math.max(Math.abs(c.rx), Math.abs(c.ry));
-      root.style.transform =
+      const xf =
         ang < 0.001
           ? `perspective(${perspective}px)`
           : `perspective(${perspective}px) rotateX(${c.rx.toFixed(3)}deg) rotateY(${c.ry.toFixed(
               3,
             )}deg)`;
+      root.style.transform = xf;
+      if (shadowRef.current) shadowRef.current.style.transform = xf;
     }
 
     const settled =
@@ -406,6 +450,7 @@ export function TiltCover({
       if (t.returning) {
         setActive(false);
         if (rootRef.current) rootRef.current.style.transform = "";
+        if (shadowRef.current) shadowRef.current.style.transform = "";
       }
       rafRef.current = 0;
       return;
@@ -466,12 +511,22 @@ export function TiltCover({
       onMouseMove={onMove}
       onMouseLeave={onLeave}
     >
-      {/* Static soft shadow — stays put under both the DOM cover and the
-          WebGL canvas, so the shadow never changes on hover. */}
+      {/* Soft cover shadow at rest. While the WebGL canvas is active it draws
+          the shadow in-shader (perspective-correct, leans with the cover), so
+          this static underlay cross-fades out via setActive — otherwise it would
+          double the shadow and reappear as the fixed box. In the CSS fallback it
+          leans with the root (affine) via the rAF loop. */}
       <div
+        ref={shadowRef}
         aria-hidden
         className="absolute inset-0"
-        style={{ borderRadius: "inherit", boxShadow: COVER_SHADOW }}
+        style={{
+          borderRadius: "inherit",
+          boxShadow: COVER_SHADOW,
+          transformOrigin: "center",
+          willChange: "transform, opacity",
+          opacity: 1,
+        }}
       />
       <div
         ref={rootRef}
