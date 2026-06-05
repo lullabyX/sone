@@ -57,6 +57,7 @@ import {
   type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
+import { TiltCover } from "./TiltCover";
 import TrackContextMenu from "./TrackContextMenu";
 import { TrackArtists, type ArtistInfo } from "./TrackArtists";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
@@ -180,7 +181,12 @@ const QueueTab = memo(function QueueTab({
         navigateToPlaylist(s.id as string, { title: s.name, image: s.image });
         break;
       case "mix":
-        navigateToMix(s.id as string, { title: s.name, image: s.image, subtitle: s.subtitle, mixType: s.mixType });
+        navigateToMix(s.id as string, {
+          title: s.name,
+          image: s.image,
+          subtitle: s.subtitle,
+          mixType: s.mixType,
+        });
         break;
       case "artist":
         navigateToArtist(s.id as number);
@@ -192,10 +198,22 @@ const QueueTab = memo(function QueueTab({
         navigateToFavorites();
         break;
       case "radio":
-        navigateToMix(s.id.toString(), { title: s.name, image: s.image, mixType: "TRACK_MIX" });
+        navigateToMix(s.id.toString(), {
+          title: s.name,
+          image: s.image,
+          mixType: "TRACK_MIX",
+        });
         break;
     }
-  }, [contextQueueSource, navigateToAlbum, navigateToPlaylist, navigateToMix, navigateToArtist, navigateToArtistTracks, navigateToFavorites]);
+  }, [
+    contextQueueSource,
+    navigateToAlbum,
+    navigateToPlaylist,
+    navigateToMix,
+    navigateToArtist,
+    navigateToArtistTracks,
+    navigateToFavorites,
+  ]);
 
   // Use refs so drag/drop handlers always read the current values
   const dragIdxRef = useRef<number | null>(null);
@@ -310,9 +328,10 @@ const QueueTab = memo(function QueueTab({
     (track: Track) => ({
       isFav: favoriteTrackIds.has(track.id),
       onToggleFavorite: () => handleToggleFavorite(track.id, track),
-      onArtistClick: (track.artist?.id || track.artists?.[0]?.id)
-        ? handleArtistClick
-        : undefined,
+      onArtistClick:
+        track.artist?.id || track.artists?.[0]?.id
+          ? handleArtistClick
+          : undefined,
       onAlbumClick: track.album?.id ? () => handleAlbumClick(track) : undefined,
     }),
     [
@@ -453,7 +472,9 @@ const QueueTab = memo(function QueueTab({
                               {contextQueueSource.name}
                             </button>
                           ) : (
-                            <span className="uppercase underline">{contextQueueSource.name}</span>
+                            <span className="uppercase underline">
+                              {contextQueueSource.name}
+                            </span>
                           )}
                         </>
                       ) : (
@@ -781,11 +802,19 @@ const SuggestedTab = memo(function SuggestedTab() {
   const handleAddToQueue = useCallback(
     (track: Track) => {
       const trackSource = track.album
-        ? { type: "album" as const, id: track.album.id, name: track.album.title, image: track.album.cover }
+        ? {
+            type: "album" as const,
+            id: track.album.id,
+            name: track.album.title,
+            image: track.album.cover,
+          }
         : undefined;
       addToQueue(track, trackSource);
       const displayTitle = getTrackDisplayTitle(track);
-      const label = displayTitle.length > 30 ? displayTitle.slice(0, 28) + "…" : displayTitle;
+      const label =
+        displayTitle.length > 30
+          ? displayTitle.slice(0, 28) + "…"
+          : displayTitle;
       showToast(`Added "${label}" to queue`, "success");
     },
     [addToQueue, showToast],
@@ -1123,9 +1152,7 @@ const LyricsTab = memo(function LyricsTab() {
 // ─── Credits Tab ─────────────────────────────────────────────────────────────
 
 function SkeletonBar({ className = "" }: { className?: string }) {
-  return (
-    <div className={`animate-pulse rounded bg-th-hl-med ${className}`} />
-  );
+  return <div className={`animate-pulse rounded bg-th-hl-med ${className}`} />;
 }
 
 function SkeletonRow({ first = false }: { first?: boolean }) {
@@ -1228,7 +1255,11 @@ const CreditsTab = memo(function CreditsTab() {
       {/* Track metadata + credits — unified row list */}
       {currentTrack && (
         <>
-          <CreditRow label="Title" value={getTrackDisplayTitle(currentTrack)} first />
+          <CreditRow
+            label="Title"
+            value={getTrackDisplayTitle(currentTrack)}
+            first
+          />
           <CreditRow
             label="Artists"
             value={getTrackArtistDisplay(currentTrack)}
@@ -1272,7 +1303,9 @@ const CreditsTab = memo(function CreditsTab() {
       )}
       {!bioLoading && bio && (
         <div className="flex flex-col pt-6 mt-2">
-          <h3 className="text-[16px] font-bold text-th-text-primary mb-3">Bio</h3>
+          <h3 className="text-[16px] font-bold text-th-text-primary mb-3">
+            Bio
+          </h3>
           <BioText
             bio={bio}
             onArtistClick={handleArtistLink}
@@ -1360,7 +1393,11 @@ function TrackRow({
         className={`flex items-center gap-3 px-3 py-2 rounded-md transition-[background-color] duration-150 ${
           unavailable ? "cursor-default" : "cursor-pointer group"
         } ${
-          isActive && !unavailable ? "bg-th-hl-med" : unavailable ? "" : "hover:bg-th-hl-faint"
+          isActive && !unavailable
+            ? "bg-th-hl-med"
+            : unavailable
+              ? ""
+              : "hover:bg-th-hl-faint"
         } ${dimmed || unavailable ? "opacity-50" : ""}`}
       >
         <div className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
@@ -1583,13 +1620,13 @@ export default function NowPlayingDrawer() {
 
         {/* Left: Album Art — 45% */}
         <div className="relative z-[1] w-[45%] flex flex-col items-center justify-center p-10 gap-6">
-          <div className="w-full max-w-[640px] aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60">
+          <TiltCover className="w-full max-w-[640px] aspect-square rounded-lg">
             <TidalImage
               src={getTidalImageUrl(currentTrack.album?.cover, 640)}
               alt={currentTrack.album?.title || currentTrack.title}
               className="w-full h-full"
             />
-          </div>
+          </TiltCover>
           <div className="text-center w-full max-w-[520px]">
             <h2 className="text-[22px] font-bold text-th-text-primary truncate">
               {getTrackDisplayTitle(currentTrack)}
