@@ -28,6 +28,7 @@ import { useProgressScrub } from "../hooks/useProgressScrub";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import TidalImage, { fetchCachedImageUrl } from "./TidalImage";
+import { TiltCover } from "./TiltCover";
 
 import TrackContextMenu from "./TrackContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -709,8 +710,9 @@ export default function MaximizedPlayer() {
           showLyrics ? "flex-shrink-0" : ""
         }`}>
           {/* Large album art */}
-          <div
-            className={`aspect-square rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[filter] duration-700 ease-out ${
+          <TiltCover
+            className="aspect-square rounded-lg"
+            innerClassName={`transition-[filter] duration-700 ease-out ${
               hiResReady ? "" : "blur-[12px]"
             }`}
             style={{
@@ -723,7 +725,7 @@ export default function MaximizedPlayer() {
               alt={currentTrack.album?.title || currentTrack.title}
               className="w-full h-full"
             />
-          </div>
+          </TiltCover>
 
           {/* Track info */}
           <div
