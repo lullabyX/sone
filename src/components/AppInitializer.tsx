@@ -186,8 +186,6 @@ export function AppInitializer() {
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const setDecorations = useSetAtom(decorationsAtom);
   const { showToast } = useToast();
-  const seenUpdate = useAtomValue(updateToastSeenAtom);
-  const setSeenUpdate = useSetAtom(updateToastSeenAtom);
 
   // ---- Store for one-time reads (volume, queue, history, etc.) — no subscription ----
   const store = useStore();
@@ -219,7 +217,10 @@ export function AppInitializer() {
   useEffect(() => {
     invoke<UpdateInfo>("check_for_update")
       .then((info) => {
-        const { show, next } = shouldShowUpdateToast(info, seenUpdate);
+        const { show, next } = shouldShowUpdateToast(
+          info,
+          store.get(updateToastSeenAtom),
+        );
         if (show) {
           showToast(`SONE ${info.latest} is available`, "info", 15000, {
             label: "View",
@@ -228,10 +229,9 @@ export function AppInitializer() {
             },
           });
         }
-        if (info.available) setSeenUpdate(next);
+        if (info.available) store.set(updateToastSeenAtom, next);
       })
       .catch(() => {});
-    // Runs once on mount; seenUpdate read from its hydrated initial value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
