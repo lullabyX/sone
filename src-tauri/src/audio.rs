@@ -1448,6 +1448,11 @@ impl AudioPlayer {
             let mut writer_supported_fmts: Option<Vec<&'static str>> = None;
             let mut writer_supported_rates: Option<Vec<u32>> = None;
             let mut writer_device: Option<String> = None;
+            // Track the mode the live writer was spawned in. `bit_perfect` is
+            // baked into the writer thread at spawn (it drives reopen format
+            // negotiation), so a same-device exclusive↔bit-perfect toggle must
+            // force a respawn rather than reuse a stale-mode writer.
+            let mut writer_bit_perfect: Option<bool> = None;
             let frames_written = Arc::new(AtomicU64::new(0));
             let current_sample_rate = Arc::new(AtomicU32::new(48000));
             let writer_gen = Arc::new(AtomicU64::new(0));
@@ -1616,8 +1621,9 @@ impl AudioPlayer {
                                         .unwrap_or(false);
 
                                     let device_changed = writer_device.as_deref() != Some(dev);
+                                    let mode_changed = writer_bit_perfect != Some(bit_perfect);
 
-                                    if !writer_alive || writer_tx.is_none() || device_changed {
+                                    if !writer_alive || writer_tx.is_none() || device_changed || mode_changed {
                                         // Shut down old writer cleanly
                                         if let Some(tx) = writer_tx.take() {
                                             tx.try_send(WriterCommand::Shutdown).ok();
@@ -1646,6 +1652,7 @@ impl AudioPlayer {
                                         writer_supported_fmts = Some(supported_gst_fmts);
                                         writer_supported_rates = Some(supported_rates);
                                         writer_device = Some(dev.to_string());
+                                        writer_bit_perfect = Some(bit_perfect);
                                     }
 
                                     let wtx = writer_tx.as_ref().unwrap().clone();
