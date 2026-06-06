@@ -222,8 +222,8 @@ export function AppInitializer() {
           store.get(updateToastSeenAtom),
         );
         if (show) {
-          showToast(`SONE ${info.latest} is available`, "info", 15000, {
-            label: "View",
+          showToast(`Update available: SONE v${info.latest}`, "info", 30000, {
+            label: "View release",
             onClick: () => {
               openUrl(info.url).catch(() => {});
             },
