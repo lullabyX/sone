@@ -107,6 +107,10 @@
         <ul>
           <li>A gentle toast lets you know when a new version of SONE is available</li>
         </ul>
+        <p>Logging</p>
+        <ul>
+          <li>Disk logs now capture more detail by default and keep more history (~50MB), making bug reports and troubleshooting easier</li>
+        </ul>
         <p>Fixes</p>
         <ul>
           <li>Support for DACs with a fixed channel count, via automatic channel negotiation and a stereo mix matrix</li>
