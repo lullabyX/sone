@@ -55,3 +55,6 @@ sone.code-workspace
 
 # Nix build symlink
 /result
+
+# Snap build artifacts
+*.snap

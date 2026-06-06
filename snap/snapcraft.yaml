@@ -1,5 +1,5 @@
 name: sone
-base: core22
+base: core24
 adopt-info: build-app
 title: SONE
 summary: Native Linux client for TIDAL
@@ -18,8 +18,10 @@ contact: https://github.com/lullabyX/sone/issues
 grade: stable
 confinement: strict
 
-architectures:
-  - build-on: amd64
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
 
 lint:
   ignore:
@@ -53,16 +55,22 @@ lint:
         - usr/lib/x86_64-linux-gnu/libwoff2enc*
 
 layout:
-  /usr/lib/$SNAPCRAFT_ARCH_TRIPLET/webkit2gtk-4.1:
-    bind: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/webkit2gtk-4.1
-  /usr/lib/$SNAPCRAFT_ARCH_TRIPLET/gstreamer-1.0:
-    bind: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/gstreamer-1.0
+  # Override the gnome extension's default, which binds this to
+  # $SNAP/gnome-platform/.../webkit2gtk-4.1 — but gnome-46-2404 ships no
+  # WebKit, so that points at nothing and WebKitWebProcess can't launch
+  # (blank window). The key must match the extension's exactly
+  # ($CRAFT_ARCH_TRIPLET_BUILD_FOR) so this replaces it and points at our
+  # staged WebKit helper executables instead.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1
+  /usr/lib/x86_64-linux-gnu/gstreamer-1.0:
+    bind: $SNAP/usr/lib/x86_64-linux-gnu/gstreamer-1.0
   /usr/share/gstreamer-1.0:
     bind: $SNAP/usr/share/gstreamer-1.0
   /usr/share/alsa:
     bind: $SNAP/usr/share/alsa
-  /usr/lib/$SNAPCRAFT_ARCH_TRIPLET/alsa-lib:
-    bind: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/alsa-lib
+  /usr/lib/x86_64-linux-gnu/alsa-lib:
+    bind: $SNAP/usr/lib/x86_64-linux-gnu/alsa-lib
 
 apps:
   sone:
@@ -70,7 +78,7 @@ apps:
     desktop: usr/share/applications/sone.desktop
     extensions: [gnome]
     environment:
-      GST_PLUGIN_SYSTEM_PATH: $SNAP/usr/lib/$SNAPCRAFT_ARCH_TRIPLET/gstreamer-1.0
+      GST_PLUGIN_SYSTEM_PATH: $SNAP/usr/lib/x86_64-linux-gnu/gstreamer-1.0
       WEBKIT_DISABLE_DMABUF_RENDERER: 1
     plugs:
       - home
@@ -79,7 +87,6 @@ apps:
       - network-status
       - audio-playback
       - alsa
-      - browser-support
 
 parts:
   build-app:
@@ -108,8 +115,7 @@ parts:
       - libwebkit2gtk-4.1-0
       - libayatana-appindicator3-1
       - libsecret-1-0
-      - librsvg2-common
-      - libasound2
+      - libasound2t64
       - libasound2-data
       - libasound2-plugins
       - libgstreamer1.0-0
@@ -127,8 +133,19 @@ parts:
       VERSION=$(node -p "require('./package.json').version")
       craftctl set version="$VERSION"
 
-      npm ci
-      npm run tauri build -- --bundles deb
+      # This is a pnpm project (packageManager: pnpm@11.1.3). Corepack is not
+      # usable in the node snap (not on PATH, can't write shims, stale signing
+      # keys), so install pnpm via npm instead.
+      npm install -g pnpm@11.1.3
+      export PATH="$(npm config get prefix)/bin:$PATH"
+      pnpm install --frozen-lockfile
+      # No `--` before --bundles: unlike `npm run`, pnpm passes `--` through
+      # literally and `tauri build -- ...` forwards everything after it to cargo.
+      pnpm tauri build --bundles deb
       dpkg -x src-tauri/target/release/bundle/deb/*.deb $SNAPCRAFT_PART_INSTALL/
+      # NOTE: these paths assume mainBinaryName is unset in tauri.conf.json, so
+      # the bundler uses the lowercase cargo binary name "sone" for Icon= and
+      # usr/bin. Setting mainBinaryName: "SONE" would flip these to uppercase
+      # and silently break the sed below.
       sed -i -e "s|Icon=sone|Icon=/usr/share/icons/hicolor/32x32/apps/sone.png|g" $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop
       cp $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop $SNAPCRAFT_PART_INSTALL/usr/share/applications/sone.desktop
