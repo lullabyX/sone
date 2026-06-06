@@ -30,7 +30,7 @@ describe("shouldShowUpdateToast", () => {
   });
 
   it("keeps showing until the cap, incrementing each time", () => {
-    let seen: SeenUpdate = { version: "0.19.0", count: 1 };
+    const seen: SeenUpdate = { version: "0.19.0", count: 1 };
     const r2 = shouldShowUpdateToast(info(), seen);
     expect(r2.show).toBe(true);
     expect(r2.next.count).toBe(2);
