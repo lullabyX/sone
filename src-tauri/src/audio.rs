@@ -1071,10 +1071,12 @@ fn spawn_alsa_writer(
                             match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                 Ok((new_pcm, negotiated)) => {
                                     pcm = new_pcm;
-                                    if negotiated.gst_format != chunk.format.gst_format {
+                                    if negotiated.gst_format != chunk.format.gst_format
+                                        || negotiated.channels != chunk.format.channels {
                                         log::error!(
-                                            "[alsa-writer] format mismatch after reopen: chunk={}, ALSA={}",
-                                            chunk.format.gst_format, negotiated.gst_format
+                                            "[alsa-writer] format mismatch after reopen: chunk={}/{}ch, ALSA={}/{}ch",
+                                            chunk.format.gst_format, chunk.format.channels,
+                                            negotiated.gst_format, negotiated.channels
                                         );
                                         app_handle.emit("audio-error",
                                             serde_json::json!({ "kind": "device_changed" })).ok();
@@ -1116,6 +1118,18 @@ fn spawn_alsa_writer(
                             match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                 Ok((new_pcm, negotiated)) => {
                                     pcm = new_pcm;
+                                    // Format fallback is allowed here (handled below); a
+                                    // CHANNEL mismatch is not — it would misframe writes.
+                                    if negotiated.channels != requested.channels {
+                                        log::error!(
+                                            "[alsa-writer] channel mismatch after format-hint reopen: requested={}ch, ALSA={}ch",
+                                            requested.channels, negotiated.channels
+                                        );
+                                        app_handle.emit("audio-error",
+                                            serde_json::json!({ "kind": "device_changed" })).ok();
+                                        tearing_down.store(true, Ordering::SeqCst);
+                                        return;
+                                    }
                                     sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
                                     if !bit_perfect && requested.gst_format != negotiated.gst_format {
                                         sp.record_format_fallback(&requested.gst_format, &negotiated.gst_format);
@@ -1196,10 +1210,12 @@ fn spawn_alsa_writer(
                                         match reopen_alsa(&device, &chunk.format, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                             Ok((new_pcm, negotiated)) => {
                                                 pcm = new_pcm;
-                                                if negotiated.gst_format != chunk.format.gst_format {
+                                                if negotiated.gst_format != chunk.format.gst_format
+                                                    || negotiated.channels != chunk.format.channels {
                                                     log::error!(
-                                                        "[alsa-writer] format mismatch after reopen (idle): chunk={}, ALSA={}",
-                                                        chunk.format.gst_format, negotiated.gst_format
+                                                        "[alsa-writer] format mismatch after reopen (idle): chunk={}/{}ch, ALSA={}/{}ch",
+                                                        chunk.format.gst_format, chunk.format.channels,
+                                                        negotiated.gst_format, negotiated.channels
                                                     );
                                                     app_handle.emit("audio-error",
                                                         serde_json::json!({ "kind": "device_changed" })).ok();
@@ -1245,6 +1261,16 @@ fn spawn_alsa_writer(
                                         match reopen_alsa(&device, &new_fmt, &current_sample_rate, &mut silence_buf, bit_perfect) {
                                             Ok((new_pcm, negotiated)) => {
                                                 pcm = new_pcm;
+                                                if negotiated.channels != requested.channels {
+                                                    log::error!(
+                                                        "[alsa-writer] channel mismatch after format-hint reopen (idle): requested={}ch, ALSA={}ch",
+                                                        requested.channels, negotiated.channels
+                                                    );
+                                                    app_handle.emit("audio-error",
+                                                        serde_json::json!({ "kind": "device_changed" })).ok();
+                                                    tearing_down.store(true, Ordering::SeqCst);
+                                                    return;
+                                                }
                                                 sp.set_output(&negotiated.gst_format, negotiated.sample_rate, negotiated.channels);
                                                 if !bit_perfect && requested.gst_format != negotiated.gst_format {
                                                     sp.record_format_fallback(&requested.gst_format, &negotiated.gst_format);
