@@ -78,6 +78,52 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.19.0" date="2026-06-07">
+      <description>
+        <p>Gapless Playback</p>
+        <ul>
+          <li>Seamless, silence-free transitions between tracks in normal output mode; on by default</li>
+        </ul>
+        <p>Home</p>
+        <ul>
+          <li>Home page is now organized into tabs, with magazine-style cards and quick deep-link shortcuts</li>
+          <li>Remembers your last-used tab, with skeleton placeholders and a fade-in while loading</li>
+        </ul>
+        <p>Now Playing</p>
+        <ul>
+          <li>Album cover gently tilts toward your cursor with a true-perspective 3D effect</li>
+          <li>Tap the time display to switch between total duration and time remaining</li>
+          <li>Adjust volume by scrolling the mouse wheel over the volume control</li>
+        </ul>
+        <p>Keep Awake</p>
+        <ul>
+          <li>Your screen no longer sleeps or blanks while music is playing, across X11, Wayland, and D-Bus/portal desktops</li>
+        </ul>
+        <p>Scrobbling</p>
+        <ul>
+          <li>Sends the primary artist, plus MusicBrainz artist IDs when available, to Last.fm, Libre.fm, and ListenBrainz for more accurate matching</li>
+        </ul>
+        <p>Updates</p>
+        <ul>
+          <li>A gentle toast lets you know when a new version of SONE is available</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Support for DACs with a fixed channel count, via automatic channel negotiation and a stereo mix matrix</li>
+          <li>Exclusive and bit-perfect output now correctly resolve ALSA plugin devices (front:, hdmi:) to the right sound card</li>
+          <li>Signal Path now classifies bit-depth widening as lossless instead of lossy</li>
+          <li>Player overlays close properly on navigation and browser back/forward</li>
+          <li>Miniplayer: clicking the album art focuses the main window, and clicking the track title opens the album</li>
+          <li>"Go to track radio" works even when a track has no associated mix</li>
+          <li>Smoother loading on long "View all" lists with incremental pagination</li>
+        </ul>
+        <p>Install &amp; Packaging</p>
+        <ul>
+          <li>Official apt/dnf/zypper repositories via Cloudsmith so SONE stays up to date with your system updates</li>
+          <li>Nix flake for `nix run` and `nix profile install`, plus a ready-to-use development shell</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.18.1" date="2026-05-21">
       <description>
         <p>MCP Server</p>
