@@ -6,4 +6,5 @@ pub mod pages;
 pub mod playback;
 pub mod scrobble;
 pub mod search;
+pub mod updates;
 pub mod utility;
