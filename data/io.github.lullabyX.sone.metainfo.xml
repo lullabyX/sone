@@ -4,20 +4,23 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
   <name>SONE</name>
-  <summary>Native Linux client for TIDAL — lossless and bit-perfect audio streaming</summary>
+  <summary>Native Linux TIDAL client — beautifully designed UI, bit-perfect lossless audio</summary>
 
   <developer id="io.github.lullabyX">
     <name>Hassan Rabbi</name>
   </developer>
 
   <description>
-    <p>Stream your TIDAL library in lossless FLAC and Hi-Res quality up to
-       24-bit/192kHz — with the option to bypass your system mixer entirely
-       for bit-perfect output.</p>
-    <p>A familiar, modern interface inspired by the streaming apps you already use.
-       Exclusive ALSA mode bypasses PulseAudio and PipeWire entirely, sending
-       the unaltered signal directly to your DAC for bit-perfect playback.
-       Or use normal mode for casual listening through your system's default output.</p>
+    <p>A native desktop client for TIDAL with an interface that's intuitive from the
+       first launch. A full-screen player with karaoke-style synced lyrics, a floating
+       miniplayer, and fully customizable light and dark themes are all GPU-composited
+       for fluid scrolling and transitions. Underneath, it streams your library in
+       lossless FLAC and Hi-Res quality up to 24-bit/192kHz — with gapless,
+       silence-free transitions in normal mode, or the option to bypass your system
+       mixer entirely for bit-perfect output.</p>
+    <p>Exclusive ALSA mode bypasses PulseAudio and PipeWire entirely, sending the
+       unaltered signal directly to your DAC for bit-perfect playback. Or use normal
+       mode for casual listening through your system's default output.</p>
     <ul>
       <li>Lossless FLAC and Hi-Res streaming up to 24-bit/192kHz</li>
       <li>Exclusive ALSA output for bit-perfect streaming to USB DACs</li>
@@ -36,6 +39,28 @@
     <p>Unofficial client — requires an active TIDAL subscription. SONE is a
        streaming client only and does not support offline downloads.</p>
   </description>
+
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>audio</keyword>
+    <keyword>streaming</keyword>
+    <keyword>tidal</keyword>
+    <keyword>player</keyword>
+    <keyword>hifi</keyword>
+    <keyword>lossless</keyword>
+    <keyword>flac</keyword>
+    <keyword>interface</keyword>
+    <keyword>ui</keyword>
+    <keyword>design</keyword>
+    <keyword>themes</keyword>
+    <keyword>miniplayer</keyword>
+    <keyword>lyrics</keyword>
+    <keyword>fullscreen</keyword>
+    <keyword>scrobble</keyword>
+    <keyword>discord</keyword>
+    <keyword>gapless</keyword>
+    <keyword>MPRIS</keyword>
+  </keywords>
 
   <launchable type="desktop-id">io.github.lullabyX.sone.desktop</launchable>
 
@@ -106,6 +131,10 @@
         <p>Updates</p>
         <ul>
           <li>A gentle toast lets you know when a new version of SONE is available</li>
+        </ul>
+        <p>Logging</p>
+        <ul>
+          <li>Disk logs now capture more detail by default and keep more history (~50MB), making bug reports and troubleshooting easier</li>
         </ul>
         <p>Fixes</p>
         <ul>

@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=SONE
-Comment=Native Linux client for TIDAL — lossless and bit-perfect audio streaming
+Comment=Native Linux TIDAL client — beautifully designed UI, bit-perfect lossless audio
 Categories=Audio;Music;AudioVideo;
 Exec=io.github.lullabyX.sone %u
 MimeType=x-scheme-handler/tidal;
@@ -10,4 +10,4 @@ Type=Application
 StartupWMClass=sone
 GenericName=TIDAL Music Client
 StartupNotify=true
-Keywords=music;audio;streaming;tidal;player;hifi;lossless;flac;
+Keywords=music;audio;streaming;tidal;player;hifi;lossless;flac;interface;ui;design;themes;miniplayer;lyrics;fullscreen;scrobble;discord;gapless;MPRIS;
