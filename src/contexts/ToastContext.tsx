@@ -13,6 +13,7 @@ interface Toast {
   id: string;
   message: string;
   type: "success" | "error" | "info";
+  action?: { label: string; onClick: () => void };
 }
 
 interface ToastContextType {
@@ -20,6 +21,7 @@ interface ToastContextType {
     message: string,
     type?: "success" | "error" | "info",
     duration?: number,
+    action?: { label: string; onClick: () => void },
   ) => void;
 }
 
@@ -45,9 +47,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       message: string,
       type: "success" | "error" | "info" = "success",
       duration: number = TOAST_DURATION,
+      action?: { label: string; onClick: () => void },
     ) => {
       const id = Math.random().toString(36).slice(2, 10);
-      setToasts((prev) => [...prev, { id, message, type }]);
+      setToasts((prev) => [...prev, { id, message, type, action }]);
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, duration);
@@ -113,6 +116,19 @@ function Toaster({
           <span className="text-[13px] text-th-text-secondary font-medium flex-1 leading-snug">
             {toast.message}
           </span>
+
+          {/* Action */}
+          {toast.action && (
+            <button
+              onClick={() => {
+                toast.action?.onClick();
+                onDismiss(toast.id);
+              }}
+              className="shrink-0 text-[12px] font-semibold text-th-accent hover:underline px-1"
+            >
+              {toast.action.label}
+            </button>
+          )}
 
           {/* Dismiss */}
           <button
