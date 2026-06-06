@@ -658,8 +658,30 @@ fn configure_alsa_hwparams(
             ));
         }
     }
-    hwp.set_channels(fmt.channels)
-        .map_err(|e| format!("set_channels({}): {e}", fmt.channels))?;
+    // Negotiate channel count. Some DACs (USB pro interfaces like Focusrite /
+    // Audient) expose only a fixed channel count and reject 2ch stereo. Test the
+    // requested count; if unsupported, fall back to the device's native minimum.
+    let hw_channels = if hwp.test_channels(fmt.channels).is_ok() {
+        fmt.channels
+    } else {
+        match hwp.get_channels_min() {
+            Ok(n) if n > 0 => {
+                log::info!(
+                    "[audio] DAC rejects {}ch, using device-native {}ch",
+                    fmt.channels, n
+                );
+                n
+            }
+            _ => {
+                return Err(format!(
+                    "DAC rejects {}ch and exposes no usable channel count",
+                    fmt.channels
+                ))
+            }
+        }
+    };
+    hwp.set_channels(hw_channels)
+        .map_err(|e| format!("set_channels({hw_channels}): {e}"))?;
     hwp.set_buffer_time_near(500_000, ValueOr::Nearest)
         .map_err(|e| format!("set_buffer_time: {e}"))?;
     hwp.set_period_time_near(50_000, ValueOr::Nearest)
@@ -719,7 +741,7 @@ fn configure_alsa_hwparams(
         .unwrap_or(fmt.sample_rate);
     Ok(PcmFormat {
         sample_rate: actual_rate,
-        channels: fmt.channels,
+        channels: hw_channels,
         gst_format: gst_fmt_str.to_string(),
         bytes_per_sample: bps,
     })
@@ -2770,6 +2792,21 @@ impl AudioPlayer {
 
 // ── Appsink pipeline builder ───────────────────────────────────────────
 
+/// audioconvert `mix-matrix` that maps a stereo source (in0=L, in1=R) onto the
+/// first two of `out_channels` outputs at unity gain, silencing the rest. This
+/// keeps L/R bit-exact on the device's first output pair (the monitor outs) and
+/// fills the extra channels with digital silence — the GStreamer equivalent of
+/// an ALSA `ttable.0.0 1; ttable.1.1 1` route. Coefficient leaves MUST be f32
+/// (the property's leaf type is G_TYPE_FLOAT; f64 is rejected).
+#[cfg(target_os = "linux")]
+fn stereo_pad_mix_matrix(out_channels: u32) -> gst::Array {
+    let rows = (0..out_channels).map(|o| {
+        let cols = (0..2u32).map(move |i| if o == i { 1.0f32 } else { 0.0f32 });
+        gst::Array::new(cols)
+    });
+    gst::Array::new(rows)
+}
+
 #[cfg(target_os = "linux")]
 fn build_appsink_pipeline(
     uri: &str,
@@ -2777,11 +2814,10 @@ fn build_appsink_pipeline(
     bit_perfect: bool,
     writer_tx: crossbeam_channel::Sender<WriterCommand>,
     writer_gen: Arc<AtomicU64>,
-    // Retained in signature for caller compatibility; no longer used in the
-    // builder body since the non-bit-perfect capsfilter is constructed empty
-    // and the writer learns the format via FormatHint (from pad_added + the
-    // appsink CAPS probe).
-    _negotiated_fmt: &PcmFormat,
+    // The ALSA writer's negotiated device format. Its channel count drives the
+    // stereo→Nch upmix (mix-matrix) and the capsfilter / appsink channel pin
+    // when the DAC exposes only a fixed channel count (> 2).
+    negotiated_fmt: &PcmFormat,
     supported_gst_formats: &[&str],
     supported_rates: &[u32],
     decoded_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
@@ -2804,9 +2840,20 @@ fn build_appsink_pipeline(
     let uridecodebin = udb
         .build()
         .map_err(|e| format!("Failed to create uridecodebin: {e}"))?;
+    let device_channels = negotiated_fmt.channels;
     let audioconvert = gst::ElementFactory::make("audioconvert")
         .build()
         .map_err(|e| format!("Failed to create audioconvert: {e}"))?;
+    // Fixed-channel DAC: the device opened at > 2ch but the source is stereo.
+    // Install a stereo→Nch silence-pad mix-matrix at BUILD time (before caps
+    // negotiate) so the first caps event resolves directly to the device count
+    // — avoids a 2ch transient that would thrash the ALSA writer.
+    if device_channels > 2 {
+        audioconvert.set_property("mix-matrix", stereo_pad_mix_matrix(device_channels));
+        log::info!(
+            "[audio] stereo→{device_channels}ch silence-pad mix-matrix installed for fixed-channel DAC"
+        );
+    }
 
     let appsink = gst_app::AppSink::builder()
         .max_buffers(20)
@@ -2823,7 +2870,8 @@ fn build_appsink_pipeline(
     if is_dash {
         let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
         let mut caps_builder = gst::Caps::builder("audio/x-raw")
-            .field("format", gst::List::new(supported_gst_formats.iter().copied()));
+            .field("format", gst::List::new(supported_gst_formats.iter().copied()))
+            .field("channels", device_channels as i32);
         if !rate_list.is_empty() {
             caps_builder = caps_builder.field("rate", gst::List::new(rate_list));
         }
@@ -2873,13 +2921,14 @@ fn build_appsink_pipeline(
         let audioresample = gst::ElementFactory::make("audioresample")
             .build()
             .map_err(|e| format!("Failed to create audioresample: {e}"))?;
-        // Construct capsfilter EMPTY so it imposes no constraint until pad_added
-        // relocks it with the chosen format. Seeding caps here (e.g. with the
-        // default S32LE from `_negotiated_fmt`) makes src_pad.link() trigger
-        // downstream negotiation against the seed BEFORE the relock runs —
-        // audioconvert then commits to converting (e.g. S16LE→S32LE) and the
-        // writer reopens ALSA at the wrong format. Matches the bit-perfect
-        // BTS pattern at line ~1903 where the capsfilter is also built empty.
+        // Construct capsfilter EMPTY so it imposes no FORMAT constraint until
+        // pad_added relocks it with the chosen format. Seeding a format here
+        // makes src_pad.link() trigger downstream negotiation against the seed
+        // BEFORE the relock runs — audioconvert then commits to converting (e.g.
+        // S16LE→S32LE) and the writer reopens ALSA at the wrong format. (The
+        // channel count is handled separately by the build-time mix-matrix,
+        // which is orthogonal to format negotiation.) Matches the bit-perfect
+        // BTS pattern where the capsfilter is also built empty.
         let capsfilter = gst::ElementFactory::make("capsfilter")
             .build()
             .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
@@ -3008,6 +3057,17 @@ fn build_appsink_pipeline(
                         s.get::<i32>("channels"),
                         s.get::<&str>("format"),
                     ) {
+                        // The build-time mix-matrix assumes a stereo source (SONE
+                        // only ever streams stereo). Surface it loudly if a
+                        // non-stereo source ever reaches a multichannel-only DAC,
+                        // where the [device][2] matrix would fail to negotiate.
+                        if device_channels > 2 && channels != 2 {
+                            log::error!(
+                                "[audio] {channels}ch source on a {device_channels}ch-only DAC: \
+                                 stereo-pad mix-matrix cannot negotiate this layout"
+                            );
+                        }
+
                         // Bit-perfect: announce source format so the writer
                         // can emit a truthful promotion toast once negotiation lands.
                         if is_bit_perfect {
@@ -3026,7 +3086,7 @@ fn build_appsink_pipeline(
                                     gst::Caps::builder("audio/x-raw")
                                         .field("format", chosen.as_str())
                                         .field("rate", rate)
-                                        .field("channels", channels)
+                                        .field("channels", device_channels as i32)
                                         .build()
                                 } else {
                                     // Non-bit-perfect: rate stays a list so audioresample
@@ -3037,7 +3097,7 @@ fn build_appsink_pipeline(
                                         .collect();
                                     gst::Caps::builder("audio/x-raw")
                                         .field("format", chosen.as_str())
-                                        .field("channels", channels)
+                                        .field("channels", device_channels as i32)
                                         .field("rate", gst::List::new(rate_list))
                                         .build()
                                 };
@@ -3059,7 +3119,7 @@ fn build_appsink_pipeline(
                                     let hint_fmt = PcmFormat {
                                         gst_format: chosen.clone(),
                                         sample_rate: rate as u32,
-                                        channels: channels as u32,
+                                        channels: device_channels,
                                         bytes_per_sample: bps,
                                     };
                                     let _ = resample_tx.try_send(WriterCommand::FormatHint(hint_fmt));
