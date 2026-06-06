@@ -34,12 +34,12 @@ use std::path::PathBuf;
 /// Returns a `LoggerHandle`. The caller MUST keep this alive for the
 /// process lifetime — dropping it stops the background log writer.
 ///
-/// `RUST_LOG` still overrides the default `info` level when present.
-/// On any file-system error (cannot create dir, cannot open file),
-/// falls back to stderr-only and emits one `eprintln!` warning.
+/// Default spec `tauri_app_lib=debug,info`: SONE's crate at `debug`,
+/// deps at `info`. `RUST_LOG` overrides it. Falls back to stderr-only
+/// on any file-system error.
 pub fn init_logging(log_dir: PathBuf, file_enabled: bool) -> LoggerHandle {
-    let base = Logger::try_with_env_or_str("info")
-        .expect("flexi_logger spec parsing should never fail for 'info'");
+    let base = Logger::try_with_env_or_str("tauri_app_lib=debug,info")
+        .expect("flexi_logger spec parsing should never fail for a static spec");
 
     if !file_enabled {
         return base
@@ -66,9 +66,9 @@ pub fn init_logging(log_dir: PathBuf, file_enabled: bool) -> LoggerHandle {
         .log_to_file(FileSpec::default().directory(&log_dir).basename("sone"))
         .duplicate_to_stderr(Duplicate::All)
         .rotate(
-            Criterion::Size(2_000_000),       // 2 MB
+            Criterion::Size(5_000_000),       // 5 MB
             Naming::Numbers,
-            Cleanup::KeepLogFiles(5),         // 5 rotated + 1 active = ~12 MB max
+            Cleanup::KeepLogFiles(9),         // 9 rotated + 1 active = ~50 MB max
         )
         .format_for_files(flexi_logger::detailed_format)
         .write_mode(WriteMode::BufferAndFlush)
@@ -80,7 +80,7 @@ pub fn init_logging(log_dir: PathBuf, file_enabled: bool) -> LoggerHandle {
                 "sone: file logger init failed ({}), falling back to stderr-only logging",
                 e
             );
-            Logger::try_with_env_or_str("info")
+            Logger::try_with_env_or_str("tauri_app_lib=debug,info")
                 .unwrap()
                 .log_to_stderr()
                 .write_mode(WriteMode::BufferAndFlush)

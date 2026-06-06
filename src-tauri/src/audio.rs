@@ -2893,25 +2893,39 @@ fn build_appsink_pipeline(
         .sync(false)
         .build();
 
-    // DASH: constrain appsink to DAC-supported formats and rates for BOTH
-    // bit-perfect and non-bit-perfect. The pad_added capsfilter relock is
-    // gated by `if !is_dash` (DASH renegotiates caps mid-stream and would
-    // fight the lock), so without this constraint a non-bit-perfect DASH
-    // chain has no protection and source-format chunks (e.g. S24_32LE on a
-    // DAC that only supports S32LE) reach the writer, triggering the
-    // strict format-mismatch teardown in the Data handler.
+    // DASH: constrain appsink to DAC-supported formats (and, for non-bit-perfect,
+    // rates) for BOTH modes. The pad_added capsfilter relock is gated by
+    // `if !is_dash` (DASH renegotiates caps mid-stream and would fight the lock),
+    // so without this constraint a non-bit-perfect DASH chain has no protection
+    // and source-format chunks (e.g. S24_32LE on a DAC that only supports S32LE)
+    // reach the writer, triggering the strict format-mismatch teardown in the
+    // Data handler.
+    //
+    // RATE is constrained ONLY in non-bit-perfect mode. There, an audioresample
+    // element bridges any source rate to a DAC-supported one, so the constraint
+    // is always satisfiable. In bit-perfect mode there is deliberately NO
+    // resampler (audioconvert can't change rate), so pinning the rate to the
+    // DAC's list makes GStreamer fail negotiation outright when the source rate
+    // isn't supported — surfacing as the opaque "Internal data stream error" on
+    // the bus instead of the actionable "turn off bit-perfect" message. Leaving
+    // rate unconstrained lets the source rate pass through to the appsink; its
+    // CAPS probe then hands the writer a FormatHint, the writer attempts the ALSA
+    // reopen at that exact rate, and configure_alsa_hwparams emits the friendly
+    // "DAC doesn't support XkHz — turn off bit-perfect mode" toast (matching the
+    // non-DASH/BTS path).
     if is_dash {
-        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
         let mut caps_builder = gst::Caps::builder("audio/x-raw")
             .field("format", gst::List::new(supported_gst_formats.iter().copied()))
             .field("channels", device_channels as i32);
-        if !rate_list.is_empty() {
+        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
+        if !bit_perfect && !rate_list.is_empty() {
             caps_builder = caps_builder.field("rate", gst::List::new(rate_list));
         }
         appsink.set_caps(Some(&caps_builder.build()));
         log::debug!(
-            "[audio] DASH appsink caps = formats:{:?} rates:{:?} (bit_perfect={bit_perfect})",
-            supported_gst_formats, supported_rates
+            "[audio] DASH appsink caps = formats:{:?} rates:{} (bit_perfect={bit_perfect})",
+            supported_gst_formats,
+            if bit_perfect { "passthrough".to_string() } else { format!("{supported_rates:?}") }
         );
     }
 
