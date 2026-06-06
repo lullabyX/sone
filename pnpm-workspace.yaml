@@ -1,0 +1,7 @@
+allowBuilds:
+  esbuild: true
+# pnpm 11.x supply-chain verifier requires network access during install
+# (fetches publish dates from registry.npmjs.org), which breaks offline
+# Flathub builds. Default-off lifecycle scripts remain the primary
+# Shai-Hulud mitigation.
+minimumReleaseAge: 0

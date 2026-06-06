@@ -1,9 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
+import {
+  isAuthenticatedAtom,
+  authTokensAtom,
+} from "../atoms/auth";
 import {
   getSavedCredentials,
   getDefaultCredentials,
+  hasPkceDefaults,
   parseTokenData,
+  startPkceLoginWindow,
+  startPkceBrowserLogin,
+  completePkceBrowserLogin,
 } from "../api/tidal";
 import { formatSoneError } from "../lib/errorUtils";
 import {
@@ -21,12 +30,16 @@ import {
   X,
   ArrowLeft,
   AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
+import type { AuthTokens } from "../types";
 import Icon from "./Icon";
 
 type AuthMethod = "device" | "pkce" | "import";
+type SimpleTab = "pkce" | "loginCode";
 type View = "simple" | "advanced";
 
 /** Check if a Tauri IPC error looks like a credential/auth rejection (401/403). */
@@ -70,18 +83,26 @@ export default function Login() {
     importSession,
     getUserPlaylists,
   } = useAuth();
+  const [, setAuthTokens] = useAtom(authTokensAtom);
+  const [, setIsAuthenticated] = useAtom(isAuthenticatedAtom);
 
   const [view, setView] = useState<View>("simple");
+  const [simpleTab, setSimpleTab] = useState<SimpleTab>("pkce");
   const [step, setStep] = useState<
-    "idle" | "device_pending" | "pkce_waiting" | "exchanging"
+    | "idle"
+    | "device_pending"
+    | "pkce_waiting"
+    | "pkce_window_open"
+    | "exchanging"
   >("idle");
   const [authMethod, setAuthMethod] = useState<AuthMethod>("device");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [credentialError, setCredentialError] = useState(false);
   const [hasDefaults, setHasDefaults] = useState(false);
+  const [hasPkceEmbedded, setHasPkceEmbedded] = useState(false);
 
-  // Credentials
+  // Credentials (advanced view)
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
@@ -94,10 +115,16 @@ export default function Login() {
   const deviceCodeRef = useRef<string | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // PKCE state
+  // PKCE state (advanced custom-creds flow)
   const [authorizeUrl, setAuthorizeUrl] = useState("");
   const [pasteUrl, setPasteUrl] = useState("");
   const pkceRef = useRef<{
+    codeVerifier: string;
+    clientUniqueKey: string;
+  } | null>(null);
+
+  // PKCE state (simple/embedded-creds browser failsafe)
+  const embeddedPkceRef = useRef<{
     codeVerifier: string;
     clientUniqueKey: string;
   } | null>(null);
@@ -129,10 +156,16 @@ export default function Login() {
       if (savedSecret) setClientSecret(savedSecret);
 
       const defaults = await getDefaultCredentials();
+      const pkceAvailable = await hasPkceDefaults();
+      setHasPkceEmbedded(pkceAvailable);
       if (defaults.clientId) {
         setHasDefaults(true);
-      } else {
+        setSimpleTab(pkceAvailable ? "pkce" : "loginCode");
+      } else if (!pkceAvailable) {
         setView("advanced");
+      } else {
+        setHasDefaults(true);
+        setSimpleTab("pkce");
       }
 
       setCredentialsLoaded(true);
@@ -154,6 +187,37 @@ export default function Login() {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  // Listen for embedded-webview PKCE results
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
+    listen<AuthTokens>("pkce-login-success", async (event) => {
+      const tokens = event.payload;
+      setAuthTokens(tokens);
+      setIsAuthenticated(true);
+      setStep("exchanging");
+      setStatus("Loading your library...");
+      try {
+        if (tokens.user_id) await getUserPlaylists(tokens.user_id);
+      } catch (err) {
+        console.error("Failed to load playlists after PKCE login:", err);
+      }
+      setStep("idle");
+      setStatus("");
+    }).then((u) => unsubs.push(u));
+    listen<string>("pkce-login-error", (event) => {
+      setError(event.payload || "PKCE login failed.");
+      setStep("idle");
+      setStatus("");
+    }).then((u) => unsubs.push(u));
+    listen("pkce-login-cancelled", () => {
+      setStep("idle");
+      setStatus("");
+    }).then((u) => unsubs.push(u));
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [getUserPlaylists, setAuthTokens, setIsAuthenticated]);
 
   const hasSecret = clientSecret.trim().length > 0;
 
@@ -225,9 +289,9 @@ export default function Login() {
     }
   };
 
-  // ==================== Simple Flow (embedded credentials) ====================
+  // ==================== Simple Flow — Login Code (embedded credentials) ====================
 
-  const handleSimpleLogin = async () => {
+  const handleSimpleLoginCode = async () => {
     const creds = await getDefaultCredentials();
     if (!creds.clientId) {
       setError("No embedded credentials available.");
@@ -242,6 +306,80 @@ export default function Login() {
     });
   };
 
+  // ==================== Simple Flow — PKCE (embedded webview) ====================
+
+  const handleSimplePkceWindow = async () => {
+    setError(null);
+    setStep("pkce_window_open");
+    setStatus("Waiting for browser...");
+    try {
+      await startPkceLoginWindow();
+    } catch (err: any) {
+      setError(formatSoneError(err));
+      setStep("idle");
+      setStatus("");
+    }
+  };
+
+  // ==================== Simple Flow — PKCE (browser failsafe) ====================
+
+  const handleSimplePkceBrowser = async () => {
+    setError(null);
+    try {
+      const params = await startPkceBrowserLogin();
+      embeddedPkceRef.current = {
+        codeVerifier: params.codeVerifier,
+        clientUniqueKey: params.clientUniqueKey,
+      };
+      setAuthorizeUrl(params.authorizeUrl);
+      setStep("pkce_waiting");
+      setStatus("");
+      try {
+        await openUrl(params.authorizeUrl);
+      } catch {
+        window.open(params.authorizeUrl, "_blank");
+      }
+    } catch (err: any) {
+      setError(formatSoneError(err));
+      setStep("idle");
+    }
+  };
+
+  const handleSubmitEmbeddedUrl = async () => {
+    if (!pasteUrl.trim() || !embeddedPkceRef.current) return;
+    try {
+      let code: string | null = null;
+      try {
+        const url = new URL(pasteUrl.trim());
+        code = url.searchParams.get("code");
+      } catch {
+        if (pasteUrl.trim().length > 10 && !pasteUrl.includes(" "))
+          code = pasteUrl.trim();
+      }
+      if (!code) {
+        setError("Could not find authorization code in the URL.");
+        return;
+      }
+      setStep("exchanging");
+      setStatus("Completing login...");
+      const tokens = await completePkceBrowserLogin(
+        code,
+        embeddedPkceRef.current.codeVerifier,
+        embeddedPkceRef.current.clientUniqueKey,
+      );
+      setAuthTokens(tokens);
+      setIsAuthenticated(true);
+      setStatus("Loading your library...");
+      if (tokens.user_id) await getUserPlaylists(tokens.user_id);
+      setStep("idle");
+      setStatus("");
+    } catch (err: any) {
+      setError(formatSoneError(err));
+      setStep("pkce_waiting");
+      setStatus("");
+    }
+  };
+
   // ==================== Device Code Flow (advanced) ====================
 
   const handleDeviceLogin = async () => {
@@ -254,7 +392,7 @@ export default function Login() {
     });
   };
 
-  // ==================== PKCE Flow ====================
+  // ==================== PKCE Flow (advanced custom creds) ====================
 
   const handlePkceLogin = async () => {
     if (!clientId.trim()) {
@@ -290,6 +428,11 @@ export default function Login() {
   };
 
   const handleSubmitUrl = async () => {
+    // Embedded-creds (simple) PKCE in-progress?
+    if (embeddedPkceRef.current) {
+      await handleSubmitEmbeddedUrl();
+      return;
+    }
     if (!pasteUrl.trim() || !pkceRef.current) return;
     try {
       let code: string | null = null;
@@ -416,6 +559,7 @@ export default function Login() {
     setVerificationUri("");
     setQrCodeUrl("");
     pkceRef.current = null;
+    embeddedPkceRef.current = null;
     deviceCodeRef.current = null;
     simpleCredsRef.current = null;
     if (pollIntervalRef.current) {
@@ -426,14 +570,14 @@ export default function Login() {
 
   if (!credentialsLoaded) {
     return (
-      <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+      <div className="flex items-center justify-center h-full w-full bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
         <Loader2 className="animate-spin text-th-accent" size={32} />
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+    <div className="flex items-center justify-center h-full w-full bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
       <div className="text-center p-10 bg-th-surface/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-th-border-subtle max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-center gap-0">
@@ -446,9 +590,56 @@ export default function Login() {
         {/* ==================== Simple View — Idle ==================== */}
         {view === "simple" && step === "idle" && (
           <>
-            <p className="text-th-text-muted mb-8 text-lg">
+            <p className="text-th-text-muted mb-6 text-lg">
               Connect your TIDAL account
             </p>
+
+            {/* Top-level method tabs */}
+            {hasPkceEmbedded && (
+              <div className="flex justify-center mb-6">
+                <div className="relative grid grid-cols-2 w-[260px] bg-th-overlay rounded-full p-1 border border-th-border-subtle">
+                  {/* Sliding active-tab indicator */}
+                  <span
+                    aria-hidden
+                    className="absolute top-1 bottom-1 left-1 w-[calc(50%-0.25rem)] bg-th-accent rounded-full shadow-sm transition-transform duration-300 ease-out"
+                    style={{
+                      transform:
+                        simpleTab === "pkce"
+                          ? "translateX(0)"
+                          : "translateX(100%)",
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      setSimpleTab("pkce");
+                      setError(null);
+                      setCredentialError(false);
+                    }}
+                    className={`relative z-10 py-2 text-[13px] font-medium rounded-full transition-colors duration-300 ${
+                      simpleTab === "pkce"
+                        ? "text-black"
+                        : "text-th-text-muted hover:text-th-text-primary"
+                    }`}
+                  >
+                    PKCE
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSimpleTab("loginCode");
+                      setError(null);
+                      setCredentialError(false);
+                    }}
+                    className={`relative z-10 py-2 text-[13px] font-medium rounded-full transition-colors duration-300 ${
+                      simpleTab === "loginCode"
+                        ? "text-black"
+                        : "text-th-text-muted hover:text-th-text-primary"
+                    }`}
+                  >
+                    Login Code
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Error banner */}
             {error && (
@@ -484,30 +675,81 @@ export default function Login() {
             )}
 
             {status ? (
-              <div className="flex flex-col items-center gap-4 py-4">
+              <div className="flex flex-col items-center justify-center gap-4 py-6">
                 <Loader2 className="animate-spin text-th-accent" size={24} />
                 <p className="text-th-text-muted text-[14px]">{status}</p>
               </div>
             ) : (
-              <button
-                onClick={handleSimpleLogin}
-                className="w-full px-6 py-3.5 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
-              >
-                Get Login Code
-              </button>
+              <div className="flex flex-col items-center">
+                {simpleTab === "pkce" && hasPkceEmbedded ? (
+                  <>
+                    <p className="text-[12px] text-th-text-faint mb-5">
+                      Recommended. Unlocks Hi-Res / MAX quality up to
+                      24-bit/192&nbsp;kHz.
+                    </p>
+                    <button
+                      onClick={handleSimplePkceWindow}
+                      className="w-full px-6 py-3.5 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
+                    >
+                      Sign in with TIDAL
+                    </button>
+                    <button
+                      onClick={handleSimplePkceBrowser}
+                      className="mt-3 inline-flex items-center gap-1.5 text-[12px] text-th-text-faint hover:text-th-text-muted transition-colors"
+                    >
+                      <ExternalLink size={11} />
+                      Open in browser instead
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[12px] text-th-text-faint mb-5">
+                      Get a 6-character code and enter it on{" "}
+                      <span className="text-th-text-faint">link.tidal.com</span>.
+                    </p>
+                    <button
+                      onClick={handleSimpleLoginCode}
+                      className="w-full px-6 py-3.5 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
+                    >
+                      Get Login Code
+                    </button>
+                    {/* Spacer to match the PKCE tab's "Open in browser" link height */}
+                    <div className="mt-3 h-[18px]" aria-hidden />
+                  </>
+                )}
+              </div>
             )}
 
-            <button
-              onClick={() => {
-                setError(null);
-                setCredentialError(false);
-                setView("advanced");
-              }}
-              className="mt-6 text-[12px] text-th-text-faint hover:text-th-text-muted transition-colors"
-            >
-              Use custom credentials
-            </button>
+            <div className="mt-7 pt-4 border-t border-th-border-subtle/40">
+              <button
+                onClick={() => {
+                  setError(null);
+                  setCredentialError(false);
+                  setView("advanced");
+                }}
+                className="inline-flex items-center gap-1 text-[12px] text-th-text-faint hover:text-th-text-muted transition-colors"
+              >
+                Use custom credentials
+                <ChevronRight size={13} />
+              </button>
+            </div>
           </>
+        )}
+
+        {/* ==================== PKCE Window Open (simple, embedded webview) ==================== */}
+        {step === "pkce_window_open" && (
+          <div className="flex flex-col items-center gap-5 py-4">
+            <Loader2 className="animate-spin text-th-accent" size={32} />
+            <p className="text-th-text-muted text-[14px]">
+              Complete sign-in in the TIDAL window.
+            </p>
+            <button
+              onClick={reset}
+              className="text-[12px] text-th-text-faint hover:text-th-text-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         )}
 
         {/* ==================== Device Pending (shared) ==================== */}

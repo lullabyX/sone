@@ -6,6 +6,14 @@ import { getTidalImageUrl, type MediaItemType } from "../types";
  */
 
 export function getItemImage(item: any, size: number = 320): string {
+  // MAGAZINE: data.imageURL is already a full URL — return as-is, no CDN builder.
+  if (isMagazineItem(item)) {
+    return item.data?.imageURL ?? "";
+  }
+  // DEEP_LINK: no image in payload.
+  if (isDeepLinkItem(item)) {
+    return "";
+  }
   // Mix items: images.SMALL/MEDIUM/LARGE
   if (item.images) {
     if (typeof item.images === "object" && !Array.isArray(item.images)) {
@@ -60,6 +68,12 @@ export function getItemImage(item: any, size: number = 320): string {
 }
 
 export function getItemTitle(item: any): string {
+  if (isMagazineItem(item)) {
+    return item.data?.shortHeader ?? "";
+  }
+  if (isDeepLinkItem(item)) {
+    return item.data?.title ?? "";
+  }
   if (item.title) return item.title;
   if (item.name) return item.name;
   if (item.titleTextInfo?.text) return item.titleTextInfo.text;
@@ -67,6 +81,9 @@ export function getItemTitle(item: any): string {
 }
 
 export function getItemSubtitle(item: any, userId?: number): string {
+  if (isMagazineItem(item)) {
+    return item.data?.shortSubHeader ?? "";
+  }
   if (item.subTitle) return item.subTitle;
   if (item.shortSubtitle) return item.shortSubtitle;
   if (item.subtitleTextInfo?.text) return item.subtitleTextInfo.text;
@@ -96,6 +113,12 @@ export function getItemSubtitle(item: any, userId?: number): string {
 }
 
 export function getItemId(item: any): string {
+  if (isMagazineItem(item)) {
+    return item.data?.artifactId ?? String(item.data?.id ?? "");
+  }
+  if (isDeepLinkItem(item)) {
+    return String(item.data?.id ?? item.data?.url ?? "");
+  }
   return (
     item.id?.toString() ||
     item.uuid ||
@@ -141,8 +164,23 @@ export function isMixItem(item: any, sectionType?: string): boolean {
   );
 }
 
+export function isMagazineItem(item: any): boolean {
+  return item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE";
+}
+
+export function isDeepLinkItem(item: any): boolean {
+  return item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK";
+}
+
 /** Detect the special "My Tracks" shortcut from Tidal's v2 feed. */
 export function isMyTracksItem(item: any): boolean {
+  if (typeof item?.id === "string" && item.id === "tidal://my-collection/tracks") {
+    return true;
+  }
+  if (isDeepLinkItem(item)) {
+    const url = item.data?.url ?? item.data?.id;
+    return url === "tidal://my-collection/tracks";
+  }
   return (
     getItemTitle(item) === "My Tracks" &&
     !item.uuid &&
@@ -156,6 +194,19 @@ export function buildMediaItem(
   item: any,
   sectionType?: string,
 ): MediaItemType | null {
+  // MAGAZINE promo card wraps a playlist artifact.
+  if (isMagazineItem(item)) {
+    const d = item.data;
+    if (d?.type === "PLAYLIST" && d?.artifactId) {
+      return {
+        type: "playlist",
+        uuid: d.artifactId,
+        title: d.shortHeader ?? "",
+        image: d.imageURL,
+      };
+    }
+    return null;
+  }
   if (isMixItem(item, sectionType)) {
     const mixId = item.mixId || item.id?.toString();
     if (mixId) {
@@ -201,6 +252,21 @@ export function buildMediaItem(
 export function getTrackArtistDisplay(track: { artist?: { name?: string }; artists?: { name: string }[] }): string {
   if (track.artists && track.artists.length > 0) {
     return track.artists.map((a) => a.name).join(", ");
+  }
+  return track.artist?.name || "Unknown Artist";
+}
+
+/** The single primary artist to scrobble to Audioscrobbler providers (Last.fm/Libre.fm).
+ *  The runtime artist field is `type` ("MAIN"/"FEATURED"); `artistType` is accepted as a
+ *  fallback for the (inaccurate) TS interface. Discord/MPRIS/UI display are unaffected. */
+export function getTrackPrimaryArtist(track: {
+  artist?: { name?: string };
+  artists?: { name: string; type?: string; artistType?: string }[];
+}): string {
+  if (track.artists && track.artists.length > 0) {
+    const typeOf = (a: { type?: string; artistType?: string }) => a.artistType ?? a.type;
+    const main = track.artists.find((a) => typeOf(a) === "MAIN");
+    return main?.name ?? track.artists[0].name;
   }
   return track.artist?.name || "Unknown Artist";
 }

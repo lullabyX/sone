@@ -20,12 +20,19 @@ pub fn compute_norm_gain(replay_gain: Option<f64>, peak_amplitude: Option<f64>) 
     }
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn play_tidal_track(
-    state: State<'_, AppState>,
+/// Resolved stream slot: everything a caller needs to arm/play a track.
+/// `replay_gain`/`peak_amplitude` are `f64::NAN` when absent.
+pub type ResolvedStream = (StreamInfo, String, f64, f64, f64, bool);
+
+/// Shared resolver: runs the quality cascade, builds the DASH/BTS URI, selects
+/// replay-gain/peak per playback context, and computes the normalization gain.
+/// Returns `(stream_info, uri, norm_gain, replay_gain, peak_amplitude, is_dash)`.
+/// Does NOT touch `last_replay_gain`/`last_track_id` or start playback.
+pub async fn resolve_play_uri(
+    state: &AppState,
     track_id: u64,
     use_track_gain: bool,
-) -> Result<StreamInfo, SoneError> {
+) -> Result<ResolvedStream, SoneError> {
     // Try quality tiers from highest to lowest.
     // Without client_secret, skip Hi-Res (those credentials typically return
     // encrypted DASH streams that require Widevine). With a secret, the
@@ -58,11 +65,12 @@ pub async fn play_tidal_track(
     };
 
     log::debug!(
-        "[play_tidal_track]: track_id={} — quality={:?}, bitDepth={:?}, sampleRate={:?}, codec={:?}, dash={}",
+        "[resolve_play_uri]: track_id={} — quality={:?}, bitDepth={:?}, sampleRate={:?}, codec={:?}, dash={}",
         track_id, stream_info.audio_quality, stream_info.bit_depth, stream_info.sample_rate,
         stream_info.codec, stream_info.manifest.is_some()
     );
 
+    let is_dash = stream_info.manifest.is_some();
     let uri = if let Some(ref mpd) = stream_info.manifest {
         // DASH: pass MPD manifest as a data URI for GStreamer's dashdemux.
         use base64::Engine;
@@ -94,35 +102,50 @@ pub async fn play_tidal_track(
         )
     };
 
-    // Store selected values for live toggle
-    state
-        .last_replay_gain
-        .store(selected_rg.unwrap_or(f64::NAN).to_bits(), Ordering::Relaxed);
-    state.last_peak_amplitude.store(
-        selected_peak.unwrap_or(f64::NAN).to_bits(),
-        Ordering::Relaxed,
-    );
-
-    // Apply normalization gain BEFORE play_url so the pipeline builds with
-    // the correct current_norm_gain — prevents volume spike on track start.
     let norm_gain = if state.volume_normalization.load(Ordering::Relaxed) {
         compute_norm_gain(selected_rg, selected_peak)
     } else {
         1.0
     };
     log::debug!(
-        "[play_tidal_track]: normalization gain={:.3} (use_track_gain={}, rg={:?}, peak={:?})",
+        "[resolve_play_uri]: normalization gain={:.3} (use_track_gain={}, rg={:?}, peak={:?})",
         norm_gain,
         use_track_gain,
         selected_rg,
         selected_peak
     );
 
+    Ok((
+        stream_info,
+        uri,
+        norm_gain,
+        selected_rg.unwrap_or(f64::NAN),
+        selected_peak.unwrap_or(f64::NAN),
+        is_dash,
+    ))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn play_tidal_track(
+    state: State<'_, AppState>,
+    track_id: u64,
+    use_track_gain: bool,
+) -> Result<StreamInfo, SoneError> {
+    let (stream_info, uri, norm_gain, rg, peak, _is_dash) =
+        resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+
+    // Store selected values for live toggle
+    state.last_replay_gain.store(rg.to_bits(), Ordering::Relaxed);
+    state
+        .last_peak_amplitude
+        .store(peak.to_bits(), Ordering::Relaxed);
+
+    // Apply normalization gain BEFORE play_url so the pipeline builds with
+    // the correct current_norm_gain — prevents volume spike on track start.
     let player = state.audio_player.clone();
-    let uri_clone = uri.clone();
     tokio::task::spawn_blocking(move || {
         player.set_normalization_gain(norm_gain)?;
-        player.play_url(&uri_clone)
+        player.play_url(&uri)
     })
         .await
         .map_err(|e| SoneError::Audio(e.to_string()))?
@@ -135,6 +158,42 @@ pub async fn play_tidal_track(
     }
 
     Ok(stream_info)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn set_next_track(
+    state: State<'_, AppState>,
+    track_id: u64,
+    qid: String,
+    use_track_gain: bool,
+) -> Result<StreamInfo, SoneError> {
+    let (info, uri, gain, rg, peak, is_dash) =
+        resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+    state
+        .audio_player
+        .set_next_track(uri, gain, track_id, qid, rg, peak, is_dash)
+        .map_err(SoneError::Audio)?;
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn clear_next_track(state: State<'_, AppState>) -> Result<(), SoneError> {
+    state.audio_player.clear_next_track().map_err(SoneError::Audio)
+}
+
+/// Pure resolver: returns `StreamInfo` WITHOUT arming the gapless slot or
+/// starting playback. Used by the frontend's rare track-advanced stash-miss
+/// recovery to adopt an already-playing track. Must NOT call
+/// `audio_player.set_next_track` / `play_url`.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_stream_info(
+    state: State<'_, AppState>,
+    track_id: u64,
+    use_track_gain: bool,
+) -> Result<StreamInfo, SoneError> {
+    let (info, _uri, _gain, _rg, _peak, _is_dash) =
+        resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+    Ok(info)
 }
 
 #[tauri::command]
@@ -242,6 +301,16 @@ pub struct MprisMetadata {
     pub url: String,
     #[serde(default)]
     pub quality_text: String,
+    #[serde(default)]
+    pub album_artist: Option<String>,
+    #[serde(default)]
+    pub track_number: Option<u32>,
+    #[serde(default)]
+    pub disc_number: Option<u32>,
+    #[serde(default)]
+    pub content_created: Option<String>,
+    #[serde(default)]
+    pub user_rating: Option<f64>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -258,6 +327,16 @@ pub fn update_mpris_metadata(
         album: metadata.album.clone(),
         art_url: metadata.art_url.clone(),
         duration_secs: metadata.duration_secs,
+        url: if metadata.url.is_empty() {
+            None
+        } else {
+            Some(metadata.url.clone())
+        },
+        album_artist: metadata.album_artist.clone(),
+        track_number: metadata.track_number,
+        disc_number: metadata.disc_number,
+        content_created: metadata.content_created.clone(),
+        user_rating: metadata.user_rating,
     });
     state
         .discord
@@ -303,6 +382,19 @@ pub fn update_mpris_shuffle(
     state
         .mpris
         .send(crate::mpris::MprisCommand::SetShuffle { enabled });
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
+pub fn update_mpris_fullscreen(
+    state: State<'_, AppState>,
+    fullscreen: bool,
+) -> Result<(), SoneError> {
+    #[cfg(target_os = "linux")]
+    state
+        .mpris
+        .send(crate::mpris::MprisCommand::SetFullscreen { fullscreen });
     Ok(())
 }
 

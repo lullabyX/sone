@@ -40,6 +40,7 @@ import {
 } from "../atoms/favorites";
 import { deletedFolderIdsAtom, deletedPlaylistIdsAtom, movedPlaylistsAtom, folderCountAdjustmentsAtom, addedToFolderAtom, renamedFoldersAtom, updatedPlaylistsAtom } from "../atoms/playlists";
 import { sidebarCollapsedAtom } from "../atoms/ui";
+import { currentViewAtom } from "../atoms/navigation";
 
 export default function Sidebar() {
   const {
@@ -52,8 +53,8 @@ export default function Sidebar() {
     navigateToExplore,
     navigateToLibraryViewAll,
     navigateToPlaylistFolder,
-    currentView,
   } = useNavigation();
+  const currentView = useAtomValue(currentViewAtom);
   const { authTokens } = useAuth();
   const [isCollapsed, setIsCollapsed] = useAtom(sidebarCollapsedAtom);
   const [activeFilter, setActiveFilter] = useState<

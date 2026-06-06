@@ -5,7 +5,19 @@ use super::playback::compute_norm_gain;
 use crate::audio::AudioDevice;
 use crate::cache::{CacheResult, CacheTier};
 use crate::AppState;
+use crate::SignalPath;
 use crate::SoneError;
+
+#[tauri::command]
+pub fn get_signal_path(state: State<'_, AppState>) -> SignalPath {
+    state.signal_path.snapshot()
+}
+
+#[tauri::command]
+pub fn refresh_signal_path(state: State<'_, AppState>) -> SignalPath {
+    state.pipeline_probe.refresh();
+    state.signal_path.snapshot()
+}
 
 #[tauri::command]
 pub async fn update_tray_tooltip(app: tauri::AppHandle, text: String) -> Result<String, SoneError> {
@@ -122,6 +134,7 @@ pub fn set_volume_normalization(
         .audio_player
         .set_normalization_gain(norm_gain)
         .map_err(SoneError::Audio)?;
+    state.signal_path.set_normalization_enabled(enabled);
     let mut settings = state.load_settings().unwrap_or_default();
     settings.volume_normalization = enabled;
     state.save_settings(&settings)?;
@@ -193,6 +206,29 @@ pub fn set_bit_perfect(state: State<'_, AppState>, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn get_gapless(state: State<'_, AppState>) -> bool {
+    state.gapless.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn get_gapless_supported() -> bool {
+    crate::audio::gapless_supported()
+}
+
+#[tauri::command]
+pub fn set_gapless(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    state.gapless.store(enabled, Ordering::Relaxed);
+    state
+        .audio_player
+        .set_gapless(enabled)
+        .map_err(SoneError::Audio)?;
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.gapless = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_exclusive_device(state: State<'_, AppState>) -> Option<String> {
     state.exclusive_device.lock().unwrap().clone()
 }
@@ -252,6 +288,26 @@ pub fn set_discord_rpc(state: State<'_, AppState>, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn get_discord_status_text(state: State<'_, AppState>) -> String {
+    state
+        .load_settings()
+        .map(|s| s.discord_status_text)
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn set_discord_status_text(state: State<'_, AppState>, text: String) -> Result<(), SoneError> {
+    state
+        .discord
+        .send(crate::discord::DiscordCommand::SetStatusText { text: text.clone() });
+
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.discord_status_text = text;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_proxy_settings(state: State<'_, AppState>) -> crate::ProxySettings {
     state
         .load_settings()
@@ -285,8 +341,11 @@ pub async fn set_proxy_settings(
 }
 
 #[tauri::command]
-pub async fn inhibit_idle(state: State<'_, AppState>) -> Result<(), SoneError> {
-    state.idle_inhibitor.lock().await.inhibit().await;
+pub async fn inhibit_idle(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), SoneError> {
+    state.idle_inhibitor.lock().await.inhibit(&window).await;
     Ok(())
 }
 
@@ -319,4 +378,37 @@ pub async fn test_proxy_connection(
         }
         Err(e) => Err(format!("Connection failed: {e}")),
     }
+}
+
+fn logging_toggle_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("sone").join("logging.toggle"))
+}
+
+#[tauri::command]
+pub fn get_enable_logging() -> bool {
+    let Some(path) = logging_toggle_path() else {
+        return true;
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return true;
+    };
+    match text.trim() {
+        "false" => false,
+        _ => true,
+    }
+}
+
+#[tauri::command]
+pub fn set_enable_logging(enabled: bool) -> Result<(), SoneError> {
+    let Some(path) = logging_toggle_path() else {
+        return Err(SoneError::Io("Could not resolve config dir".into()));
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| SoneError::Io(format!("Failed to create config dir: {e}")))?;
+    }
+    let body = if enabled { "true" } else { "false" };
+    std::fs::write(&path, body)
+        .map_err(|e| SoneError::Io(format!("Failed to write logging toggle: {e}")))?;
+    Ok(())
 }

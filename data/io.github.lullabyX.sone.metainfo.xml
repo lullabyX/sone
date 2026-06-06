@@ -78,6 +78,134 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.18.1" date="2026-05-21">
+      <description>
+        <p>MCP Server</p>
+        <ul>
+          <li>Embedded Model Context Protocol server on port 5577 so external agents like Claude Code can drive your library and playback</li>
+          <li>Tools for search, favorites, playlists (full CRUD), now-playing, queue, lyrics, track radio, artist top tracks, and album tracks</li>
+          <li>Playback control: play, pause, next, seek, volume, shuffle, and queue</li>
+          <li>Settings tab with live enable toggle and token regeneration; off by default; stateless transport survives restarts</li>
+        </ul>
+        <p>Signal Path Transparency</p>
+        <ul>
+          <li>New panel that shows exactly what your audio is going through, end to end — open it by clicking the format/quality badge next to the now-playing track</li>
+          <li>Probes the live GStreamer pipeline including autoaudiosink children</li>
+          <li>Maps `pactl` sink to ALSA card and surfaces OS mixer as a cable alteration</li>
+          <li>PRISTINE verdict based on audio-bit integrity, not just bit-perfect mode</li>
+          <li>Expand-to-flow-diagram view with friendly DAC names</li>
+          <li>Reads only from local sources (GStreamer pad caps, pactl info, /proc/asound hw_params); nothing is sent off-device</li>
+        </ul>
+        <p>Tooltips</p>
+        <ul>
+          <li>Native browser tooltips replaced with a themed TooltipLayer that matches the rest of the UI</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Bit-perfect mode now forces unity volume and disables normalization, with a smooth ramp back to normal on disable</li>
+          <li>Truthful bit-depth promotion toast</li>
+          <li>Skip metadata-unavailable tracks instead of stalling source playback</li>
+          <li>Custom title bar restored on login and auth-check screens</li>
+        </ul>
+        <p>Build &amp; Packaging</p>
+        <ul>
+          <li>Migrated package manager from `npm` to `pnpm` in light of recent supply-chain incidents in the `npm` ecosystem (Node 22+ required)</li>
+          <li>Tauri JS and Rust pinned to 2.11.x</li>
+          <li>Arch PKGBUILD: libpulse and pulseaudio-utils added for pactl</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.17.0" date="2026-05-17">
+      <description>
+        <p>Logging</p>
+        <ul>
+          <li>Optional disk logging to ~/.config/sone/logs/ with daily rotation, toggled from Settings → Utilities</li>
+          <li>Defaults to on; pre-Tauri probe ensures early-startup logs are captured</li>
+        </ul>
+        <p>Performance</p>
+        <ul>
+          <li>Virtualized the loved tracks list and main playlist track list for smooth scrolling on large libraries</li>
+        </ul>
+        <p>Loved Tracks</p>
+        <ul>
+          <li>Play and Shuffle buttons added to the loved tracks page</li>
+        </ul>
+        <p>Settings</p>
+        <ul>
+          <li>Redesigned with a vertical tab rail, one section per tab</li>
+          <li>Taller modal and tab state resets on reopen</li>
+        </ul>
+        <p>MPRIS</p>
+        <ul>
+          <li>Publishes live playback position so external media widgets show progress</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Reduced WebKitGTK font blur on scroll/resize via text-rendering: geometricPrecision</li>
+          <li>Active search tab is preserved across back/forward navigation</li>
+          <li>Mini search stays open during context menu interactions and when starting playback</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.16.0" date="2026-05-16">
+      <description>
+        <p>Keyboard Shortcuts</p>
+        <ul>
+          <li>Customize in-app keyboard shortcuts from a new settings page</li>
+        </ul>
+        <p>MPRIS</p>
+        <ul>
+          <li>Full coverage of Root and Player interfaces for desktop integration</li>
+        </ul>
+        <p>About</p>
+        <ul>
+          <li>New About modal with version and project info, accessible from the user menu</li>
+        </ul>
+        <p>Playback</p>
+        <ul>
+          <li>Unavailable tracks are automatically skipped and shown greyed out in track lists</li>
+          <li>Guard against rapid re-entry when starting a track</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Context menu positioning corrected at non-default zoom levels</li>
+          <li>Home page refreshes when the window regains focus after 5 minutes</li>
+          <li>Search track row navigates to the album; tap the cover to play</li>
+          <li>Visible text selection highlight across themes</li>
+          <li>WebKit permission prompts denied in the PKCE login window</li>
+          <li>Tightened miniplayer shadow margin for a uniform appearance</li>
+          <li>"My Tracks" tile in Recently played routes to Loved Tracks instead of failing playback</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.15.0" date="2026-05-10">
+      <description>
+        <p>Sign-In</p>
+        <ul>
+          <li>New PKCE login flow with an embedded webview — sign in directly inside SONE</li>
+        </ul>
+        <p>Audio</p>
+        <ul>
+          <li>Logarithmic volume control with a cubic taper for smoother, more natural changes across the slider's range</li>
+          <li>Keyboard volume shortcuts now respect bit-perfect mode</li>
+          <li>Persisted volume is read on launch so the backend syncs to the correct level</li>
+        </ul>
+        <p>Discord Rich Presence</p>
+        <ul>
+          <li>Customizable status text — set your own line shown on Discord</li>
+        </ul>
+        <p>Title Bar</p>
+        <ul>
+          <li>Custom title bar with a setting to hide native window decorations</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>404 page and global error boundary handle missing routes and unexpected errors gracefully</li>
+          <li>Disabled WebKitGTK DMA-BUF renderer on NVIDIA under Wayland to fix rendering glitches</li>
+          <li>Clamped volume slider input to prevent out-of-range values</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.1" date="2026-03-21">
       <description>
         <p>Track Sorting</p>

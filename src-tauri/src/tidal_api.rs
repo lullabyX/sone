@@ -883,9 +883,20 @@ pub struct HomePageSection {
     pub api_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeTab {
+    pub name: String,
+    /// Raw tab type from the API, e.g. "STATIC", "EDITORIAL", "UPLOADS".
+    /// The feed slug is `tab_type.to_lowercase()`.
+    pub tab_type: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HomePageResponse {
+    #[serde(default)]
+    pub tabs: Vec<HomeTab>,
     pub sections: Vec<HomePageSection>,
     pub cursor: Option<String>,
 }
@@ -1051,12 +1062,21 @@ impl TidalClient {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         if !status.is_success() {
-            log::error!(
-                "[api_get_body] {} -> status={} body={}",
-                url,
-                status,
-                &body[..body.len().min(500)]
-            );
+            let is_account_endpoint = url.contains("/users/") || url.contains("/sessions");
+            if is_account_endpoint {
+                log::error!(
+                    "[api_get_body] {} -> status={} body=<redacted: account endpoint>",
+                    url,
+                    status,
+                );
+            } else {
+                log::error!(
+                    "[api_get_body] {} -> status={} body={}",
+                    url,
+                    status,
+                    &body[..body.len().min(500)]
+                );
+            }
             return Err(SoneError::Api {
                 status: status.as_u16(),
                 body,
@@ -3426,9 +3446,10 @@ impl TidalClient {
     /// Returns parsed sections, or empty vec on failure.
     pub async fn fetch_v2_home_feed(
         &mut self,
+        feed_slug: &str,
         cursor: Option<&str>,
-    ) -> (Vec<HomePageSection>, Option<String>) {
-        let url = format!("{}/home/feed/static", TIDAL_API_V2_URL);
+    ) -> (Vec<HomeTab>, Vec<HomePageSection>, Option<String>) {
+        let url = format!("{}/home/feed/{}", TIDAL_API_V2_URL, feed_slug);
         let country_code = self.country_code.clone();
 
         let mut params: Vec<(&str, &str)> = vec![
@@ -3469,21 +3490,21 @@ impl TidalClient {
                                 raw_count - result.sections.len()
                             );
                         }
-                        (result.sections, next_cursor)
+                        (result.tabs, result.sections, next_cursor)
                     }
                     Err(e) => {
                         log::debug!("v2 home feed: parse error: {}", e);
-                        (vec![], None)
+                        (vec![], vec![], None)
                     }
                 }
             }
             Ok(r) => {
                 log::debug!("v2 home feed: HTTP {}", r.status());
-                (vec![], None)
+                (vec![], vec![], None)
             }
             Err(e) => {
                 log::debug!("v2 home feed: request error: {}", e);
-                (vec![], None)
+                (vec![], vec![], None)
             }
         }
     }
@@ -3595,14 +3616,15 @@ impl TidalClient {
     /// Fetch the home page. Tries the v2 home/feed/static endpoint first
     /// (what the Tidal web app uses). Falls back to multi-endpoint v1 approach.
     /// Trusts Tidal's section ordering — no manual resorting.
-    pub async fn get_home_page(&mut self) -> Result<HomePageResponse, SoneError> {
+    pub async fn get_home_page(&mut self, feed_slug: &str) -> Result<HomePageResponse, SoneError> {
         // Try v2 home feed first (single endpoint, personalized)
-        let (mut all_sections, cursor) = self.fetch_v2_home_feed(None).await;
+        let (tabs, mut all_sections, cursor) = self.fetch_v2_home_feed(feed_slug, None).await;
 
         if !all_sections.is_empty() {
             log::debug!(
-                "[home v2]: got {} sections from home/feed/static",
-                all_sections.len()
+                "[home v2]: got {} sections from home/feed/{}",
+                all_sections.len(),
+                feed_slug
             );
 
             // Filter out non-content section types
@@ -3626,6 +3648,16 @@ impl TidalClient {
                 cursor.is_some()
             );
             return Ok(HomePageResponse {
+                tabs,
+                sections: all_sections,
+                cursor,
+            });
+        }
+
+        // v1 fallback only applies to the default static feed; other tabs are v2-only.
+        if feed_slug != "static" {
+            return Ok(HomePageResponse {
+                tabs,
                 sections: all_sections,
                 cursor,
             });
@@ -3664,13 +3696,37 @@ impl TidalClient {
 
         log::debug!("[home v1]: returning {} sections", all_sections.len());
         Ok(HomePageResponse {
+            tabs: vec![],
             sections: all_sections,
             cursor: None,
         })
     }
 
+    /// Extract the tab list from a v2 home feed response: `header.vibes.items[]`.
+    fn parse_home_tabs(json: &Value) -> Vec<HomeTab> {
+        json.get("header")
+            .and_then(|h| h.get("vibes"))
+            .and_then(|v| v.get("items"))
+            .and_then(|i| i.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|it| {
+                        let name = it.get("name").and_then(|n| n.as_str())?;
+                        let tab_type = it.get("type").and_then(|t| t.as_str())?;
+                        Some(HomeTab {
+                            name: name.to_string(),
+                            tab_type: tab_type.to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Parse a pages API response, supporting V1, V2, and tab/category formats.
     fn parse_page_response(json: &Value) -> Result<HomePageResponse, SoneError> {
+        let tabs = Self::parse_home_tabs(json);
         let mut sections = Vec::new();
 
         // ---- V1 format: { rows: [ { modules: [ { type, title, pagedList, ... } ] } ] }
@@ -3801,6 +3857,7 @@ impl TidalClient {
         }
 
         Ok(HomePageResponse {
+            tabs,
             sections,
             cursor: None,
         })
@@ -4479,9 +4536,13 @@ impl TidalClient {
         &mut self,
         artist_id: u64,
         view_all_path: &str,
+        offset: u32,
+        limit: u32,
     ) -> Result<Value, SoneError> {
         let cc = self.country_code.clone();
         let id_str = artist_id.to_string();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
         // viewAll paths from v2 API are relative like "artist/ARTIST_ALBUMS/view-all?artistId=123"
         // They need the v2 base URL, and may already contain query params
         let url = if view_all_path.starts_with("http") {
@@ -4500,8 +4561,8 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("deviceType", "BROWSER"),
                     ("platform", "WEB"),
-                    ("limit", "50"),
-                    ("offset", "0"),
+                    ("limit", &limit_str),
+                    ("offset", &offset_str),
                 ],
             )
             .await?;
@@ -4692,5 +4753,34 @@ impl TidalClient {
         let json: Value =
             serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
         Self::parse_page_response(&json)
+    }
+}
+
+#[cfg(test)]
+mod home_tab_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_tabs_from_vibes() {
+        let body = json!({
+            "header": { "vibes": { "items": [
+                { "name": "For you", "type": "STATIC" },
+                { "name": "Staff Picks", "type": "EDITORIAL" },
+                { "name": "Uploads", "type": "UPLOADS" }
+            ]}},
+            "items": []
+        });
+        let tabs = TidalClient::parse_home_tabs(&body);
+        assert_eq!(tabs.len(), 3);
+        assert_eq!(tabs[0].name, "For you");
+        assert_eq!(tabs[0].tab_type, "STATIC");
+        assert_eq!(tabs[2].tab_type, "UPLOADS");
+    }
+
+    #[test]
+    fn returns_empty_when_no_vibes() {
+        let body = json!({ "items": [] });
+        assert!(TidalClient::parse_home_tabs(&body).is_empty());
     }
 }

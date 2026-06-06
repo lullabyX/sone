@@ -22,7 +22,7 @@
   background-color: var(--th-bg-base, #121212);
 
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -47,6 +47,17 @@ input,
 textarea {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* Visible selection highlight across dark + light themes.
+   No color override so the original text color stays readable. */
+::selection {
+  background-color: var(--th-accent);
+  background-color: color-mix(in srgb, var(--th-accent) 40%, transparent);
+}
+::-moz-selection {
+  background-color: var(--th-accent);
+  background-color: color-mix(in srgb, var(--th-accent) 40%, transparent);
 }
 
 #root {
@@ -113,6 +124,17 @@ textarea {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes signalPathPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 1;
   }
 }
 

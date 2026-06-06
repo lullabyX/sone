@@ -41,15 +41,15 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 
 WORKDIR /app
 
-# ── Layer 4: npm ci (only re-runs when package*.json changes) ────────────────
-COPY package.json package-lock.json ./
-RUN npm ci
+# ── Layer 4: pnpm install (only re-runs when package*.json or lockfile changes)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN npm install -g pnpm@11.1.3 && pnpm install --frozen-lockfile
 
 # ── Layer 5: Full source + build ─────────────────────────────────────────────
 COPY . .
 RUN --mount=type=cache,id=sone-deb-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=sone-deb-git,target=/root/.cargo/git \
     --mount=type=cache,id=sone-deb-target,target=/app/src-tauri/target \
-    npm run tauri build -- --bundles deb \
+    pnpm tauri build --bundles deb \
     && mkdir -p /output \
     && cp src-tauri/target/release/bundle/deb/SONE_*.deb /output/

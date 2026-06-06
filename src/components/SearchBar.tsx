@@ -2,6 +2,8 @@ import { Search, X, Loader2, MoreHorizontal, Clock, Play } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useNavigation } from "../hooks/useNavigation";
+import { useAtomValue } from "jotai";
+import { currentViewAtom } from "../atoms/navigation";
 import { getSuggestions } from "../api/tidal";
 import {
   getTidalImageUrl,
@@ -43,12 +45,12 @@ function saveHistory(history: string[]) {
 export default function SearchBar() {
   const { playTrack, setQueueTracks } = usePlaybackActions();
   const {
-    currentView,
     navigateToAlbum,
     navigateToArtist,
     navigateToSearch,
     navigateToPlaylist,
   } = useNavigation();
+  const currentView = useAtomValue(currentViewAtom);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -174,6 +176,10 @@ export default function SearchBar() {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      // Portal'd menus (TrackContextMenu, MediaContextMenu, submenus, modals)
+      // live outside dropdownRef in the DOM. Treat clicks inside them as "inside".
+      if (target?.closest?.("[data-menu-portal]")) return;
       if (
         dropdownRef.current &&
         !dropdownRef.current.contains(e.target as Node) &&
@@ -503,7 +509,18 @@ export default function SearchBar() {
                       return (
                         <div
                           key={`dh-${idx}`}
-                          className="flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left group/track"
+                          className={`flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left group/track ${
+                            hit.albumId ? "cursor-pointer" : ""
+                          }`}
+                          onClick={() => {
+                            if (!hit.albumId) return;
+                            setSearchOpen(false);
+                            navigateToAlbum(hit.albumId, {
+                              title: hit.albumTitle || "",
+                              cover: hit.albumCover,
+                              artistName: hit.artistName,
+                            });
+                          }}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -513,37 +530,36 @@ export default function SearchBar() {
                           }}
                         >
                           <button
-                            className="flex-1 flex items-center gap-3 min-w-0"
-                            onClick={() => {
-                              setSearchOpen(false);
+                            className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0 relative"
+                            title="Play"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setQueueTracks([]);
                               playTrack(trackObj);
                             }}
                           >
-                            <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
-                              <TidalImage
-                                src={getTidalImageUrl(hit.albumCover, 80)}
-                                alt={hit.title || ""}
-                                className="w-full h-full"
+                            <TidalImage
+                              src={getTidalImageUrl(hit.albumCover, 80)}
+                              alt={hit.title || ""}
+                              className="w-full h-full"
+                            />
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/track:opacity-100 transition-opacity">
+                              <Play
+                                size={16}
+                                fill="white"
+                                className="text-white ml-0.5"
                               />
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/track:opacity-100 transition-opacity">
-                                <Play
-                                  size={16}
-                                  fill="white"
-                                  className="text-white ml-0.5"
-                                />
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0 text-left">
-                              <p className="text-[14px] text-th-text-primary truncate">
-                                {hit.title}
-                              </p>
-                              <p className="text-[11px] text-th-text-faint truncate">
-                                Track &middot;{" "}
-                                {hit.artistName || "Unknown Artist"}
-                              </p>
                             </div>
                           </button>
+                          <div className="flex-1 min-w-0 text-left">
+                            <p className="text-[14px] text-th-text-primary truncate">
+                              {hit.title}
+                            </p>
+                            <p className="text-[11px] text-th-text-faint truncate">
+                              Track &middot;{" "}
+                              {hit.artistName || "Unknown Artist"}
+                            </p>
+                          </div>
                           <button
                             ref={(el) => {
                               if (el) dotsRefs.current.set(hit.id || 0, el);

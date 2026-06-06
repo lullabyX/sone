@@ -2,9 +2,62 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Track, StreamInfo, PlaybackSource } from "../types";
 
+export interface DacHwParams {
+  cardIndex: number;
+  cardName: string;
+  pcmDevice: string;
+  format: string;
+  rate: number;
+  channels: number;
+  periodSize: number;
+  bufferSize: number;
+  state: "Active" | "Closed";
+}
+
+export interface OsMixerInfo {
+  server: string; // "PipeWire" | "PulseAudio" | "Unknown"
+  defaultSinkName: string;
+  sinkFormat: string;
+  sinkRate: number;
+  sinkChannels: number;
+  /** Linear amplitude multiplier the OS mixer applies. 1.0 = unity, 0.0 = mute. */
+  sinkVolume: number;
+  /** Slider-scale percent as `pactl` prints it — matches the OS volume widget. */
+  sinkVolumePercent: number;
+  sinkMuted: boolean;
+}
+
+export interface SignalPath {
+  backend: string | null;
+  decodedFormat: string | null;
+  decodedRate: number | null;
+  decodedChannels: number | null;
+  outputFormat: string | null;
+  outputRate: number | null;
+  outputChannels: number | null;
+  outputDevice: string | null;
+  exclusiveMode: boolean;
+  bitPerfect: boolean;
+  volumeNormalization: boolean;
+  userVolume: number; // amplitude (was slider position)
+  normGainFactor: number;
+  resampledFrom: number | null;
+  resampledTo: number | null;
+  promotedFrom: string | null;
+  promotedTo: string | null;
+  formatFallbackFrom: string | null;
+  formatFallbackTo: string | null;
+  dac: DacHwParams | null;
+  osMixer: OsMixerInfo | null;
+}
+
+export const signalPathAtom = atom<SignalPath | null>(null);
+
 export const isPlayingAtom = atom(false);
 export const currentTrackAtom = atom<Track | null>(null);
-export const volumeAtom = atomWithStorage("sone.volume.v1", 1.0);
+export const volumeAtom = atomWithStorage("sone.volume.v1", 1.0, undefined, {
+  getOnInit: true,
+});
 export const queueAtom = atom<Track[]>([]);
 export const historyAtom = atom<Track[]>([]);
 export const streamInfoAtom = atom<StreamInfo | null>(null);
@@ -25,4 +78,30 @@ export const allowExplicitAtom = atomWithStorage("sone.allowExplicit.v1", true);
 
 export const exclusiveModeAtom = atom(false);
 export const bitPerfectAtom = atom(false);
+
+/** Gapless playback kill-switch (Normal mode only). Default ON. */
+export const gaplessAtom = atom(true);
 export const exclusiveDeviceAtom = atom<string | null>(null);
+export const volumeNormalizationAtom = atom(false);
+
+interface BitPerfectPreviousState {
+  volume: number;
+  volumeNormalization: boolean;
+}
+
+export const bitPerfectPreviousStateAtom =
+  atomWithStorage<BitPerfectPreviousState | null>(
+    "sone.bitPerfect.previousState.v1",
+    null,
+    undefined,
+    { getOnInit: true },
+  );
+
+/** Consecutive auto-advance failures for unplayable tracks.
+ *  Only mutated by playNext's skip-loop; reset on successful play. */
+export const consecutiveFailCountAtom = atom(0);
+
+/** Global explicit user-pause intent. Written by every pauseTrack/resumeTrack/
+ *  playTrack/playNext path (instance-independent, unlike a per-hook ref) so that
+ *  gapless advanceToTrack can never resume audio the user paused. */
+export const userPausedAtom = atom(false);

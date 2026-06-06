@@ -1,6 +1,6 @@
 [package]
 name = "sone"
-version = "0.14.1"
+version = "0.18.1"
 description = "Native Linux client for TIDAL — lossless and bit-perfect audio streaming"
 authors = ["lullabyX"]
 license = "GPL-3.0-only"
@@ -16,16 +16,17 @@ name = "tauri_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.6.2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["image-png"] }
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-tauri-plugin-deep-link = "2"
+tauri = { version = "=2.11.2", features = ["image-png"] }
+tauri-plugin-single-instance = { version = "=2.4.2", features = ["deep-link"] }
+tauri-plugin-deep-link = "=2.4.9"
 image = "0.25"
-tauri-plugin-opener = "2"
+tauri-plugin-opener = "=2.5.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1.0.28"
 gstreamer = "0.23"
 gstreamer-app = "0.23"
 crossbeam-channel = "0.5"
@@ -35,27 +36,40 @@ reqwest = { version = "0.11", features = ["json", "socks"] }
 tokio = { version = "1", features = ["full"] }
 base64 = "0.21"
 dirs = "5"
-tauri-plugin-window-state = "2.4.1"
+tauri-plugin-window-state = "=2.4.1"
 tauri-plugin-oauth = "=2.0.0"
-rand = "0.10.0"
+rand = "0.10.1"
 sha2 = "0.10.9"
 md5 = "0.7"
 async-trait = "0.1"
 log = "0.4"
-env_logger = "0.11"
+flexi_logger = "0.31"
 thiserror = "2"
-tauri-plugin-global-shortcut = "2"
+tauri-plugin-global-shortcut = "=2.3.1"
 aes-gcm = "0.10"
 keyring = { version = "3", features = ["sync-secret-service"] }
 zeroize = "1"
 discord-rich-presence = "1.1"
 zbus = "5"
+rmcp = { version = "1.7.0", features = ["server", "transport-streamable-http-server", "macros"] }
+schemars = "1"
+axum = "0.7"
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webkit2gtk = "=2.0.1"
+webkit2gtk = "=2.0.2"
 gtk = "0.18"
 gdk = "0.18"
 mpris-server = "0.9"
 alsa = "0.10"
 libc = "0.2"
 ksni = "0.3"
+x11rb = { version = "0.13.2", features = ["screensaver", "dpms"] }
+wayland-client = { version = "0.31", features = ["dlopen"] }
+wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+gdkwayland-sys = "0.18"
+
+[dev-dependencies]
+tempfile = "3"

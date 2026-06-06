@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getPageSection } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { useNavigation } from "../hooks/useNavigation";
 import { getItemTitle, getItemId } from "../utils/itemHelpers";
 import type { HomeSection as HomeSectionType } from "../types";
@@ -20,9 +21,12 @@ function isNavLinkSection(section: HomeSectionType): boolean {
     section.sectionType === "PAGE_LINKS" ||
     (Array.isArray(section.items) &&
       section.items.length > 0 &&
-      section.items[0].apiPath !== undefined &&
-      section.items[0].uuid === undefined &&
-      section.items[0].id === undefined)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (section.items[0] as any).apiPath !== undefined &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (section.items[0] as any).uuid === undefined &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (section.items[0] as any).id === undefined)
   );
 }
 
@@ -49,7 +53,7 @@ export default function ExploreSubPage({
       } catch (err: any) {
         if (!active) return;
         console.error("Failed to load explore sub-page:", err);
-        setError(err.toString());
+        setError(safeErrorMessage(err, "Failed to load page"));
       }
       if (active) setLoading(false);
     };

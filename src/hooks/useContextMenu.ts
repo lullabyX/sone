@@ -35,11 +35,11 @@ export function useContextMenu({
 
       const zoom = parseFloat(document.documentElement.style.zoom || "1");
       const menuRect = menu.getBoundingClientRect();
-      const menuWidth = menuRect.width || 240;
-      const menuHeight = menuRect.height || 300;
-      // window.innerWidth/Height are in visual viewport pixels;
-      // divide by zoom to match the CSS-zoom-pixel space used by
-      // getBoundingClientRect and position:fixed.
+      // clientX/Y, getBoundingClientRect, and innerWidth/Height return VISUAL
+      // pixels (× zoom); position:fixed top/left are LAYOUT pixels. Divide
+      // every visual-space read by zoom so all the math below is layout-px.
+      const menuWidth = menuRect.width / zoom || 240;
+      const menuHeight = menuRect.height / zoom || 300;
       const viewW = window.innerWidth / zoom;
       const viewH = window.innerHeight / zoom;
       const pad = 8;
@@ -52,8 +52,8 @@ export function useContextMenu({
         left = cursorPosition.x / zoom;
       } else if (anchorRef?.current) {
         const rect = anchorRef.current.getBoundingClientRect();
-        top = rect.bottom + anchorGap;
-        left = rect.right - menuWidth;
+        top = rect.bottom / zoom + anchorGap;
+        left = rect.right / zoom - menuWidth;
       } else {
         return;
       }
@@ -68,7 +68,7 @@ export function useContextMenu({
           top = cursorPosition.y / zoom - menuHeight;
         } else if (anchorRef?.current) {
           const rect = anchorRef.current.getBoundingClientRect();
-          top = rect.top - menuHeight - anchorGap;
+          top = rect.top / zoom - menuHeight - anchorGap;
         }
       }
       if (top < pad) top = pad;

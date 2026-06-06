@@ -8,14 +8,19 @@ mod embedded_lastfm;
 mod embedded_librefm;
 mod error;
 mod idle_inhibit;
+pub mod logging;
 #[cfg(target_os = "linux")]
 mod mpris;
 mod scrobble;
+mod signal_path;
+mod pipeline_probe;
 #[cfg(target_os = "linux")]
 mod tray;
 mod tidal_api;
+pub mod mcp;
 
 pub use error::SoneError;
+pub use signal_path::{SignalPath, SignalPathTracker};
 
 use audio::{AudioDevice, AudioPlayer};
 use cache::DiskCache;
@@ -35,6 +40,8 @@ use tokio::sync::Mutex;
 mod defaults {
     pub fn yes() -> bool { true }
     pub fn volume() -> f32 { 1.0 }
+    pub fn mcp_enabled() -> bool { false }
+    pub fn mcp_port() -> u16 { 5577 }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -54,6 +61,22 @@ pub struct ScrobbleSettings {
     pub lastfm: Option<LastfmCredentials>,
     pub librefm: Option<LastfmCredentials>,
     pub listenbrainz: Option<ListenBrainzCredentials>,
+}
+
+/// Tracks which embedded credential pair the saved tokens belong to,
+/// so refresh-token requests use the matching client_id/secret.
+/// Only relevant when the user has not provided custom credentials.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    LoginCode,
+    Pkce,
+}
+
+impl Default for AuthMethod {
+    fn default() -> Self {
+        Self::LoginCode
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -95,10 +118,20 @@ pub struct Settings {
     pub client_id: String,
     #[serde(default)]
     pub client_secret: String,
+    /// Which embedded credential pair to use for refresh when `client_id`
+    /// is empty. Defaults to LoginCode for backward compatibility with
+    /// existing installs.
+    #[serde(default)]
+    pub auth_method: AuthMethod,
     #[serde(default)]
     pub minimize_to_tray: bool,
-    #[serde(default = "defaults::yes")]
+    #[serde(default)]
     pub decorations: bool,
+    /// One-shot flag: was the user migrated from native chrome to the
+    /// custom React titlebar? `false` (or missing) on existing installs
+    /// triggers a silent flip of `decorations` to `false` at startup.
+    #[serde(default)]
+    pub titlebar_migration_v1: bool,
     #[serde(default)]
     pub volume_normalization: bool,
     #[serde(default)]
@@ -107,12 +140,28 @@ pub struct Settings {
     pub exclusive_device: Option<String>,
     #[serde(default)]
     pub bit_perfect: bool,
+    #[serde(default = "defaults::yes")]
+    pub gapless: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
     pub proxy: ProxySettings,
     #[serde(default = "defaults::yes")]
     pub discord_rpc: bool,
+    #[serde(default)]
+    pub discord_status_text: String,
+    /// How many times we've shown the "legacy sign-in" notice to users still
+    /// on the device-code (LoginCode) auth method. Caps at 5; never resets.
+    #[serde(default)]
+    pub legacy_auth_notice_count: u8,
+    #[serde(default = "defaults::mcp_enabled")]
+    pub mcp_enabled: bool,
+    #[serde(default = "defaults::mcp_port")]
+    pub mcp_port: u16,
+    /// Persistent UUID token for the MCP URL path. Empty string means
+    /// "not yet generated" — bootstrap will populate and save on first run.
+    #[serde(default)]
+    pub mcp_token: String,
 }
 
 impl Default for Settings {
@@ -123,21 +172,30 @@ impl Default for Settings {
             last_track_id: None,
             client_id: String::new(),
             client_secret: String::new(),
+            auth_method: AuthMethod::default(),
             minimize_to_tray: false,
-            decorations: true,
+            decorations: false,
+            titlebar_migration_v1: true,
             volume_normalization: false,
             exclusive_mode: false,
             exclusive_device: None,
             bit_perfect: false,
+            gapless: true,
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
+            discord_status_text: String::new(),
+            legacy_auth_notice_count: 0,
+            mcp_enabled: false,
+            mcp_port: 5577,
+            mcp_token: String::new(),
         }
     }
 }
 
 pub struct AppState {
-    pub audio_player: AudioPlayer,
+    pub audio_player: Arc<AudioPlayer>,
+    pub pipeline_probe: Arc<crate::pipeline_probe::PipelineProbe>,
     pub tidal_client: Mutex<TidalClient>,
     pub settings_path: PathBuf,
     pub cache_dir: PathBuf,
@@ -148,6 +206,7 @@ pub struct AppState {
     pub volume_normalization: AtomicBool,
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
+    pub gapless: AtomicBool,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
@@ -161,6 +220,9 @@ pub struct AppState {
     pub scrobble_manager: scrobble::ScrobbleManager,
     pub discord: discord::DiscordHandle,
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
+    pub mcp_state: crate::mcp::McpStateRef,
+    pub mcp_handle: Mutex<Option<crate::mcp::McpHandle>>,
+    pub signal_path: Arc<SignalPathTracker>,
 }
 
 pub fn now_secs() -> u64 {
@@ -193,11 +255,32 @@ impl AppState {
         let disk_cache = DiskCache::new(&cache_dir, crypto.clone());
 
         // Load preferences from saved settings (decrypt if needed)
-        let saved = fs::read(&settings_path)
+        let mut saved = fs::read(&settings_path)
             .ok()
             .and_then(|data| crypto.decrypt(&data).ok())
             .and_then(|plain| String::from_utf8(plain).ok())
             .and_then(|s| serde_json::from_str::<Settings>(&s).ok());
+
+        // One-shot custom-titlebar migration: existing installs had
+        // `decorations: true` (native GTK chrome); silent-flip to false so
+        // the custom React titlebar is shown by default. The toggle in
+        // Settings remains as an escape hatch.
+        if let Some(ref mut s) = saved {
+            if !s.titlebar_migration_v1 {
+                log::info!("[migration] custom-titlebar v1: flipping decorations to false");
+                s.decorations = false;
+                s.titlebar_migration_v1 = true;
+                if let Ok(json) = serde_json::to_string_pretty(s) {
+                    if let Ok(encrypted) = crypto.encrypt(json.as_bytes()) {
+                        if let Err(e) = fs::write(&settings_path, encrypted) {
+                            log::warn!(
+                                "[migration] failed to persist titlebar_migration_v1: {e}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // Eager migration: if settings exist but aren't encrypted, re-save encrypted
         if settings_path.exists() {
@@ -219,13 +302,14 @@ impl AppState {
         }
 
         let minimize_to_tray = saved.as_ref().map(|s| s.minimize_to_tray).unwrap_or(false);
-        let decorations = saved.as_ref().map(|s| s.decorations).unwrap_or(true);
+        let decorations = saved.as_ref().map(|s| s.decorations).unwrap_or(false);
         let volume_normalization = saved
             .as_ref()
             .map(|s| s.volume_normalization)
             .unwrap_or(false);
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
+        let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
         let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
@@ -244,13 +328,34 @@ impl AppState {
         );
 
         let discord_rpc_enabled = saved.as_ref().map(|s| s.discord_rpc).unwrap_or(true);
+        let discord_status_text = saved
+            .as_ref()
+            .map(|s| s.discord_status_text.clone())
+            .unwrap_or_default();
         let discord_handle = discord::DiscordHandle::new();
+        discord_handle.send(discord::DiscordCommand::SetStatusText {
+            text: discord_status_text,
+        });
         if discord_rpc_enabled {
             discord_handle.send(discord::DiscordCommand::Connect);
         }
 
+        let signal_path = Arc::new(SignalPathTracker::new(app_handle.clone()));
+        signal_path.set_audio_modes(exclusive_mode, bit_perfect);
+        signal_path.set_normalization_enabled(volume_normalization);
+
+        let audio_player = Arc::new(AudioPlayer::new(
+            app_handle.clone(),
+            Arc::clone(&signal_path),
+        ));
+        let pipeline_probe = Arc::new(crate::pipeline_probe::PipelineProbe::new(
+            Arc::clone(&signal_path),
+            Arc::clone(&audio_player),
+        ));
+
         Self {
-            audio_player: AudioPlayer::new(app_handle.clone()),
+            audio_player,
+            pipeline_probe,
             tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
             settings_path,
             cache_dir,
@@ -261,6 +366,7 @@ impl AppState {
             volume_normalization: AtomicBool::new(volume_normalization),
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
+            gapless: AtomicBool::new(gapless),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
@@ -270,6 +376,9 @@ impl AppState {
             scrobble_manager,
             discord: discord_handle,
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
+            mcp_state: crate::mcp::new_state(),
+            mcp_handle: Mutex::new(None),
+            signal_path,
         }
     }
 
@@ -325,7 +434,22 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    // File logger setup. Must happen before Tauri builds so early log
+    // calls from setup hooks are captured. Reads only the logging toggle
+    // sidecar file — Settings struct is encrypted and loaded later via
+    // AppState.
+    let sone_dir = dirs::config_dir()
+        .map(|d| d.join("sone"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./.sone"));
+    let logging_toggle_path = sone_dir.join("logging.toggle");
+    let logging_enabled = crate::logging::read_logging_preference(&logging_toggle_path);
+    let _logger_handle = crate::logging::init_logging(
+        sone_dir.join("logs"),
+        logging_enabled,
+    );
+    // Bind to a named local (not `let _ = ...`) so the handle lives until
+    // the end of `run()`. flexi_logger flushes the log file on drop, so
+    // the handle must outlive the Tauri event loop.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(
@@ -356,6 +480,37 @@ pub fn run() {
 
             app.manage(AppState::new(app.handle().clone()));
 
+            // Start MCP server in background
+            {
+                let handle_for_mcp = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle_for_mcp.state::<AppState>();
+
+                    let mut settings = state.load_settings().unwrap_or_default();
+
+                    if !settings.mcp_enabled {
+                        log::info!("MCP server disabled in settings");
+                        return;
+                    }
+
+                    if settings.mcp_token.is_empty() {
+                        settings.mcp_token = uuid::Uuid::new_v4().simple().to_string();
+                        if let Err(e) = state.save_settings(&settings) {
+                            log::warn!("Failed to persist MCP token: {e}");
+                        }
+                    }
+
+                    match crate::mcp::start_server(
+                        handle_for_mcp.clone(),
+                        settings.mcp_port,
+                        settings.mcp_token.clone(),
+                    ).await {
+                        Ok(handle) => { *state.mcp_handle.lock().await = Some(handle); }
+                        Err(e) => log::error!("MCP server failed to start: {e}"),
+                    }
+                });
+            }
+
             // Apply saved audio mode to audio thread
             {
                 let state = app.state::<AppState>();
@@ -370,6 +525,9 @@ pub fn run() {
                 if bp {
                     state.audio_player.set_bit_perfect(true).ok();
                 }
+                let _ = state
+                    .audio_player
+                    .set_gapless(state.gapless.load(std::sync::atomic::Ordering::Relaxed));
             }
 
             // Pre-warm audio device cache in background (GStreamer probe is slow)
@@ -474,6 +632,44 @@ pub fn run() {
                 });
             }
 
+            // Scrobble outgoing track AND store rg/peak on gapless track-advanced
+            // (this listener has AppState, which the audio worker does not).
+            {
+                let handle = app.handle().clone();
+                app.listen("track-advanced", move |event| {
+                    // Store this track's replay gain / peak so a live volume-normalization
+                    // toggle is correct. Absent (null/NaN) → store NaN (→ unity gain).
+                    // Payload: { trackId, qid, replayGain, peakAmplitude }.
+                    let (rg, peak) = serde_json::from_str::<serde_json::Value>(event.payload())
+                        .ok()
+                        .map(|v| {
+                            (
+                                v.get("replayGain")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(f64::NAN),
+                                v.get("peakAmplitude")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(f64::NAN),
+                            )
+                        })
+                        .unwrap_or((f64::NAN, f64::NAN));
+                    let st = handle.state::<AppState>();
+                    st.last_replay_gain
+                        .store(rg.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    st.last_peak_amplitude
+                        .store(peak.to_bits(), std::sync::atomic::Ordering::Relaxed);
+
+                    let handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle
+                            .state::<AppState>()
+                            .scrobble_manager
+                            .try_scrobble_finished()
+                            .await;
+                    });
+                });
+            }
+
             if let Some(window) = app.get_webview_window("main") {
                 let state = app.state::<AppState>();
                 // Set window icon at runtime (needed for dev mode taskbar icon)
@@ -505,10 +701,13 @@ pub fn run() {
                         .ok();
                 }
                 
+                // tauri.conf.json sets decorations: false, so the window is
+                // born without GTK CSD. Only re-enable native chrome if the
+                // user has explicitly opted in via the escape-hatch toggle.
                 let decorations = state.decorations.load(Ordering::Relaxed);
 
-                if !decorations {
-                    window.set_decorations(false).ok();
+                if decorations {
+                    window.set_decorations(true).ok();
                 }
 
                 let _ = window.show();
@@ -573,6 +772,8 @@ pub fn run() {
                 tauri::WindowEvent::Destroyed => {
                     if window.label() == "miniplayer" {
                         let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
+                    } else if window.label() == "pkce-login" {
+                        commands::auth::on_pkce_window_closed(window.app_handle());
                     }
                 }
                 #[cfg(target_os = "linux")]
@@ -584,7 +785,7 @@ pub fn run() {
                                 let wv: webkit2gtk::WebView = webview.inner();
                                 if let Some(toplevel) = wv.toplevel() {
                                     if let Some(gdk_win) = toplevel.window() {
-                                        gdk_win.set_shadow_width(36, 36, 28, 48);
+                                        gdk_win.set_shadow_width(12, 12, 12, 12);
                                     }
                                 }
                             });
@@ -607,7 +808,12 @@ pub fn run() {
             commands::auth::refresh_tidal_auth,
             commands::auth::start_pkce_auth,
             commands::auth::complete_pkce_auth,
+            commands::auth::has_pkce_defaults,
+            commands::auth::start_pkce_login_window,
+            commands::auth::start_pkce_browser_login,
+            commands::auth::complete_pkce_browser_login,
             commands::auth::logout,
+            commands::auth::consume_legacy_auth_notice,
             commands::auth::get_session_user_id,
             commands::auth::get_user_profile,
             // library
@@ -678,6 +884,9 @@ pub fn run() {
             commands::metadata::get_track_credits,
             // playback
             commands::playback::play_tidal_track,
+            commands::playback::set_next_track,
+            commands::playback::clear_next_track,
+            commands::playback::get_stream_info,
             commands::playback::pause_track,
             commands::playback::resume_track,
             commands::playback::stop_track,
@@ -691,6 +900,7 @@ pub fn run() {
             commands::playback::update_mpris_playback_status,
             commands::playback::update_mpris_shuffle,
             commands::playback::update_mpris_loop_status,
+            commands::playback::update_mpris_fullscreen,
             // scrobble
             commands::scrobble::notify_track_started,
             commands::scrobble::notify_track_paused,
@@ -710,6 +920,8 @@ pub fn run() {
             commands::utility::clear_disk_cache,
             commands::utility::get_minimize_to_tray,
             commands::utility::set_minimize_to_tray,
+            commands::utility::get_enable_logging,
+            commands::utility::set_enable_logging,
             commands::utility::get_decorations,
             commands::utility::set_decorations,
             commands::utility::get_volume_normalization,
@@ -719,16 +931,30 @@ pub fn run() {
             commands::utility::set_exclusive_mode,
             commands::utility::get_bit_perfect,
             commands::utility::set_bit_perfect,
+            commands::utility::get_gapless,
+            commands::utility::get_gapless_supported,
+            commands::utility::set_gapless,
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
+            commands::utility::get_discord_status_text,
+            commands::utility::set_discord_status_text,
             commands::utility::get_proxy_settings,
             commands::utility::set_proxy_settings,
             commands::utility::test_proxy_connection,
             commands::utility::inhibit_idle,
             commands::utility::uninhibit_idle,
+            // mcp
+            commands::mcp::mcp_get_connection_info,
+            commands::mcp::mcp_publish_state,
+            commands::mcp::mcp_set_enabled,
+            commands::mcp::mcp_regenerate_token,
+            commands::utility::get_signal_path,
+            commands::utility::refresh_signal_path,
+            // updates
+            commands::updates::check_for_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

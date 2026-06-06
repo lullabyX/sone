@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SONE",
-  "version": "0.14.1",
+  "version": "0.18.1",
   "identifier": "io.github.lullabyX.sone",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -15,7 +15,8 @@
         "title": "SONE",
         "width": 1200,
         "height": 800,
-        "visible": false
+        "visible": false,
+        "decorations": false
       }
     ],
     "security": {
@@ -48,7 +49,8 @@
           "gstreamer1.0-alsa",
           "libsecret-1-0",
           "libasound2 | libasound2t64",
-          "librsvg2-common"
+          "librsvg2-common",
+          "pulseaudio-utils"
         ],
         "section": "sound",
         "priority": "optional"
@@ -65,7 +67,8 @@
           "gstreamer1-plugin-libav",
           "alsa-lib",
           "libsecret",
-          "librsvg2"
+          "librsvg2",
+          "pulseaudio-utils"
         ],
         "release": "1"
       },

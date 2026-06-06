@@ -19,6 +19,8 @@ pub struct AuthStartResponse {
 #[serde(rename_all = "camelCase")]
 pub struct TrackStartedPayload {
     pub artist: String,
+    #[serde(default)]
+    pub artist_primary: String,
     pub title: String,
     pub album: Option<String>,
     pub album_artist: Option<String>,
@@ -50,6 +52,8 @@ pub async fn notify_track_started(
         isrc: payload.isrc,
         track_id: payload.track_id,
         recording_mbid: None,
+        artist_primary: payload.artist_primary,
+        artist_mbids: Vec::new(),
     };
     state.scrobble_manager.on_track_started(track).await;
     Ok(())

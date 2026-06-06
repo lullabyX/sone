@@ -253,7 +253,7 @@ impl ScrobbleProvider for AudioscrobblerProvider {
 
         let mut params = BTreeMap::new();
         params.insert("method", "track.updateNowPlaying".to_string());
-        params.insert("artist", track.artist.clone());
+        params.insert("artist", track.scrobble_artist().to_string());
         params.insert("track", track.track.clone());
         params.insert("api_key", self.api_key.clone());
         params.insert("sk", sk);
@@ -322,7 +322,7 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         params.push(("sk".to_string(), sk));
 
         for (i, track) in tracks.iter().enumerate() {
-            params.push((format!("artist[{i}]"), track.artist.clone()));
+            params.push((format!("artist[{i}]"), track.scrobble_artist().to_string()));
             params.push((format!("track[{i}]"), track.track.clone()));
             params.push((format!("timestamp[{i}]"), track.timestamp.to_string()));
             params.push((format!("duration[{i}]"), track.duration_secs.to_string()));
@@ -390,5 +390,38 @@ impl ScrobbleProvider for AudioscrobblerProvider {
             }
             Err(e) => ScrobbleResult::Retryable(format!("request failed: {e}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::scrobble::ScrobbleTrack;
+
+    fn track(artist: &str, primary: &str) -> ScrobbleTrack {
+        ScrobbleTrack {
+            artist: artist.to_string(),
+            track: "Song".to_string(),
+            album: None,
+            album_artist: None,
+            duration_secs: 200,
+            track_number: None,
+            timestamp: 0,
+            chosen_by_user: true,
+            isrc: None,
+            track_id: None,
+            recording_mbid: None,
+            artist_primary: primary.to_string(),
+            artist_mbids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn uses_primary_artist_when_present() {
+        assert_eq!(track("A, B", "A").scrobble_artist(), "A");
+    }
+
+    #[test]
+    fn falls_back_to_combined_when_primary_empty() {
+        assert_eq!(track("A, B", "").scrobble_artist(), "A, B");
     }
 }

@@ -315,7 +315,7 @@ function ArtOverlayControls({
       {/* Secondary controls — only in full tier */}
       {full && (
         <div className="flex items-center justify-center gap-4 mt-3">
-          <div className="relative">
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={(e) => { e.stopPropagation(); if (!full.bitPerfect) setShowVolume((v) => !v); }}
               className={`w-9 h-9 flex items-center justify-center transition-colors ${full.bitPerfect ? "text-white/30 cursor-not-allowed" : "text-white/70 hover:text-white"}`}
@@ -636,15 +636,16 @@ function NarrowTier({
       <AlbumArt
         cover={track?.album?.cover}
         title={title}
-        className="rounded-sm flex-shrink-0"
+        className="rounded-sm flex-shrink-0 cursor-pointer"
         style={{ width: "min(100cqh, 30cqw)", height: "min(100cqh, 30cqw)" }}
         imageSize={160}
+        onClick={() => sendCommand("focus-main")}
       />
       <div className="flex flex-col justify-center min-w-0 flex-1">
         <span
           className="text-[15px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
           style={{ color: colors.textPrimary }}
-          onClick={() => sendCommand("focus-main")}
+          onClick={() => sendCommand("show-album")}
         >
           {title}
         </span>
@@ -783,15 +784,16 @@ function CompactTier({
         <AlbumArt
           cover={track?.album?.cover}
           title={title}
-          className="rounded-sm flex-shrink-0"
+          className="rounded-sm flex-shrink-0 cursor-pointer"
           style={{ width: "min(100cqh, 40cqw)", height: "min(100cqh, 40cqw)" }}
           imageSize={320}
+          onClick={() => sendCommand("focus-main")}
         />
         <div className="flex flex-col justify-center min-w-0 flex-1">
           <span
             className="text-[16px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
             style={{ color: colors.textPrimary }}
-            onClick={() => sendCommand("focus-main")}
+            onClick={() => sendCommand("show-album")}
           >
             {title}
           </span>
@@ -935,13 +937,13 @@ function FullTier({
     <div className="flex flex-col w-full h-full p-2 min-h-0">
       {/* Album art — always square, sized to fit */}
       <div
-        className="flex-1 min-h-0 min-w-0 flex items-center justify-center relative"
+        className="flex-1 min-h-0 min-w-0 flex items-center justify-center relative cursor-pointer"
         style={{ containerType: "size" }}
+        onClick={() => sendCommand("focus-main")}
       >
         <div
-          className="rounded-sm overflow-hidden cursor-pointer"
+          className="rounded-sm overflow-hidden"
           style={{ width: "min(100cqw, 100cqh)", height: "min(100cqw, 100cqh)" }}
-          onClick={() => sendCommand("focus-main")}
         >
           <TidalImage
             src={getTidalImageUrl(track?.album?.cover, 640)}
@@ -972,7 +974,7 @@ function FullTier({
           <span
             className="text-[18px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
             style={{ color: colors.textPrimary }}
-            onClick={() => sendCommand("focus-main")}
+            onClick={() => sendCommand("show-album")}
           >
             {title}
           </span>
@@ -1138,14 +1140,15 @@ export default function MiniPlayer() {
 
   return (
     <div className="w-full h-full relative">
-      <ResizeEdges top={28} bottom={48} left={36} right={36} />
-      <div className="w-full h-full pointer-events-none" style={{ padding: "28px 36px 48px 36px" }}>
+      <ResizeEdges top={12} bottom={12} left={12} right={12} />
+      <div className="w-full h-full pointer-events-none" style={{ padding: "12px" }}>
       <div
         ref={containerRef}
         className="group w-full h-full overflow-hidden relative pointer-events-auto"
         style={{
           borderRadius: 0,
-          boxShadow: "2px 4px 8px rgba(0,0,0,0.4), 3px 10px 36px rgba(0,0,0,0.25), 1px 1px 3px rgba(0,0,0,0.15)",
+          boxShadow: "2px 4px 8px rgba(0,0,0,0.4), 1px 3px 9px rgba(0,0,0,0.25), 1px 1px 2px rgba(0,0,0,0.15)",
+          transform: "translateZ(0)",
         }}
       >
       {/* Dark base background */}

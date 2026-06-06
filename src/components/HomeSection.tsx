@@ -28,6 +28,7 @@ import {
   isTrackItem,
   isMixItem,
   isMyTracksItem,
+  isMagazineItem,
   buildMediaItem,
 } from "../utils/itemHelpers";
 
@@ -110,16 +111,27 @@ export default function HomeSection({ section }: HomeSectionProps) {
       navigateToFavorites();
       return;
     }
+    if (isMagazineItem(item)) {
+      const d = item.data;
+      if (d?.type === "PLAYLIST" && d?.artifactId) {
+        navigateToPlaylist(d.artifactId, {
+          title: d.shortHeader ?? "",
+          image: d.imageURL,
+        });
+      }
+      return;
+    }
     if (isTrackItem(item, section.sectionType)) {
       const allTrackItems = items.filter((t: any) =>
         isTrackItem(t, section.sectionType),
       );
-      playFromSource(item, allTrackItems, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      playFromSource(item as any, allTrackItems as any, {
         source: {
           type: "home-section",
           id: section.title,
           name: section.title,
-          allTracks: allTrackItems,
+          allTracks: allTrackItems as any,
         },
       });
     } else if (isMixItem(item, section.sectionType)) {
@@ -356,7 +368,7 @@ function TrackListSection({
   items: any[];
 }) {
   const { playFromSource } = usePlaybackActions();
-  const { navigateToAlbum, navigateToViewAll } =
+  const { navigateToAlbum, navigateToViewAll, navigateToFavorites } =
     useNavigation();
   const [trackContextMenu, setTrackContextMenu] = useState<{
     track: any;
@@ -364,13 +376,21 @@ function TrackListSection({
     position: { x: number; y: number };
   } | null>(null);
 
+  // Exclude the My Tracks shortcut so it never enters the playback queue
+  // as a fake track — its id is a URI string, not a numeric track id.
+  const playableItems = items.filter((t: any) => !isMyTracksItem(t));
+
   const handlePlayTrack = (item: any, _index: number) => {
-    playFromSource(item, items, {
+    if (isMyTracksItem(item)) {
+      navigateToFavorites();
+      return;
+    }
+    playFromSource(item, playableItems, {
       source: {
         type: "home-section",
         id: section.title,
         name: section.title,
-        allTracks: items,
+        allTracks: playableItems,
       },
     });
   };
@@ -404,72 +424,93 @@ function TrackListSection({
         )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-1">
-        {displayItems.map((item: any, idx: number) => (
-          <div
-            key={getItemId(item)}
-            onClick={() => handlePlayTrack(item, idx)}
-            onContextMenu={(e) => openTrackMenu(e, item, idx)}
-            className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
-          >
-            <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
-              {getItemImage(item, 160) ? (
-                <img
-                  src={getItemImage(item, 160)}
-                  alt={getItemTitle(item)}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <Music size={16} className="text-th-text-faint" />
-                </div>
-              )}
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Play size={14} fill="white" className="text-white ml-0.5" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[14px] text-th-text-primary truncate font-medium">
-                {item.album ? (
-                  <span
-                    className="hover:underline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigateToAlbum(item.album.id, {
-                        title: item.album.title,
-                        cover: item.album.cover,
-                      });
-                    }}
-                  >
-                    {getItemTitle(item)}
-                  </span>
-                ) : (
-                  getItemTitle(item)
-                )}
-              </p>
-              <p className="text-[12px] text-th-text-muted truncate">
-                {(item.artist || item.artists?.[0]) && (
-                  <TrackArtists
-                    artists={item.artists}
-                    artist={item.artist}
-                    className="hover:underline cursor-pointer"
-                    fallback=""
-                  />
-                )}
-                {item.followInfo && (
-                  <span className="ml-1 text-th-accent">+</span>
-                )}
-              </p>
-            </div>
-            {/* Three-dots on hover */}
-            <button
-              onClick={(e) => openTrackMenu(e, item, idx)}
-              className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-strong opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
+        {displayItems.map((item: any, idx: number) => {
+          const myTracks = isMyTracksItem(item);
+          return (
+            <div
+              key={getItemId(item)}
+              onClick={() => handlePlayTrack(item, idx)}
+              onContextMenu={
+                myTracks ? undefined : (e) => openTrackMenu(e, item, idx)
+              }
+              className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
             >
-              <MoreHorizontal size={16} />
-            </button>
-          </div>
-        ))}
+              <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
+                {myTracks ? (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff]">
+                    <Heart size={16} className="text-white" fill="white" />
+                  </div>
+                ) : getItemImage(item, 160) ? (
+                  <img
+                    src={getItemImage(item, 160)}
+                    alt={getItemTitle(item)}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Music size={16} className="text-th-text-faint" />
+                  </div>
+                )}
+                {!myTracks && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Play size={14} fill="white" className="text-white ml-0.5" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] text-th-text-primary truncate font-medium">
+                  {myTracks ? (
+                    "Loved Tracks"
+                  ) : item.album ? (
+                    <span
+                      className="hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigateToAlbum(item.album.id, {
+                          title: item.album.title,
+                          cover: item.album.cover,
+                        });
+                      }}
+                    >
+                      {getItemTitle(item)}
+                    </span>
+                  ) : (
+                    getItemTitle(item)
+                  )}
+                </p>
+                <p className="text-[12px] text-th-text-muted truncate">
+                  {myTracks ? (
+                    "Collection"
+                  ) : (
+                    <>
+                      {(item.artist || item.artists?.[0]) && (
+                        <TrackArtists
+                          artists={item.artists}
+                          artist={item.artist}
+                          className="hover:underline cursor-pointer"
+                          fallback=""
+                        />
+                      )}
+                      {item.followInfo && (
+                        <span className="ml-1 text-th-accent">+</span>
+                      )}
+                    </>
+                  )}
+                </p>
+              </div>
+              {/* Three-dots on hover */}
+              {!myTracks && (
+                <button
+                  onClick={(e) => openTrackMenu(e, item, idx)}
+                  className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-strong opacity-0 group-hover:opacity-100 transition-[opacity,colors]"
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Track context menu */}

@@ -784,7 +784,7 @@ pub async fn get_favorite_track_ids(
     state: State<'_, AppState>,
     user_id: u64,
 ) -> Result<Vec<u64>, SoneError> {
-    log::debug!("[get_favorite_track_ids]: user_id={}", user_id);
+    log::debug!("[get_favorite_track_ids]");
     let client = state.tidal_client.lock().await;
     client.get_favorite_track_ids(user_id).await
 }
@@ -845,7 +845,7 @@ pub async fn get_favorite_album_ids(
     state: State<'_, AppState>,
     user_id: u64,
 ) -> Result<Vec<u64>, SoneError> {
-    log::debug!("[get_favorite_album_ids]: user_id={}", user_id);
+    log::debug!("[get_favorite_album_ids]");
     let client = state.tidal_client.lock().await;
     client.get_favorite_album_ids(user_id).await
 }
@@ -906,7 +906,7 @@ pub async fn get_favorite_playlist_uuids(
     state: State<'_, AppState>,
     user_id: u64,
 ) -> Result<Vec<String>, SoneError> {
-    log::debug!("[get_favorite_playlist_uuids]: user_id={}", user_id);
+    log::debug!("[get_favorite_playlist_uuids]");
     let client = state.tidal_client.lock().await;
     client.get_favorite_playlist_uuids(user_id).await
 }
@@ -956,7 +956,7 @@ pub async fn get_favorite_artist_ids(
     state: State<'_, AppState>,
     user_id: u64,
 ) -> Result<Vec<u64>, SoneError> {
-    log::debug!("[get_favorite_artist_ids]: user_id={}", user_id);
+    log::debug!("[get_favorite_artist_ids]");
     let client = state.tidal_client.lock().await;
     client.get_favorite_artist_ids(user_id).await
 }
@@ -1002,7 +1002,7 @@ pub async fn get_all_favorite_ids(
     state: State<'_, AppState>,
     user_id: u64,
 ) -> Result<AllFavoriteIds, SoneError> {
-    log::debug!("[get_all_favorite_ids]: user_id={}", user_id);
+    log::debug!("[get_all_favorite_ids]");
     let client = state.tidal_client.lock().await;
     client.get_all_favorite_ids(user_id).await
 }

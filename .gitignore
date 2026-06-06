@@ -52,3 +52,6 @@ sone.code-workspace
 
 # superpowers brainstorm artifacts
 .superpowers/
+
+# Nix build symlink
+/result

@@ -4,10 +4,12 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
+import { useViewTab } from "../hooks/useViewTab";
 import { searchTidal } from "../api/tidal";
 import {
   getTidalImageUrl,
   type SearchResults,
+  type SearchTab,
   type Track,
   type AlbumDetail,
   type Playlist,
@@ -22,14 +24,6 @@ import ReusableTrackList from "./TrackList";
 import PageContainer from "./PageContainer";
 import { SearchPageSkeleton } from "./PageSkeleton";
 
-type SearchTab =
-  | "all"
-  | "tophits"
-  | "tracks"
-  | "playlists"
-  | "albums"
-  | "artists";
-
 const TABS: { id: SearchTab; label: string }[] = [
   { id: "all", label: "All Results" },
   { id: "tophits", label: "Top Hits" },
@@ -41,10 +35,11 @@ const TABS: { id: SearchTab; label: string }[] = [
 
 interface SearchViewProps {
   query: string;
+  initialTab?: SearchTab;
   onBack: () => void;
 }
 
-export default function SearchView({ query, onBack }: SearchViewProps) {
+export default function SearchView({ query, initialTab, onBack }: SearchViewProps) {
   const { playTrack, setQueueTracks, playFromSource } = usePlaybackActions();
   const playMedia = useMediaPlay();
   const { navigateToAlbum, navigateToPlaylist, navigateToArtist } =
@@ -62,7 +57,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<SearchTab>("all");
+  const [activeTab, setActiveTab] = useViewTab<SearchTab>(initialTab ?? "all");
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -427,6 +422,14 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
                       artistName: hit.artistName,
                     });
                 }}
+                onTrackAlbumClick={(hit) => {
+                  if (!hit.albumId) return;
+                  navigateToAlbum(hit.albumId, {
+                    title: hit.albumTitle || "",
+                    cover: hit.albumCover,
+                    artistName: hit.artistName,
+                  });
+                }}
                 onArtistClick={(hit) => {
                   if (hit.id)
                     navigateToArtist(hit.id, {
@@ -584,6 +587,7 @@ export default function SearchView({ query, onBack }: SearchViewProps) {
 function TopHitsList({
   topHits,
   onPlayTrack,
+  onTrackAlbumClick,
   onAlbumClick,
   onArtistClick,
   onPlaylistClick,
@@ -591,6 +595,7 @@ function TopHitsList({
 }: {
   topHits: DirectHitItem[];
   onPlayTrack: (hit: DirectHitItem) => void;
+  onTrackAlbumClick: (hit: DirectHitItem) => void;
   onAlbumClick: (hit: DirectHitItem) => void;
   onArtistClick: (hit: DirectHitItem) => void;
   onPlaylistClick: (hit: DirectHitItem) => void;
@@ -637,7 +642,10 @@ function TopHitsList({
           return (
             <div
               key={`th-${idx}`}
-              className="flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group/track cursor-pointer"
+              className={`flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group/track ${
+                hit.albumId ? "cursor-pointer" : ""
+              }`}
+              onClick={() => onTrackAlbumClick(hit)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -646,30 +654,32 @@ function TopHitsList({
               }}
             >
               <button
-                className="flex-1 flex items-center gap-4 min-w-0"
-                onClick={() => onPlayTrack(hit)}
+                className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0 relative"
+                title="Play"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPlayTrack(hit);
+                }}
               >
-                <div className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
-                  <TidalImage
-                    src={getTidalImageUrl(hit.albumCover, 80)}
-                    alt={hit.title || ""}
-                    className="w-full h-full"
+                <TidalImage
+                  src={getTidalImageUrl(hit.albumCover, 80)}
+                  alt={hit.title || ""}
+                  className="w-full h-full"
+                />
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/track:opacity-100 transition-opacity">
+                  <Play
+                    size={16}
+                    fill="white"
+                    className="text-white ml-0.5"
                   />
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/track:opacity-100 transition-opacity">
-                    <Play
-                      size={16}
-                      fill="white"
-                      className="text-white ml-0.5"
-                    />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                  <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
-                  <p className="text-[12px] text-th-text-faint truncate">
-                    Track &middot; {hit.artistName || "Unknown Artist"}
-                  </p>
                 </div>
               </button>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-[14px] text-th-text-primary truncate">{hit.title}</p>
+                <p className="text-[12px] text-th-text-faint truncate">
+                  Track &middot; {hit.artistName || "Unknown Artist"}
+                </p>
+              </div>
               <button
                 ref={(el) => {
                   if (el) dotsRefs.current.set(trackObj.id, el);

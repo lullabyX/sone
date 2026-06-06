@@ -37,6 +37,7 @@ import { useNavigation } from "../hooks/useNavigation";
 import { useMiniplayerWindow } from "../hooks/useMiniplayerWindow";
 import { TrackArtists } from "./TrackArtists";
 import QualityBadge from "./QualityBadge";
+import SignalPathPanel from "./SignalPathPanel";
 import VolumeSlider from "./VolumeSlider";
 import TrackContextMenu from "./TrackContextMenu";
 
@@ -266,6 +267,7 @@ const ProgressScrubber = memo(function ProgressScrubber() {
     setIsHoveringProgress,
     handleProgressMouseDown,
   } = useProgressScrub();
+  const [showTimeLeft, setShowTimeLeft] = useState(false);
 
   return (
     <div className="w-full flex items-center gap-2 text-th-text-muted">
@@ -307,8 +309,15 @@ const ProgressScrubber = memo(function ProgressScrubber() {
           }}
         />
       </div>
-      <span className="min-w-[40px] text-[11px] tabular-nums select-none">
-        {currentTrack ? formatTime(duration) : "0:00"}
+      <span
+        className="min-w-[40px] text-[11px] tabular-nums select-none cursor-pointer"
+        onClick={() => currentTrack && setShowTimeLeft((v) => !v)}
+      >
+        {currentTrack
+          ? showTimeLeft
+            ? `-${formatTime(Math.max(0, duration - displayTime))}`
+            : formatTime(duration)
+          : "0:00"}
       </span>
     </div>
   );
@@ -394,21 +403,28 @@ const TransportControls = memo(function TransportControls() {
 // ─── DrawerButtons ─────────────────────────────────────────────────────────
 
 const DrawerButtons = memo(function DrawerButtons() {
-  const { openDrawerToTab } = useDrawer();
+  const { drawerOpen, drawerTab, toggleDrawerTab } = useDrawer();
+
+  const lyricsActive = drawerOpen && drawerTab === "lyrics";
+  const queueActive = drawerOpen && drawerTab === "queue";
 
   return (
     <>
       <button
-        onClick={() => openDrawerToTab("lyrics")}
-        className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150"
+        onClick={() => toggleDrawerTab("lyrics")}
+        className={`${
+          lyricsActive ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+        } transition-colors duration-150`}
         title="Lyrics"
       >
         <Mic2 size={16} strokeWidth={2} />
       </button>
       <VolumeSlider />
       <button
-        onClick={() => openDrawerToTab("queue")}
-        className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150"
+        onClick={() => toggleDrawerTab("queue")}
+        className={`${
+          queueActive ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+        } transition-colors duration-150`}
         title="Play queue"
       >
         <ListMusic size={16} strokeWidth={2} />
@@ -462,6 +478,7 @@ const MiniPlayerButton = memo(function MiniPlayerButton() {
 
 export default function PlayerBar() {
   const maximized = useAtomValue(maximizedPlayerAtom);
+  const [signalPathOpen, setSignalPathOpen] = useState(false);
 
   return (
     <div className={`player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none ${maximized ? "invisible" : ""}`}>
@@ -477,11 +494,13 @@ export default function PlayerBar() {
 
       {/* Right: Volume & Extras */}
       <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
-        <QualityBadge />
+        <QualityBadge onClick={() => setSignalPathOpen(true)} />
         <DrawerButtons />
         <MiniPlayerButton />
         <MaximizeButton />
       </div>
+
+      <SignalPathPanel open={signalPathOpen} onClose={() => setSignalPathOpen(false)} />
     </div>
   );
 }

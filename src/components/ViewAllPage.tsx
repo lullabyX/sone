@@ -4,6 +4,7 @@ import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
 import { getPageSection, getArtistViewAll } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { type MediaItemType } from "../types";
 import MediaContextMenu from "./MediaContextMenu";
 import MediaCard from "./MediaCard";
@@ -11,6 +12,7 @@ import MediaGrid, {
   MediaGridSkeleton,
   MediaGridError,
   MediaGridEmpty,
+  MediaCardSkeleton,
 } from "./MediaGrid";
 import PageContainer from "./PageContainer";
 import {
@@ -23,6 +25,8 @@ import {
   isMixItem,
   buildMediaItem,
 } from "../utils/itemHelpers";
+
+const PAGE_SIZE = 50;
 
 interface ViewAllPageProps {
   title: string;
@@ -61,8 +65,12 @@ export default function ViewAllPage({
 
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -89,8 +97,9 @@ export default function ViewAllPage({
     const loadData = async () => {
       try {
         if (artistId) {
-          const allItems = await getArtistViewAll(artistId, apiPath);
-          setItems(allItems);
+          const data = await getArtistViewAll(artistId, apiPath, 0, PAGE_SIZE);
+          setItems(data.items);
+          setHasMore(data.hasMore);
         } else {
           const result = await getPageSection(apiPath);
           const allItems = result.sections.flatMap((s) =>
@@ -100,13 +109,50 @@ export default function ViewAllPage({
         }
       } catch (err: any) {
         console.error("Failed to load page section:", err);
-        setError(err.toString());
+        setError(safeErrorMessage(err, "Failed to load page"));
       }
       setLoading(false);
     };
 
     loadData();
   }, [apiPath, artistId]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || !artistId) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const data = await getArtistViewAll(
+        artistId,
+        apiPath,
+        items.length,
+        PAGE_SIZE,
+      );
+      setItems((prev) => [...prev, ...data.items]);
+      setHasMore(data.hasMore);
+    } catch (err) {
+      console.error("[ViewAllPage] load more error:", err);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [artistId, apiPath, items.length, hasMore]);
+
+  useEffect(() => {
+    if (!artistId) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore) {
+          handleLoadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [artistId, hasMore, handleLoadMore]);
 
   const handleItemClick = (item: any) => {
     if (isTrackItem(item)) {
@@ -250,7 +296,16 @@ export default function ViewAllPage({
                 />
               );
             })}
+            {artistId &&
+              loadingMore &&
+              Array.from({ length: 6 }).map((_, i) => (
+                <MediaCardSkeleton key={`sk-${i}`} />
+              ))}
           </MediaGrid>
+        )}
+
+        {artistId && hasMore && !loading && !error && items.length > 0 && (
+          <div ref={sentinelRef} aria-hidden className="h-px" />
         )}
 
         {/* Media context menu */}

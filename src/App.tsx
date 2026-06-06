@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Layout from "./components/Layout";
+import TitleBar from "./components/TitleBar";
+import ResizeEdges from "./components/ResizeEdges";
 import Home from "./components/Home";
 import AlbumView from "./components/AlbumView";
 import PlaylistView from "./components/PlaylistView";
@@ -14,12 +16,17 @@ import ExploreSubPage from "./components/ExploreSubPage";
 import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
+import TooltipLayer from "./components/TooltipLayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
+import { useShortcuts } from "./hooks/useShortcuts";
 import { useAtomValue } from "jotai";
+import { currentViewAtom } from "./atoms/navigation";
 import { isAuthCheckingAtom } from "./atoms/auth";
+import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
+import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
 
 const ZOOM_KEY = "sone.zoom.v1";
@@ -51,47 +58,53 @@ function useZoom() {
     } catch {}
   }, [zoom]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      if (!e.ctrlKey && !e.metaKey) return;
+  useShortcuts({
+    zoomIn: () =>
+      setZoom((z) =>
+        Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100),
+      ),
+    zoomOut: () =>
+      setZoom((z) =>
+        Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 100) / 100),
+      ),
+    zoomReset: () => setZoom(1.0),
+  });
+}
 
-      if (e.key === "+" || e.key === "=") {
-        e.preventDefault();
-        setZoom((z) =>
-          Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100),
-        );
-      } else if (e.key === "-") {
-        e.preventDefault();
-        setZoom((z) =>
-          Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 100) / 100),
-        );
-      } else if (e.key === "0") {
-        e.preventDefault();
-        setZoom(1.0);
-      }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+function AppChrome({ children }: { children: ReactNode }) {
+  const nativeChrome = useAtomValue(decorationsAtom);
+  const hideTitleBar = useAtomValue(hideTitleBarAtom);
+  return (
+    <div className="relative flex flex-col h-full w-full overflow-hidden">
+      {!nativeChrome && !hideTitleBar && <TitleBar />}
+      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={4} />}
+    </div>
+  );
 }
 
 function AppContent() {
   const { isAuthenticated } = useAuth();
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
-  const { currentView, navigateHome, navigateToExplore } = useNavigation();
+  const { navigateHome, navigateToExplore } = useNavigation();
+  const currentView = useAtomValue(currentViewAtom);
 
   if (isAuthChecking) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-th-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-th-accent border-t-transparent" />
-      </div>
+      <AppChrome>
+        <div className="flex h-full w-full items-center justify-center bg-th-background">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-th-accent border-t-transparent" />
+        </div>
+      </AppChrome>
     );
   }
 
   if (!isAuthenticated) {
-    return <Login />;
+    return (
+      <AppChrome>
+        <Login />
+      </AppChrome>
+    );
   }
 
   const renderView = () => {
@@ -121,6 +134,7 @@ function AppContent() {
           <SearchView
             key={currentView.query}
             query={currentView.query}
+            initialTab={currentView.tab}
             onBack={navigateHome}
           />
         );
@@ -186,7 +200,15 @@ function AppContent() {
     }
   };
 
-  return <Layout>{renderView()}</Layout>;
+  const resetKey = JSON.stringify(currentView);
+
+  return (
+    <Layout>
+      <ErrorBoundary resetKey={resetKey} onGoHome={navigateHome}>
+        {renderView()}
+      </ErrorBoundary>
+    </Layout>
+  );
 }
 
 function App() {
@@ -203,6 +225,7 @@ function App() {
   return (
     <ToastProvider>
       <AppInitializer />
+      <TooltipLayer />
       <AppContent />
     </ToastProvider>
   );

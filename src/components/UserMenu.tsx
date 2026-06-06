@@ -9,40 +9,37 @@ import {
   ChevronDown,
   Settings,
   Radio,
+  Info,
+  Zap,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { useAuth } from "../hooks/useAuth";
+import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import {
   exclusiveModeAtom,
   bitPerfectAtom,
   exclusiveDeviceAtom,
+  gaplessAtom,
 } from "../atoms/playback";
 import { useToast } from "../contexts/ToastContext";
+import {
+  ACTION_REGISTRY,
+  DEFAULT_BINDINGS,
+  shortcutsAtom,
+  formatCombo,
+  keyFromEvent,
+  comboEquals,
+  isReserved,
+  type ActionId,
+  type KeyCombo,
+} from "../lib/shortcuts";
 import ThemeEditor from "./ThemeEditor";
 import SettingsModal from "./SettingsModal";
 import ScrobbleModal from "./ScrobbleModal";
+import AboutModal from "./AboutModal";
 import Toggle from "./Toggle";
-
-const SHORTCUTS = [
-  { keys: "Space", desc: "Play / Pause" },
-  { keys: "Ctrl + →", desc: "Next track" },
-  { keys: "Ctrl + ←", desc: "Previous track" },
-  { keys: "↑", desc: "Volume up" },
-  { keys: "↓", desc: "Volume down" },
-  { keys: "M", desc: "Mute / Unmute" },
-  { keys: "L", desc: "Like / Unlike current track" },
-  { keys: "Ctrl + S", desc: "Focus search bar" },
-  { keys: "Ctrl + R", desc: "Refresh app data" },
-  { keys: "Esc", desc: "Close now-playing drawer" },
-  { keys: "Ctrl + +", desc: "Zoom in" },
-  { keys: "Ctrl + -", desc: "Zoom out" },
-  { keys: "Ctrl + 0", desc: "Reset zoom to 100%" },
-  { keys: "Ctrl + E", desc: "Toggle exclusive output" },
-  { keys: "Ctrl + B", desc: "Toggle bit-perfect mode" },
-  { keys: "?", desc: "Show keyboard shortcuts" },
-] as const;
 
 export default function UserMenu() {
   const { userName, logout } = useAuth();
@@ -51,9 +48,16 @@ export default function UserMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [scrobbleOpen, setScrobbleOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [bindings, setBindings] = useAtom(shortcutsAtom);
+  const [editingId, setEditingId] = useState<ActionId | null>(null);
+  const [reservedHint, setReservedHint] = useState(false);
   const [exclusiveMode, setExclusiveMode] = useAtom(exclusiveModeAtom);
-  const [bitPerfect, setBitPerfect] = useAtom(bitPerfectAtom);
+  const bitPerfect = useAtomValue(bitPerfectAtom);
   const [exclusiveDevice, setExclusiveDevice] = useAtom(exclusiveDeviceAtom);
+  const [gapless, setGapless] = useAtom(gaplessAtom);
+  const [gaplessSupported, setGaplessSupported] = useState(false); // assume unsupported until confirmed
+  const { setBitPerfect } = usePlaybackActions();
   const [audioDevices, setAudioDevices] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -61,12 +65,60 @@ export default function UserMenu() {
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Hydrate gapless setting + capability from the backend
+  useEffect(() => {
+    invoke<boolean>("get_gapless")
+      .then(setGapless)
+      .catch(() => {});
+    invoke<boolean>("get_gapless_supported")
+      .then(setGaplessSupported)
+      .catch(() => {});
+  }, [setGapless]);
+
   // Toggle shortcuts modal from ? key
   useEffect(() => {
     const handler = () => setShortcutsOpen((prev) => !prev);
     window.addEventListener("toggle-shortcuts", handler);
     return () => window.removeEventListener("toggle-shortcuts", handler);
   }, []);
+
+  // Capture next keydown while editing a shortcut row
+  useEffect(() => {
+    if (!editingId) return;
+
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.code === "Escape") {
+        setEditingId(null);
+        setReservedHint(false);
+        return;
+      }
+
+      const combo = keyFromEvent(e);
+      if (!combo) return; // pure modifier — keep capturing
+
+      if (isReserved(combo)) {
+        setReservedHint(true);
+        return;
+      }
+
+      const next: Record<ActionId, KeyCombo | null> = { ...bindings };
+      for (const id of Object.keys(next) as ActionId[]) {
+        if (id !== editingId && comboEquals(next[id], combo)) {
+          next[id] = null;
+        }
+      }
+      next[editingId] = combo;
+      setBindings(next);
+      setEditingId(null);
+      setReservedHint(false);
+    };
+
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [editingId, bindings, setBindings]);
 
   // Load audio devices when exclusive mode is enabled
   useEffect(() => {
@@ -147,7 +199,9 @@ export default function UserMenu() {
             onClick={() => {
               const next = !exclusiveMode;
               setExclusiveMode(next);
-              if (!next) {
+              if (!next && bitPerfect) {
+                // Disabling exclusive also disables bit-perfect; route through
+                // the action so volume/normalization restore to previous state.
                 setBitPerfect(false);
               }
               invoke("set_exclusive_mode", { enabled: next }).catch(() => {});
@@ -214,7 +268,6 @@ export default function UserMenu() {
               onClick={() => {
                 const next = !bitPerfect;
                 setBitPerfect(next);
-                invoke("set_bit_perfect", { enabled: next }).catch(() => {});
                 showToast(
                   next
                     ? "Bit-perfect on — takes effect next track"
@@ -228,6 +281,30 @@ export default function UserMenu() {
               <Toggle on={bitPerfect} />
             </button>
           )}
+
+          {/* Gapless playback (normal mode only) */}
+          <button
+            className={`${menuItemClass} disabled:opacity-40 disabled:cursor-not-allowed`}
+            disabled={!gaplessSupported || exclusiveMode || bitPerfect}
+            title={
+              !gaplessSupported
+                ? "Requires GStreamer 1.24 or newer"
+                : exclusiveMode || bitPerfect
+                  ? "Gapless is available in normal mode only"
+                  : ""
+            }
+            onClick={async () => {
+              const next = !gapless;
+              setGapless(next);
+              await invoke("set_gapless", { enabled: next }).catch(() => {});
+            }}
+          >
+            <Zap size={16} />
+            <span className="flex-1 text-left">Gapless playback</span>
+            <Toggle
+              on={gapless && gaplessSupported && !exclusiveMode && !bitPerfect}
+            />
+          </button>
 
           {/* ── Scrobbling ── */}
           <div className="border-t border-th-border-subtle my-1" />
@@ -282,6 +359,20 @@ export default function UserMenu() {
             Shortcuts
           </button>
 
+          {/* ── About ── */}
+          <div className="border-t border-th-border-subtle my-1" />
+
+          <button
+            onClick={() => {
+              setOpen(false);
+              setAboutOpen(true);
+            }}
+            className={menuItemClass}
+          >
+            <Info size={16} />
+            About
+          </button>
+
           {/* ── Logout ── */}
           <div className="border-t border-th-border-subtle my-1" />
           <button
@@ -306,15 +397,20 @@ export default function UserMenu() {
         open={scrobbleOpen}
         onClose={() => setScrobbleOpen(false)}
       />
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
 
       {/* Shortcuts modal */}
       {shortcutsOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setShortcutsOpen(false)}
+          onClick={() => {
+            setShortcutsOpen(false);
+            setEditingId(null);
+            setReservedHint(false);
+          }}
         >
           <div
-            className="bg-th-elevated rounded-xl shadow-2xl w-[420px] max-h-[80vh] flex flex-col overflow-hidden"
+            className="bg-th-elevated rounded-xl shadow-2xl w-[460px] max-h-[80vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
             style={{ animation: "slideUp 0.2s ease-out" }}
           >
@@ -323,26 +419,65 @@ export default function UserMenu() {
                 Keyboard Shortcuts
               </h2>
               <button
-                onClick={() => setShortcutsOpen(false)}
+                onClick={() => {
+                  setShortcutsOpen(false);
+                  setEditingId(null);
+                  setReservedHint(false);
+                }}
                 className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-th-inset transition-colors text-th-text-muted hover:text-th-text-primary"
               >
                 <X size={18} />
               </button>
             </div>
-            <div className="px-5 pb-5 flex flex-col gap-1 overflow-y-auto min-h-0">
-              {SHORTCUTS.map((s) => (
-                <div
-                  key={s.keys}
-                  className="flex items-center justify-between py-2 px-1"
-                >
-                  <span className="text-[13px] text-th-text-secondary">
-                    {s.desc}
-                  </span>
-                  <kbd className="text-[12px] font-mono text-th-text-muted bg-th-surface px-2.5 py-1 rounded-md border border-th-border-subtle">
-                    {s.keys}
-                  </kbd>
-                </div>
-              ))}
+            <div className="px-5 pb-3 flex flex-col gap-0.5 overflow-y-auto min-h-0">
+              {ACTION_REGISTRY.map((action) => {
+                const isEditing = editingId === action.id;
+                const binding = bindings[action.id];
+                return (
+                  <div
+                    key={action.id}
+                    onDoubleClick={() => {
+                      setReservedHint(false);
+                      setEditingId(action.id);
+                    }}
+                    className="flex items-center justify-between py-2 px-2 rounded hover:bg-th-inset cursor-pointer select-none"
+                  >
+                    <span className="text-[13px] text-th-text-secondary">
+                      {action.label}
+                    </span>
+                    <kbd
+                      className={`text-[12px] font-mono px-2.5 py-1 rounded-md border transition-colors ${
+                        isEditing
+                          ? reservedHint
+                            ? "bg-red-500/10 text-red-400 border-red-500/40"
+                            : "bg-th-accent/10 text-th-accent border-th-accent/60 animate-pulse"
+                          : "bg-th-surface text-th-text-muted border-th-border-subtle"
+                      }`}
+                    >
+                      {isEditing
+                        ? reservedHint
+                          ? "Reserved — pick another"
+                          : "Press a key…"
+                        : formatCombo(binding)}
+                    </kbd>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border-t border-th-border-subtle px-5 py-3 flex justify-between items-center">
+              <span className="text-[11px] text-th-text-muted">
+                Double-click to edit · Esc to cancel
+              </span>
+              <button
+                onClick={() => {
+                  setBindings(DEFAULT_BINDINGS);
+                  setEditingId(null);
+                  setReservedHint(false);
+                }}
+                className="text-[12px] px-3 py-1.5 rounded-md bg-th-surface hover:bg-th-border-subtle text-th-text-secondary transition-colors"
+              >
+                Restore defaults
+              </button>
             </div>
           </div>
         </div>

@@ -38,6 +38,27 @@ pub struct ScrobbleTrack {
     pub track_id: Option<u64>,
     #[serde(default)]
     pub recording_mbid: Option<String>,
+    /// Single primary artist for Audioscrobbler providers (Last.fm/Libre.fm).
+    /// Empty for pre-upgrade queued entries — providers fall back to `artist`.
+    #[serde(default)]
+    pub artist_primary: String,
+    /// MusicBrainz Artist IDs for ListenBrainz, from an artist-corroborated
+    /// MusicBrainz match only. Empty when the match was not corroborated.
+    #[serde(default)]
+    pub artist_mbids: Vec<String>,
+}
+
+impl ScrobbleTrack {
+    /// The single artist to scrobble (Audioscrobbler) or match on (MusicBrainz):
+    /// the primary artist, falling back to the combined `artist` string for
+    /// pre-upgrade queue entries whose `artist_primary` is empty.
+    pub fn scrobble_artist(&self) -> &str {
+        if self.artist_primary.is_empty() {
+            &self.artist
+        } else {
+            &self.artist_primary
+        }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -235,20 +256,24 @@ impl ScrobbleManager {
             self.fire_now_playing(&track),
         );
 
-        // 3. Spawn fire-and-forget MBID lookup (only if we have ISRC + track_id for guard)
+        // 3. Spawn fire-and-forget MBID lookup (only if we have ISRC + track_id for guard).
+        //    Match against the PRIMARY artist (single name) so multi-artist tracks can be
+        //    corroborated; fall back to the combined string for pre-upgrade entries.
         let isrc = track.isrc.clone();
         let track_name = track.track.clone();
-        let artist_name = track.artist.clone();
+        let artist_match = track.scrobble_artist().to_string();
         let expected_id = track.track_id;
         if let (Some(isrc), Some(expected_id)) = (isrc, expected_id) {
             let mb = Arc::clone(&self.mb_lookup);
             let ct = Arc::clone(&self.current_track);
             tokio::spawn(async move {
-                if let Some(mbid) = mb.lookup_isrc(&isrc, &track_name, &artist_name).await {
+                let lookup = mb.lookup_isrc(&isrc, &track_name, &artist_match).await;
+                if lookup.recording_mbid.is_some() || !lookup.artist_mbids.is_empty() {
                     let mut current = ct.lock().await;
                     if let Some(ref mut playback) = *current {
                         if playback.track.track_id == Some(expected_id) {
-                            playback.track.recording_mbid = Some(mbid);
+                            playback.track.recording_mbid = lookup.recording_mbid;
+                            playback.track.artist_mbids = lookup.artist_mbids;
                         }
                     }
                 }

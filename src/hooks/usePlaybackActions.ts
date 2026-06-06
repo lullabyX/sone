@@ -27,15 +27,28 @@ import {
   shuffleAtom,
   repeatAtom,
   allowExplicitAtom,
+  bitPerfectAtom,
+  volumeNormalizationAtom,
+  bitPerfectPreviousStateAtom,
+  consecutiveFailCountAtom,
+  userPausedAtom,
 } from "../atoms/playback";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import { notifySeek, getInterpolatedPosition } from "../lib/playbackPosition";
+import { isTrackUnavailable, isUnplayableError } from "../lib/trackAvailability";
+import { pickGaplessNext } from "../lib/gaplessPredict";
 import type { Track, StreamInfo, ManualTrackSource, QueuedTrack } from "../types";
 import { getTidalImageUrl } from "../types";
 import { preloadImage } from "../components/TidalImage";
-import { getTrackArtistDisplay } from "../utils/itemHelpers";
+import { getTrackArtistDisplay, getTrackPrimaryArtist } from "../utils/itemHelpers";
+
+type PlayResult =
+  | { ok: true }
+  | { ok: false; reason: "network" | "unplayable" | "transient" };
+
+const MAX_CONSECUTIVE_PLAY_FAILS = 3;
 
 /** Normalize a raw track-like object into a proper Track.
  *  Handles the artist/artists mismatch from different API endpoints. */
@@ -45,6 +58,24 @@ function normalizeTrack(raw: any): Track {
     track.artist = raw.artists[0];
   }
   return track;
+}
+
+/** Build the notify_track_started payload. Centralized so all call sites send the
+ *  same fields — notably both `artist` (combined, for ListenBrainz) and
+ *  `artistPrimary` (single primary, for Last.fm/Libre.fm). */
+function buildTrackStartedPayload(track: Track, chosenByUser: boolean) {
+  return {
+    artist: getTrackArtistDisplay(track),
+    artistPrimary: getTrackPrimaryArtist(track),
+    title: track.title,
+    album: track.album?.title || null,
+    albumArtist: null,
+    durationSecs: track.duration || 0,
+    trackNumber: track.trackNumber || null,
+    chosenByUser,
+    isrc: track.isrc || null,
+    trackId: track.id || null,
+  };
 }
 
 /** Safely extract a human-readable message from a SoneError (or any thrown value). */
@@ -89,6 +120,7 @@ function fisherYatesShuffle<T>(arr: T[]): T[] {
 const DEVICE_RETRY_DELAY = 500;
 const DEVICE_MAX_RETRIES = 10;
 const MAX_HISTORY_TRACKS = 500;
+const PLAY_REENTRY_GUARD_MS = 250;
 
 /** Invoke play_tidal_track with automatic device-busy retry.
  *  When PipeWire holds the ALSA device after pipeline teardown, this retries
@@ -123,12 +155,28 @@ export function usePlaybackActions() {
   const playGenerationRef = useRef(0);
   const autoplayIdsRef = useRef(new Set<number>());
   const playNextLockRef = useRef(false);
+  const lastPlayInvokeRef = useRef(0);
 
   const playTrack = useCallback(
     async (
       track: Track,
-      opts?: { chosenByUser?: boolean; skipHistoryPush?: boolean },
-    ): Promise<boolean> => {
+      opts?: {
+        chosenByUser?: boolean;
+        skipHistoryPush?: boolean;
+        /** When true, the catch block does NOT toast for unplayable errors —
+         *  the caller (the skip-loop in playNext) handles user feedback itself. */
+        suppressUnplayableToast?: boolean;
+      },
+    ): Promise<PlayResult> => {
+      // Swallow rapid re-entry (e.g. user double-clicks a track row).
+      // Two play_tidal_track calls in quick succession cause overlapping
+      // pipeline init and audible glitches.
+      const now = Date.now();
+      if (now - lastPlayInvokeRef.current < PLAY_REENTRY_GUARD_MS) {
+        return { ok: false, reason: "transient" };
+      }
+      lastPlayInvokeRef.current = now;
+      store.set(userPausedAtom, false);
       const generation = ++playGenerationRef.current;
       const stamped = ensureQid(normalizeTrack(track));
       preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
@@ -163,27 +211,22 @@ export function usePlaybackActions() {
           },
         );
 
-        if (generation !== playGenerationRef.current) return false;
+        if (generation !== playGenerationRef.current) {
+          return { ok: false, reason: "transient" };
+        }
         store.set(streamInfoAtom, info);
         store.set(isPlayingAtom, true);
+        store.set(consecutiveFailCountAtom, 0);
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: {
-            artist: getTrackArtistDisplay(stamped),
-            title: stamped.title,
-            album: stamped.album?.title || null,
-            albumArtist: null,
-            durationSecs: stamped.duration || 0,
-            trackNumber: stamped.trackNumber || null,
-            chosenByUser: opts?.chosenByUser ?? true,
-            isrc: stamped.isrc || null,
-            trackId: stamped.id || null,
-          },
+          payload: buildTrackStartedPayload(stamped, opts?.chosenByUser ?? true),
         }).catch(() => {});
-        return true;
+        return { ok: true };
       } catch (error: any) {
-        if (generation !== playGenerationRef.current) return false;
+        if (generation !== playGenerationRef.current) {
+          return { ok: false, reason: "transient" };
+        }
         // Rollback eager UI updates
         store.set(currentTrackAtom, previousTrack);
         store.set(historyAtom, previousHistory);
@@ -191,20 +234,27 @@ export function usePlaybackActions() {
         store.set(isPlayingAtom, false);
         if (isNetworkError(error)) {
           checkNetworkError(error);
-        } else {
-          window.dispatchEvent(
-            new CustomEvent("playback-error", {
-              detail: extractPlaybackError(error),
-            }),
-          );
+          return { ok: false, reason: "network" };
         }
-        return false;
+        if (isUnplayableError(error)) {
+          if (!opts?.suppressUnplayableToast) {
+            showToast("Track unavailable", "info");
+          }
+          return { ok: false, reason: "unplayable" };
+        }
+        window.dispatchEvent(
+          new CustomEvent("playback-error", {
+            detail: extractPlaybackError(error),
+          }),
+        );
+        return { ok: false, reason: "transient" };
       }
     },
     [store, showToast],
   );
 
   const pauseTrack = useCallback(async () => {
+    store.set(userPausedAtom, true);
     try {
       await invoke("pause_track");
       store.set(isPlayingAtom, false);
@@ -214,6 +264,7 @@ export function usePlaybackActions() {
   }, [store]);
 
   const resumeTrack = useCallback(async () => {
+    store.set(userPausedAtom, false);
     try {
       const track = store.get(currentTrackAtom);
       if (!track) return;
@@ -232,17 +283,7 @@ export function usePlaybackActions() {
 
         // Notify backend so the replay is scrobbled
         invoke("notify_track_started", {
-          payload: {
-            artist: getTrackArtistDisplay(track),
-            title: track.title,
-            album: track.album?.title || null,
-            albumArtist: null,
-            durationSecs: track.duration || 0,
-            trackNumber: track.trackNumber || null,
-            chosenByUser: true,
-            isrc: track.isrc || null,
-            trackId: track.id || null,
-          },
+          payload: buildTrackStartedPayload(track, true),
         }).catch(() => {});
       } else {
         await invoke("resume_track");
@@ -253,6 +294,8 @@ export function usePlaybackActions() {
       store.set(isPlayingAtom, false);
       if (isNetworkError(error)) {
         checkNetworkError(error);
+      } else if (isUnplayableError(error)) {
+        showToast("Track unavailable", "info");
       } else {
         window.dispatchEvent(
           new CustomEvent("playback-error", {
@@ -263,8 +306,60 @@ export function usePlaybackActions() {
     }
   }, [store, showToast]);
 
+  /** Peek the next track for gapless registration. Returns null unless the next track
+   *  is the AVAILABLE head of manual/context queue AND its _source matches the current
+   *  playback source (so gapless never changes the "Playing from" context wrongly).
+   *  Read-only: never mutates any atom. */
+  const predictNextTrack = useCallback((): Track | null => {
+    return pickGaplessNext({
+      repeat: store.get(repeatAtom),
+      manualHead: store.get(manualQueueAtom)[0] ?? null,
+      contextHead: store.get(queueAtom)[0] ?? null,
+      currentSourceId: store.get(playbackSourceAtom)?.id,
+    });
+  }, [store]);
+
+  /** Bookkeeping for a track the backend is ALREADY playing gaplessly.
+   *  Mirrors playTrack's success path WITHOUT invoking play: bumps the generation
+   *  guard (aborts any in-flight playTrack writes), pushes history, stamps source
+   *  context, sets current/streamInfo, preserves user-pause intent, and fires the
+   *  scrobble notify. */
+  const advanceToTrack = useCallback(
+    (track: Track, info: StreamInfo) => {
+      ++playGenerationRef.current; // abort any in-flight playTrack writes
+      const stamped = ensureQid(normalizeTrack(track));
+      preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
+      preloadImage(getTidalImageUrl(stamped.album?.cover, 1280));
+      const prev = store.get(currentTrackAtom);
+      if (prev) {
+        const h = [...store.get(historyAtom), prev];
+        store.set(
+          historyAtom,
+          h.length > MAX_HISTORY_TRACKS
+            ? h.slice(h.length - MAX_HISTORY_TRACKS)
+            : h,
+        );
+      }
+      (stamped as any)._playingFrom = store.get(playbackSourceAtom);
+      (stamped as any)._contextFrom = store.get(contextSourceAtom);
+      store.set(currentTrackAtom, stamped); // cascades MPRIS/Discord/position reset
+      store.set(streamInfoAtom, info);
+      // At a gapless advance the pipeline is definitionally rolling, so the new track IS
+      // playing unless the USER paused. Use explicit pause intent via the GLOBAL
+      // userPausedAtom (written by every pauseTrack/resumeTrack path, instance-independent),
+      // NOT the per-hook ref and NOT the (possibly transient) isPlayingAtom.
+      store.set(isPlayingAtom, !store.get(userPausedAtom));
+      store.set(consecutiveFailCountAtom, 0);
+      invoke("notify_track_started", {
+        payload: buildTrackStartedPayload(stamped, false),
+      }).catch(() => {});
+    },
+    [store],
+  );
+
   const setVolume = useCallback(
     async (level: number) => {
+      if (store.get(bitPerfectAtom)) return;
       store.set(volumeAtom, level);
       try {
         await invoke("set_volume", { level });
@@ -273,6 +368,89 @@ export function usePlaybackActions() {
       }
     },
     [store],
+  );
+
+  const setVolumeNormalization = useCallback(
+    async (enabled: boolean) => {
+      store.set(volumeNormalizationAtom, enabled);
+      try {
+        await invoke("set_volume_normalization", { enabled });
+      } catch (error) {
+        console.error("Failed to set volume normalization:", error);
+      }
+    },
+    [store],
+  );
+
+  const rampVolume = useCallback(
+    async (from: number, to: number, durationMs = 300, steps = 12) => {
+      if (Math.abs(from - to) < 1e-4) return;
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const level = from + (to - from) * t;
+        store.set(volumeAtom, level);
+        try {
+          await invoke("set_volume", { level });
+        } catch (error) {
+          console.error("Failed to set volume:", error);
+        }
+        if (i < steps) await new Promise((r) => setTimeout(r, durationMs / steps));
+      }
+    },
+    [store],
+  );
+
+  const setBitPerfect = useCallback(
+    async (enabled: boolean) => {
+      const currentlyEnabled = store.get(bitPerfectAtom);
+      if (enabled === currentlyEnabled) return;
+
+      if (enabled) {
+        // Save current state so we can restore on disable.
+        const prevVolume = store.get(volumeAtom);
+        store.set(bitPerfectPreviousStateAtom, {
+          volume: prevVolume,
+          volumeNormalization: store.get(volumeNormalizationAtom),
+        });
+        // Ramp BEFORE flipping bit-perfect — the setVolume short-circuit
+        // would block updates otherwise.
+        await rampVolume(prevVolume, 1.0);
+        store.set(volumeNormalizationAtom, false);
+        try {
+          await invoke("set_volume_normalization", { enabled: false });
+        } catch (error) {
+          console.error("Failed to set volume normalization:", error);
+        }
+        store.set(bitPerfectAtom, true);
+        try {
+          await invoke("set_bit_perfect", { enabled: true });
+        } catch (error) {
+          console.error("Failed to set bit perfect:", error);
+        }
+      } else {
+        // Flip the atom FIRST so the ramp's setVolume calls go through.
+        store.set(bitPerfectAtom, false);
+        try {
+          await invoke("set_bit_perfect", { enabled: false });
+        } catch (error) {
+          console.error("Failed to set bit perfect:", error);
+        }
+        const prev = store.get(bitPerfectPreviousStateAtom);
+        if (prev) {
+          await rampVolume(store.get(volumeAtom), prev.volume);
+          store.set(volumeNormalizationAtom, prev.volumeNormalization);
+          try {
+            await invoke("set_volume_normalization", {
+              enabled: prev.volumeNormalization,
+            });
+          } catch (error) {
+            console.error("Failed to set volume normalization:", error);
+          }
+          store.set(bitPerfectPreviousStateAtom, null);
+        }
+      }
+    },
+    [store, rampVolume],
   );
 
   const seekTo = useCallback(async (positionSecs: number) => {
@@ -429,6 +607,7 @@ export function usePlaybackActions() {
     async (options?: { explicit?: boolean }) => {
       if (playNextLockRef.current) return;
       playNextLockRef.current = true;
+      store.set(userPausedAtom, false);
       try {
         const repeatMode = store.get(repeatAtom);
 
@@ -448,23 +627,15 @@ export function usePlaybackActions() {
             store.set(streamInfoAtom, info);
             store.set(isPlayingAtom, true);
             invoke("notify_track_started", {
-              payload: {
-                artist: getTrackArtistDisplay(current),
-                title: current.title,
-                album: current.album?.title || null,
-                albumArtist: null,
-                durationSecs: current.duration || 0,
-                trackNumber: current.trackNumber || null,
-                chosenByUser: false,
-                isrc: current.isrc || null,
-                trackId: current.id || null,
-              },
+              payload: buildTrackStartedPayload(current, false),
             }).catch(() => {});
           } catch (error: any) {
             console.error("Failed to repeat track:", error);
             store.set(isPlayingAtom, false);
             if (isNetworkError(error)) {
               checkNetworkError(error);
+            } else if (isUnplayableError(error)) {
+              showToast("Track unavailable", "info");
             }
           }
           return;
@@ -474,17 +645,49 @@ export function usePlaybackActions() {
       // Stop old pipeline to prevent stale track-finished events
       await invoke("stop_track").catch(() => {});
 
-      // Drain manual queue first
-      const manual = store.get(manualQueueAtom);
-      if (manual.length > 0) {
-        const [nextTrack, ...rest] = manual;
+      // Skip-loop helpers (issue #71). Counter resets on explicit user skip
+      // so mashing Next across removed tracks never trips the cap.
+      if (options?.explicit) {
+        store.set(consecutiveFailCountAtom, 0);
+      }
+      let toastedSkipThisCall = false;
+      const recordUnplayableAndCheckCap = (): boolean => {
+        const next = store.get(consecutiveFailCountAtom) + 1;
+        store.set(consecutiveFailCountAtom, next);
+        if (next >= MAX_CONSECUTIVE_PLAY_FAILS) {
+          showToast("Multiple tracks failed to play — stopped", "error");
+          store.set(consecutiveFailCountAtom, 0);
+          store.set(isPlayingAtom, false);
+          return true;
+        }
+        if (!toastedSkipThisCall) {
+          showToast("Track unavailable — skipping", "info");
+          toastedSkipThisCall = true;
+        }
+        return false;
+      };
+
+      // Drain manual queue first (skip past unavailable tracks)
+      while (store.get(manualQueueAtom).length > 0) {
+        const manualNow = store.get(manualQueueAtom);
+        const [nextTrack, ...rest] = manualNow;
+
+        // Pre-check: skip via metadata flags, no backend round-trip.
+        if (isTrackUnavailable(nextTrack)) {
+          store.set(manualQueueAtom, rest);
+          if (recordUnplayableAndCheckCap()) return;
+          continue;
+        }
+
         store.set(manualQueueAtom, rest);
 
         // Update playbackSourceAtom if this manual track has a source tag
         const manualSource = (nextTrack as QueuedTrack)._source;
+        const prevPlaybackSource = store.get(playbackSourceAtom);
+        const prevContextSource = store.get(contextSourceAtom);
         if (manualSource) {
-          if (!store.get(contextSourceAtom)) {
-            store.set(contextSourceAtom, store.get(playbackSourceAtom));
+          if (!prevContextSource) {
+            store.set(contextSourceAtom, prevPlaybackSource);
           }
           store.set(playbackSourceAtom, {
             type: manualSource.type,
@@ -497,10 +700,29 @@ export function usePlaybackActions() {
           });
         }
 
-        const ok = await playTrack(nextTrack, { chosenByUser: !!options?.explicit });
-        if (!ok) {
-          store.set(manualQueueAtom, [nextTrack, ...store.get(manualQueueAtom)]);
+        // Reset re-entry guard so the loop can call playTrack tightly.
+        lastPlayInvokeRef.current = 0;
+        const result = await playTrack(nextTrack, {
+          chosenByUser: !!options?.explicit,
+          suppressUnplayableToast: true,
+        });
+        if (result.ok) return;
+
+        if (result.reason === "unplayable") {
+          // Track never played — roll back the speculative source mutation.
+          if (manualSource) {
+            store.set(playbackSourceAtom, prevPlaybackSource);
+            store.set(contextSourceAtom, prevContextSource);
+          }
+          if (recordUnplayableAndCheckCap()) return;
+          continue;
         }
+        // Network or transient: preserve current behavior — re-insert and bail.
+        if (manualSource) {
+          store.set(playbackSourceAtom, prevPlaybackSource);
+          store.set(contextSourceAtom, prevContextSource);
+        }
+        store.set(manualQueueAtom, [nextTrack, ...store.get(manualQueueAtom)]);
         return;
       }
 
@@ -511,13 +733,30 @@ export function usePlaybackActions() {
         store.set(contextSourceAtom, null);
       }
 
-      const queue = store.get(queueAtom);
-      if (queue.length > 0) {
-        const [nextTrack, ...rest] = queue;
+      // Drain context queue (skip past unavailable tracks)
+      while (store.get(queueAtom).length > 0) {
+        const queueNow = store.get(queueAtom);
+        const [nextTrack, ...rest] = queueNow;
         const isAutoplay = autoplayIdsRef.current.has(nextTrack.id);
+
+        // Pre-check: also filter originalQueueAtom so the skipped track
+        // doesn't reappear when shuffle is toggled off.
+        if (isTrackUnavailable(nextTrack)) {
+          autoplayIdsRef.current.delete(nextTrack.id);
+          store.set(queueAtom, rest);
+          const origPre = store.get(originalQueueAtom);
+          if (origPre) {
+            store.set(
+              originalQueueAtom,
+              origPre.filter((t) => t._qid !== nextTrack._qid),
+            );
+          }
+          if (recordUnplayableAndCheckCap()) return;
+          continue;
+        }
+
         autoplayIdsRef.current.delete(nextTrack.id);
         store.set(queueAtom, rest);
-        // Bug F fix: sync originalQueueAtom when consuming context track
         const orig = store.get(originalQueueAtom);
         if (orig) {
           store.set(
@@ -525,14 +764,28 @@ export function usePlaybackActions() {
             orig.filter((t) => t._qid !== nextTrack._qid),
           );
         }
-        const ok = await playTrack(nextTrack, { chosenByUser: !isAutoplay });
-        if (!ok) {
-          store.set(queueAtom, [nextTrack, ...store.get(queueAtom)]);
-          if (orig) {
-            store.set(originalQueueAtom, orig);
-          }
+
+        lastPlayInvokeRef.current = 0;
+        const result = await playTrack(nextTrack, {
+          chosenByUser: !isAutoplay,
+          suppressUnplayableToast: true,
+        });
+        if (result.ok) return;
+
+        if (result.reason === "unplayable") {
+          // Already filtered from both queues above. Keep advancing.
+          if (recordUnplayableAndCheckCap()) return;
+          continue;
         }
-      } else if (repeatMode === 1) {
+        // Network or transient: re-insert and bail.
+        store.set(queueAtom, [nextTrack, ...store.get(queueAtom)]);
+        if (orig) {
+          store.set(originalQueueAtom, orig);
+        }
+        return;
+      }
+
+      if (repeatMode === 1) {
         // Repeat-all: rebuild from source (Bug 2) or history+current fallback
         const repeatSource = store.get(contextSourceAtom) ?? store.get(playbackSourceAtom);
         const sourceTracks = repeatSource?.tracks;
@@ -546,7 +799,10 @@ export function usePlaybackActions() {
                   ? [store.get(currentTrackAtom)!]
                   : []),
               ];
-        const all = stampQids(explicitOk ? raw : raw.filter(t => !t.explicit));
+        // Pre-filter unavailable so the rebuilt queue doesn't immediately hit them.
+        const all = stampQids(
+          (explicitOk ? raw : raw.filter(t => !t.explicit)).filter(t => !isTrackUnavailable(t)),
+        );
 
         if (all.length > 0) {
           store.set(historyAtom, []);
@@ -562,7 +818,14 @@ export function usePlaybackActions() {
               ? all.filter((t) => t._qid !== first._qid)
               : null,
           );
-          await playTrack(first, { skipHistoryPush: true });
+          const result = await playTrack(first, { skipHistoryPush: true });
+          if (!result.ok && result.reason === "unplayable") {
+            // First track lied about its metadata. Release the lock and re-enter
+            // playNext so the context-queue skip-loop handles the rest.
+            playNextLockRef.current = false;
+            await playNext();
+            return;
+          }
         } else {
           store.set(isPlayingAtom, false);
         }
@@ -576,13 +839,23 @@ export function usePlaybackActions() {
             if (!trackMixId) return;
             const { tracks: radio } = await getMixItems(trackMixId);
             const explicitOk = store.get(allowExplicitAtom);
-            const fresh = radio.filter((t) => !historyIds.has(t.id) && (explicitOk || !t.explicit));
+            const fresh = radio.filter(
+              (t) =>
+                !historyIds.has(t.id) &&
+                (explicitOk || !t.explicit) &&
+                !isTrackUnavailable(t),
+            );
             if (fresh.length > 0) {
               const [next, ...rest] = fresh;
               autoplayIdsRef.current = new Set(rest.map((t) => t.id));
               store.set(queueAtom, stampQids(rest.map(normalizeTrack)));
               store.set(useTrackGainAtom, true); // radio = mixed context
-              await playTrack(next, { chosenByUser: false });
+              const result = await playTrack(next, { chosenByUser: false });
+              if (!result.ok && result.reason === "unplayable") {
+                playNextLockRef.current = false;
+                await playNext();
+                return;
+              }
               return;
             }
           } catch (error: unknown) {
@@ -612,6 +885,9 @@ export function usePlaybackActions() {
         await seekTo(0);
         return;
       }
+
+      // Explicit user action — clear the skip-loop counter.
+      store.set(consecutiveFailCountAtom, 0);
 
     // Stop old pipeline to prevent stale track-finished events
     await invoke("stop_track").catch(() => {});
@@ -677,17 +953,7 @@ export function usePlaybackActions() {
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: {
-            artist: getTrackArtistDisplay(prevTrack),
-            title: prevTrack.title,
-            album: prevTrack.album?.title || null,
-            albumArtist: null,
-            durationSecs: prevTrack.duration || 0,
-            trackNumber: prevTrack.trackNumber || null,
-            chosenByUser: true,
-            isrc: prevTrack.isrc || null,
-            trackId: prevTrack.id || null,
-          },
+          payload: buildTrackStartedPayload(prevTrack, true),
         }).catch(() => {});
       } catch (error: any) {
         // Rollback all state
@@ -702,6 +968,8 @@ export function usePlaybackActions() {
         store.set(isPlayingAtom, false);
         if (isNetworkError(error)) {
           checkNetworkError(error);
+        } else if (isUnplayableError(error)) {
+          showToast("Track unavailable", "info");
         } else {
           window.dispatchEvent(
             new CustomEvent("playback-error", {
@@ -782,17 +1050,7 @@ export function usePlaybackActions() {
 
             // Notify backend for scrobbling
             invoke("notify_track_started", {
-              payload: {
-                artist: getTrackArtistDisplay(prevTrack),
-                title: prevTrack.title,
-                album: prevTrack.album?.title || null,
-                albumArtist: null,
-                durationSecs: prevTrack.duration || 0,
-                trackNumber: prevTrack.trackNumber || null,
-                chosenByUser: true,
-                isrc: prevTrack.isrc || null,
-                trackId: prevTrack.id || null,
-              },
+              payload: buildTrackStartedPayload(prevTrack, true),
             }).catch(() => {});
           } catch (error: any) {
             // Rollback all state
@@ -804,6 +1062,8 @@ export function usePlaybackActions() {
             store.set(isPlayingAtom, false);
             if (isNetworkError(error)) {
               checkNetworkError(error);
+            } else if (isUnplayableError(error)) {
+              showToast("Track unavailable", "info");
             } else {
               window.dispatchEvent(
                 new CustomEvent("playback-error", {
@@ -899,21 +1159,27 @@ export function usePlaybackActions() {
 
       let track: Track;
       if (index < manual.length) {
-        // Playing from manual queue
         track = manual[index];
+      } else {
+        track = queue[index - manual.length];
+      }
+      if (isTrackUnavailable(track)) {
+        showToast("Track unavailable", "info");
+        return;
+      }
+      // Explicit user action — clear the skip-loop counter.
+      store.set(consecutiveFailCountAtom, 0);
+      if (index < manual.length) {
         store.set(
           manualQueueAtom,
           manual.filter((_, i) => i !== index),
         );
       } else {
-        // Playing from context queue
         const ctxIndex = index - manual.length;
-        track = queue[ctxIndex];
         store.set(
           queueAtom,
           queue.filter((_, i) => i !== ctxIndex),
         );
-        // Sync originalQueueAtom for context tracks
         const orig = store.get(originalQueueAtom);
         if (orig) {
           store.set(
@@ -924,7 +1190,7 @@ export function usePlaybackActions() {
       }
       await playTrack(track);
     },
-    [store, playTrack],
+    [store, playTrack, showToast],
   );
 
   const playFromSource = useCallback(
@@ -956,9 +1222,14 @@ export function usePlaybackActions() {
       } else {
         setQueueTracks(rest, options);
       }
-      await playTrack(track);
+      store.set(consecutiveFailCountAtom, 0);
+      const result = await playTrack(track);
+      if (!result.ok && result.reason === "unplayable") {
+        // First track was unavailable. Engage skip-loop on rest.
+        await playNext({ explicit: true });
+      }
     },
-    [store, playTrack, setQueueTracks, setShuffledQueue],
+    [store, playTrack, setQueueTracks, setShuffledQueue, playNext],
   );
 
   const playAllFromSource = useCallback(
@@ -978,21 +1249,28 @@ export function usePlaybackActions() {
       },
     ) => {
       const filterExplicit = !store.get(allowExplicitAtom);
-      const eligible = filterExplicit ? allTracks.filter(t => !t.explicit) : allTracks;
+      const eligible = allTracks.filter(
+        (t) => !isTrackUnavailable(t) && (!filterExplicit || !t.explicit),
+      );
       if (eligible.length === 0) return;
+      store.set(consecutiveFailCountAtom, 0);
+      let first: Track;
       if (store.get(shuffleAtom)) {
         const firstIdx = Math.floor(Math.random() * eligible.length);
-        const first = eligible[firstIdx];
+        first = eligible[firstIdx];
         const rest = eligible.filter((_, i) => i !== firstIdx);
         setShuffledQueue(rest, options);
-        await playTrack(first);
       } else {
-        const [first, ...rest] = eligible;
+        const [head, ...rest] = eligible;
+        first = head;
         setQueueTracks(rest, options);
-        await playTrack(first);
+      }
+      const result = await playTrack(first);
+      if (!result.ok && result.reason === "unplayable") {
+        await playNext({ explicit: true });
       }
     },
-    [store, playTrack, setQueueTracks, setShuffledQueue],
+    [store, playTrack, setQueueTracks, setShuffledQueue, playNext],
   );
 
   const clearQueue = useCallback(() => {
@@ -1008,6 +1286,8 @@ export function usePlaybackActions() {
     pauseTrack,
     resumeTrack,
     setVolume,
+    setVolumeNormalization,
+    setBitPerfect,
     seekTo,
     addToQueue,
     playNextInQueue,
@@ -1022,5 +1302,10 @@ export function usePlaybackActions() {
     setShuffledQueue,
     playFromSource,
     playAllFromSource,
+    predictNextTrack,
+    advanceToTrack,
+    playNextLockRef,
+    playGenerationRef,
+    autoplayIdsRef,
   };
 }

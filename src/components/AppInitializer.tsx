@@ -13,7 +13,10 @@ import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
+import { updateToastSeenAtom } from "../atoms/updates";
+import { shouldShowUpdateToast, type UpdateInfo } from "../lib/updateToast";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -43,7 +46,9 @@ import {
   preMuteVolumeAtom,
   exclusiveModeAtom,
   bitPerfectAtom,
+  gaplessAtom,
   exclusiveDeviceAtom,
+  volumeNormalizationAtom,
   originalQueueAtom,
   manualQueueAtom,
   playbackSourceAtom,
@@ -51,13 +56,19 @@ import {
   shuffleAtom,
   repeatAtom,
   streamInfoAtom,
+  signalPathAtom,
+  useTrackGainAtom,
+  type SignalPath,
 } from "../atoms/playback";
-import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
+import { decorationsAtom, drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useGaplessPrefetch, type PendingNext } from "../hooks/useGaplessPrefetch";
 import { useFavorites } from "../hooks/useFavorites";
+import { useShortcuts } from "../hooks/useShortcuts";
+import { useMcpBridge } from "../hooks/useMcpBridge";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -80,12 +91,12 @@ import type {
   QueuedTrack,
   PlaybackSnapshot,
   PlaylistOrFolder,
+  StreamInfo,
 } from "../types";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import {
   getTrackArtistDisplay,
   getTrackArtistDiscordDisplay,
-  getTrackShareUrl,
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
 import {
@@ -152,11 +163,28 @@ export function AppInitializer() {
   const setContextSource = useSetAtom(contextSourceAtom);
 
   // ---- Stable playback actions (no subscriptions) ----
-  const { playTrack, playNext, playPrevious, pauseTrack, resumeTrack, setVolume, toggleShuffle, seekTo } =
-    usePlaybackActions();
+  const {
+    playTrack,
+    playNext,
+    playPrevious,
+    pauseTrack,
+    resumeTrack,
+    setVolume,
+    setBitPerfect,
+    toggleShuffle,
+    seekTo,
+    predictNextTrack,
+    advanceToTrack,
+    autoplayIdsRef,
+  } = usePlaybackActions();
+  const pendingNextRef = useRef<PendingNext | null>(null);
+  useGaplessPrefetch(predictNextTrack, pendingNextRef);
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
+  useMcpBridge();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
+  const setMaximized = useSetAtom(maximizedPlayerAtom);
+  const setDecorations = useSetAtom(decorationsAtom);
   const { showToast } = useToast();
 
   // ---- Store for one-time reads (volume, queue, history, etc.) — no subscription ----
@@ -170,6 +198,42 @@ export function AppInitializer() {
 
   // ---- Refs ----
   const volumeSyncedRef = useRef(false);
+
+  // ================================================================
+  //  WINDOW DECORATIONS — hydrate atom from backend on mount
+  //  (independent of auth — needed for the titlebar to render correctly)
+  // ================================================================
+  useEffect(() => {
+    invoke<boolean>("get_decorations")
+      .then(setDecorations)
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ================================================================
+  //  UPDATE CHECK — toast when a newer GitHub release exists
+  // ================================================================
+  // Check GitHub for a newer release on launch; toast up to 3x per version.
+  useEffect(() => {
+    invoke<UpdateInfo>("check_for_update")
+      .then((info) => {
+        const { show, next } = shouldShowUpdateToast(
+          info,
+          store.get(updateToastSeenAtom),
+        );
+        if (show) {
+          showToast(`Update available: SONE v${info.latest}`, "info", 30000, {
+            label: "View release",
+            onClick: () => {
+              openUrl(info.url).catch(() => {});
+            },
+          });
+        }
+        if (info.available) store.set(updateToastSeenAtom, next);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ================================================================
   //  AUTH LOADING (one-time)
@@ -197,6 +261,19 @@ export function AppInitializer() {
         setIsAuthenticated(true);
         setIsAuthChecking(false); // show home immediately, playlists load in background
 
+        // Nudge legacy device-code users to re-sign-in via PKCE (max 5 shows).
+        invoke<boolean>("consume_legacy_auth_notice")
+          .then((shouldShow) => {
+            if (shouldShow) {
+              showToast(
+                "Old sign-in detection, logout and sign in again with PKCE for lossless quality",
+                "info",
+                10000,
+              );
+            }
+          })
+          .catch(() => {});
+
         if (!userId) return;
 
         // User name (non-blocking)
@@ -213,8 +290,14 @@ export function AppInitializer() {
         invoke<boolean>("get_bit_perfect")
           .then((v) => store.set(bitPerfectAtom, v))
           .catch(() => {});
+        invoke<boolean>("get_gapless")
+          .then((v) => store.set(gaplessAtom, v))
+          .catch(() => {});
         invoke<string | null>("get_exclusive_device")
           .then((v) => store.set(exclusiveDeviceAtom, v))
+          .catch(() => {});
+        invoke<boolean>("get_volume_normalization")
+          .then((v) => store.set(volumeNormalizationAtom, v))
           .catch(() => {});
         invoke<ProxySettings>("get_proxy_settings")
           .then((v) => store.set(proxySettingsAtom, v))
@@ -645,18 +728,124 @@ export function AppInitializer() {
   }, []);
 
   // ================================================================
+  //  GAPLESS ADVANCE — adopt the next track the backend already switched to.
+  //  AUDIO REALITY WINS: the backend commits the gapless audio switch
+  //  unilaterally, so this listener is undroppable — it always reconciles
+  //  the queue and adopts the now-playing track. NEVER gated on
+  //  playNextLockRef (a gapless advance is not a skip).
+  // ================================================================
+  useEffect(() => {
+    const unlisten = listen<{ trackId: number; qid: string }>(
+      "track-advanced",
+      (e) => {
+        const { trackId, qid } = e.payload;
+        const pending = pendingNextRef.current;
+        pendingNextRef.current = null;
+
+        // Reconcile: remove EXACTLY ONE instance — the one matching qid — from
+        // whichever queue holds it. Do NOT broadly filter by id: a playlist/queue
+        // can contain the same id twice (distinct _qid).
+        const qidOf = (t: Track) => (t as { _qid?: string })._qid ?? String(t.id);
+        const removeAt = (arr: Track[], i: number) => [
+          ...arr.slice(0, i),
+          ...arr.slice(i + 1),
+        ];
+        const mq = store.get(manualQueueAtom);
+        const mi = mq.findIndex((t) => qidOf(t) === qid);
+        if (mi >= 0) {
+          // Manual-queue removal — like playNext's manual drain, do NOT touch originalQueueAtom.
+          store.set(manualQueueAtom, removeAt(mq, mi));
+        } else {
+          const q = store.get(queueAtom);
+          let qi = q.findIndex((t) => qidOf(t) === qid);
+          // Fallback: a reshuffle in the sub-debounce window can re-stamp qids, so the
+          // armed qid may not match. Remove the first instance by trackId instead, so no
+          // duplicate lingers.
+          if (qi < 0) qi = q.findIndex((t) => t.id === trackId);
+          if (qi >= 0) {
+            store.set(queueAtom, removeAt(q, qi));
+            // CRITICAL: mirror playNext's context drain — keep originalQueueAtom in sync, or
+            // it accumulates phantom played tracks and corrupts playPrevious's source-fallback
+            // splice and shuffle-off ordering.
+            const orig = store.get(originalQueueAtom);
+            if (orig)
+              // Filter by _qid ONLY (mirrors playNext's drain) — a broad `t.id` filter
+              // would wipe duplicate-id tracks (the Bug 7b regression). qid is per-instance.
+              store.set(
+                originalQueueAtom,
+                orig.filter((t) => qidOf(t) !== qid),
+              );
+          }
+          // Parity with playNext's context drain: an autoplay track can be gapless-armed.
+          autoplayIdsRef?.current?.delete(trackId);
+        }
+
+        if (pending && pending.trackId === trackId) {
+          advanceToTrack(pending.track, pending.streamInfo);
+        } else {
+          // Rare: stash missing/mismatched but audio IS already playing trackId (audio reality
+          // wins). Use the PURE get_stream_info — NOT set_next_track (which would re-arm the
+          // now-playing track as the next-to-play, causing a repeat loop). Then adopt it.
+          Promise.all([
+            invoke<StreamInfo>("get_stream_info", {
+              trackId,
+              useTrackGain: store.get(useTrackGainAtom),
+            }),
+            invoke<Track>("get_track", { trackId }),
+          ])
+            .then(([info, t]) => advanceToTrack(t, info))
+            .catch((err) => {
+              // give up; signal-path heartbeat + next user action recover
+              console.warn("[gapless] track-advanced stash-miss recovery failed", err);
+            });
+        }
+        // prefetch hook re-fires on the queue/currentTrack change → registers the new next
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, advanceToTrack]);
+
+  // ================================================================
   //  AUTO-PLAY next track when current finishes
   //  Listens for the "track-finished" Tauri event emitted by the GStreamer
   //  bus thread on EOS only (errors emit "audio-error" instead).
   // ================================================================
   useEffect(() => {
     const unlisten = listen("track-finished", () => {
+      store.set(streamInfoAtom, null);
       playNext();
     });
     return () => {
       unlisten.then((fn) => fn());
     };
   }, [playNext]);
+
+  // ================================================================
+  //  SIGNAL PATH (transparency panel)
+  //  Initial snapshot + reactive updates whenever the audio thread
+  //  records a change in mode / format / output / alterations.
+  // ================================================================
+  useEffect(() => {
+    // Attach listener FIRST so any event during initial fetch isn't lost.
+    const unlisten = listen<SignalPath>("signal-path-changed", (e) => {
+      store.set(signalPathAtom, e.payload);
+    });
+    // Initial fetch uses the new refresh command (which probes ground truth)
+    // and only writes if no event has already populated the atom.
+    invoke<SignalPath>("refresh_signal_path")
+      .then((sp) => {
+        if (store.get(signalPathAtom) === null) {
+          store.set(signalPathAtom, sp);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [store]);
 
   // ================================================================
   //  AUDIO ERROR HANDLING
@@ -668,6 +857,9 @@ export function AppInitializer() {
       (event) => {
         store.set(isPlayingAtom, false);
         const { kind, message } = event.payload;
+        if (kind === "device_disconnected" || kind === "playback_error") {
+          store.set(streamInfoAtom, null);
+        }
         if (kind === "device_busy") {
           showToast(
             "Audio device is busy — close other apps using it",
@@ -844,6 +1036,9 @@ export function AppInitializer() {
       const track = store.get(currentTrackAtom);
       if (!track) return;
       const streamInfo = store.get(streamInfoAtom);
+      const favoriteIds = store.get(favoriteTrackIdsAtom);
+      // Track.album has no artist field; fall back to track's own artist.
+      const albumArtistName = track.artist?.name || "";
       invoke("update_mpris_metadata", {
         metadata: {
           trackId: track.id,
@@ -852,8 +1047,15 @@ export function AppInitializer() {
           album: track.album?.title || "",
           artUrl: getTidalImageUrl(track.album?.cover, 320),
           durationSecs: track.duration,
-          url: getTrackShareUrl(track.id),
+          // tidal:// so xesam:url matches advertised SupportedUriSchemes.
+          // Share URL stays Discord-only via the separate quality_text path.
+          url: `tidal://track/${track.id}`,
           qualityText: formatQualityText(streamInfo),
+          albumArtist: albumArtistName || null,
+          trackNumber: track.trackNumber ?? null,
+          discNumber: track.volumeNumber ?? null,
+          contentCreated: track.album?.releaseDate || null,
+          userRating: favoriteIds.has(track.id) ? 1.0 : 0.0,
         },
       }).catch(() => {});
       // Re-push playback status — isPlayingAtom may not have changed
@@ -866,7 +1068,8 @@ export function AppInitializer() {
     pushMetadata();
     const unsubTrack = store.sub(currentTrackAtom, pushMetadata);
     const unsubStream = store.sub(streamInfoAtom, pushMetadata);
-    return () => { unsubTrack(); unsubStream(); };
+    const unsubFav = store.sub(favoriteTrackIdsAtom, pushMetadata);
+    return () => { unsubTrack(); unsubStream(); unsubFav(); };
   }, [store]);
 
   useEffect(() => {
@@ -923,189 +1126,139 @@ export function AppInitializer() {
       const pos = Math.max(0, event.payload);
       await seekTo(pos);
     });
+    const unlistenOpenUri = listen<string>("mpris:open-uri", (event) => {
+      const url = event.payload;
+      if (!url) return;
+      if (!store.get(isAuthenticatedAtom)) {
+        deepLinkQueueRef.current = url;
+        return;
+      }
+      handleDeepLink(url);
+    });
+    const unlistenFullscreen = listen<boolean>("mpris:set-fullscreen", (event) => {
+      store.set(maximizedPlayerAtom, event.payload);
+    });
     return () => {
       unlistenSeek.then((fn) => fn());
       unlistenVolume.then((fn) => fn());
       unlistenShuffle.then((fn) => fn());
       unlistenLoop.then((fn) => fn());
       unlistenSetPosition.then((fn) => fn());
+      unlistenOpenUri.then((fn) => fn());
+      unlistenFullscreen.then((fn) => fn());
     };
   }, [store, setVolume, toggleShuffle, seekTo]);
 
+  useEffect(() => {
+    const push = () => {
+      invoke("update_mpris_fullscreen", {
+        fullscreen: store.get(maximizedPlayerAtom),
+      }).catch(() => {});
+    };
+    push();
+    return store.sub(maximizedPlayerAtom, push);
+  }, [store]);
+
   // ================================================================
   //  KEYBOARD SHORTCUTS
-  //  All action callbacks are stable (from usePlaybackActions).
-  //  Volume / isPlaying are read from store at call-time.
+  //  Configurable via shortcutsAtom (see src/lib/shortcuts.ts).
+  //  Action callbacks are stable; store.get() reads at call-time.
   // ================================================================
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const inInput =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement;
-
-      // ── Ctrl / Cmd combos (work even when inside an input) ──
-      const mod = e.ctrlKey || e.metaKey;
-
-      if (mod) {
-        switch (e.code) {
-          case "ArrowRight":
-            if (e.repeat) return;
-            e.preventDefault();
-            playNext({ explicit: true });
-            return;
-          case "ArrowLeft":
-            if (e.repeat) return;
-            e.preventDefault();
-            playPrevious();
-            return;
-          case "KeyS":
-            e.preventDefault();
-            window.dispatchEvent(new CustomEvent("focus-search"));
-            return;
-          case "KeyR":
-            e.preventDefault();
-            clearCache();
-            window.location.reload();
-            return;
-          case "KeyE":
-            if (e.repeat) return;
-            e.preventDefault();
-            {
-              const isExclusive = store.get(exclusiveModeAtom);
-              if (isExclusive) {
-                // Exclusive on → turn off (bit-perfect follows)
-                store.set(exclusiveModeAtom, false);
-                store.set(bitPerfectAtom, false);
-                invoke("set_exclusive_mode", { enabled: false }).catch(() => {});
-                showToast("Exclusive output off — takes effect next track");
-              } else {
-                // Exclusive off → turn on, auto-select device if needed
-                store.set(exclusiveModeAtom, true);
-                invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
-                invoke<Array<{ id: string; name: string }>>("list_audio_devices")
-                  .then((devices) => {
-                    if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
-                      store.set(exclusiveDeviceAtom, devices[0].id);
-                      invoke("set_exclusive_device", { device: devices[0].id }).catch(() => {});
-                    }
-                  })
-                  .catch(() => {});
-                showToast("Exclusive output on — takes effect next track");
-              }
-            }
-            return;
-          case "KeyB":
-            if (e.repeat) return;
-            e.preventDefault();
-            {
-              const isBP = store.get(bitPerfectAtom);
-              if (isBP) {
-                // Bit-perfect on → turn off, exclusive stays
-                store.set(bitPerfectAtom, false);
-                invoke("set_bit_perfect", { enabled: false }).catch(() => {});
-                showToast("Bit-perfect off — takes effect next track");
-              } else {
-                // Bit-perfect off → turn on (auto-enable exclusive if needed)
-                const isExclusive = store.get(exclusiveModeAtom);
-                if (!isExclusive) {
-                  store.set(exclusiveModeAtom, true);
-                  invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
-                  invoke<Array<{ id: string; name: string }>>("list_audio_devices")
-                    .then((devices) => {
-                      if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
-                        store.set(exclusiveDeviceAtom, devices[0].id);
-                        invoke("set_exclusive_device", { device: devices[0].id }).catch(() => {});
-                      }
-                    })
-                    .catch(() => {});
-                }
-                store.set(bitPerfectAtom, true);
-                invoke("set_bit_perfect", { enabled: true }).catch(() => {});
-                showToast("Bit-perfect on — takes effect next track");
-              }
-            }
-            return;
+  useShortcuts({
+    playPause: () => {
+      if (store.get(isPlayingAtom)) {
+        pauseTrack();
+      } else {
+        resumeTrack();
+      }
+    },
+    nextTrack: () => playNext({ explicit: true }),
+    prevTrack: () => playPrevious(),
+    volumeUp: () => setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1)),
+    volumeDown: () => setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1)),
+    muteToggle: () => {
+      const vol = store.get(volumeAtom);
+      if (vol > 0) {
+        store.set(preMuteVolumeAtom, vol);
+        setVolume(0);
+      } else {
+        setVolume(store.get(preMuteVolumeAtom) || 0.5);
+      }
+    },
+    likeToggle: () => {
+      const track = store.get(currentTrackAtom);
+      if (!track) return;
+      if (favoriteTrackIds.has(track.id)) {
+        removeFavoriteTrack(track.id);
+      } else {
+        addFavoriteTrack(track.id, track);
+      }
+    },
+    focusSearch: () => {
+      window.dispatchEvent(new CustomEvent("focus-search"));
+    },
+    refreshData: () => {
+      clearCache();
+      window.location.reload();
+    },
+    closeDrawer: () => {
+      if (store.get(maximizedPlayerAtom)) return;
+      setDrawerOpen(false);
+    },
+    toggleExclusive: () => {
+      const isExclusive = store.get(exclusiveModeAtom);
+      if (isExclusive) {
+        store.set(exclusiveModeAtom, false);
+        if (store.get(bitPerfectAtom)) {
+          setBitPerfect(false);
         }
-      }
-
-      // ── The rest only fire when NOT typing in an input ──
-      if (inInput) return;
-
-      switch (e.code) {
-        case "Space":
-          e.preventDefault();
-          if (store.get(isPlayingAtom)) {
-            pauseTrack();
-          } else {
-            resumeTrack();
-          }
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1));
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1));
-          break;
-        case "KeyM":
-          if (e.repeat) return;
-          e.preventDefault();
-          // Toggle mute: store previous volume to restore
-          {
-            const vol = store.get(volumeAtom);
-            if (vol > 0) {
-              store.set(preMuteVolumeAtom, vol);
-              setVolume(0);
-            } else {
-              setVolume(store.get(preMuteVolumeAtom) || 0.5);
+        invoke("set_exclusive_mode", { enabled: false }).catch(() => {});
+        showToast("Exclusive output off — takes effect next track");
+      } else {
+        store.set(exclusiveModeAtom, true);
+        invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
+        invoke<Array<{ id: string; name: string }>>("list_audio_devices")
+          .then((devices) => {
+            if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
+              store.set(exclusiveDeviceAtom, devices[0].id);
+              invoke("set_exclusive_device", { device: devices[0].id }).catch(
+                () => {},
+              );
             }
-          }
-          break;
-        case "KeyL":
-          if (e.repeat) return;
-          e.preventDefault();
-          // Like / unlike current track
-          {
-            const track = store.get(currentTrackAtom);
-            if (track) {
-              if (favoriteTrackIds.has(track.id)) {
-                removeFavoriteTrack(track.id);
-              } else {
-                addFavoriteTrack(track.id, track);
+          })
+          .catch(() => {});
+        showToast("Exclusive output on — takes effect next track");
+      }
+    },
+    toggleBitPerfect: () => {
+      const isBP = store.get(bitPerfectAtom);
+      if (isBP) {
+        setBitPerfect(false);
+        showToast("Bit-perfect off — takes effect next track");
+      } else {
+        const isExclusive = store.get(exclusiveModeAtom);
+        if (!isExclusive) {
+          store.set(exclusiveModeAtom, true);
+          invoke("set_exclusive_mode", { enabled: true }).catch(() => {});
+          invoke<Array<{ id: string; name: string }>>("list_audio_devices")
+            .then((devices) => {
+              if (!store.get(exclusiveDeviceAtom) && devices.length > 0) {
+                store.set(exclusiveDeviceAtom, devices[0].id);
+                invoke("set_exclusive_device", {
+                  device: devices[0].id,
+                }).catch(() => {});
               }
-            }
-          }
-          break;
-        case "Escape":
-          if (store.get(maximizedPlayerAtom)) break;
-          e.preventDefault();
-          setDrawerOpen(false);
-          break;
-        case "Slash":
-          if (e.shiftKey) {
-            e.preventDefault();
-            window.dispatchEvent(new CustomEvent("toggle-shortcuts"));
-          }
-          break;
+            })
+            .catch(() => {});
+        }
+        setBitPerfect(true);
+        showToast("Bit-perfect on — takes effect next track");
       }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [
-    store,
-    playNext,
-    playPrevious,
-    pauseTrack,
-    resumeTrack,
-    setVolume,
-    setDrawerOpen,
-    favoriteTrackIds,
-    addFavoriteTrack,
-    removeFavoriteTrack,
-    showToast,
-  ]);
+    },
+    toggleShortcuts: () => {
+      window.dispatchEvent(new CustomEvent("toggle-shortcuts"));
+    },
+  });
 
   // ================================================================
   //  BLOCK MIDDLE-CLICK PASTE (Linux/X11 primary selection)
@@ -1156,12 +1309,15 @@ export function AppInitializer() {
         window.history.back();
         return;
       }
+      // Back/forward bypasses useNavigation, so close the overlays here too.
+      setDrawerOpen(false);
+      setMaximized(false);
       startTransition(() => setCurrentView(event.state));
     };
 
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
-  }, [setCurrentView]);
+  }, [setCurrentView, setDrawerOpen, setMaximized]);
 
   // ================================================================
   //  PLAYBACK POSITION INTERPOLATOR

@@ -1,4 +1,4 @@
-import { Heart } from "lucide-react";
+import { Heart, Shuffle } from "lucide-react";
 import {
   useState,
   useEffect,
@@ -11,11 +11,13 @@ import { useAtomValue, useAtom } from "jotai";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useAuth } from "../hooks/useAuth";
 import { getFavoriteTracks } from "../api/tidal";
+import { safeErrorMessage } from "../lib/errorUtils";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
 import DebouncedFilterInput from "./DebouncedFilterInput";
 import PageContainer from "./PageContainer";
+import SourcePlayButton from "./SourcePlayButton";
 import { DetailPageSkeleton } from "./PageSkeleton";
 
 interface FavoritesViewProps {
@@ -27,8 +29,13 @@ const PAGE_SIZE = 100;
 export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const { authTokens } = useAuth();
-  const { playFromSource, appendToQueue } =
-    usePlaybackActions();
+  const {
+    playTrack,
+    playFromSource,
+    playAllFromSource,
+    setShuffledQueue,
+    appendToQueue,
+  } = usePlaybackActions();
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
 
   const [allTracks, setAllTracks] = useState<Track[]>([]);
@@ -50,6 +57,11 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const hasMoreRef = useRef(true);
 
   const bgFetchingRef = useRef(false);
+  const allTracksRef = useRef<Track[]>([]);
+
+  useEffect(() => {
+    allTracksRef.current = allTracks;
+  }, [allTracks]);
 
   const handleSort = useCallback(
     (column: string | null, direction: "ASC" | "DESC" | null) => {
@@ -112,7 +124,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load favorites:", err);
-        setError(err?.message || String(err));
+        setError(safeErrorMessage(err, "Failed to load favorites"));
       } finally {
         if (generationRef.current !== gen) return;
         setLoading(false);
@@ -247,6 +259,41 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     }
   }, [tracks, favoritesSource, fetchRemaining, appendToQueue, playFromSource]);
 
+  const handlePlayAll = async () => {
+    if (tracks.length === 0) return;
+    try {
+      await playAllFromSource(tracks, { source: favoritesSource(tracks) });
+
+      if (hasMoreRef.current && !bgFetchingRef.current) {
+        fetchRemaining(appendToQueue);
+      }
+    } catch (err) {
+      console.error("Failed to play loved tracks:", err);
+    }
+  };
+
+  const handleShuffle = async () => {
+    if (tracks.length === 0) return;
+
+    if (hasMoreRef.current && !bgFetchingRef.current) {
+      await fetchRemaining();
+    }
+
+    const pool = (allTracksRef.current.length > 0 ? allTracksRef.current : tracks)
+      .filter((t) => favoriteTrackIds.has(t.id));
+    if (pool.length === 0) return;
+
+    const firstIdx = Math.floor(Math.random() * pool.length);
+    const first = pool[firstIdx];
+    const rest = pool.filter((_, i) => i !== firstIdx);
+    try {
+      setShuffledQueue(rest, { source: favoritesSource(pool) });
+      await playTrack(first);
+    } catch (err) {
+      console.error("Failed to shuffle loved tracks:", err);
+    }
+  };
+
   if (loading) {
     return <DetailPageSkeleton type="favorites" />;
   }
@@ -294,6 +341,22 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         </div>
       </div>
 
+      {/* Play Controls */}
+      <div className="px-8 py-5 flex items-center gap-3">
+        <SourcePlayButton
+          sourceType="favorites"
+          sourceId="favorites"
+          onPlay={handlePlayAll}
+        />
+        <button
+          onClick={handleShuffle}
+          className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+        >
+          <Shuffle size={18} />
+          Shuffle
+        </button>
+      </div>
+
       {/* Search / Filter bar */}
       <div className="px-8 pb-4">
         <DebouncedFilterInput
@@ -322,6 +385,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           sortDirection={sortDirection}
           onSort={handleSort}
           sortLoading={sortLoading}
+          virtualize
         />
 
         {/* End of list */}

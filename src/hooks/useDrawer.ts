@@ -18,6 +18,18 @@ export function useDrawer() {
     [setDrawerTab, setDrawerOpen],
   );
 
+  const toggleDrawerTab = useCallback(
+    (tab: string) => {
+      if (drawerOpen && drawerTab === tab) {
+        setDrawerOpen(false);
+      } else {
+        setDrawerTab(tab);
+        setDrawerOpen(true);
+      }
+    },
+    [drawerOpen, drawerTab, setDrawerOpen, setDrawerTab],
+  );
+
   return {
     drawerOpen,
     drawerTab,
@@ -25,5 +37,6 @@ export function useDrawer() {
     setDrawerTab,
     toggleDrawer,
     openDrawerToTab,
+    toggleDrawerTab,
   };
 }
