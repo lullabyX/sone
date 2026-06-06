@@ -156,6 +156,7 @@ function TidalImageComponent({
       <img
         src={blobUrl}
         alt={alt}
+        draggable={false}
         className={`w-full h-full object-cover ${
           isLoading ? "opacity-0" : "opacity-100"
         } transition-opacity`}

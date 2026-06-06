@@ -189,6 +189,26 @@ yay -S sone-bin    # prebuilt binary — or 'yay -S sone' to build from source
   </a>
 </p>
 
+### Nix
+
+SONE ships a [Nix flake](flake.nix). On any system with Nix and flakes enabled, run it without installing:
+
+```bash
+nix run github:lullabyX/sone
+```
+
+Or install it into your profile:
+
+```bash
+nix profile install github:lullabyX/sone
+```
+
+The flake builds from source (no binary cache yet) and also exposes a development shell with every build and runtime dependency wired up:
+
+```bash
+nix develop github:lullabyX/sone   # then: pnpm tauri dev
+```
+
 ### Building from source
 
 **Rust:**

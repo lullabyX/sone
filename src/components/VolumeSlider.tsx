@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
 import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
@@ -24,6 +24,31 @@ const VolumeSlider = memo(function VolumeSlider({
 
   const displayVolume = bitPerfect ? 1 : volume;
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const volumeRef = useRef(volume);
+  const bitPerfectRef = useRef(bitPerfect);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+    bitPerfectRef.current = bitPerfect;
+  });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const WHEEL_STEP = 0.05;
+    const handleWheel = (e: WheelEvent) => {
+      if (bitPerfectRef.current) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? WHEEL_STEP : -WHEEL_STEP;
+      const next = Math.min(1, Math.max(0, volumeRef.current + delta));
+      setVolume(Math.round(next * 100) / 100);
+    };
+    // passive: false is required for preventDefault to take effect.
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [setVolume]);
+
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (bitPerfect) return;
     setVolume(parseFloat(e.target.value));
@@ -34,6 +59,7 @@ const VolumeSlider = memo(function VolumeSlider({
 
   return (
     <div
+      ref={containerRef}
       className={`flex items-center gap-2 group/vol ${widthClass} ${bitPerfect ? "opacity-40 cursor-not-allowed" : ""}`}
     >
       <button

@@ -811,7 +811,7 @@ export default function MaximizedPlayer() {
       >
         {/* Left: album art + track info + actions */}
         <div
-          className={`flex flex-col items-center gap-5 ${
+          className={`flex flex-col items-center gap-7 ${
             showLyrics ? "flex-shrink-0" : ""
           }`}
         >

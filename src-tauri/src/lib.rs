@@ -953,6 +953,8 @@ pub fn run() {
             commands::mcp::mcp_regenerate_token,
             commands::utility::get_signal_path,
             commands::utility::refresh_signal_path,
+            // updates
+            commands::updates::check_for_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -13,7 +13,10 @@ import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
+import { updateToastSeenAtom } from "../atoms/updates";
+import { shouldShowUpdateToast, type UpdateInfo } from "../lib/updateToast";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -203,6 +206,31 @@ export function AppInitializer() {
   useEffect(() => {
     invoke<boolean>("get_decorations")
       .then(setDecorations)
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ================================================================
+  //  UPDATE CHECK — toast when a newer GitHub release exists
+  // ================================================================
+  // Check GitHub for a newer release on launch; toast up to 3x per version.
+  useEffect(() => {
+    invoke<UpdateInfo>("check_for_update")
+      .then((info) => {
+        const { show, next } = shouldShowUpdateToast(
+          info,
+          store.get(updateToastSeenAtom),
+        );
+        if (show) {
+          showToast(`Update available: SONE v${info.latest}`, "info", 30000, {
+            label: "View release",
+            onClick: () => {
+              openUrl(info.url).catch(() => {});
+            },
+          });
+        }
+        if (info.available) store.set(updateToastSeenAtom, next);
+      })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
