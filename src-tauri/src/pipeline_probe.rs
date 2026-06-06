@@ -305,25 +305,18 @@ pub fn discover_active_card(
     discover_active_card_with_resolver(backend, exclusive_device, mixer, &|_| None)
 }
 
-/// Extract the card name from an ALSA device string. Handles both:
-///   - hw:CARD=Audio,DEV=0   (named, GStreamer's preferred form)
-///   - hw:5,0                (numeric, GStreamer fallback when api.alsa.path absent)
-///   - plughw:* variants of either
-/// Returns the card's /proc/asound/<name> directory entry name.
+/// Resolve any `<plugin>:<card-spec>` ALSA device string (hw, plughw, front,
+/// hdmi, sysdefault, dmix, …) to its /proc/asound/<name> directory entry.
 pub fn parse_alsa_card_from_device(device: &str) -> Option<String> {
-    let body = device
-        .strip_prefix("plughw:")
-        .or_else(|| device.strip_prefix("hw:"))?;
+    let body = device.split_once(':')?.1;
 
     if let Some(rest) = body.strip_prefix("CARD=") {
-        let end = rest.find(',').unwrap_or(rest.len());
-        return Some(rest[..end].to_string());
+        let name = &rest[..rest.find(',').unwrap_or(rest.len())];
+        return (!name.is_empty()).then(|| name.to_string());
     }
 
-    // Numeric form: parse leading integer and resolve via /proc/asound/cards.
     let end = body.find(',').unwrap_or(body.len());
-    let card_idx: u32 = body[..end].parse().ok()?;
-    card_index_to_name(card_idx)
+    card_index_to_name(body[..end].parse().ok()?)
 }
 
 /// Look up the bracket name (e.g. "Audio") for card index N in
