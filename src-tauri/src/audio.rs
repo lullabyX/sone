@@ -94,8 +94,14 @@ enum WriterCommand {
         generation: u64,
     },
     FormatHint(PcmFormat),
-    Resampling { from: u32, to: u32 },
-    PendingPromotion { from: String, generation: u64 },
+    Resampling {
+        from: u32,
+        to: u32,
+    },
+    PendingPromotion {
+        from: String,
+        generation: u64,
+    },
     Flush,
     Shutdown,
 }
@@ -351,9 +357,7 @@ fn attach_next_bin(
     // Wait for the preroll to complete so pad_added has fired + linked. Bounded
     // so a stalled network source can't hang the executor thread.
     let (ret, cur, pend) = udb.state(gst::ClockTime::from_seconds(15));
-    log::debug!(
-        "[audio] gapless: next bin preroll state ret={ret:?} cur={cur:?} pend={pend:?}"
-    );
+    log::debug!("[audio] gapless: next bin preroll state ret={ret:?} cur={cur:?} pend={pend:?}");
 
     // Preroll done + pad linked: now safe to promote to PLAYING.
     if let Err(e) = branch_queue.sync_state_with_parent() {
@@ -412,9 +416,7 @@ fn detach_bin(
     let _ = branch_queue.set_state(gst::State::Null);
     let (br, bcur, _) = bin.state(gst::ClockTime::from_seconds(10));
     let (qr, qcur, _) = branch_queue.state(gst::ClockTime::from_seconds(10));
-    log::debug!(
-        "[audio] gapless: next bin NULL wait bin={br:?}/{bcur:?} queue={qr:?}/{qcur:?}"
-    );
+    log::debug!("[audio] gapless: next bin NULL wait bin={br:?}/{bcur:?} queue={qr:?}/{qcur:?}");
 
     let _ = pipeline.remove_many([bin, branch_queue]);
     log::debug!("[audio] gapless: detached next bin");
@@ -488,8 +490,8 @@ fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
     };
     let probe: &[(Format, &str)] = &[
         (Format::S32LE, "S32LE"),
-        (Format::S24LE, "S24_32LE"),  // ALSA S24LE = GStreamer S24_32LE
-        (Format::S243LE, "S24LE"),    // ALSA S243LE = GStreamer S24LE
+        (Format::S24LE, "S24_32LE"), // ALSA S24LE = GStreamer S24_32LE
+        (Format::S243LE, "S24LE"),   // ALSA S243LE = GStreamer S24LE
         (Format::FloatLE, "F32LE"),
         (Format::S16LE, "S16LE"),
     ];
@@ -523,12 +525,15 @@ fn pick_capsfilter_format(source: &str, dac_supported: &[String]) -> String {
     //    S24_32LE → S24LE is safe because audioconvert writes a zero pad byte
     //    upstream; stripping it preserves the 24 audio bits exactly.
     let promotions: &[&str] = match source {
-        "S16LE"    => &["S24LE", "S24_32LE", "S32LE"],
-        "S24LE"    => &["S24_32LE", "S32LE"],
+        "S16LE" => &["S24LE", "S24_32LE", "S32LE"],
+        "S24LE" => &["S24_32LE", "S32LE"],
         "S24_32LE" => &["S24LE", "S32LE"], // S24LE = same 24 bits, narrower container
-        _          => &[], // S32LE, F32LE, unknowns: no lossless integer alternative
+        _ => &[], // S32LE, F32LE, unknowns: no lossless integer alternative
     };
-    if let Some(p) = promotions.iter().find(|p| dac_supported.iter().any(|f| f == *p)) {
+    if let Some(p) = promotions
+        .iter()
+        .find(|p| dac_supported.iter().any(|f| f == *p))
+    {
         return (*p).to_string();
     }
     // 3. Lossy fallback — DAC's preferred (widest) format. PendingPromotion still
@@ -603,8 +608,8 @@ fn configure_alsa_hwparams(
         // Ranked fallback: requested first, then descending quality
         let fallbacks: &[Format] = &[
             Format::S32LE,
-            Format::S24LE,   // 24-in-32 container
-            Format::S243LE,  // 24-bit packed
+            Format::S24LE,  // 24-in-32 container
+            Format::S243LE, // 24-bit packed
             Format::FloatLE,
             Format::S16LE,
         ];
@@ -636,7 +641,10 @@ fn configure_alsa_hwparams(
     hwp.set_rate(fmt.sample_rate, ValueOr::Nearest)
         .map_err(|e| {
             if bit_perfect {
-                log::warn!("[audio] bit-perfect set_rate({}) failed: {e}", fmt.sample_rate);
+                log::warn!(
+                    "[audio] bit-perfect set_rate({}) failed: {e}",
+                    fmt.sample_rate
+                );
                 format!(
                     "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
                     fmt.sample_rate / 1000
@@ -650,7 +658,8 @@ fn configure_alsa_hwparams(
         if actual_rate != fmt.sample_rate {
             log::warn!(
                 "[audio] bit-perfect rate mismatch: DAC negotiated {}Hz, track requires {}Hz",
-                actual_rate, fmt.sample_rate
+                actual_rate,
+                fmt.sample_rate
             );
             return Err(format!(
                 "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
@@ -668,7 +677,8 @@ fn configure_alsa_hwparams(
             Ok(n) if n > 0 => {
                 log::info!(
                     "[audio] DAC rejects {}ch, using device-native {}ch",
-                    fmt.channels, n
+                    fmt.channels,
+                    n
                 );
                 n
             }
@@ -693,13 +703,17 @@ fn configure_alsa_hwparams(
     // writei), which causes underruns when the writer can't keep up from frame one.
     // Match GStreamer alsasink: start_threshold = buffer_size (full pre-fill).
     {
-        let swp = pcm.sw_params_current()
+        let swp = pcm
+            .sw_params_current()
             .map_err(|e| format!("sw_params_current: {e}"))?;
-        let hwp_active = pcm.hw_params_current()
+        let hwp_active = pcm
+            .hw_params_current()
             .map_err(|e| format!("hw_params_current for sw: {e}"))?;
-        let buffer_frames = hwp_active.get_buffer_size()
+        let buffer_frames = hwp_active
+            .get_buffer_size()
             .map_err(|e| format!("get_buffer_size: {e}"))?;
-        let period_frames = hwp_active.get_period_size()
+        let period_frames = hwp_active
+            .get_period_size()
             .map_err(|e| format!("get_period_size: {e}"))?;
         // start_threshold: largest period-aligned value ≤ buffer_size.
         // With our time-near requests this equals buffer_size, but the
@@ -709,11 +723,11 @@ fn configure_alsa_hwparams(
             .map_err(|e| format!("set_start_threshold: {e}"))?;
         swp.set_avail_min(period_frames as alsa::pcm::Frames)
             .map_err(|e| format!("set_avail_min: {e}"))?;
-        pcm.sw_params(&swp)
-            .map_err(|e| format!("sw_params: {e}"))?;
+        pcm.sw_params(&swp).map_err(|e| format!("sw_params: {e}"))?;
         log::debug!(
             "[audio] sw_params committed: start_threshold={}, avail_min={}",
-            start, period_frames
+            start,
+            period_frames
         );
     }
 
@@ -733,10 +747,13 @@ fn configure_alsa_hwparams(
     if alsa_fmt != requested {
         log::info!(
             "[audio] format fallback: {} -> {} (DAC doesn't support {})",
-            fmt.gst_format, gst_fmt_str, fmt.gst_format
+            fmt.gst_format,
+            gst_fmt_str,
+            fmt.gst_format
         );
     }
-    let actual_rate = pcm.hw_params_current()
+    let actual_rate = pcm
+        .hw_params_current()
         .and_then(|p| p.get_rate())
         .unwrap_or(fmt.sample_rate);
     Ok(PcmFormat {
@@ -763,7 +780,16 @@ fn spawn_alsa_writer(
     signal_path: Arc<SignalPathTracker>,
     decoded_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
     output_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
-) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>, PcmFormat, Vec<&'static str>, Vec<u32>), String> {
+) -> Result<
+    (
+        crossbeam_channel::Sender<WriterCommand>,
+        JoinHandle<()>,
+        PcmFormat,
+        Vec<&'static str>,
+        Vec<u32>,
+    ),
+    String,
+> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
     let (tx, rx) = crossbeam_channel::bounded::<WriterCommand>(256);
@@ -779,7 +805,10 @@ fn spawn_alsa_writer(
     })?;
 
     let supported_gst_formats = probe_supported_gst_formats(&pcm);
-    log::debug!("[alsa-writer] DAC supported GStreamer formats: {:?}", supported_gst_formats);
+    log::debug!(
+        "[alsa-writer] DAC supported GStreamer formats: {:?}",
+        supported_gst_formats
+    );
 
     let supported_rates = probe_supported_rates(&pcm);
     log::debug!("[alsa-writer] DAC supported rates: {:?}", supported_rates);
@@ -794,7 +823,8 @@ fn spawn_alsa_writer(
             let (_, bps) = alsa_format_to_gst(gst_format_to_alsa(best));
             log::info!(
                 "[alsa-writer] DAC doesn't support {}, using {} for initial config",
-                fmt.gst_format, best
+                fmt.gst_format,
+                best
             );
             fmt.gst_format = best.to_string();
             fmt.bytes_per_sample = bps;
@@ -803,7 +833,8 @@ fn spawn_alsa_writer(
             let fallback = supported_rates[0]; // first probed rate (44100 typically)
             log::info!(
                 "[alsa-writer] DAC doesn't support {}Hz, using {}Hz for initial config",
-                fmt.sample_rate, fallback
+                fmt.sample_rate,
+                fallback
             );
             fmt.sample_rate = fallback;
         }
@@ -1340,7 +1371,13 @@ fn spawn_alsa_writer(
         })
         .map_err(|e| format!("Failed to spawn ALSA writer thread: {e}"))?;
 
-    Ok((tx, handle, negotiated_fmt, supported_gst_formats, supported_rates))
+    Ok((
+        tx,
+        handle,
+        negotiated_fmt,
+        supported_gst_formats,
+        supported_rates,
+    ))
 }
 
 // ── Audio command protocol ─────────────────────────────────────────────
@@ -1556,8 +1593,14 @@ impl AudioPlayer {
                                             // Fade out
                                             if let Some(ref vol) = user_volume_el {
                                                 for i in (0..=10).rev() {
-                                                    vol.set_property("volume", slider_to_amplitude(current_volume) * (i as f64 / 10.0));
-                                                    std::thread::sleep(std::time::Duration::from_millis(10));
+                                                    vol.set_property(
+                                                        "volume",
+                                                        slider_to_amplitude(current_volume)
+                                                            * (i as f64 / 10.0),
+                                                    );
+                                                    std::thread::sleep(
+                                                        std::time::Duration::from_millis(10),
+                                                    );
                                                 }
                                             }
                                             old_pipe.set_state(gst::State::Null).ok();
@@ -1649,7 +1692,11 @@ impl AudioPlayer {
                                     let device_changed = writer_device.as_deref() != Some(dev);
                                     let mode_changed = writer_bit_perfect != Some(bit_perfect);
 
-                                    if !writer_alive || writer_tx.is_none() || device_changed || mode_changed {
+                                    if !writer_alive
+                                        || writer_tx.is_none()
+                                        || device_changed
+                                        || mode_changed
+                                    {
                                         // Shut down old writer cleanly
                                         if let Some(tx) = writer_tx.take() {
                                             tx.try_send(WriterCommand::Shutdown).ok();
@@ -1657,7 +1704,13 @@ impl AudioPlayer {
                                         if let Some(h) = writer_thread.take() {
                                             h.join().ok();
                                         }
-                                        let (tx, handle, negotiated_fmt, supported_gst_fmts, supported_rates) = spawn_alsa_writer(
+                                        let (
+                                            tx,
+                                            handle,
+                                            negotiated_fmt,
+                                            supported_gst_fmts,
+                                            supported_rates,
+                                        ) = spawn_alsa_writer(
                                             dev,
                                             &default_fmt,
                                             app_handle.clone(),
@@ -1684,9 +1737,13 @@ impl AudioPlayer {
                                     let wtx = writer_tx.as_ref().unwrap().clone();
 
                                     // Build appsink pipeline
-                                    let fmt_for_pipeline = writer_fmt.as_ref().unwrap_or(&default_fmt);
-                                    let supported_fmts_for_pipeline = writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
-                                    let supported_rates_for_pipeline = writer_supported_rates.as_deref().unwrap_or(&[44100, 48000]);
+                                    let fmt_for_pipeline =
+                                        writer_fmt.as_ref().unwrap_or(&default_fmt);
+                                    let supported_fmts_for_pipeline =
+                                        writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
+                                    let supported_rates_for_pipeline = writer_supported_rates
+                                        .as_deref()
+                                        .unwrap_or(&[44100, 48000]);
                                     let (pipe, u_vol, n_vol) = build_appsink_pipeline(
                                         &uri,
                                         exclusive,
@@ -1955,23 +2012,32 @@ impl AudioPlayer {
                                 // format when the downstream capsfilter is locked, which is misleading.
                                 if let Some(sink_pad) = audioconvert.static_pad("sink") {
                                     let cell = Arc::clone(&decoded_cell_thread);
-                                    sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
-                                        if let Some(gst::PadProbeData::Event(ref event)) = info.data {
-                                            if let gst::EventView::Caps(caps_event) = event.view() {
-                                                let caps = caps_event.caps();
-                                                if let Some(fmt) = parse_pcm_format(caps) {
-                                                    if let Ok(mut guard) = cell.lock() {
-                                                        *guard = Some(crate::pipeline_probe::PadCaps {
-                                                            format: fmt.gst_format.clone(),
-                                                            rate: fmt.sample_rate,
-                                                            channels: fmt.channels,
-                                                        });
+                                    sink_pad.add_probe(
+                                        gst::PadProbeType::EVENT_DOWNSTREAM,
+                                        move |_pad, info| {
+                                            if let Some(gst::PadProbeData::Event(ref event)) =
+                                                info.data
+                                            {
+                                                if let gst::EventView::Caps(caps_event) =
+                                                    event.view()
+                                                {
+                                                    let caps = caps_event.caps();
+                                                    if let Some(fmt) = parse_pcm_format(caps) {
+                                                        if let Ok(mut guard) = cell.lock() {
+                                                            *guard = Some(
+                                                                crate::pipeline_probe::PadCaps {
+                                                                    format: fmt.gst_format.clone(),
+                                                                    rate: fmt.sample_rate,
+                                                                    channels: fmt.channels,
+                                                                },
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
-                                        gst::PadProbeReturn::Ok
-                                    });
+                                            gst::PadProbeReturn::Ok
+                                        },
+                                    );
                                 }
 
                                 // autoaudiosink is a bin — its real child sink
@@ -2098,8 +2164,7 @@ impl AudioPlayer {
                                                                     if let Ok(el) = obj
                                                                         .clone()
                                                                         .downcast::<gst::Element>(
-                                                                        )
-                                                                    {
+                                                                    ) {
                                                                         if el == next_el {
                                                                             found = true;
                                                                             break;
@@ -2123,9 +2188,8 @@ impl AudioPlayer {
                                                         log::warn!(
                                                             "[audio] gapless: next-bin bus error, isolating: {err_msg}"
                                                         );
-                                                        let _ = cmd_tx_bus.send(
-                                                            AudioCommand::HandleNextBinError,
-                                                        );
+                                                        let _ = cmd_tx_bus
+                                                            .send(AudioCommand::HandleNextBinError);
                                                         // Do NOT set eos / emit audio-error /
                                                         // break — current track is unaffected.
                                                         continue;
@@ -2413,11 +2477,12 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): enabling exclusive invalidates any
                         // Normal-pipeline next bin. Detach it (gated on !next_active).
                         if enabled && !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2440,11 +2505,12 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): enabling bit-perfect invalidates any
                         // Normal-pipeline next bin. Detach it (gated on !next_active).
                         if enabled && !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2465,11 +2531,12 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): disabling gapless invalidates any
                         // prerolled next bin. Detach it (gated on !next_active).
                         if !enabled && !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2518,7 +2585,8 @@ impl AudioPlayer {
                             // Gapless off / wrong mode: detach any existing next_bin
                             // (gated on !next_active per C5) and do nothing else.
                             if !next_active.load(Ordering::Acquire) {
-                                if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take()) {
+                                if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take())
+                                {
                                     if let Some(PlaybackBackend::Normal {
                                         pipeline, concat, ..
                                     }) = backend.as_ref()
@@ -2576,7 +2644,9 @@ impl AudioPlayer {
                             });
                         }
 
-                        log::debug!("[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id}");
+                        log::debug!(
+                            "[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id}"
+                        );
                         let _ = attach_tx.send(AttachJob::Attach {
                             pipeline,
                             concat,
@@ -2638,11 +2708,12 @@ impl AudioPlayer {
                         // detach now that concat has switched away from it. Gated to
                         // Normal (C5) — the worker never reaches here on DirectAlsa
                         // (gapless is mode-gated off), but be defensive.
-                        if let (Some((old_bin, old_queue)), Some(PlaybackBackend::Normal {
-                            pipeline,
-                            concat,
-                            ..
-                        })) = (current_branch.take(), backend.as_ref())
+                        if let (
+                            Some((old_bin, old_queue)),
+                            Some(PlaybackBackend::Normal {
+                                pipeline, concat, ..
+                            }),
+                        ) = (current_branch.take(), backend.as_ref())
                         {
                             let _ = attach_tx.send(AttachJob::Detach {
                                 pipeline: pipeline.clone(),
@@ -2693,11 +2764,12 @@ impl AudioPlayer {
                     // current track — the natural boundary falls back to playNext.
                     AudioCommand::HandleNextBinError => {
                         if !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2893,25 +2965,46 @@ fn build_appsink_pipeline(
         .sync(false)
         .build();
 
-    // DASH: constrain appsink to DAC-supported formats and rates for BOTH
-    // bit-perfect and non-bit-perfect. The pad_added capsfilter relock is
-    // gated by `if !is_dash` (DASH renegotiates caps mid-stream and would
-    // fight the lock), so without this constraint a non-bit-perfect DASH
-    // chain has no protection and source-format chunks (e.g. S24_32LE on a
-    // DAC that only supports S32LE) reach the writer, triggering the
-    // strict format-mismatch teardown in the Data handler.
+    // DASH: constrain appsink to DAC-supported formats (and, for non-bit-perfect,
+    // rates) for BOTH modes. The pad_added capsfilter relock is gated by
+    // `if !is_dash` (DASH renegotiates caps mid-stream and would fight the lock),
+    // so without this constraint a non-bit-perfect DASH chain has no protection
+    // and source-format chunks (e.g. S24_32LE on a DAC that only supports S32LE)
+    // reach the writer, triggering the strict format-mismatch teardown in the
+    // Data handler.
+    //
+    // RATE is constrained ONLY in non-bit-perfect mode. There, an audioresample
+    // element bridges any source rate to a DAC-supported one, so the constraint
+    // is always satisfiable. In bit-perfect mode there is deliberately NO
+    // resampler (audioconvert can't change rate), so pinning the rate to the
+    // DAC's list makes GStreamer fail negotiation outright when the source rate
+    // isn't supported — surfacing as the opaque "Internal data stream error" on
+    // the bus instead of the actionable "turn off bit-perfect" message. Leaving
+    // rate unconstrained lets the source rate pass through to the appsink; its
+    // CAPS probe then hands the writer a FormatHint, the writer attempts the ALSA
+    // reopen at that exact rate, and configure_alsa_hwparams emits the friendly
+    // "DAC doesn't support XkHz — turn off bit-perfect mode" toast (matching the
+    // non-DASH/BTS path).
     if is_dash {
-        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
         let mut caps_builder = gst::Caps::builder("audio/x-raw")
-            .field("format", gst::List::new(supported_gst_formats.iter().copied()))
+            .field(
+                "format",
+                gst::List::new(supported_gst_formats.iter().copied()),
+            )
             .field("channels", device_channels as i32);
-        if !rate_list.is_empty() {
+        let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
+        if !bit_perfect && !rate_list.is_empty() {
             caps_builder = caps_builder.field("rate", gst::List::new(rate_list));
         }
         appsink.set_caps(Some(&caps_builder.build()));
         log::debug!(
-            "[audio] DASH appsink caps = formats:{:?} rates:{:?} (bit_perfect={bit_perfect})",
-            supported_gst_formats, supported_rates
+            "[audio] DASH appsink caps = formats:{:?} rates:{} (bit_perfect={bit_perfect})",
+            supported_gst_formats,
+            if bit_perfect {
+                "passthrough".to_string()
+            } else {
+                format!("{supported_rates:?}")
+            }
         );
     }
 
@@ -2919,7 +3012,11 @@ fn build_appsink_pipeline(
         "[audio] building appsink pipeline: exclusive={exclusive} bit_perfect={bit_perfect}"
     );
 
-    let (u_vol, n_vol, capsfilter_weak_from_build): (Option<gst::Element>, Option<gst::Element>, Option<gst::glib::WeakRef<gst::Element>>) = if bit_perfect {
+    let (u_vol, n_vol, capsfilter_weak_from_build): (
+        Option<gst::Element>,
+        Option<gst::Element>,
+        Option<gst::glib::WeakRef<gst::Element>>,
+    ) = if bit_perfect {
         audioconvert.set_property_from_str("dithering", "none");
         audioconvert.set_property_from_str("noise-shaping", "none");
 
@@ -3019,7 +3116,10 @@ fn build_appsink_pipeline(
 
     // Connect uridecodebin's dynamic pad to audioconvert
     let convert_weak = audioconvert.downgrade();
-    let supported_fmts_for_closure: Vec<String> = supported_gst_formats.iter().map(|s| s.to_string()).collect();
+    let supported_fmts_for_closure: Vec<String> = supported_gst_formats
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let supported_rates_for_closure: Vec<u32> = supported_rates.to_vec();
     let resample_tx = writer_tx.clone();
     let is_bit_perfect = bit_perfect;
@@ -3061,9 +3161,10 @@ fn build_appsink_pipeline(
                                 .copied()
                                 .min_by_key(|&r| (r as i64 - native as i64).unsigned_abs())
                                 .unwrap_or(48000);
-                            let _ = resample_tx.try_send(
-                                WriterCommand::Resampling { from: native, to: closest },
-                            );
+                            let _ = resample_tx.try_send(WriterCommand::Resampling {
+                                from: native,
+                                to: closest,
+                            });
                         }
                     }
                 }
@@ -3155,7 +3256,8 @@ fn build_appsink_pipeline(
                                         channels: device_channels,
                                         bytes_per_sample: bps,
                                     };
-                                    let _ = resample_tx.try_send(WriterCommand::FormatHint(hint_fmt));
+                                    let _ =
+                                        resample_tx.try_send(WriterCommand::FormatHint(hint_fmt));
                                 }
                             }
                         }
