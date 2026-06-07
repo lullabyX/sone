@@ -59,7 +59,15 @@ impl MprisHandle {
 
             local.block_on(&rt, async move {
                 let app_handle_for_tick = app_handle.clone();
-                let player = match Player::builder("io.github.lullabyX.sone")
+                // snapd's mpris interface rejects dotted names, and the snap's
+                // desktop file is exported as <snap>_<app>. Everything else keeps
+                // the reverse-DNS app id (Flathub requires it).
+                let (bus_name, desktop_entry) = if std::env::var("SNAP").is_ok() {
+                    ("sone", "sone_sone")
+                } else {
+                    ("io.github.lullabyX.sone", "io.github.lullabyX.sone")
+                };
+                let player = match Player::builder(bus_name)
                     .can_play(true)
                     .can_pause(true)
                     .can_go_next(true)
@@ -95,10 +103,7 @@ impl MprisHandle {
 
                 // Identity + desktop entry so KDE/GNOME can associate with the window
                 player.set_identity("SONE").await.ok();
-                player
-                    .set_desktop_entry("io.github.lullabyX.sone")
-                    .await
-                    .ok();
+                player.set_desktop_entry(desktop_entry).await.ok();
 
                 // Wire control callbacks — reuse existing tray event system
                 let app = app_handle.clone();
