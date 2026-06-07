@@ -141,6 +141,10 @@ parts:
       pnpm install --frozen-lockfile
       # No `--` before --bundles: unlike `npm run`, pnpm passes `--` through
       # literally and `tauri build -- ...` forwards everything after it to cargo.
+      # Clear any stale .deb from a previous (cached) build first — on a version
+      # bump the old versioned .deb lingers and `dpkg -x *.deb` would match two
+      # files and error ("--extract takes at most two arguments").
+      rm -f src-tauri/target/release/bundle/deb/*.deb
       pnpm tauri build --bundles deb
       dpkg -x src-tauri/target/release/bundle/deb/*.deb $SNAPCRAFT_PART_INSTALL/
       # NOTE: these paths assume mainBinaryName is unset in tauri.conf.json, so
