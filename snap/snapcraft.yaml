@@ -55,12 +55,8 @@ lint:
         - usr/lib/x86_64-linux-gnu/libwoff2enc*
 
 layout:
-  # Override the gnome extension's default, which binds this to
-  # $SNAP/gnome-platform/.../webkit2gtk-4.1 — but gnome-46-2404 ships no
-  # WebKit, so that points at nothing and WebKitWebProcess can't launch
-  # (blank window). The key must match the extension's exactly
-  # ($CRAFT_ARCH_TRIPLET_BUILD_FOR) so this replaces it and points at our
-  # staged WebKit helper executables instead.
+  # Override the gnome extension's bind (it targets gnome-46-2404, which ships
+  # no WebKit -> blank window). Key must match the extension's to replace it.
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1
   /usr/lib/x86_64-linux-gnu/gstreamer-1.0:
@@ -71,6 +67,13 @@ layout:
     bind: $SNAP/usr/share/alsa
   /usr/lib/x86_64-linux-gnu/alsa-lib:
     bind: $SNAP/usr/lib/x86_64-linux-gnu/alsa-lib
+
+slots:
+  # mpris interface needs a dotless name; the app uses "sone" under snap to match
+  # (mpris.rs picks it via the SNAP env var). Grants org.mpris.MediaPlayer2.sone.
+  mpris:
+    interface: mpris
+    name: sone
 
 apps:
   sone:
@@ -87,6 +90,7 @@ apps:
       - network-status
       - audio-playback
       - alsa
+      - screen-inhibit-control
 
 parts:
   build-app:
@@ -125,6 +129,7 @@ parts:
       - gstreamer1.0-libav
       - gstreamer1.0-alsa
       - libblas3
+      - liblapack3
     source: .
     override-build: |
       set -eu
@@ -133,23 +138,20 @@ parts:
       VERSION=$(node -p "require('./package.json').version")
       craftctl set version="$VERSION"
 
-      # This is a pnpm project (packageManager: pnpm@11.1.3). Corepack is not
-      # usable in the node snap (not on PATH, can't write shims, stale signing
-      # keys), so install pnpm via npm instead.
+      # pnpm project; install via npm (corepack isn't usable in the node snap).
       npm install -g pnpm@11.1.3
       export PATH="$(npm config get prefix)/bin:$PATH"
       pnpm install --frozen-lockfile
-      # No `--` before --bundles: unlike `npm run`, pnpm passes `--` through
-      # literally and `tauri build -- ...` forwards everything after it to cargo.
-      # Clear any stale .deb from a previous (cached) build first — on a version
-      # bump the old versioned .deb lingers and `dpkg -x *.deb` would match two
-      # files and error ("--extract takes at most two arguments").
+      # rm stale .deb so a version bump doesn't leave two for the glob below.
       rm -f src-tauri/target/release/bundle/deb/*.deb
+      # no `--` before --bundles: pnpm would forward it to cargo, not tauri.
       pnpm tauri build --bundles deb
       dpkg -x src-tauri/target/release/bundle/deb/*.deb $SNAPCRAFT_PART_INSTALL/
-      # NOTE: these paths assume mainBinaryName is unset in tauri.conf.json, so
-      # the bundler uses the lowercase cargo binary name "sone" for Icon= and
-      # usr/bin. Setting mainBinaryName: "SONE" would flip these to uppercase
-      # and silently break the sed below.
+      # libblas3/liblapack3 put their .so in blas//lapack/ subdirs; recreate the
+      # update-alternatives symlinks so libgstlibav (ffmpeg) can load them.
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib/x86_64-linux-gnu
+      ln -sf blas/libblas.so.3 $SNAPCRAFT_PART_INSTALL/usr/lib/x86_64-linux-gnu/libblas.so.3
+      ln -sf lapack/liblapack.so.3 $SNAPCRAFT_PART_INSTALL/usr/lib/x86_64-linux-gnu/liblapack.so.3
+      # Icon=sone / usr/bin/sone assume mainBinaryName stays unset (lowercase).
       sed -i -e "s|Icon=sone|Icon=/usr/share/icons/hicolor/32x32/apps/sone.png|g" $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop
       cp $SNAPCRAFT_PART_INSTALL/usr/share/applications/SONE.desktop $SNAPCRAFT_PART_INSTALL/usr/share/applications/sone.desktop
