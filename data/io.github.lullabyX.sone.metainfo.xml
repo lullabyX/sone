@@ -4,62 +4,106 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
   <name>SONE</name>
-  <summary>Native Linux TIDAL client — beautifully designed UI, bit-perfect lossless audio</summary>
+  <summary>Native TIDAL client for Linux — modern UI, bit-perfect lossless FLAC and Hi-Res audio</summary>
 
-  <developer id="io.github.lullabyX">
+  <developer id="io.github.lullabyx">
     <name>Hassan Rabbi</name>
   </developer>
 
   <description>
-    <p>A native desktop client for TIDAL with an interface that's intuitive from the
-       first launch. A full-screen player with karaoke-style synced lyrics, a floating
-       miniplayer, and fully customizable light and dark themes are all GPU-composited
-       for fluid scrolling and transitions. Underneath, it streams your library in
-       lossless FLAC and Hi-Res quality up to 24-bit/192kHz — with gapless,
-       silence-free transitions in normal mode, or the option to bypass your system
-       mixer entirely for bit-perfect output.</p>
-    <p>Exclusive ALSA mode bypasses PulseAudio and PipeWire entirely, sending the
-       unaltered signal directly to your DAC for bit-perfect playback. Or use normal
-       mode for casual listening through your system's default output.</p>
+    <p>SONE is a native, lightweight desktop client for TIDAL on Linux that pairs a
+       modern, polished interface with bit-perfect, lossless Hi-Res audio — no
+       compromise on either. Built with Tauri and Rust, it's small and fully native.
+       The interface is customizable to the core: a full-screen player with
+       karaoke-style synced lyrics, a floating miniplayer, and a theming engine that
+       derives a complete light or dark palette from any two colors.</p>
+    <p>It streams your library in lossless FLAC and Hi-Res quality up to
+       24-bit/192kHz, with gapless, silence-free playback. For bit-perfect output,
+       exclusive ALSA mode bypasses PulseAudio and PipeWire entirely, sending the
+       unaltered signal straight to your DAC — or use normal mode for casual
+       listening through your system's default output.</p>
+    <p>Audio</p>
     <ul>
       <li>Lossless FLAC and Hi-Res streaming up to 24-bit/192kHz</li>
-      <li>Exclusive ALSA output for bit-perfect streaming to USB DACs</li>
+      <li>Exclusive ALSA output — bypasses PulseAudio and PipeWire, sending bit-perfect audio straight to your DAC</li>
+      <li>Bit-perfect mode with bit-depth promotion to your DAC's native depth</li>
+      <li>Automatic DAC format and sample-rate detection, with graceful fallback on mismatches</li>
+      <li>Channel negotiation and a stereo mix matrix for fixed-channel DACs</li>
+      <li>Hot-swap DACs — the ALSA output re-initialises on device change, no restart needed</li>
+      <li>Signal Path Transparency — inspect the live pipeline and confirm a pristine, bit-clean path to your DAC</li>
+      <li>Gapless, silence-free playback</li>
       <li>Volume normalization (ReplayGain) with automatic album/track switching</li>
+    </ul>
+    <p>Interface and customization</p>
+    <ul>
+      <li>Modern, fully customizable light and dark themes</li>
+      <li>12 theme presets and a full color picker that derives a complete palette from any two colors</li>
+      <li>Full-screen player with album art, a blurred backdrop, and auto-hiding controls</li>
+      <li>Karaoke-style synced lyrics</li>
+      <li>Floating, resizable miniplayer</li>
+      <li>Tabbed home page that remembers your last view</li>
+      <li>Optional custom title bar — toggle native window decorations</li>
+      <li>Customizable in-app keyboard shortcuts</li>
+    </ul>
+    <p>Library and playback</p>
+    <ul>
+      <li>Browse your library, playlists, albums, artists, and mixes</li>
+      <li>Personalized home feed and full catalog search</li>
+      <li>Playlist management — folders, create, rename, edit, reorder, and public/private toggle</li>
+      <li>Sort tracks and favorites by date added, name, or artist</li>
+      <li>Queue with append and persistence across restarts</li>
+      <li>Track and mix radio</li>
+      <li>Explicit-content filter</li>
+    </ul>
+    <p>Integrations and system</p>
+    <ul>
       <li>Scrobble to Last.fm, Libre.fm, and ListenBrainz with ISRC and MusicBrainz metadata</li>
-      <li>Synced lyrics display</li>
-      <li>Miniplayer — compact floating window with playback controls and resizable-adaptive layout</li>
-      <li>Full-screen player with album art, lyrics, and auto-hiding controls</li>
-      <li>Discord Rich Presence — show what you're listening to</li>
-      <li>Share and open tidal:// deep links for tracks, albums, playlists, artists, and mixes</li>
-      <li>Custom themes with full color picker</li>
-      <li>Queue persistence across restarts</li>
-      <li>MPRIS media controls and system tray</li>
-      <li>Proxy support — route traffic through HTTP, HTTPS, or SOCKS5 proxies</li>
+      <li>Discord Rich Presence with album art and a customizable status</li>
+      <li>MPRIS media controls with media-key, position, shuffle, repeat, and seek support</li>
+      <li>System tray with single-instance focus</li>
+      <li>Open and share tidal:// deep links for tracks, albums, playlists, artists, and mixes</li>
+      <li>Keep Awake — prevents the screen from sleeping during playback on X11, Wayland, and D-Bus</li>
+      <li>MCP server — external AI agents like Claude Code can search your library and control playback (off by default)</li>
+      <li>Proxy support — HTTP, HTTPS, and SOCKS5</li>
+      <li>Sign in securely with PKCE inside the app</li>
     </ul>
     <p>Unofficial client — requires an active TIDAL subscription. SONE is a
        streaming client only and does not support offline downloads.</p>
   </description>
 
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+    <category>Player</category>
+  </categories>
+
   <keywords>
-    <keyword>music</keyword>
-    <keyword>audio</keyword>
     <keyword>streaming</keyword>
-    <keyword>tidal</keyword>
     <keyword>player</keyword>
+    <keyword>music</keyword>
     <keyword>hifi</keyword>
-    <keyword>lossless</keyword>
-    <keyword>flac</keyword>
-    <keyword>interface</keyword>
-    <keyword>ui</keyword>
-    <keyword>design</keyword>
-    <keyword>themes</keyword>
+    <keyword>hi-fi</keyword>
+    <keyword>audiophile</keyword>
+    <keyword>dac</keyword>
+    <keyword>usb dac</keyword>
+    <keyword>alsa</keyword>
+    <keyword>pulseaudio</keyword>
+    <keyword>pipewire</keyword>
+    <keyword>replaygain</keyword>
+    <keyword>gapless</keyword>
+    <keyword>hi-res audio</keyword>
+    <keyword>scrobble</keyword>
+    <keyword>last.fm</keyword>
+    <keyword>listenbrainz</keyword>
+    <keyword>mpris</keyword>
+    <keyword>discord</keyword>
     <keyword>miniplayer</keyword>
     <keyword>lyrics</keyword>
-    <keyword>fullscreen</keyword>
-    <keyword>scrobble</keyword>
-    <keyword>discord</keyword>
-    <keyword>gapless</keyword>
-    <keyword>MPRIS</keyword>
+    <keyword>themes</keyword>
+    <keyword>dark mode</keyword>
+    <keyword>proxy</keyword>
+    <keyword>mcp</keyword>
   </keywords>
 
   <launchable type="desktop-id">io.github.lullabyX.sone.desktop</launchable>
@@ -67,6 +111,8 @@
   <url type="homepage">https://github.com/lullabyX/sone</url>
   <url type="bugtracker">https://github.com/lullabyX/sone/issues</url>
   <url type="vcs-browser">https://github.com/lullabyX/sone</url>
+  <url type="contribute">https://github.com/lullabyX/sone</url>
+  <url type="donation">https://patreon.com/lullabyX</url>
 
   <branding>
     <color type="primary" scheme_preference="light">#FDF2F8</color>
