@@ -9,10 +9,10 @@
 
   <div align="center">
     <a href="https://flathub.org/apps/io.github.lullabyX.sone">
-      <img height="68" align="middle" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
+      <img height="60" align="middle" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
     </a>  
     <a href="https://snapcraft.io/sone">
-      <img height="65" align="middle" alt="Get it from the Snap Store" src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg"/>
+      <img height="64" align="middle" alt="Get it from the Snap Store" src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg"/>
     </a>
   </div>
 </div>
