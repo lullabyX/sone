@@ -7,9 +7,14 @@
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
 [![Built with Tauri 2](https://img.shields.io/badge/Built_with-Tauri_2-orange.svg)](https://v2.tauri.app/)
 
-  <a href="https://flathub.org/apps/io.github.lullabyX.sone">
-    <img width="200" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
-  </a>
+  <div align="center">
+    <a href="https://flathub.org/apps/io.github.lullabyX.sone">
+      <img height="68" align="middle" alt="Download on Flathub" src="https://flathub.org/api/badge?locale=en"/>
+    </a>  
+    <a href="https://snapcraft.io/sone">
+      <img height="65" align="middle" alt="Get it from the Snap Store" src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg"/>
+    </a>
+  </div>
 </div>
 
 > [!IMPORTANT]
@@ -189,6 +194,32 @@ yay -S sone-bin    # prebuilt binary — or 'yay -S sone' to build from source
     <img src="https://img.shields.io/badge/OSS%20hosting%20by-cloudsmith-blue?logo=cloudsmith&style=for-the-badge" alt="Package hosting by Cloudsmith" />
   </a>
 </p>
+
+### Snap Store
+
+SONE is available on the Snap Store for any distribution with snap support. Install it via your software center or the CLI:
+
+**Install the application**
+
+```
+sudo snap install sone
+```
+
+**Run the application**
+
+```
+sone
+```
+
+> For exclusive / bit-perfect ALSA output, also connect the hardware-access interface:
+>
+> ```
+> sudo snap connect sone:alsa
+> ```
+
+<a href="https://snapcraft.io/sone">
+  <img width="200" style="border-radius: 8px;" alt="Get it from the Snap Store" src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg"/>
+</a>
 
 ### Nix
 
