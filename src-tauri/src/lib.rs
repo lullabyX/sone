@@ -233,6 +233,15 @@ pub fn now_secs() -> u64 {
         .as_secs()
 }
 
+/// Wall-clock milliseconds since the Unix epoch.
+pub fn now_millis() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 impl AppState {
     fn new(app_handle: tauri::AppHandle) -> Self {
         // Get config dir
