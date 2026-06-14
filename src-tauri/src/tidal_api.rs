@@ -499,6 +499,8 @@ pub struct StreamInfo {
     pub track_replay_gain: Option<f64>,
     #[serde(default)]
     pub track_peak_amplitude: Option<f64>,
+    #[serde(default)]
+    pub streaming_session_id: Option<String>,
 }
 
 // ==================== v2 Home Feed MIX types ====================
@@ -3070,17 +3072,22 @@ impl TidalClient {
         &mut self,
         track_id: u64,
         quality: &str,
+        streaming_session_id: Option<&str>,
     ) -> Result<StreamInfo, SoneError> {
         let cc = self.country_code.clone();
+        let mut params: Vec<(&str, &str)> = vec![
+            ("countryCode", &cc),
+            ("audioquality", quality),
+            ("playbackmode", "STREAM"),
+            ("assetpresentation", "FULL"),
+        ];
+        if let Some(sid) = streaming_session_id {
+            params.push(("streamingsessionid", sid));
+        }
         let body = self
             .api_get_body(
                 &format!("/tracks/{}/playbackinfopostpaywall", track_id),
-                &[
-                    ("countryCode", &cc),
-                    ("audioquality", quality),
-                    ("playbackmode", "STREAM"),
-                    ("assetpresentation", "FULL"),
-                ],
+                &params,
             )
             .await?;
 
@@ -3173,6 +3180,7 @@ impl TidalClient {
                 album_peak_amplitude: data.album_peak_amplitude,
                 track_replay_gain: data.track_replay_gain,
                 track_peak_amplitude: data.track_peak_amplitude,
+                streaming_session_id: streaming_session_id.map(|s| s.to_string()),
             });
         }
         // JSON fallback
@@ -3217,6 +3225,7 @@ impl TidalClient {
             album_peak_amplitude: data.album_peak_amplitude,
             track_replay_gain: data.track_replay_gain,
             track_peak_amplitude: data.track_peak_amplitude,
+            streaming_session_id: streaming_session_id.map(|s| s.to_string()),
         })
     }
 
