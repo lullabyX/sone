@@ -11,6 +11,7 @@ mod idle_inhibit;
 pub mod logging;
 #[cfg(target_os = "linux")]
 mod mpris;
+mod playback_report;
 mod scrobble;
 mod signal_path;
 mod pipeline_probe;
