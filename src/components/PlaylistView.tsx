@@ -28,6 +28,7 @@ import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import NotFoundPage from "./NotFoundPage";
 import { getTidalImageUrl, type Track } from "../types";
 import TidalImage from "./TidalImage";
+import CoverBanner from "./CoverBanner";
 import TrackList from "./TrackList";
 import MediaContextMenu from "./MediaContextMenu";
 import DebouncedFilterInput from "./DebouncedFilterInput";
@@ -518,7 +519,9 @@ export default function PlaylistView({
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7">
+      <div className="relative">
+      <CoverBanner src={getTidalImageUrl(effectiveInfo?.image, 640)} />
+      <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
           {effectiveInfo?.image ? (
             <TidalImage
@@ -570,7 +573,7 @@ export default function PlaylistView({
       </div>
 
       {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center justify-between">
+      <div className="px-8 py-5 flex items-center justify-between relative z-10">
         {/* Left — Play & Shuffle buttons */}
         <div className="flex items-center gap-3">
           <SourcePlayButton
@@ -580,7 +583,7 @@ export default function PlaylistView({
           />
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle
@@ -651,6 +654,7 @@ export default function PlaylistView({
             />
           )}
         </div>
+      </div>
       </div>
 
       {/* Search / Filter bar */}
