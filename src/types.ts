@@ -339,6 +339,7 @@ export interface StreamInfo {
   /** "application/dash+xml" | "application/vnd.tidal.bts" */
   manifestMimeType?: string;
   manifestHash?: string;
+  streamingSessionId?: string | null;
   trackId?: number;
   albumReplayGain?: number;
   albumPeakAmplitude?: number;
