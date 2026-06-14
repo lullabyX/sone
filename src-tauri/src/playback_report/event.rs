@@ -167,4 +167,16 @@ mod tests {
         assert_eq!(v["uuid"], "uuid-1");
         assert_eq!(v["payload"]["playbackSessionId"], "s");
     }
+
+    #[test]
+    fn headers_json_uses_bare_token_and_required_keys() {
+        let h = build_headers_json("my-cid", "raw-token", 1700);
+        let v: serde_json::Value = serde_json::from_str(&h).unwrap();
+        assert_eq!(v["client-id"], "my-cid");
+        assert_eq!(v["consent-category"], "NECESSARY");
+        assert_eq!(v["authorization"], "raw-token"); // bare, no "Bearer "
+        assert_eq!(v["requested-sent-timestamp"], 1700i64);
+        assert!(v.get("app-name").is_some());
+        assert!(v.get("os-name").is_some());
+    }
 }
