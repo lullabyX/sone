@@ -20,6 +20,7 @@ import {
   type MediaItemType,
 } from "../types";
 import TidalImage from "./TidalImage";
+import CoverBanner from "./CoverBanner";
 import TrackList from "./TrackList";
 import { TrackArtists } from "./TrackArtists";
 import MediaContextMenu from "./MediaContextMenu";
@@ -357,7 +358,9 @@ export default function AlbumView({
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
       {/* Album Header */}
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7">
+      <div className="relative">
+      <CoverBanner src={getTidalImageUrl(displayCover, 640)} variant="dark" />
+      <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover">
           <TidalImage
             src={getTidalImageUrl(displayCover, 640)}
@@ -405,7 +408,7 @@ export default function AlbumView({
       </div>
 
       {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center justify-between">
+      <div className="px-8 py-5 flex items-center justify-between relative z-10">
         <div className="flex items-center gap-3">
           <SourcePlayButton
             sourceType="album"
@@ -414,7 +417,7 @@ export default function AlbumView({
           />
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle
@@ -468,6 +471,7 @@ export default function AlbumView({
             />
           )}
         </div>
+      </div>
       </div>
 
       {/* Track List */}
