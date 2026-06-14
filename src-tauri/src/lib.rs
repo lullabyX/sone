@@ -143,6 +143,8 @@ pub struct Settings {
     pub bit_perfect: bool,
     #[serde(default = "defaults::yes")]
     pub gapless: bool,
+    #[serde(default = "defaults::yes")]
+    pub report_playback_events: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
@@ -182,6 +184,7 @@ impl Default for Settings {
             exclusive_device: None,
             bit_perfect: false,
             gapless: true,
+            report_playback_events: true,
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
@@ -208,6 +211,8 @@ pub struct AppState {
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
     pub gapless: AtomicBool,
+    pub report_playback_events: std::sync::atomic::AtomicBool,
+    pub report_manager: std::sync::Arc<crate::playback_report::PlaybackReporter>,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
@@ -320,6 +325,10 @@ impl AppState {
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
+        let report_playback_events = saved
+            .as_ref()
+            .map(|s| s.report_playback_events)
+            .unwrap_or(true);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
 
         let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
@@ -377,6 +386,10 @@ impl AppState {
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
             gapless: AtomicBool::new(gapless),
+            report_playback_events: std::sync::atomic::AtomicBool::new(report_playback_events),
+            report_manager: std::sync::Arc::new(
+                crate::playback_report::PlaybackReporter::new(report_playback_events),
+            ),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
@@ -944,6 +957,8 @@ pub fn run() {
             commands::utility::get_gapless,
             commands::utility::get_gapless_supported,
             commands::utility::set_gapless,
+            commands::utility::get_report_playback_events,
+            commands::utility::set_report_playback_events,
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,

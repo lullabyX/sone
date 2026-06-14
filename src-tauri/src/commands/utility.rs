@@ -229,6 +229,24 @@ pub fn set_gapless(state: State<'_, AppState>, enabled: bool) -> Result<(), Sone
 }
 
 #[tauri::command]
+pub fn get_report_playback_events(state: State<'_, AppState>) -> bool {
+    state.report_playback_events.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn set_report_playback_events(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), SoneError> {
+    state.report_playback_events.store(enabled, Ordering::Relaxed);
+    state.report_manager.set_enabled(enabled);
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.report_playback_events = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_exclusive_device(state: State<'_, AppState>) -> Option<String> {
     state.exclusive_device.lock().unwrap().clone()
 }
