@@ -23,6 +23,25 @@ export function getTidalImageUrl(
   return `https://resources.tidal.com/images/${path}/${validSize}x${validSize}.jpg`;
 }
 
+/**
+ * Artist pictures use a different size set than album covers — valid squares are
+ * 160 / 320 / 480 / 750 (there is no 640 or 1280, which 403). Snap accordingly.
+ */
+export function getTidalArtistImageUrl(
+  uuid: string | undefined,
+  size: number = 480,
+): string {
+  if (!uuid) return "";
+  if (uuid.startsWith("http")) return uuid;
+  const path = uuid.replace(/-/g, "/");
+  let validSize = 480;
+  if (size <= 160) validSize = 160;
+  else if (size <= 320) validSize = 320;
+  else if (size <= 480) validSize = 480;
+  else validSize = 750;
+  return `https://resources.tidal.com/images/${path}/${validSize}x${validSize}.jpg`;
+}
+
 export interface MediaMetadata {
   tags: string[]; // "LOSSLESS" | "HIRES_LOSSLESS" | "DOLBY_ATMOS"
 }
@@ -482,6 +501,12 @@ export interface ArtistPageData {
   picture?: string;
   bio?: string;
   bioSource?: string;
+  followers?: number;
+  radioMixId?: string;
+  /** Dedicated artist artwork UUID (newer field; preferred over `picture`). */
+  artworkId?: string;
+  /** Album cover UUID TIDAL falls back to when the artist has no artwork. */
+  albumCoverFallback?: string;
   topTracks: Track[];
   sections: ArtistPageSection[];
 }

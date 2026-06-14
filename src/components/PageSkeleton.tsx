@@ -9,30 +9,46 @@ function Pulse({ className }: { className: string }) {
   return <div className={`animate-pulse bg-th-hl-med rounded ${className}`} />;
 }
 
-/** Skeleton for artist pages — round avatar, name, bio snippet, tracks, discography */
+/** Skeleton for artist pages — tall hero banner, title/fans/bio + controls, tracks, discography */
 export function ArtistPageSkeleton() {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
       <PageContainer>
-      {/* Header: round avatar + name + bio */}
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7">
-        <Pulse className="w-[232px] h-[232px] shrink-0 rounded-full!" />
-        <div className="flex flex-col gap-3 pb-2 flex-1 min-w-0">
-          <Pulse className="w-14 h-3 rounded-full" />
-          <Pulse className="w-[50%] h-12 rounded-lg" />
-          <Pulse className="w-[70%] h-4 rounded-full" />
-          <Pulse className="w-20 h-3 rounded-full mt-1" />
+      {/* Hero banner — tall, content anchored bottom-left */}
+      <div className="relative w-full h-[560px] overflow-hidden flex items-end mb-8">
+        <div className="absolute inset-0 animate-pulse bg-th-hl-faint" />
+        <div className="relative z-10 w-full px-8 pb-6">
+          {/* Title + fans + bio */}
+          <div className="max-w-[820px]">
+            <Pulse className="w-[45%] h-16 rounded-lg" />
+            <Pulse className="w-24 h-4 rounded-full mt-4" />
+            <Pulse className="w-[60%] h-4 rounded-full mt-4" />
+            <Pulse className="w-28 h-3.5 rounded-full mt-3" />
+          </div>
+          {/* Controls: Play + Shuffle, then 4 icon actions */}
+          <div className="mt-6 flex items-end justify-between gap-6">
+            <div className="flex items-center gap-3">
+              <Pulse className="w-32 h-12 rounded-full!" />
+              <Pulse className="w-36 h-12 rounded-full!" />
+            </div>
+            <div className="flex items-end gap-7">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-2">
+                  <Pulse className="w-6 h-6" />
+                  <Pulse className="w-12 h-2.5 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Play button */}
-      <div className="px-8 py-5 flex items-center gap-5">
-        <Pulse className="w-14 h-14 rounded-full!" />
-      </div>
-
-      {/* Popular tracks */}
+      {/* Top Tracks */}
       <div className="px-8 pb-6">
-        <Pulse className="w-40 h-6 rounded-lg mb-4" />
+        <div className="flex items-center justify-between mb-4">
+          <Pulse className="w-40 h-6 rounded-lg" />
+          <Pulse className="w-16 h-3.5 rounded-full" />
+        </div>
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
