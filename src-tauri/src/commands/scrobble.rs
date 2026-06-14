@@ -29,6 +29,14 @@ pub struct TrackStartedPayload {
     pub chosen_by_user: bool,
     pub isrc: Option<String>,
     pub track_id: Option<u64>,
+    #[serde(default)]
+    pub streaming_session_id: Option<String>,
+    #[serde(default)]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub quality: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +48,17 @@ pub async fn notify_track_started(
     state: State<'_, AppState>,
     payload: TrackStartedPayload,
 ) -> Result<(), SoneError> {
+    let report_params = crate::playback_report::StartParams {
+        session_id: payload.streaming_session_id.clone().unwrap_or_default(),
+        product_id: payload.track_id.map(|id| id.to_string()).unwrap_or_default(),
+        quality: payload
+            .quality
+            .clone()
+            .unwrap_or_else(|| "LOSSLESS".to_string()),
+        source_type: payload.source_type.clone(),
+        source_id: payload.source_id.clone(),
+        duration_secs: payload.duration_secs,
+    };
     let track = ScrobbleTrack {
         artist: payload.artist,
         track: payload.title,
@@ -56,18 +75,23 @@ pub async fn notify_track_started(
         artist_mbids: Vec::new(),
     };
     state.scrobble_manager.on_track_started(track).await;
+    if let Some(event) = state.report_manager.on_track_started(report_params).await {
+        post_play_event(state.inner(), event).await;
+    }
     Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_paused(state: State<'_, AppState>) -> Result<(), SoneError> {
     state.scrobble_manager.on_pause().await;
+    state.report_manager.on_pause().await;
     Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_resumed(state: State<'_, AppState>) -> Result<(), SoneError> {
     state.scrobble_manager.on_resume().await;
+    state.report_manager.on_resume().await;
     Ok(())
 }
 
@@ -80,6 +104,9 @@ pub async fn notify_track_seeked(state: State<'_, AppState>) -> Result<(), SoneE
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_stopped(state: State<'_, AppState>) -> Result<(), SoneError> {
     state.scrobble_manager.on_track_stopped().await;
+    if let Some(event) = state.report_manager.on_track_stopped().await {
+        post_play_event(state.inner(), event).await;
+    }
     Ok(())
 }
 
@@ -276,4 +303,17 @@ pub async fn complete_audioscrobbler_auth(
         .await;
 
     Ok(username)
+}
+
+/// Finalized-session helper: POST a playback_session event, log the result.
+async fn post_play_event(state: &AppState, event: serde_json::Value) {
+    let mut client = state.tidal_client.lock().await;
+    match client.report_playback_session(&event).await {
+        Ok((status, body)) => log::info!(
+            "[play-report] event-batch HTTP {} (sender_fault={})",
+            status,
+            body.contains("SenderFault")
+        ),
+        Err(e) => log::warn!("[play-report] event-batch failed: {e}"),
+    }
 }

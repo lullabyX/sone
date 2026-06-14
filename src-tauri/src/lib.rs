@@ -990,6 +990,10 @@ pub fn run() {
                 tauri::async_runtime::block_on(async {
                     state.idle_inhibitor.lock().await.uninhibit().await;
                     state.scrobble_manager.flush().await;
+                    if let Some(event) = state.report_manager.on_track_stopped().await {
+                        let mut client = state.tidal_client.lock().await;
+                        let _ = client.report_playback_session(&event).await;
+                    }
                 });
             }
         });
