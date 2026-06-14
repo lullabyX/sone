@@ -509,6 +509,10 @@ function parseArtistPageV2(json: any): ArtistPageData {
     picture: json.item?.data?.picture,
     bio: json.header?.biography?.text,
     bioSource: json.header?.biography?.source,
+    followers: json.header?.followersAmount,
+    radioMixId: json.item?.data?.mixes?.ARTIST_MIX,
+    artworkId: json.item?.data?.artworkId,
+    albumCoverFallback: json.item?.data?.selectedAlbumCoverFallback,
     topTracks: [],
     sections: [],
   };
@@ -564,6 +568,9 @@ function parseArtistPageV1(json: any): ArtistPageData {
         if (artist) {
           result.artistName = artist.name || "";
           result.picture = artist.picture;
+          result.radioMixId = artist.mixes?.ARTIST_MIX;
+          result.artworkId = artist.artworkId;
+          result.albumCoverFallback = artist.selectedAlbumCoverFallback;
         }
         const bio = mod?.bio;
         if (bio) {

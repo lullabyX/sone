@@ -13,6 +13,9 @@ interface CoverBannerProps {
 // Fade applied to the unscaled outer box so it dissolves at the true bottom edge.
 const FADE =
   "linear-gradient(to bottom, #000 0%, #000 50%, transparent 100%)";
+// Sharp art (dark variant) is more present, so start dissolving sooner.
+const DARK_FADE =
+  "linear-gradient(to bottom, #000 0%, #000 22%, transparent 100%)";
 
 /**
  * Album/playlist/mix art rendered as a banner behind the page header. The crisp
@@ -22,10 +25,12 @@ const FADE =
 export default function CoverBanner({ src, variant = "blur" }: CoverBannerProps) {
   if (!src) return null;
 
+  const fade = variant === "dark" ? DARK_FADE : FADE;
+
   return (
     <div
       className="pointer-events-none absolute inset-0 overflow-hidden select-none"
-      style={{ maskImage: FADE, WebkitMaskImage: FADE }}
+      style={{ maskImage: fade, WebkitMaskImage: fade }}
     >
       {variant === "blur" ? (
         <div className="absolute inset-0 scale-125 blur-[64px] opacity-60">
@@ -36,8 +41,8 @@ export default function CoverBanner({ src, variant = "blur" }: CoverBannerProps)
           <div className="absolute inset-0 scale-105 brightness-[0.65]">
             <TidalImage src={src} alt="" className="h-full w-full" />
           </div>
-          {/* Darken the left where the title/metadata sit, reveal art on the right. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-transparent" />
+          {/* Tint the left where the title/metadata sit (theme base), reveal art on the right. */}
+          <div className="absolute inset-0 bg-gradient-to-r from-th-base/70 via-th-base/30 to-transparent" />
         </>
       )}
     </div>
