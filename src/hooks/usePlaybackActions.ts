@@ -67,10 +67,7 @@ function normalizeTrack(raw: any): Track {
 }
 
 /** Map the playback-source type to a TIDAL play-log source type. */
-function mapSourceType(
-  type: string | undefined,
-  _mixType: string | undefined,
-): string | null {
+function mapSourceType(type: string | undefined): string | null {
   switch (type) {
     case "album":
       return "ALBUM";
@@ -106,7 +103,7 @@ function buildTrackStartedPayload(
     isrc: track.isrc || null,
     trackId: track.id || null,
     streamingSessionId: streamInfo?.streamingSessionId ?? null,
-    sourceType: mapSourceType(source?.type, source?.mixType),
+    sourceType: mapSourceType(source?.type),
     sourceId: source?.id != null ? String(source.id) : null,
     quality: streamInfo?.audioQuality ?? null,
   };

@@ -21,7 +21,6 @@ pub struct PlaybackSession {
     source_id: Option<String>,
     duration_secs: u32,
     start_ms: i64,
-    pub start_instant: Instant,
     accumulated: std::time::Duration,
     segment_start: Option<Instant>,
 }
@@ -36,7 +35,6 @@ impl PlaybackSession {
             source_id: p.source_id,
             duration_secs: p.duration_secs,
             start_ms: p.start_ms,
-            start_instant: p.start_instant,
             accumulated: std::time::Duration::ZERO,
             segment_start: Some(p.start_instant),
         }
@@ -93,8 +91,9 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
-    fn mk() -> PlaybackSession {
-        PlaybackSession::new(SessionParams {
+    fn mk() -> (PlaybackSession, Instant) {
+        let t0 = Instant::now();
+        let s = PlaybackSession::new(SessionParams {
             session_id: "s1".into(),
             product_id: "100".into(),
             quality: "LOSSLESS".into(),
@@ -102,14 +101,15 @@ mod tests {
             source_id: Some("55".into()),
             duration_secs: 200,
             start_ms: 1_000_000,
-            start_instant: Instant::now(),
-        })
+            start_instant: t0,
+        });
+        (s, t0)
     }
 
     #[test]
     fn finalize_caps_position_at_duration() {
-        let mut s = mk();
-        let end = s.start_instant + Duration::from_secs(300);
+        let (mut s, t0) = mk();
+        let end = t0 + Duration::from_secs(300);
         let v = s.finalize_at(1_300_000, end);
         assert_eq!(v["endAssetPosition"], 200.0);
         assert_eq!(v["endTimestamp"], 1_300_000i64);
@@ -118,8 +118,7 @@ mod tests {
 
     #[test]
     fn pause_excludes_paused_time_from_position() {
-        let mut s = mk();
-        let t0 = s.start_instant;
+        let (mut s, t0) = mk();
         s.pause_at(t0 + Duration::from_secs(10));
         s.resume_at(t0 + Duration::from_secs(40));
         let v = s.finalize_at(1_050_000, t0 + Duration::from_secs(50));

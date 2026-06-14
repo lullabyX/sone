@@ -71,7 +71,12 @@ impl PlaybackReporter {
     }
 
     /// Finalize and clear the current session (explicit stop / app exit).
+    /// If reporting is disabled, drop the in-flight session without emitting.
     pub async fn on_track_stopped(&self) -> Option<Value> {
+        if !self.is_enabled() {
+            *self.current.lock().await = None;
+            return None;
+        }
         self.current.lock().await.take().map(|mut s| s.finalize())
     }
 }
