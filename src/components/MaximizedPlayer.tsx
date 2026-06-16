@@ -61,21 +61,134 @@ function useThemeContext() {
   return { isDark, bgBaseRgb: `${r},${g},${b}` };
 }
 
+// One separable box-blur pass (horizontal or vertical) over RGBA pixels, using a
+// sliding running-sum so cost is O(pixels) regardless of radius. Edges clamped.
+function boxBlurPass(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  radius: number,
+  horizontal: boolean,
+) {
+  const div = radius * 2 + 1;
+  const lineLen = horizontal ? w : h;
+  const lineCount = horizontal ? h : w;
+  const stride = horizontal ? 4 : w * 4; // step between pixels along a line
+  const lineStep = horizontal ? w * 4 : 4; // step between lines
+  const line = new Float32Array(lineLen * 4);
+  for (let l = 0; l < lineCount; l++) {
+    const base = l * lineStep;
+    let sr = 0,
+      sg = 0,
+      sb = 0,
+      sa = 0;
+    for (let i = -radius; i <= radius; i++) {
+      const p = base + Math.min(lineLen - 1, Math.max(0, i)) * stride;
+      sr += data[p];
+      sg += data[p + 1];
+      sb += data[p + 2];
+      sa += data[p + 3];
+    }
+    for (let x = 0; x < lineLen; x++) {
+      line[x * 4] = sr / div;
+      line[x * 4 + 1] = sg / div;
+      line[x * 4 + 2] = sb / div;
+      line[x * 4 + 3] = sa / div;
+      const pOut = base + Math.min(lineLen - 1, Math.max(0, x - radius)) * stride;
+      const pIn =
+        base + Math.min(lineLen - 1, Math.max(0, x + radius + 1)) * stride;
+      sr += data[pIn] - data[pOut];
+      sg += data[pIn + 1] - data[pOut + 1];
+      sb += data[pIn + 2] - data[pOut + 2];
+      sa += data[pIn + 3] - data[pOut + 3];
+    }
+    for (let x = 0; x < lineLen; x++) {
+      const p = base + x * stride;
+      data[p] = line[x * 4];
+      data[p + 1] = line[x * 4 + 1];
+      data[p + 2] = line[x * 4 + 2];
+      data[p + 3] = line[x * 4 + 3];
+    }
+  }
+}
+
+// Dependency-free near-gaussian blur: 3 box passes per axis (central-limit
+// theorem ≈ gaussian). Runs ONCE per track, never on the per-frame paint path.
+function blurRGBA(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  radius: number,
+) {
+  if (radius < 1) return;
+  for (let pass = 0; pass < 3; pass++) {
+    boxBlurPass(data, w, h, radius, true);
+    boxBlurPass(data, w, h, radius, false);
+  }
+}
+
 const BlurredBackground = memo(function BlurredBackground({
   coverUrl,
 }: {
   coverUrl: string | undefined;
 }) {
-  return (
-    <div className="w-full h-full scale-110 blur-[40px]">
-      <TidalImage
-        key={coverUrl}
-        src={getTidalImageUrl(coverUrl, 160)}
-        alt=""
-        className="w-full h-full"
-      />
-    </div>
-  );
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !coverUrl) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    // Modest bake resolution: upscaling already-blurred pixels stays smooth, and
+    // it keeps the one-time blur cheap so it never hitches playback.
+    const cap = 1280;
+    const sw = window.innerWidth || 1920;
+    const sh = window.innerHeight || 1080;
+    const ratio = Math.min(1, cap / Math.max(sw, sh));
+    const W = Math.round(sw * ratio);
+    const H = Math.round(sh * ratio);
+    const radius = Math.max(1, Math.round(40 * (W / sw)));
+
+    let cancelled = false;
+    const img = new Image();
+    // crossOrigin + cache-bust query: a separate, CORS-clean cache entry the
+    // app's non-CORS <img> loads can't poison. Without this, getImageData can
+    // throw on a tainted canvas and the blur is silently skipped (sharp bg).
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      // Draw + blur on an OFFSCREEN canvas, then blit the finished result in one
+      // step. The visible canvas keeps the previous backdrop until the new one
+      // is ready — no black flash on track change.
+      const off = document.createElement("canvas");
+      off.width = W;
+      off.height = H;
+      const octx = off.getContext("2d");
+      if (!octx) return;
+      const scale = Math.max(W / img.width, H / img.height) * 1.1;
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      octx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      try {
+        const id = octx.getImageData(0, 0, W, H);
+        blurRGBA(id.data, W, H, radius);
+        octx.putImageData(id, 0, 0);
+      } catch {
+        return; // tainted/failed — keep the previous backdrop rather than black
+      }
+      if (cancelled) return;
+      if (canvas.width !== W || canvas.height !== H) {
+        canvas.width = W;
+        canvas.height = H;
+      }
+      ctx.drawImage(off, 0, 0);
+    };
+    img.src = `${getTidalImageUrl(coverUrl, 320)}?blur=1`;
+    return () => {
+      cancelled = true;
+    };
+  }, [coverUrl]);
+  // A frozen bitmap — no live filter, so each per-frame paint is a cheap blit.
+  return <canvas ref={canvasRef} className="w-full h-full object-cover" />;
 });
 
 // ─── MaxProgressScrubber ──────────────────────────────────────────────────
@@ -841,7 +954,7 @@ export default function MaximizedPlayer() {
               <TidalVideoCover
                 cover={coverKey}
                 videoCover={currentTrack.album?.videoCover}
-                size="origin"
+                size={1280}
                 imageSize={1280}
                 alt={currentTrack.album?.title || currentTrack.title}
                 className="aspect-square rounded-lg overflow-hidden"
