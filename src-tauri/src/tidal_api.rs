@@ -213,6 +213,7 @@ pub struct AlbumPageResponse {
     pub tracks: Vec<TidalTrack>,
     pub total_tracks: u32,
     pub vibrant_color: Option<String>,
+    pub video_cover: Option<String>,
     pub copyright: Option<String>,
     pub credits: Vec<TidalCredit>,
     pub review: Option<TidalReview>,
@@ -4691,11 +4692,14 @@ impl TidalClient {
         let album =
             album.ok_or_else(|| SoneError::Parse("album page: no ALBUM_HEADER found".into()))?;
 
+        let video_cover = album.video_cover.clone();
+
         Ok(AlbumPageResponse {
             album,
             tracks,
             total_tracks,
             vibrant_color,
+            video_cover,
             copyright,
             credits,
             review,

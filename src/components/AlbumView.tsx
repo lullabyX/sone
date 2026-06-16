@@ -14,13 +14,13 @@ import { getAlbumPage } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import NotFoundPage from "./NotFoundPage";
 import {
-  getTidalImageUrl,
   type Track,
   type AlbumPageResponse,
   type MediaItemType,
 } from "../types";
-import TidalImage from "./TidalImage";
+import TidalVideoCover from "./TidalVideoCover";
 import CoverBanner from "./CoverBanner";
+import { getTidalImageUrl } from "../types";
 import TrackList from "./TrackList";
 import { TrackArtists } from "./TrackArtists";
 import MediaContextMenu from "./MediaContextMenu";
@@ -362,8 +362,10 @@ export default function AlbumView({
       <CoverBanner src={getTidalImageUrl(displayCover, 640)} variant="dark" />
       <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover">
-          <TidalImage
-            src={getTidalImageUrl(displayCover, 640)}
+          <TidalVideoCover
+            cover={displayCover}
+            videoCover={album?.videoCover}
+            size={640}
             alt={displayTitle}
             className="w-full h-full"
           />
