@@ -34,7 +34,7 @@ import {
   playbackSourceAtom,
   contextSourceAtom,
 } from "../atoms/playback";
-import { maximizedPlayerAtom } from "../atoms/ui";
+import { maximizedPlayerAtom, videoCoversAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
@@ -57,6 +57,7 @@ import {
   type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
+import TidalVideoCover from "./TidalVideoCover";
 import { TiltCover } from "./TiltCover";
 import TrackContextMenu from "./TrackContextMenu";
 import { TrackArtists, type ArtistInfo } from "./TrackArtists";
@@ -1563,6 +1564,9 @@ function QueueTabWrapper() {
 
 export default function NowPlayingDrawer() {
   const currentTrack = useAtomValue(currentTrackAtom);
+  const videoCovers = useAtomValue(videoCoversAtom);
+  const animatedCover =
+    videoCovers && Boolean(currentTrack?.album?.videoCover);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;
@@ -1620,13 +1624,24 @@ export default function NowPlayingDrawer() {
 
         {/* Left: Album Art — 45% */}
         <div className="relative z-[1] w-[45%] flex flex-col items-center justify-center p-10 gap-6">
-          <TiltCover className="w-full max-w-[640px] aspect-square rounded-lg">
-            <TidalImage
-              src={getTidalImageUrl(currentTrack.album?.cover, 640)}
+          {animatedCover ? (
+            <TidalVideoCover
+              cover={currentTrack.album?.cover}
+              videoCover={currentTrack.album?.videoCover}
+              size={1280}
+              imageSize={640}
               alt={currentTrack.album?.title || currentTrack.title}
-              className="w-full h-full"
+              className="w-full max-w-[640px] aspect-square rounded-lg overflow-hidden"
             />
-          </TiltCover>
+          ) : (
+            <TiltCover className="w-full max-w-[640px] aspect-square rounded-lg">
+              <TidalImage
+                src={getTidalImageUrl(currentTrack.album?.cover, 640)}
+                alt={currentTrack.album?.title || currentTrack.title}
+                className="w-full h-full"
+              />
+            </TiltCover>
+          )}
           <div className="text-center w-full max-w-[520px]">
             <h2 className="text-[22px] font-bold text-th-text-primary truncate">
               {getTrackDisplayTitle(currentTrack)}

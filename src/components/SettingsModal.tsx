@@ -4,6 +4,7 @@ import { useAtom, useStore } from "jotai";
 import {
   X,
   Infinity as InfinityIcon,
+  Film,
   Volume2,
   MessageSquare,
   AppWindow,
@@ -67,7 +68,7 @@ function ExplicitContentToggle() {
 }
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import { mcpConnectionInfoAtom, type McpConnectionInfo } from "../atoms/mcp";
-import { decorationsAtom, hideTitleBarAtom } from "../atoms/ui";
+import { decorationsAtom, hideTitleBarAtom, videoCoversAtom } from "../atoms/ui";
 import { useToast } from "../contexts/ToastContext";
 import { clearAllCache } from "../api/tidal";
 import Toggle from "./Toggle";
@@ -194,6 +195,7 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
+  const [videoCovers, setVideoCovers] = useAtom(videoCoversAtom);
   const [bitPerfect] = useAtom(bitPerfectAtom);
   const [volumeNormalization, setVolumeNormalization] = useAtom(
     volumeNormalizationAtom,
@@ -367,6 +369,24 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                     </div>
                     <button onClick={() => setAutoplay(!autoplay)}>
                       <Toggle on={autoplay} />
+                    </button>
+                  </div>
+
+                  {/* Animated album covers */}
+                  <div className="flex items-center justify-between py-3 border-b border-th-border-subtle">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Film size={16} className="text-th-text-muted shrink-0" />
+                      <div>
+                        <p className="text-[13px] text-th-text-secondary">
+                          Animated album covers
+                        </p>
+                        <p className="text-[11px] text-th-text-muted">
+                          Play motion covers in the player when available
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setVideoCovers(!videoCovers)}>
+                      <Toggle on={videoCovers} />
                     </button>
                   </div>
 

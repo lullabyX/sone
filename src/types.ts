@@ -42,6 +42,23 @@ export function getTidalArtistImageUrl(
   return `https://resources.tidal.com/images/${path}/${validSize}x${validSize}.jpg`;
 }
 
+// Helper to convert a Tidal videoCover UUID into an animated-cover mp4 URL.
+// Mirrors getTidalImageUrl but targets /videos/ and .mp4. Numeric sizes snap to
+// 640 / 1280; "origin" requests Tidal's native resolution.
+export function getTidalVideoUrl(
+  videoUuid: string | undefined,
+  size: number | "origin" = 640,
+): string {
+  if (!videoUuid) return "";
+  if (videoUuid.startsWith("http")) return videoUuid;
+  const path = videoUuid.replace(/-/g, "/");
+  if (size === "origin") {
+    return `https://resources.tidal.com/videos/${path}/origin.mp4`;
+  }
+  const validSize = size <= 640 ? 640 : 1280;
+  return `https://resources.tidal.com/videos/${path}/${validSize}x${validSize}.mp4`;
+}
+
 export interface MediaMetadata {
   tags: string[]; // "LOSSLESS" | "HIRES_LOSSLESS" | "DOLBY_ATMOS"
 }

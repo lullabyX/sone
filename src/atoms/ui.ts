@@ -15,3 +15,8 @@ export const decorationsAtom = atom<boolean>(false);
 // `true` = hide title bar entirely (no SONE bar, no system bar). Overrides
 // `decorationsAtom` when on. Frontend-only preference (localStorage).
 export const hideTitleBarAtom = atomWithStorage("sone.hideTitleBar.v1", false);
+
+// `true` = play animated album covers (Tidal videoCover mp4s) on the large
+// now-playing art; falls back to static art when off or unavailable. Default ON.
+// Frontend-only preference (localStorage).
+export const videoCoversAtom = atomWithStorage("sone.videoCovers.v1", true);

@@ -19,13 +19,18 @@ import {
   shuffleAtom,
 } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
-import { maximizedPlayerAtom, maximizedLyricsAtom } from "../atoms/ui";
+import {
+  maximizedPlayerAtom,
+  maximizedLyricsAtom,
+  videoCoversAtom,
+} from "../atoms/ui";
 import { authTokensAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useProgressScrub } from "../hooks/useProgressScrub";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import TidalImage, { fetchCachedImageUrl } from "./TidalImage";
+import TidalVideoCover from "./TidalVideoCover";
 import { TiltCover } from "./TiltCover";
 
 import TrackContextMenu from "./TrackContextMenu";
@@ -616,6 +621,9 @@ export default function MaximizedPlayer() {
 
   // Progressive album art: 160px instantly, upgrade to 1280 when ready
   const coverKey = currentTrack?.album?.cover;
+  const videoCovers = useAtomValue(videoCoversAtom);
+  const animatedCover =
+    videoCovers && Boolean(currentTrack?.album?.videoCover);
   const [hiResReady, setHiResReady] = useState(false);
   useEffect(() => {
     if (!coverKey) return;
@@ -818,7 +826,7 @@ export default function MaximizedPlayer() {
           {/* Large album art */}
           <div
             className={`aspect-square rounded-lg transition-[filter] duration-700 ease-out ${
-              hiResReady
+              hiResReady || animatedCover
                 ? "shadow-none"
                 : "blur-[12px] shadow-2xl shadow-black/60"
             }`}
@@ -829,13 +837,24 @@ export default function MaximizedPlayer() {
               maxWidth: TIER_CONFIG[lyricsTier].artMax,
             }}
           >
-            <TiltCover className="aspect-square rounded-lg">
-              <TidalImage
-                src={getTidalImageUrl(coverKey, hiResReady ? 1280 : 160)}
+            {animatedCover ? (
+              <TidalVideoCover
+                cover={coverKey}
+                videoCover={currentTrack.album?.videoCover}
+                size="origin"
+                imageSize={1280}
                 alt={currentTrack.album?.title || currentTrack.title}
-                className="w-full h-full"
+                className="aspect-square rounded-lg overflow-hidden"
               />
-            </TiltCover>
+            ) : (
+              <TiltCover className="aspect-square rounded-lg">
+                <TidalImage
+                  src={getTidalImageUrl(coverKey, hiResReady ? 1280 : 160)}
+                  alt={currentTrack.album?.title || currentTrack.title}
+                  className="w-full h-full"
+                />
+              </TiltCover>
+            )}
           </div>
 
           {/* Track info */}
