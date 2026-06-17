@@ -1129,10 +1129,10 @@ export function usePlaybackActions() {
       const stamped = stampQids(eligible.map(normalizeTrack));
       store.set(manualQueueAtom, []);
       store.set(contextSourceAtom, null);
-      store.set(originalQueueAtom, stamped);
+      const shuffleOn = store.get(shuffleAtom);
+      store.set(originalQueueAtom, shuffleOn ? stamped : null);
       store.set(queueAtom, fisherYatesShuffle(stamped));
       store.set(useTrackGainAtom, !options?.albumMode);
-      store.set(shuffleAtom, true);
       store.set(
         playbackSourceAtom,
         options?.source
