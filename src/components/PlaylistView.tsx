@@ -522,7 +522,7 @@ export default function PlaylistView({
       <div className="relative">
       <CoverBanner src={getTidalImageUrl(effectiveInfo?.image, 640)} />
       <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover flex items-center justify-center">
+        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover flex items-center justify-center">
           {effectiveInfo?.image ? (
             <TidalImage
               src={getTidalImageUrl(effectiveInfo!.image, 640)}

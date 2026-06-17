@@ -361,7 +361,7 @@ export default function AlbumView({
       <div className="relative">
       <CoverBanner src={getTidalImageUrl(displayCover, 640)} variant="dark" />
       <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-th-surface-hover">
+        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover">
           <TidalVideoCover
             cover={displayCover}
             videoCover={album?.videoCover}
