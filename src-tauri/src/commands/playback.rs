@@ -37,29 +37,44 @@ pub async fn resolve_play_uri(
     // Without client_secret, skip Hi-Res (those credentials typically return
     // encrypted DASH streams that require Widevine). With a secret, the
     // confidential PKCE credentials may return unencrypted Hi-Res BTS streams.
+    let sid: Option<String> = if state
+        .report_playback_events
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        Some(uuid::Uuid::new_v4().to_string())
+    } else {
+        None
+    };
+
     let stream_info = {
         let mut client = state.tidal_client.lock().await;
         let has_secret = !client.client_secret.is_empty();
 
         if has_secret {
-            match client.get_stream_url(track_id, "HI_RES_LOSSLESS").await {
+            match client
+                .get_stream_url(track_id, "HI_RES_LOSSLESS", sid.as_deref())
+                .await
+            {
                 Ok(info) => info,
                 Err(e) if e.is_network() => return Err(e),
-                Err(_) => match client.get_stream_url(track_id, "HI_RES").await {
+                Err(_) => match client.get_stream_url(track_id, "HI_RES", sid.as_deref()).await {
                     Ok(info) => info,
                     Err(e) if e.is_network() => return Err(e),
-                    Err(_) => match client.get_stream_url(track_id, "LOSSLESS").await {
+                    Err(_) => match client
+                        .get_stream_url(track_id, "LOSSLESS", sid.as_deref())
+                        .await
+                    {
                         Ok(info) => info,
                         Err(e) if e.is_network() => return Err(e),
-                        Err(_) => client.get_stream_url(track_id, "HIGH").await?,
+                        Err(_) => client.get_stream_url(track_id, "HIGH", sid.as_deref()).await?,
                     },
                 },
             }
         } else {
-            match client.get_stream_url(track_id, "LOSSLESS").await {
+            match client.get_stream_url(track_id, "LOSSLESS", sid.as_deref()).await {
                 Ok(info) => info,
                 Err(e) if e.is_network() => return Err(e),
-                Err(_) => client.get_stream_url(track_id, "HIGH").await?,
+                Err(_) => client.get_stream_url(track_id, "HIGH", sid.as_deref()).await?,
             }
         }
     };

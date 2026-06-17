@@ -39,6 +39,7 @@ const TIDAL_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2";
 const TIDAL_API_URL: &str = "https://api.tidal.com/v1";
 const TIDAL_API_V2_URL: &str = "https://api.tidal.com/v2";
 const TIDAL_OPENAPI_URL: &str = "https://openapi.tidal.com/v2";
+const TIDAL_EVENT_URL: &str = "https://ec.tidal.com/api/event-batch";
 const TIDAL_CLIENT_VERSION: &str = "2025.11.3";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -499,6 +500,8 @@ pub struct StreamInfo {
     pub track_replay_gain: Option<f64>,
     #[serde(default)]
     pub track_peak_amplitude: Option<f64>,
+    #[serde(default)]
+    pub streaming_session_id: Option<String>,
 }
 
 // ==================== v2 Home Feed MIX types ====================
@@ -1024,6 +1027,55 @@ impl TidalClient {
 
         self.tokens = Some(new_tokens.clone());
         Ok(new_tokens)
+    }
+
+    /// POST a single `playback_session` event to the TIDAL Event Platform.
+    /// Returns the HTTP status + body so callers can log the SQS result.
+    /// NOTE (spike): holds the client lock for the duration; acceptable for the
+    /// fire-and-forget single-event spike. Harden with a cloned-token path later.
+    pub async fn report_playback_session(
+        &mut self,
+        payload: &serde_json::Value,
+    ) -> Result<(u16, String), SoneError> {
+        use crate::playback_report::event::{
+            build_event_batch_form, build_headers_json, build_message_body,
+        };
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let mut access = tokens.access_token.clone();
+        let ts = crate::now_millis();
+        let evt_id = uuid::Uuid::new_v4().to_string();
+        let body = build_message_body("playback_session", payload, ts, &evt_id);
+        let headers = build_headers_json(&self.client_id, &access, ts);
+        let form = build_event_batch_form(&evt_id, "playback_session", &body, &headers);
+
+        let send = |client: reqwest::Client, token: String, form: Vec<(String, String)>| async move {
+            client
+                .post(TIDAL_EVENT_URL)
+                .header("Authorization", format!("Bearer {}", token))
+                .form(&form)
+                .send()
+                .await
+        };
+
+        let resp = send(self.client.clone(), access.clone(), form.clone()).await?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.refresh_token().await?;
+            access = self
+                .tokens
+                .as_ref()
+                .ok_or(SoneError::NotAuthenticated)?
+                .access_token
+                .clone();
+            let headers = build_headers_json(&self.client_id, &access, ts);
+            let form = build_event_batch_form(&evt_id, "playback_session", &body, &headers);
+            let resp = send(self.client.clone(), access, form).await?;
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Ok((status, text));
+        }
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_default();
+        Ok((status, text))
     }
 
     /// Perform an authenticated GET, check status, and deserialize the JSON body.
@@ -3021,17 +3073,22 @@ impl TidalClient {
         &mut self,
         track_id: u64,
         quality: &str,
+        streaming_session_id: Option<&str>,
     ) -> Result<StreamInfo, SoneError> {
         let cc = self.country_code.clone();
+        let mut params: Vec<(&str, &str)> = vec![
+            ("countryCode", &cc),
+            ("audioquality", quality),
+            ("playbackmode", "STREAM"),
+            ("assetpresentation", "FULL"),
+        ];
+        if let Some(sid) = streaming_session_id {
+            params.push(("streamingsessionid", sid));
+        }
         let body = self
             .api_get_body(
                 &format!("/tracks/{}/playbackinfopostpaywall", track_id),
-                &[
-                    ("countryCode", &cc),
-                    ("audioquality", quality),
-                    ("playbackmode", "STREAM"),
-                    ("assetpresentation", "FULL"),
-                ],
+                &params,
             )
             .await?;
 
@@ -3124,6 +3181,7 @@ impl TidalClient {
                 album_peak_amplitude: data.album_peak_amplitude,
                 track_replay_gain: data.track_replay_gain,
                 track_peak_amplitude: data.track_peak_amplitude,
+                streaming_session_id: streaming_session_id.map(|s| s.to_string()),
             });
         }
         // JSON fallback
@@ -3168,6 +3226,7 @@ impl TidalClient {
             album_peak_amplitude: data.album_peak_amplitude,
             track_replay_gain: data.track_replay_gain,
             track_peak_amplitude: data.track_peak_amplitude,
+            streaming_session_id: streaming_session_id.map(|s| s.to_string()),
         })
     }
 

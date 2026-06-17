@@ -39,7 +39,13 @@ import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import { notifySeek, getInterpolatedPosition } from "../lib/playbackPosition";
 import { isTrackUnavailable, isUnplayableError } from "../lib/trackAvailability";
 import { pickGaplessNext } from "../lib/gaplessPredict";
-import type { Track, StreamInfo, ManualTrackSource, QueuedTrack } from "../types";
+import type {
+  Track,
+  StreamInfo,
+  ManualTrackSource,
+  QueuedTrack,
+  PlaybackSource,
+} from "../types";
 import { getTidalImageUrl } from "../types";
 import { preloadImage } from "../components/TidalImage";
 import { getTrackArtistDisplay, getTrackPrimaryArtist } from "../utils/itemHelpers";
@@ -60,10 +66,31 @@ function normalizeTrack(raw: any): Track {
   return track;
 }
 
+/** Map the playback-source type to a TIDAL play-log source type. */
+function mapSourceType(type: string | undefined): string | null {
+  switch (type) {
+    case "album":
+      return "ALBUM";
+    case "playlist":
+      return "PLAYLIST";
+    case "artist":
+      return "ARTIST";
+    case "mix":
+      return "MIX";
+    default:
+      return null;
+  }
+}
+
 /** Build the notify_track_started payload. Centralized so all call sites send the
  *  same fields — notably both `artist` (combined, for ListenBrainz) and
  *  `artistPrimary` (single primary, for Last.fm/Libre.fm). */
-function buildTrackStartedPayload(track: Track, chosenByUser: boolean) {
+function buildTrackStartedPayload(
+  track: Track,
+  chosenByUser: boolean,
+  streamInfo: StreamInfo | null | undefined,
+  source: PlaybackSource | null | undefined,
+) {
   return {
     artist: getTrackArtistDisplay(track),
     artistPrimary: getTrackPrimaryArtist(track),
@@ -75,6 +102,10 @@ function buildTrackStartedPayload(track: Track, chosenByUser: boolean) {
     chosenByUser,
     isrc: track.isrc || null,
     trackId: track.id || null,
+    streamingSessionId: streamInfo?.streamingSessionId ?? null,
+    sourceType: mapSourceType(source?.type),
+    sourceId: source?.id != null ? String(source.id) : null,
+    quality: streamInfo?.audioQuality ?? null,
   };
 }
 
@@ -220,7 +251,12 @@ export function usePlaybackActions() {
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(stamped, opts?.chosenByUser ?? true),
+          payload: buildTrackStartedPayload(
+            stamped,
+            opts?.chosenByUser ?? true,
+            info,
+            store.get(playbackSourceAtom),
+          ),
         }).catch(() => {});
         return { ok: true };
       } catch (error: any) {
@@ -283,7 +319,12 @@ export function usePlaybackActions() {
 
         // Notify backend so the replay is scrobbled
         invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(track, true),
+          payload: buildTrackStartedPayload(
+            track,
+            true,
+            info,
+            store.get(playbackSourceAtom),
+          ),
         }).catch(() => {});
       } else {
         await invoke("resume_track");
@@ -351,7 +392,12 @@ export function usePlaybackActions() {
       store.set(isPlayingAtom, !store.get(userPausedAtom));
       store.set(consecutiveFailCountAtom, 0);
       invoke("notify_track_started", {
-        payload: buildTrackStartedPayload(stamped, false),
+        payload: buildTrackStartedPayload(
+          stamped,
+          false,
+          info,
+          store.get(playbackSourceAtom),
+        ),
       }).catch(() => {});
     },
     [store],
@@ -627,7 +673,12 @@ export function usePlaybackActions() {
             store.set(streamInfoAtom, info);
             store.set(isPlayingAtom, true);
             invoke("notify_track_started", {
-              payload: buildTrackStartedPayload(current, false),
+              payload: buildTrackStartedPayload(
+                current,
+                false,
+                info,
+                store.get(playbackSourceAtom),
+              ),
             }).catch(() => {});
           } catch (error: any) {
             console.error("Failed to repeat track:", error);
@@ -953,7 +1004,12 @@ export function usePlaybackActions() {
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(prevTrack, true),
+          payload: buildTrackStartedPayload(
+            prevTrack,
+            true,
+            info,
+            store.get(playbackSourceAtom),
+          ),
         }).catch(() => {});
       } catch (error: any) {
         // Rollback all state
@@ -1050,7 +1106,12 @@ export function usePlaybackActions() {
 
             // Notify backend for scrobbling
             invoke("notify_track_started", {
-              payload: buildTrackStartedPayload(prevTrack, true),
+              payload: buildTrackStartedPayload(
+                prevTrack,
+                true,
+                info,
+                store.get(playbackSourceAtom),
+              ),
             }).catch(() => {});
           } catch (error: any) {
             // Rollback all state

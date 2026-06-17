@@ -202,6 +202,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   );
   const [discordRpc, setDiscordRpc] = useState(false);
   const [discordStatusText, setDiscordStatusText] = useState("");
+  const [reportPlays, setReportPlays] = useState(true);
   const [decorations, setDecorations] = useAtom(decorationsAtom);
   const [hideTitleBar, setHideTitleBar] = useAtom(hideTitleBarAtom);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
@@ -230,6 +231,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       .catch(() => {});
     invoke<boolean>("get_discord_rpc")
       .then(setDiscordRpc)
+      .catch(() => {});
+    invoke<boolean>("get_report_playback_events")
+      .then(setReportPlays)
       .catch(() => {});
     invoke<boolean>("get_enable_logging")
       .then(setEnableLogging)
@@ -477,6 +481,38 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       />
                     </div>
                   )}
+
+                  {/* Report plays to TIDAL */}
+                  <div className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <MessageSquare
+                        size={16}
+                        className="text-th-text-muted shrink-0"
+                      />
+                      <div>
+                        <p className="text-[13px] text-th-text-secondary">
+                          Report plays to TIDAL
+                        </p>
+                        <p className="text-[11px] text-th-text-muted">
+                          Let TIDAL register your plays (recently played, mixes).
+                          Experimental.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !reportPlays;
+                        setReportPlays(next);
+                        invoke("set_report_playback_events", {
+                          enabled: next,
+                        }).catch(() => {
+                          setReportPlays(!next);
+                        });
+                      }}
+                    >
+                      <Toggle on={reportPlays} />
+                    </button>
+                  </div>
                 </div>
               )}
 

@@ -17,7 +17,7 @@ pub async fn get_stream_url(
         quality
     );
     let mut client = state.tidal_client.lock().await;
-    client.get_stream_url(track_id, &quality).await
+    client.get_stream_url(track_id, &quality, None).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
