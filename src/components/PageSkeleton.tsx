@@ -174,7 +174,10 @@ export function DetailPageSkeleton({
           {/* Cover art skeleton */}
           <Pulse className="w-[232px] h-[232px] shrink-0 rounded-lg" />
           {/* Text skeleton */}
-          {type === "album" || type === "playlist" ? (
+          {type === "album" ||
+          type === "playlist" ||
+          type === "mix" ||
+          type === "radio" ? (
             <div className="flex flex-col gap-2 pb-2 flex-1 min-w-0">
               <Pulse className="w-16 h-3 rounded-full" />
               <Pulse className="w-[55%] h-9 rounded-lg" />
@@ -213,7 +216,10 @@ export function DetailPageSkeleton({
               <Pulse className="w-24 h-10 rounded-full!" />
               <Pulse className="w-28 h-10 rounded-full!" />
             </div>
-            {(type === "album" || type === "playlist") && (
+            {(type === "album" ||
+              type === "playlist" ||
+              type === "mix" ||
+              type === "radio") && (
               <div className="flex items-end gap-6">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="flex flex-col items-center gap-1.5">
