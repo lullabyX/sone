@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTrackPrimaryArtist } from "./itemHelpers";
+import { getTrackPrimaryArtist, getAudioQualityBadge } from "./itemHelpers";
 
 describe("getTrackPrimaryArtist", () => {
   it("returns the first MAIN artist (runtime field is `type`)", () => {
@@ -36,5 +36,41 @@ describe("getTrackPrimaryArtist", () => {
 
   it("returns Unknown Artist when nothing is present", () => {
     expect(getTrackPrimaryArtist({})).toBe("Unknown Artist");
+  });
+});
+
+describe("getAudioQualityBadge", () => {
+  it("returns null when no quality is given", () => {
+    expect(getAudioQualityBadge(undefined)).toBeNull();
+    expect(getAudioQualityBadge("")).toBeNull();
+  });
+
+  it("maps hi-res lossless to the MAX tier with HI-RES LOSSLESS wording", () => {
+    expect(getAudioQualityBadge("HI_RES_LOSSLESS")).toEqual({
+      label: "HI-RES LOSSLESS",
+      tier: "max",
+    });
+    expect(getAudioQualityBadge("HI_RES")).toEqual({
+      label: "HI-RES LOSSLESS",
+      tier: "max",
+    });
+  });
+
+  it("maps lossless to the hifi tier", () => {
+    expect(getAudioQualityBadge("LOSSLESS")).toEqual({
+      label: "LOSSLESS",
+      tier: "hifi",
+    });
+  });
+
+  it("maps everything else to the high tier", () => {
+    expect(getAudioQualityBadge("HIGH")).toEqual({
+      label: "HIGH",
+      tier: "high",
+    });
+    expect(getAudioQualityBadge("LOW")).toEqual({
+      label: "HIGH",
+      tier: "high",
+    });
   });
 });

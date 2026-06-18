@@ -329,3 +329,20 @@ export function folderSubtitle(count: number | undefined | null): string {
   const n = Math.max(0, count);
   return `${n} playlist${n !== 1 ? "s" : ""}`;
 }
+
+export type AudioQualityTier = "max" | "hifi" | "high";
+
+export function getAudioQualityBadge(
+  audioQuality: string | undefined,
+): { label: string; tier: AudioQualityTier } | null {
+  if (!audioQuality) return null;
+  switch (audioQuality) {
+    case "HI_RES_LOSSLESS":
+    case "HI_RES":
+      return { label: "HI-RES LOSSLESS", tier: "max" };
+    case "LOSSLESS":
+      return { label: "LOSSLESS", tier: "hifi" };
+    default:
+      return { label: "HIGH", tier: "high" };
+  }
+}
