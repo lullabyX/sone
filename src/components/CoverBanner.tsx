@@ -11,8 +11,7 @@ interface CoverBannerProps {
 }
 
 // Fade applied to the unscaled outer box so it dissolves at the true bottom edge.
-const FADE =
-  "linear-gradient(to bottom, #000 0%, #000 50%, transparent 100%)";
+const FADE = "linear-gradient(to bottom, #000 0%, #000 50%, transparent 100%)";
 // Sharp art (dark variant) is more present, so start dissolving sooner.
 const DARK_FADE =
   "linear-gradient(to bottom, #000 0%, #000 22%, transparent 100%)";
@@ -22,7 +21,10 @@ const DARK_FADE =
  * cover keeps living in its own box on top of this. Renders nothing when there's
  * no artwork.
  */
-export default function CoverBanner({ src, variant = "blur" }: CoverBannerProps) {
+export default function CoverBanner({
+  src,
+  variant = "blur",
+}: CoverBannerProps) {
   if (!src) return null;
 
   const fade = variant === "dark" ? DARK_FADE : FADE;
@@ -33,9 +35,21 @@ export default function CoverBanner({ src, variant = "blur" }: CoverBannerProps)
       style={{ maskImage: fade, WebkitMaskImage: fade }}
     >
       {variant === "blur" ? (
-        <div className="absolute inset-0 scale-125 blur-[64px] opacity-60">
-          <TidalImage src={src} alt="" className="h-full w-full" />
-        </div>
+        <>
+          <div className="absolute inset-0 blur-3xl saturate-150">
+            <TidalImage
+              src={src}
+              alt=""
+              className="w-full"
+              objectFit="object-top"
+            />
+          </div>
+          {/* Semitransparent base-tone layer: darkens on dark themes, lightens on
+              light themes, so the bright blur reads as TIDAL's deep tone either way. */}
+          <div className="absolute inset-0 bg-th-base/60" />
+          {/* Keep the title/metadata side readable, like TIDAL. */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-th-base/20 to-th-base/60" />
+        </>
       ) : (
         <>
           <div className="absolute inset-0 scale-105 brightness-[0.65]">

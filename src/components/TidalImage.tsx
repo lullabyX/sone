@@ -71,6 +71,21 @@ interface TidalImageProps {
   alt: string;
   className?: string;
   type?: "album" | "playlist" | "artist";
+  objectFit?:
+    | "object-cover"
+    | "object-contain"
+    | "object-fill"
+    | "object-none"
+    | "object-scale-down"
+    | "object-center"
+    | "object-top"
+    | "object-bottom"
+    | "object-left"
+    | "object-right"
+    | "object-top-left"
+    | "object-top-right"
+    | "object-bottom-left"
+    | "object-bottom-right";
   onLoad?: () => void;
 }
 
@@ -79,6 +94,7 @@ function TidalImageComponent({
   alt,
   className = "",
   type = "album",
+  objectFit = "object-cover",
   onLoad,
 }: TidalImageProps) {
   const [hasError, setHasError] = useState(false);
@@ -157,11 +173,12 @@ function TidalImageComponent({
         src={blobUrl}
         alt={alt}
         draggable={false}
-        className={`w-full h-full object-cover ${
-          isLoading ? "opacity-0" : "opacity-100"
-        } transition-opacity`}
+        className={`w-full h-full ${isLoading ? "opacity-0" : "opacity-100"} transition-opacity ${objectFit}`}
         onError={() => setHasError(true)}
-        onLoad={() => { setIsLoading(false); onLoad?.(); }}
+        onLoad={() => {
+          setIsLoading(false);
+          onLoad?.();
+        }}
       />
     </div>
   );

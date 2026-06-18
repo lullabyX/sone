@@ -190,9 +190,9 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
-      <PageContainer>
       <div className="relative">
       <CoverBanner src={displayImage || undefined} />
+      <PageContainer>
       <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
         <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover flex items-center justify-center relative">
           {displayImage ? (
@@ -298,8 +298,10 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
           )}
         </div>
       </div>
+      </PageContainer>
       </div>
 
+      <PageContainer>
       <div className="px-8 pb-8">
         <TrackList
           tracks={tracks}
