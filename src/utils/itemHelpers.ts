@@ -174,7 +174,10 @@ export function isDeepLinkItem(item: any): boolean {
 
 /** Detect the special "My Tracks" shortcut from Tidal's v2 feed. */
 export function isMyTracksItem(item: any): boolean {
-  if (typeof item?.id === "string" && item.id === "tidal://my-collection/tracks") {
+  if (
+    typeof item?.id === "string" &&
+    item.id === "tidal://my-collection/tracks"
+  ) {
     return true;
   }
   if (isDeepLinkItem(item)) {
@@ -249,7 +252,10 @@ export function buildMediaItem(
 }
 
 /** Return comma-separated artist names for a track (plain text, no links). */
-export function getTrackArtistDisplay(track: { artist?: { name?: string }; artists?: { name: string }[] }): string {
+export function getTrackArtistDisplay(track: {
+  artist?: { name?: string };
+  artists?: { name: string }[];
+}): string {
   if (track.artists && track.artists.length > 0) {
     return track.artists.map((a) => a.name).join(", ");
   }
@@ -264,7 +270,8 @@ export function getTrackPrimaryArtist(track: {
   artists?: { name: string; type?: string; artistType?: string }[];
 }): string {
   if (track.artists && track.artists.length > 0) {
-    const typeOf = (a: { type?: string; artistType?: string }) => a.artistType ?? a.type;
+    const typeOf = (a: { type?: string; artistType?: string }) =>
+      a.artistType ?? a.type;
     const main = track.artists.find((a) => typeOf(a) === "MAIN");
     return main?.name ?? track.artists[0].name;
   }
@@ -296,7 +303,10 @@ export function getTrackArtistDiscordDisplay(track: {
   const featStr =
     featured.length === 1
       ? featured[0].name
-      : featured.slice(0, -1).map((a) => a.name).join(", ") +
+      : featured
+          .slice(0, -1)
+          .map((a) => a.name)
+          .join(", ") +
         " & " +
         featured[featured.length - 1].name;
 
@@ -345,6 +355,20 @@ export function getAudioQualityBadge(
     default:
       return { label: "HIGH", tier: "high" };
   }
+}
+
+export function getMediaQualityBadge(
+  mediaMetadata: { tags?: string[] } | undefined,
+  audioQuality: string | undefined,
+): { label: string; tier: AudioQualityTier } | null {
+  const tags = mediaMetadata?.tags;
+  if (tags?.includes("HIRES_LOSSLESS")) {
+    return { label: "HI-RES LOSSLESS", tier: "max" };
+  }
+  if (tags?.includes("LOSSLESS")) {
+    return { label: "LOSSLESS", tier: "hifi" };
+  }
+  return getAudioQualityBadge(audioQuality);
 }
 
 export function formatTotalDuration(seconds: number): string {
