@@ -24,6 +24,23 @@ pub fn compute_norm_gain(replay_gain: Option<f64>, peak_amplitude: Option<f64>) 
 /// `replay_gain`/`peak_amplitude` are `f64::NAN` when absent.
 pub type ResolvedStream = (StreamInfo, String, f64, f64, f64, bool);
 
+/// Tidal quality tiers to attempt, highest→lowest, given the user's quality
+/// `ceiling` and whether confidential credentials (`client_secret`) are present.
+/// Tiers above the ceiling are dropped; the two Hi-Res tiers require a secret
+/// and are dropped without one. An unknown ceiling is treated as "max". The
+/// result always includes "HIGH", so it is never empty.
+fn quality_tiers(ceiling: &str, has_secret: bool) -> Vec<&'static str> {
+    const ORDER: [&str; 4] = ["HI_RES_LOSSLESS", "HI_RES", "LOSSLESS", "HIGH"];
+    let ceiling_idx = ORDER.iter().position(|&t| t == ceiling).unwrap_or(0);
+    ORDER
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i >= ceiling_idx)
+        .filter(|(_, &t)| has_secret || (t != "HI_RES_LOSSLESS" && t != "HI_RES"))
+        .map(|(_, &t)| t)
+        .collect()
+}
+
 /// Shared resolver: runs the quality cascade, builds the DASH/BTS URI, selects
 /// replay-gain/peak per playback context, and computes the normalization gain.
 /// Returns `(stream_info, uri, norm_gain, replay_gain, peak_amplitude, is_dash)`.
@@ -40,27 +57,26 @@ pub async fn resolve_play_uri(
     let stream_info = {
         let mut client = state.tidal_client.lock().await;
         let has_secret = !client.client_secret.is_empty();
+        let ceiling = state.max_quality.lock().unwrap().clone();
+        let tiers = quality_tiers(&ceiling, has_secret);
 
-        if has_secret {
-            match client.get_stream_url(track_id, "HI_RES_LOSSLESS").await {
-                Ok(info) => info,
+        let mut result: Option<StreamInfo> = None;
+        let mut last_err: Option<SoneError> = None;
+        for &tier in &tiers {
+            match client.get_stream_url(track_id, tier).await {
+                Ok(info) => {
+                    result = Some(info);
+                    break;
+                }
                 Err(e) if e.is_network() => return Err(e),
-                Err(_) => match client.get_stream_url(track_id, "HI_RES").await {
-                    Ok(info) => info,
-                    Err(e) if e.is_network() => return Err(e),
-                    Err(_) => match client.get_stream_url(track_id, "LOSSLESS").await {
-                        Ok(info) => info,
-                        Err(e) if e.is_network() => return Err(e),
-                        Err(_) => client.get_stream_url(track_id, "HIGH").await?,
-                    },
-                },
+                Err(e) => last_err = Some(e),
             }
-        } else {
-            match client.get_stream_url(track_id, "LOSSLESS").await {
-                Ok(info) => info,
-                Err(e) if e.is_network() => return Err(e),
-                Err(_) => client.get_stream_url(track_id, "HIGH").await?,
-            }
+        }
+        match result {
+            Some(info) => info,
+            // `quality_tiers` always yields at least "HIGH", so the loop runs
+            // at least once and `last_err` is set on total failure.
+            None => return Err(last_err.expect("quality_tiers always yields HIGH")),
         }
     };
 
@@ -409,4 +425,53 @@ pub fn update_mpris_loop_status(
         .mpris
         .send(crate::mpris::MprisCommand::SetLoopStatus { mode });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quality_tiers;
+
+    #[test]
+    fn ceiling_max_with_secret_is_full_cascade() {
+        assert_eq!(
+            quality_tiers("HI_RES_LOSSLESS", true),
+            vec!["HI_RES_LOSSLESS", "HI_RES", "LOSSLESS", "HIGH"]
+        );
+    }
+
+    #[test]
+    fn ceiling_max_without_secret_drops_hires() {
+        // Reproduces the legacy no-secret branch exactly.
+        assert_eq!(quality_tiers("HI_RES_LOSSLESS", false), vec!["LOSSLESS", "HIGH"]);
+    }
+
+    #[test]
+    fn ceiling_lossless_caps_below_hires() {
+        assert_eq!(quality_tiers("LOSSLESS", true), vec!["LOSSLESS", "HIGH"]);
+        assert_eq!(quality_tiers("LOSSLESS", false), vec!["LOSSLESS", "HIGH"]);
+    }
+
+    #[test]
+    fn ceiling_high_is_only_high() {
+        assert_eq!(quality_tiers("HIGH", true), vec!["HIGH"]);
+        assert_eq!(quality_tiers("HIGH", false), vec!["HIGH"]);
+    }
+
+    #[test]
+    fn unknown_ceiling_falls_back_to_max() {
+        assert_eq!(
+            quality_tiers("GARBAGE", true),
+            vec!["HI_RES_LOSSLESS", "HI_RES", "LOSSLESS", "HIGH"]
+        );
+    }
+
+    #[test]
+    fn always_includes_high_so_never_empty() {
+        for ceiling in ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "GARBAGE"] {
+            for has_secret in [true, false] {
+                let tiers = quality_tiers(ceiling, has_secret);
+                assert!(tiers.contains(&"HIGH"), "ceiling={ceiling} secret={has_secret}");
+            }
+        }
+    }
 }
