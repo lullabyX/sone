@@ -25,7 +25,12 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useToast } from "../contexts/ToastContext";
-import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache, getPlaylistDetails } from "../api/tidal";
+import {
+  getPlaylistTracksPage,
+  getPlaylistRecommendations,
+  invalidateCache,
+  getPlaylistDetails,
+} from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import { getShareUrl, formatTotalDuration } from "../utils/itemHelpers";
 import NotFoundPage from "./NotFoundPage";
@@ -76,11 +81,18 @@ export default function PlaylistView({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
-  const [resolvedAccessType, setResolvedAccessType] = useState<string | undefined>();
-  const [metaDuration, setMetaDuration] = useState<number | undefined>(undefined);
+  const [fetchedInfo, setFetchedInfo] =
+    useState<typeof playlistInfo>(undefined);
+  const [resolvedAccessType, setResolvedAccessType] = useState<
+    string | undefined
+  >();
+  const [metaDuration, setMetaDuration] = useState<number | undefined>(
+    undefined,
+  );
   const savedSort = trackSortPrefs[playlistId];
-  const [sortColumn, setSortColumn] = useState<string | null>(savedSort?.order ?? null);
+  const [sortColumn, setSortColumn] = useState<string | null>(
+    savedSort?.order ?? null,
+  );
   const [sortDirection, setSortDirection] = useState<"ASC" | "DESC" | null>(
     (savedSort?.direction as "ASC" | "DESC") ?? null,
   );
@@ -156,21 +168,29 @@ export default function PlaylistView({
   }, [allTracks]);
 
   // Fetch a batch of recommendations
-  const fetchRecBatch = useCallback(async (offset: number) => {
-    setLoadingRecs(true);
-    try {
-      const res = await getPlaylistRecommendations(playlistId, offset, RECS_BATCH);
-      return res.items;
-    } catch {
-      return [];
-    } finally {
-      setLoadingRecs(false);
-    }
-  }, [playlistId]);
+  const fetchRecBatch = useCallback(
+    async (offset: number) => {
+      setLoadingRecs(true);
+      try {
+        const res = await getPlaylistRecommendations(
+          playlistId,
+          offset,
+          RECS_BATCH,
+        );
+        return res.items;
+      } catch {
+        return [];
+      } finally {
+        setLoadingRecs(false);
+      }
+    },
+    [playlistId],
+  );
 
   // Current slice of recommendations to display
   const visibleRecs = useMemo(
-    () => recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
+    () =>
+      recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
     [recPool, recPageIndex],
   );
 
@@ -199,21 +219,24 @@ export default function PlaylistView({
     }
   }, [recPageIndex, recPool.length, recApiOffset, playlistId, fetchRecBatch]);
 
-  const handleAddRecToPlaylist = useCallback(async (track: Track) => {
-    // Optimistic: remove from recs immediately
-    setRecPool((prev) => prev.filter((t) => t.id !== track.id));
-    try {
-      await addTrackToPlaylist(playlistId, track.id);
-      showToast(`Added "${track.title}" to playlist`, "success");
-    } catch {
-      // Rollback: re-insert the track
-      setRecPool((prev) => {
-        if (prev.some((t) => t.id === track.id)) return prev;
-        return [...prev, track];
-      });
-      showToast("Failed to add track", "error");
-    }
-  }, [playlistId, addTrackToPlaylist, showToast]);
+  const handleAddRecToPlaylist = useCallback(
+    async (track: Track) => {
+      // Optimistic: remove from recs immediately
+      setRecPool((prev) => prev.filter((t) => t.id !== track.id));
+      try {
+        await addTrackToPlaylist(playlistId, track.id);
+        showToast(`Added "${track.title}" to playlist`, "success");
+      } catch {
+        // Rollback: re-insert the track
+        setRecPool((prev) => {
+          if (prev.some((t) => t.id === track.id)) return prev;
+          return [...prev, track];
+        });
+        showToast("Failed to add track", "error");
+      }
+    },
+    [playlistId, addTrackToPlaylist, showToast],
+  );
 
   // Load first page only
   useEffect(() => {
@@ -248,15 +271,19 @@ export default function PlaylistView({
     const loadFirstPage = async () => {
       try {
         const firstPage = await getPlaylistTracksPage(
-          playlistId, 0, PAGE_SIZE,
-          sortColumn ?? undefined, sortDirection ?? undefined,
+          playlistId,
+          0,
+          PAGE_SIZE,
+          sortColumn ?? undefined,
+          sortDirection ?? undefined,
         );
         if (generationRef.current !== gen) return;
 
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
         offsetRef.current = firstPage.items.length;
-        hasMoreRef.current = firstPage.items.length < firstPage.totalNumberOfItems;
+        hasMoreRef.current =
+          firstPage.items.length < firstPage.totalNumberOfItems;
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load playlist:", err);
@@ -286,40 +313,46 @@ export default function PlaylistView({
   }, [playlistId, fetchRecBatch]);
 
   // Fetch all remaining pages in the background
-  const fetchRemaining = useCallback(async (onPageFetched?: (items: Track[]) => void) => {
-    if (bgFetchingRef.current || !hasMoreRef.current) return;
-    const gen = generationRef.current;
+  const fetchRemaining = useCallback(
+    async (onPageFetched?: (items: Track[]) => void) => {
+      if (bgFetchingRef.current || !hasMoreRef.current) return;
+      const gen = generationRef.current;
 
-    bgFetchingRef.current = true;
-    try {
-      while (hasMoreRef.current && generationRef.current === gen) {
-        const page = await getPlaylistTracksPage(
-          playlistId, offsetRef.current, PAGE_SIZE,
-          sortColumn ?? undefined, sortDirection ?? undefined,
-        );
-        if (generationRef.current !== gen) return;
+      bgFetchingRef.current = true;
+      try {
+        while (hasMoreRef.current && generationRef.current === gen) {
+          const page = await getPlaylistTracksPage(
+            playlistId,
+            offsetRef.current,
+            PAGE_SIZE,
+            sortColumn ?? undefined,
+            sortDirection ?? undefined,
+          );
+          if (generationRef.current !== gen) return;
 
-        const newItems = page.items;
-        startTransition(() => {
-          setAllTracks((prev) => {
-            const seen = new Set(prev.map((t) => t.id));
-            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
+          const newItems = page.items;
+          startTransition(() => {
+            setAllTracks((prev) => {
+              const seen = new Set(prev.map((t) => t.id));
+              return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
+            });
+            setTotalTracks(page.totalNumberOfItems);
           });
-          setTotalTracks(page.totalNumberOfItems);
-        });
-        offsetRef.current += newItems.length;
-        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+          offsetRef.current += newItems.length;
+          hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
 
-        if (onPageFetched) {
-          onPageFetched(newItems);
+          if (onPageFetched) {
+            onPageFetched(newItems);
+          }
         }
+      } catch (err) {
+        console.error("Failed to background-fetch playlist tracks:", err);
+      } finally {
+        bgFetchingRef.current = false;
       }
-    } catch (err) {
-      console.error("Failed to background-fetch playlist tracks:", err);
-    } finally {
-      bgFetchingRef.current = false;
-    }
-  }, [playlistId, sortColumn, sortDirection]);
+    },
+    [playlistId, sortColumn, sortDirection],
+  );
 
   // Manual load-more for infinite scroll
   const loadMore = useCallback(async () => {
@@ -329,8 +362,11 @@ export default function PlaylistView({
     setLoadingMore(true);
     try {
       const page = await getPlaylistTracksPage(
-        playlistId, offsetRef.current, PAGE_SIZE,
-        sortColumn ?? undefined, sortDirection ?? undefined,
+        playlistId,
+        offsetRef.current,
+        PAGE_SIZE,
+        sortColumn ?? undefined,
+        sortDirection ?? undefined,
       );
       if (generationRef.current !== gen) return;
 
@@ -363,8 +399,8 @@ export default function PlaylistView({
     tracks.forEach((t, i) => {
       if (
         t.title.toLowerCase().includes(q) ||
-        (t.artist?.name?.toLowerCase().includes(q) ||
-          t.artists?.some((a) => a.name?.toLowerCase().includes(q))) ||
+        t.artist?.name?.toLowerCase().includes(q) ||
+        t.artists?.some((a) => a.name?.toLowerCase().includes(q)) ||
         t.album?.title?.toLowerCase().includes(q)
       ) {
         filtered.push(t);
@@ -405,18 +441,21 @@ export default function PlaylistView({
     allTracks,
   });
 
-  const handlePlayTrack = useCallback(async (track: Track, _index: number) => {
-    try {
-      await playFromSource(track, tracks, { source: playlistSource(tracks) });
+  const handlePlayTrack = useCallback(
+    async (track: Track, _index: number) => {
+      try {
+        await playFromSource(track, tracks, { source: playlistSource(tracks) });
 
-      // Fire-and-forget: append remaining pages to queue as they arrive
-      if (hasMoreRef.current && !bgFetchingRef.current) {
-        fetchRemaining(appendToQueue);
+        // Fire-and-forget: append remaining pages to queue as they arrive
+        if (hasMoreRef.current && !bgFetchingRef.current) {
+          fetchRemaining(appendToQueue);
+        }
+      } catch (err) {
+        console.error("Failed to play playlist track:", err);
       }
-    } catch (err) {
-      console.error("Failed to play playlist track:", err);
-    }
-  }, [tracks, playlistSource, fetchRemaining, appendToQueue, playFromSource]);
+    },
+    [tracks, playlistSource, fetchRemaining, appendToQueue, playFromSource],
+  );
 
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
@@ -481,7 +520,11 @@ export default function PlaylistView({
         effectiveInfo?.description || "",
         newAccessType,
       );
-      showToast(newAccessType === "PUBLIC" ? "Playlist is now public" : "Playlist is now private");
+      showToast(
+        newAccessType === "PUBLIC"
+          ? "Playlist is now public"
+          : "Playlist is now private",
+      );
     } catch {
       setResolvedAccessType(prevAccessType);
     }
@@ -558,245 +601,255 @@ export default function PlaylistView({
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <div className="relative">
-      <CoverBanner src={getTidalImageUrl(effectiveInfo?.image, 640)} />
-      <PageContainer>
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover flex items-center justify-center">
-          {effectiveInfo?.image ? (
-            <TidalImage
-              src={getTidalImageUrl(effectiveInfo!.image, 640)}
-              alt={displayTitle}
-              type="playlist"
-              className="w-full h-full"
-            />
-          ) : (
-            <Music size={56} className="text-th-text-faint" />
-          )}
-        </div>
-        <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-            Playlist
-          </span>
-          <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
-            {displayTitle}
-          </h1>
-          {displayCreator && (
-            <div className="mt-2 text-[14px] text-th-text-primary font-semibold truncate">
-              {displayCreator}
-            </div>
-          )}
-          {displayDescription && (
-            <div className="mt-1 max-w-[800px]">
-              <p className="text-[14px] text-th-text-muted line-clamp-2">
-                {displayDescription}
-              </p>
-              {descriptionIsLong && (
-                <button
-                  onClick={() => setShowDescriptionModal(true)}
-                  className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
-                >
-                  Read more
-                </button>
+        <CoverBanner src={getTidalImageUrl(effectiveInfo?.image, 640)} />
+        <PageContainer>
+          <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
+            <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover flex items-center justify-center">
+              {effectiveInfo?.image ? (
+                <TidalImage
+                  src={getTidalImageUrl(effectiveInfo!.image, 640)}
+                  alt={displayTitle}
+                  type="playlist"
+                  className="w-full h-full"
+                />
+              ) : (
+                <Music size={56} className="text-th-text-faint" />
               )}
             </div>
-          )}
-          <div className="text-[12px] text-th-text-muted uppercase tracking-wide mt-2">
-            <span>
-              {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
-            </span>
-            {metaDuration != null && metaDuration > 0 && (
-              <span> ({formatTotalDuration(metaDuration)})</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center justify-between relative z-10">
-        {/* Left — Play & Shuffle buttons */}
-        <div className="flex items-center gap-3">
-          <SourcePlayButton
-            sourceType="playlist"
-            sourceId={playlistId}
-            onPlay={handlePlayAll}
-          />
-          <button
-            onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-          >
-            <Shuffle size={18} />
-            Shuffle
-          </button>
-        </div>
-        {/* Right — labelled action buttons */}
-        <div className="flex items-end gap-6 relative">
-          <button
-            onClick={handleToggleFavorite}
-            className={`flex flex-col items-center gap-1.5 transition-colors ${
-              playlistFavorited
-                ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-th-text-primary"
-            }`}
-            title={
-              playlistFavorited ? "Remove from favorites" : "Add to favorites"
-            }
-            aria-label={
-              playlistFavorited ? "Unfavorite playlist" : "Favorite playlist"
-            }
-          >
-            <Heart
-              size={22}
-              fill={playlistFavorited ? "currentColor" : "none"}
-              strokeWidth={playlistFavorited ? 0 : 2}
-            />
-            <span className="text-[11px] font-medium">
-              {playlistFavorited ? "Added" : "Add"}
-            </span>
-          </button>
-
-          {effectiveInfo?.isUserPlaylist && (
-            <>
-              <button
-                onClick={() => setShowEditModal(true)}
-                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
-                title="Edit playlist"
-                aria-label="Edit playlist"
-              >
-                <Pencil size={22} />
-                <span className="text-[11px] font-medium">Edit</span>
-              </button>
-              <button
-                onClick={handleToggleAccess}
-                className={`flex flex-col items-center gap-1.5 transition-colors ${
-                  isPublic
-                    ? "text-th-accent hover:brightness-110"
-                    : "text-th-text-muted hover:text-th-text-primary"
-                }`}
-                title={isPublic ? "Make private" : "Make public"}
-                aria-label={
-                  isPublic ? "Make playlist private" : "Make playlist public"
-                }
-              >
-                {isPublic ? <Unlock size={22} /> : <Lock size={22} />}
-                <span className="text-[11px] font-medium">
-                  {isPublic ? "Public" : "Private"}
+            <div className="flex flex-col gap-2 pb-2 min-w-0">
+              <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+                Playlist
+              </span>
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+                {displayTitle}
+              </h1>
+              {displayCreator && (
+                <div className="mt-2 text-[14px] text-th-text-primary font-semibold truncate">
+                  {displayCreator}
+                </div>
+              )}
+              {displayDescription && (
+                <div className="mt-1 max-w-[800px]">
+                  <p className="text-[14px] text-th-text-muted line-clamp-2">
+                    {displayDescription}
+                  </p>
+                  {descriptionIsLong && (
+                    <button
+                      onClick={() => setShowDescriptionModal(true)}
+                      className="text-[13px] text-th-text-primary font-semibold hover:underline mt-1"
+                    >
+                      Read more
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="text-[12px] text-th-text-muted uppercase tracking-wide mt-2">
+                <span>
+                  {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
                 </span>
+                {metaDuration != null && metaDuration > 0 && (
+                  <span> ({formatTotalDuration(metaDuration)})</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Play Controls */}
+          <div className="px-8 py-5 flex items-center justify-between relative z-10">
+            {/* Left — Play & Shuffle buttons */}
+            <div className="flex items-center gap-3">
+              <SourcePlayButton
+                sourceType="playlist"
+                sourceId={playlistId}
+                onPlay={handlePlayAll}
+              />
+              <button
+                onClick={handleShuffle}
+                className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+              >
+                <Shuffle size={18} />
+                Shuffle
               </button>
-            </>
-          )}
+            </div>
+            {/* Right — labelled action buttons */}
+            <div className="flex items-end gap-6 relative">
+              {!effectiveInfo?.isUserPlaylist && (
+                <button
+                  onClick={handleToggleFavorite}
+                  className={`flex flex-col items-center gap-1.5 transition-colors ${
+                    playlistFavorited
+                      ? "text-th-accent hover:brightness-110"
+                      : "text-th-text-muted hover:text-th-text-primary"
+                  }`}
+                  title={
+                    playlistFavorited
+                      ? "Remove from favorites"
+                      : "Add to favorites"
+                  }
+                  aria-label={
+                    playlistFavorited
+                      ? "Unfavorite playlist"
+                      : "Favorite playlist"
+                  }
+                >
+                  <Heart
+                    size={22}
+                    fill={playlistFavorited ? "currentColor" : "none"}
+                    strokeWidth={playlistFavorited ? 0 : 2}
+                  />
+                  <span className="text-[11px] font-medium">
+                    {playlistFavorited ? "Added" : "Add"}
+                  </span>
+                </button>
+              )}
 
-          <button
-            onClick={handleShare}
-            className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
-            title="Copy share link"
-            aria-label="Share playlist"
-          >
-            <Share size={22} />
-            <span className="text-[11px] font-medium">Share</span>
-          </button>
+              {effectiveInfo?.isUserPlaylist && (
+                <>
+                  <button
+                    onClick={() => setShowEditModal(true)}
+                    className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                    title="Edit playlist"
+                    aria-label="Edit playlist"
+                  >
+                    <Pencil size={22} />
+                    <span className="text-[11px] font-medium">Edit</span>
+                  </button>
+                  <button
+                    onClick={handleToggleAccess}
+                    className={`flex flex-col items-center gap-1.5 transition-colors ${
+                      isPublic
+                        ? "text-th-accent hover:brightness-110"
+                        : "text-th-text-muted hover:text-th-text-primary"
+                    }`}
+                    title={isPublic ? "Make private" : "Make public"}
+                    aria-label={
+                      isPublic
+                        ? "Make playlist private"
+                        : "Make playlist public"
+                    }
+                  >
+                    {isPublic ? <Unlock size={22} /> : <Lock size={22} />}
+                    <span className="text-[11px] font-medium">
+                      {isPublic ? "Public" : "Private"}
+                    </span>
+                  </button>
+                </>
+              )}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setContextMenu({ x: e.clientX, y: e.clientY });
-            }}
-            className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
-            title="More options"
-            aria-label="More options"
-          >
-            <MoreHorizontal size={22} />
-            <span className="text-[11px] font-medium">More</span>
-          </button>
+              <button
+                onClick={handleShare}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="Copy share link"
+                aria-label="Share playlist"
+              >
+                <Share size={22} />
+                <span className="text-[11px] font-medium">Share</span>
+              </button>
 
-          {contextMenu && (
-            <MediaContextMenu
-              cursorPosition={contextMenu}
-              item={playlistMediaItem}
-              onClose={() => setContextMenu(null)}
-            />
-          )}
-        </div>
-      </div>
-      </PageContainer>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenu({ x: e.clientX, y: e.clientY });
+                }}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="More options"
+                aria-label="More options"
+              >
+                <MoreHorizontal size={22} />
+                <span className="text-[11px] font-medium">More</span>
+              </button>
+
+              {contextMenu && (
+                <MediaContextMenu
+                  cursorPosition={contextMenu}
+                  item={playlistMediaItem}
+                  onClose={() => setContextMenu(null)}
+                />
+              )}
+            </div>
+          </div>
+        </PageContainer>
       </div>
 
       <PageContainer>
-      {/* Search / Filter bar */}
-      <div className="px-8 pb-4">
-        <DebouncedFilterInput
-          placeholder="Filter playlist on title, artist or album"
-          onChange={setSearchQuery}
-          onFocus={handleSearchFocus}
-        />
-      </div>
+        {/* Search / Filter bar */}
+        <div className="px-8 pb-4">
+          <DebouncedFilterInput
+            placeholder="Filter playlist on title, artist or album"
+            onChange={setSearchQuery}
+            onFocus={handleSearchFocus}
+          />
+        </div>
 
-      <div className="px-8 pb-8">
-        <TrackList
-          tracks={filteredTracks}
-          onPlay={handlePlayTrack}
-          onLoadMore={isFiltering ? undefined : loadMore}
-          hasMore={isFiltering ? false : hasMore}
-          loadingMore={isFiltering ? false : loadingMore}
-          trackDisplayNumbers={displayNumbers}
-          showDateAdded={!!effectiveInfo?.isUserPlaylist}
-          showArtist={true}
-          showAlbum={true}
-          showCover={true}
-          context="playlist"
-          playlistId={playlistId}
-          isUserPlaylist={effectiveInfo?.isUserPlaylist}
-          sortable
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
-          onSort={handleSort}
-          sortLoading={sortLoading}
-          onTrackRemoved={(index) => {
-            setAllTracks((prev) => prev.filter((_, i) => i !== index));
-          }}
-          virtualize
-        />
+        <div className="px-8 pb-8">
+          <TrackList
+            tracks={filteredTracks}
+            onPlay={handlePlayTrack}
+            onLoadMore={isFiltering ? undefined : loadMore}
+            hasMore={isFiltering ? false : hasMore}
+            loadingMore={isFiltering ? false : loadingMore}
+            trackDisplayNumbers={displayNumbers}
+            showDateAdded={!!effectiveInfo?.isUserPlaylist}
+            showArtist={true}
+            showAlbum={true}
+            showCover={true}
+            context="playlist"
+            playlistId={playlistId}
+            isUserPlaylist={effectiveInfo?.isUserPlaylist}
+            sortable
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+            sortLoading={sortLoading}
+            onTrackRemoved={(index) => {
+              setAllTracks((prev) => prev.filter((_, i) => i !== index));
+            }}
+            virtualize
+          />
 
-        {/* Recommended Tracks */}
-        {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
-          <div className="mt-10">
-            <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
-              Recommended Tracks
-            </h2>
-            <TrackList
-              tracks={visibleRecs}
-              onPlay={handlePlayTrack}
-              showArtist={true}
-              showAlbum={true}
-              showCover={true}
-              context="playlist"
-              onAddToCurrentPlaylist={handleAddRecToPlaylist}
-            />
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={handleRefreshRecs}
-                disabled={loadingRecs}
-                className="flex items-center gap-2 px-5 py-2 bg-th-button text-th-text-primary font-semibold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,background-color] duration-150 disabled:opacity-50"
-              >
-                <RefreshCw size={16} className={loadingRecs ? "animate-spin" : ""} />
-                Refresh
-              </button>
+          {/* Recommended Tracks */}
+          {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
+            <div className="mt-10">
+              <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
+                Recommended Tracks
+              </h2>
+              <TrackList
+                tracks={visibleRecs}
+                onPlay={handlePlayTrack}
+                showArtist={true}
+                showAlbum={true}
+                showCover={true}
+                context="playlist"
+                onAddToCurrentPlaylist={handleAddRecToPlaylist}
+              />
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={handleRefreshRecs}
+                  disabled={loadingRecs}
+                  className="flex items-center gap-2 px-5 py-2 bg-th-button text-th-text-primary font-semibold text-sm rounded-full hover:bg-th-button-hover hover:scale-[1.03] transition-[transform,background-color] duration-150 disabled:opacity-50"
+                >
+                  <RefreshCw
+                    size={16}
+                    className={loadingRecs ? "animate-spin" : ""}
+                  />
+                  Refresh
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {tracks.length === 0 && (
-          <div className="py-16 text-center">
-            <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-th-text-primary font-semibold text-lg mb-2">
-              This playlist is empty
-            </p>
-            <p className="text-th-text-muted text-sm">
-              Add tracks in TIDAL to see them here.
-            </p>
-          </div>
-        )}
-      </div>
-
+          {tracks.length === 0 && (
+            <div className="py-16 text-center">
+              <Music size={48} className="text-th-text-disabled mx-auto mb-4" />
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                This playlist is empty
+              </p>
+              <p className="text-th-text-muted text-sm">
+                Add tracks in TIDAL to see them here.
+              </p>
+            </div>
+          )}
+        </div>
       </PageContainer>
 
       {/* Description Modal */}
@@ -864,7 +917,9 @@ export default function PlaylistView({
             uuid: playlistId,
             title: displayTitle,
             description: effectiveInfo.description,
-            accessType: resolvedAccessType ?? userPlaylists.find((p) => p.uuid === playlistId)?.accessType,
+            accessType:
+              resolvedAccessType ??
+              userPlaylists.find((p) => p.uuid === playlistId)?.accessType,
           }}
           onClose={() => setShowEditModal(false)}
           onUpdated={(updated) => {
