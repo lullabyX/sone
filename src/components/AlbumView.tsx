@@ -404,15 +404,15 @@ export default function AlbumView({
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
                 Album
               </span>
-              <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
                 {displayTitle}
               </h1>
-              <div className="flex items-center gap-2 mt-2 min-w-0 text-[15px]">
+              <div className="flex items-center gap-2 mt-2 min-w-0 text-[14px]">
                 {artistPicture && (
                   <img
                     src={getTidalArtistImageUrl(artistPicture, 160)}
                     alt=""
-                    className="w-7 h-7 rounded-full object-cover shrink-0 bg-th-surface-hover"
+                    className="w-6 h-6 rounded-full object-cover shrink-0 bg-th-surface-hover"
                   />
                 )}
                 <span className="text-th-text-primary font-semibold truncate">
@@ -426,7 +426,7 @@ export default function AlbumView({
               </div>
 
               {(album?.numberOfTracks != null || headerDuration > 0) && (
-                <div className="text-[13px] text-th-text-muted uppercase tracking-wide">
+                <div className="text-[12px] text-th-text-muted uppercase tracking-wide">
                   {album?.numberOfTracks != null && (
                     <span>
                       {album.numberOfTracks} TRACK
@@ -440,7 +440,7 @@ export default function AlbumView({
               )}
 
               {(releaseYear || qualityBadge) && (
-                <div className="flex items-center gap-2 text-[13px] text-th-text-muted">
+                <div className="flex items-center gap-2 text-[12px] text-th-text-muted">
                   {releaseYear && <span>{releaseYear}</span>}
                   {qualityBadge && (
                     <span
