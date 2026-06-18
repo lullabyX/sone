@@ -13,14 +13,14 @@ function Pulse({ className }: { className: string }) {
 export function ArtistPageSkeleton() {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
-      <PageContainer>
-        {/* Hero banner — tall, content anchored bottom-left */}
-        <div className="relative w-full h-[560px] overflow-hidden flex items-end mb-8">
-          <div className="absolute inset-0 animate-pulse bg-th-hl-faint" />
-          <div className="relative z-10 w-full px-8 pb-6">
+      {/* Hero banner — full-bleed, content anchored bottom-left */}
+      <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
+        <div className="absolute inset-0 animate-pulse bg-th-hl-faint" />
+        <PageContainer className="relative z-10 w-full">
+          <div className="px-8 pb-6">
             {/* Title + fans + bio */}
             <div className="max-w-[820px]">
-              <Pulse className="w-[45%] h-16 rounded-lg" />
+              <Pulse className="w-[45%] h-14 rounded-lg" />
               <Pulse className="w-24 h-4 rounded-full mt-4" />
               <Pulse className="w-[60%] h-4 rounded-full mt-4" />
               <Pulse className="w-28 h-3.5 rounded-full mt-3" />
@@ -41,8 +41,10 @@ export function ArtistPageSkeleton() {
               </div>
             </div>
           </div>
-        </div>
+        </PageContainer>
+      </div>
 
+      <PageContainer>
         {/* Top Tracks */}
         <div className="px-8 pb-6">
           <div className="flex items-center justify-between mb-4">
