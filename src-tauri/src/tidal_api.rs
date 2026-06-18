@@ -1287,16 +1287,23 @@ impl TidalClient {
             last_name: Option<String>,
             #[serde(default)]
             username: Option<String>,
+            #[serde(default)]
+            profile_name: Option<String>,
         }
 
         let data: UserProfile =
             serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
         let username = data.username.clone();
-        let name = match (&data.first_name, &data.last_name) {
-            (Some(f), Some(l)) if !f.is_empty() => format!("{} {}", f, l),
-            (Some(f), _) if !f.is_empty() => f.clone(),
-            _ => username.clone().unwrap_or_else(|| "TIDAL User".to_string()),
-        };
+        let name = data
+            .profile_name
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| match (&data.first_name, &data.last_name) {
+                (Some(f), Some(l)) if !f.is_empty() => Some(format!("{} {}", f, l)),
+                (Some(f), _) if !f.is_empty() => Some(f.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "TIDAL User".to_string());
         Ok((name, username))
     }
 
