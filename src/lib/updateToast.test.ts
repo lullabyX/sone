@@ -45,7 +45,10 @@ describe("shouldShowUpdateToast", () => {
       count: MAX_UPDATE_TOAST_SHOWS,
     });
     expect(r.show).toBe(false);
-    expect(r.next).toEqual({ version: "0.19.0", count: MAX_UPDATE_TOAST_SHOWS });
+    expect(r.next).toEqual({
+      version: "0.19.0",
+      count: MAX_UPDATE_TOAST_SHOWS,
+    });
   });
 
   it("resets the counter when a newer version appears", () => {

@@ -30,7 +30,10 @@ describe("useNavigation overlay dismissal", () => {
     });
     expect(store.get(drawerOpenAtom)).toBe(false);
     expect(store.get(maximizedPlayerAtom)).toBe(false);
-    expect(store.get(currentViewAtom)).toMatchObject({ type: "album", albumId: 123 });
+    expect(store.get(currentViewAtom)).toMatchObject({
+      type: "album",
+      albumId: 123,
+    });
   });
 
   it("closes overlays when navigating to an artist", () => {
@@ -40,6 +43,9 @@ describe("useNavigation overlay dismissal", () => {
     });
     expect(store.get(drawerOpenAtom)).toBe(false);
     expect(store.get(maximizedPlayerAtom)).toBe(false);
-    expect(store.get(currentViewAtom)).toMatchObject({ type: "artist", artistId: 7 });
+    expect(store.get(currentViewAtom)).toMatchObject({
+      type: "artist",
+      artistId: 7,
+    });
   });
 });

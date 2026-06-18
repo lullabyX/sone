@@ -45,7 +45,9 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   const savedSort = trackSortPrefs["__favorites__"];
-  const [sortColumn, setSortColumn] = useState<string | null>(savedSort?.order ?? "DATE");
+  const [sortColumn, setSortColumn] = useState<string | null>(
+    savedSort?.order ?? "DATE",
+  );
   const [sortDirection, setSortDirection] = useState<"ASC" | "DESC" | null>(
     (savedSort?.direction as "ASC" | "DESC") ?? "DESC",
   );
@@ -112,15 +114,19 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     const loadFavorites = async () => {
       try {
         const firstPage = await getFavoriteTracks(
-          userId, 0, PAGE_SIZE,
-          sortColumn ?? "DATE", sortDirection ?? "DESC",
+          userId,
+          0,
+          PAGE_SIZE,
+          sortColumn ?? "DATE",
+          sortDirection ?? "DESC",
         );
         if (generationRef.current !== gen) return;
 
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
         offsetRef.current = firstPage.items.length;
-        hasMoreRef.current = firstPage.items.length < firstPage.totalNumberOfItems;
+        hasMoreRef.current =
+          firstPage.items.length < firstPage.totalNumberOfItems;
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load favorites:", err);
@@ -136,42 +142,48 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   }, [authTokens?.user_id, sortColumn, sortDirection]);
 
   // Fetch all remaining pages in the background, appending to state as they arrive
-  const fetchRemaining = useCallback(async (onPageFetched?: (items: Track[]) => void) => {
-    if (bgFetchingRef.current || !hasMoreRef.current) return;
-    const userId = authTokens?.user_id;
-    if (userId == null) return;
-    const gen = generationRef.current;
+  const fetchRemaining = useCallback(
+    async (onPageFetched?: (items: Track[]) => void) => {
+      if (bgFetchingRef.current || !hasMoreRef.current) return;
+      const userId = authTokens?.user_id;
+      if (userId == null) return;
+      const gen = generationRef.current;
 
-    bgFetchingRef.current = true;
-    try {
-      while (hasMoreRef.current && generationRef.current === gen) {
-        const page = await getFavoriteTracks(
-          userId, offsetRef.current, PAGE_SIZE,
-          sortColumn ?? "DATE", sortDirection ?? "DESC",
-        );
-        if (generationRef.current !== gen) return;
+      bgFetchingRef.current = true;
+      try {
+        while (hasMoreRef.current && generationRef.current === gen) {
+          const page = await getFavoriteTracks(
+            userId,
+            offsetRef.current,
+            PAGE_SIZE,
+            sortColumn ?? "DATE",
+            sortDirection ?? "DESC",
+          );
+          if (generationRef.current !== gen) return;
 
-        const newItems = page.items;
-        startTransition(() => {
-          setAllTracks((prev) => {
-            const seen = new Set(prev.map((t) => t.id));
-            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
+          const newItems = page.items;
+          startTransition(() => {
+            setAllTracks((prev) => {
+              const seen = new Set(prev.map((t) => t.id));
+              return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
+            });
+            setTotalTracks(page.totalNumberOfItems);
           });
-          setTotalTracks(page.totalNumberOfItems);
-        });
-        offsetRef.current += newItems.length;
-        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+          offsetRef.current += newItems.length;
+          hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
 
-        if (onPageFetched) {
-          onPageFetched(newItems);
+          if (onPageFetched) {
+            onPageFetched(newItems);
+          }
         }
+      } catch (err) {
+        console.error("Failed to background-fetch favorites:", err);
+      } finally {
+        bgFetchingRef.current = false;
       }
-    } catch (err) {
-      console.error("Failed to background-fetch favorites:", err);
-    } finally {
-      bgFetchingRef.current = false;
-    }
-  }, [authTokens?.user_id, sortColumn, sortDirection]);
+    },
+    [authTokens?.user_id, sortColumn, sortDirection],
+  );
 
   // Manual load-more (infinite scroll trigger) — also kicks off full background fetch
   const loadMore = useCallback(async () => {
@@ -184,8 +196,11 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       const userId = authTokens?.user_id;
       if (userId == null) return;
       const page = await getFavoriteTracks(
-        userId, offsetRef.current, PAGE_SIZE,
-        sortColumn ?? "DATE", sortDirection ?? "DESC",
+        userId,
+        offsetRef.current,
+        PAGE_SIZE,
+        sortColumn ?? "DATE",
+        sortDirection ?? "DESC",
       );
       if (generationRef.current !== gen) return;
       setAllTracks((prev) => {
@@ -222,8 +237,8 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     tracks.forEach((t, i) => {
       if (
         t.title.toLowerCase().includes(q) ||
-        (t.artist?.name?.toLowerCase().includes(q) ||
-          t.artists?.some((a) => a.name?.toLowerCase().includes(q))) ||
+        t.artist?.name?.toLowerCase().includes(q) ||
+        t.artists?.some((a) => a.name?.toLowerCase().includes(q)) ||
         t.album?.title?.toLowerCase().includes(q)
       ) {
         filtered.push(t);
@@ -246,18 +261,23 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     allTracks,
   });
 
-  const handlePlayTrack = useCallback(async (track: Track, _index: number) => {
-    try {
-      await playFromSource(track, tracks, { source: favoritesSource(tracks) });
+  const handlePlayTrack = useCallback(
+    async (track: Track, _index: number) => {
+      try {
+        await playFromSource(track, tracks, {
+          source: favoritesSource(tracks),
+        });
 
-      // Fire-and-forget: append remaining pages to queue as they arrive
-      if (hasMoreRef.current && !bgFetchingRef.current) {
-        fetchRemaining(appendToQueue);
+        // Fire-and-forget: append remaining pages to queue as they arrive
+        if (hasMoreRef.current && !bgFetchingRef.current) {
+          fetchRemaining(appendToQueue);
+        }
+      } catch (err) {
+        console.error("Failed to play track:", err);
       }
-    } catch (err) {
-      console.error("Failed to play track:", err);
-    }
-  }, [tracks, favoritesSource, fetchRemaining, appendToQueue, playFromSource]);
+    },
+    [tracks, favoritesSource, fetchRemaining, appendToQueue, playFromSource],
+  );
 
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
@@ -279,8 +299,9 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       await fetchRemaining();
     }
 
-    const pool = (allTracksRef.current.length > 0 ? allTracksRef.current : tracks)
-      .filter((t) => favoriteTrackIds.has(t.id));
+    const pool = (
+      allTracksRef.current.length > 0 ? allTracksRef.current : tracks
+    ).filter((t) => favoriteTrackIds.has(t.id));
     if (pool.length === 0) return;
 
     const firstIdx = Math.floor(Math.random() * pool.length);
@@ -321,93 +342,97 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
-      {/* Favorites Header */}
-      <div className="px-8 py-8 flex items-end gap-7">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
-          <Heart size={80} className="text-white drop-shadow-lg" fill="white" />
-        </div>
-        <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-            Collection
-          </span>
-          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight">
-            Loved Tracks
-          </h1>
-          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-            <span>
-              {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+        {/* Favorites Header */}
+        <div className="px-8 py-8 flex items-end gap-7">
+          <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
+            <Heart
+              size={80}
+              className="text-white drop-shadow-lg"
+              fill="white"
+            />
+          </div>
+          <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+              Collection
             </span>
+            <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight">
+              Loved Tracks
+            </h1>
+            <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
+              <span>
+                {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center gap-3">
-        <SourcePlayButton
-          sourceType="favorites"
-          sourceId="favorites"
-          onPlay={handlePlayAll}
-        />
-        <button
-          onClick={handleShuffle}
-          className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-        >
-          <Shuffle size={18} />
-          Shuffle
-        </button>
-      </div>
+        {/* Play Controls */}
+        <div className="px-8 py-5 flex items-center gap-3">
+          <SourcePlayButton
+            sourceType="favorites"
+            sourceId="favorites"
+            onPlay={handlePlayAll}
+          />
+          <button
+            onClick={handleShuffle}
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+          >
+            <Shuffle size={18} />
+            Shuffle
+          </button>
+        </div>
 
-      {/* Search / Filter bar */}
-      <div className="px-8 pb-4">
-        <DebouncedFilterInput
-          placeholder="Filter on title, artist or album"
-          onChange={setSearchQuery}
-          onFocus={handleSearchFocus}
-        />
-      </div>
+        {/* Search / Filter bar */}
+        <div className="px-8 pb-4">
+          <DebouncedFilterInput
+            placeholder="Filter on title, artist or album"
+            onChange={setSearchQuery}
+            onFocus={handleSearchFocus}
+          />
+        </div>
 
-      {/* Track List */}
-      <div className="px-8 pb-8">
-        <TrackList
-          tracks={filteredTracks}
-          onPlay={handlePlayTrack}
-          onLoadMore={isFiltering ? undefined : loadMore}
-          hasMore={isFiltering ? false : hasMore}
-          loadingMore={isFiltering ? false : loadingMore}
-          trackDisplayNumbers={displayNumbers}
-          showDateAdded={true}
-          showArtist={true}
-          showAlbum={true}
-          showCover={true}
-          context="favorites"
-          sortable
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
-          onSort={handleSort}
-          sortLoading={sortLoading}
-          virtualize
-        />
+        {/* Track List */}
+        <div className="px-8 pb-8">
+          <TrackList
+            tracks={filteredTracks}
+            onPlay={handlePlayTrack}
+            onLoadMore={isFiltering ? undefined : loadMore}
+            hasMore={isFiltering ? false : hasMore}
+            loadingMore={isFiltering ? false : loadingMore}
+            trackDisplayNumbers={displayNumbers}
+            showDateAdded={true}
+            showArtist={true}
+            showAlbum={true}
+            showCover={true}
+            context="favorites"
+            sortable
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+            sortLoading={sortLoading}
+            virtualize
+          />
 
-        {/* End of list */}
-        {tracks.length > 0 && (
-          <div className="py-6 text-center text-[13px] text-th-text-disabled">
-            {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
-          </div>
-        )}
+          {/* End of list */}
+          {tracks.length > 0 && (
+            <div className="py-6 text-center text-[13px] text-th-text-disabled">
+              {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+            </div>
+          )}
 
-        {/* Empty state */}
-        {tracks.length === 0 && (
-          <div className="py-16 text-center">
-            <Heart size={48} className="text-th-text-disabled mx-auto mb-4" />
-            <p className="text-th-text-primary font-semibold text-lg mb-2">
-              No loved tracks yet
-            </p>
-            <p className="text-th-text-muted text-sm">
-              Heart tracks on TIDAL to see them here.
-            </p>
-          </div>
-        )}
-      </div>
+          {/* Empty state */}
+          {tracks.length === 0 && (
+            <div className="py-16 text-center">
+              <Heart size={48} className="text-th-text-disabled mx-auto mb-4" />
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                No loved tracks yet
+              </p>
+              <p className="text-th-text-muted text-sm">
+                Heart tracks on TIDAL to see them here.
+              </p>
+            </div>
+          )}
+        </div>
       </PageContainer>
     </div>
   );

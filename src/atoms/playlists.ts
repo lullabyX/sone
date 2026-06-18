@@ -11,11 +11,15 @@ export const movedPlaylistsAtom = atom<Map<string, string>>(new Map());
 /** Optimistic count adjustments per folder: folderId -> delta (+1 or -1) */
 export const folderCountAdjustmentsAtom = atom<Map<string, number>>(new Map());
 /** Optimistic playlist additions per folder: folderId -> PlaylistOrFolder[] */
-export const addedToFolderAtom = atom<Map<string, PlaylistOrFolder[]>>(new Map());
+export const addedToFolderAtom = atom<Map<string, PlaylistOrFolder[]>>(
+  new Map(),
+);
 /** Optimistic folder renames: folderId -> newName */
 export const renamedFoldersAtom = atom<Map<string, string>>(new Map());
 /** Optimistic playlist updates: playlistUuid -> { title, description } */
-export const updatedPlaylistsAtom = atom<Map<string, { title: string; description?: string }>>(new Map());
+export const updatedPlaylistsAtom = atom<
+  Map<string, { title: string; description?: string }>
+>(new Map());
 /** Shared cache of all folders for MoveToFolderMenu */
 export const allFoldersAtom = atom<Folder[]>([]);
 /** Set to false to signal that the full folder list should be refetched */

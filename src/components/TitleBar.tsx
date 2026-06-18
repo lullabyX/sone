@@ -11,11 +11,20 @@ function useWindowControls() {
   useEffect(() => {
     const win = getCurrentWindow();
 
-    win.isMaximized().then(setIsMaximized).catch(() => {});
-    win.isFocused().then(setIsFocused).catch(() => {});
+    win
+      .isMaximized()
+      .then(setIsMaximized)
+      .catch(() => {});
+    win
+      .isFocused()
+      .then(setIsFocused)
+      .catch(() => {});
 
     const unlistenResize = win.onResized(() => {
-      win.isMaximized().then(setIsMaximized).catch(() => {});
+      win
+        .isMaximized()
+        .then(setIsMaximized)
+        .catch(() => {});
     });
     const unlistenFocus = win.onFocusChanged(({ payload }) => {
       setIsFocused(payload);
@@ -28,7 +37,9 @@ function useWindowControls() {
   }, []);
 
   const minimize = useCallback(() => {
-    getCurrentWindow().minimize().catch(() => {});
+    getCurrentWindow()
+      .minimize()
+      .catch(() => {});
   }, []);
 
   // Explicit branch dodges wry#622 — toggleMaximize is flaky on frameless windows
@@ -40,11 +51,15 @@ function useWindowControls() {
       } else {
         await win.maximize();
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const close = useCallback(() => {
-    getCurrentWindow().close().catch(() => {});
+    getCurrentWindow()
+      .close()
+      .catch(() => {});
   }, []);
 
   return { isMaximized, isFocused, minimize, toggleMaximize, close };

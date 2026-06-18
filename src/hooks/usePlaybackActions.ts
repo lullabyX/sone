@@ -37,12 +37,23 @@ import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
 import { notifySeek, getInterpolatedPosition } from "../lib/playbackPosition";
-import { isTrackUnavailable, isUnplayableError } from "../lib/trackAvailability";
+import {
+  isTrackUnavailable,
+  isUnplayableError,
+} from "../lib/trackAvailability";
 import { pickGaplessNext } from "../lib/gaplessPredict";
-import type { Track, StreamInfo, ManualTrackSource, QueuedTrack } from "../types";
+import type {
+  Track,
+  StreamInfo,
+  ManualTrackSource,
+  QueuedTrack,
+} from "../types";
 import { getTidalImageUrl } from "../types";
 import { preloadImage } from "../components/TidalImage";
-import { getTrackArtistDisplay, getTrackPrimaryArtist } from "../utils/itemHelpers";
+import {
+  getTrackArtistDisplay,
+  getTrackPrimaryArtist,
+} from "../utils/itemHelpers";
 
 type PlayResult =
   | { ok: true }
@@ -220,7 +231,10 @@ export function usePlaybackActions() {
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(stamped, opts?.chosenByUser ?? true),
+          payload: buildTrackStartedPayload(
+            stamped,
+            opts?.chosenByUser ?? true,
+          ),
         }).catch(() => {});
         return { ok: true };
       } catch (error: any) {
@@ -394,7 +408,8 @@ export function usePlaybackActions() {
         } catch (error) {
           console.error("Failed to set volume:", error);
         }
-        if (i < steps) await new Promise((r) => setTimeout(r, durationMs / steps));
+        if (i < steps)
+          await new Promise((r) => setTimeout(r, durationMs / steps));
       }
     },
     [store],
@@ -509,7 +524,9 @@ export function usePlaybackActions() {
         return;
       }
       const filterExplicit = !store.get(allowExplicitAtom);
-      const eligible = filterExplicit ? tracks.filter(t => !t.explicit) : tracks;
+      const eligible = filterExplicit
+        ? tracks.filter((t) => !t.explicit)
+        : tracks;
       store.set(useTrackGainAtom, !options?.albumMode);
       store.set(originalQueueAtom, null);
       store.set(manualQueueAtom, []);
@@ -536,7 +553,9 @@ export function usePlaybackActions() {
   const appendToQueue = useCallback(
     (newTracks: Track[]) => {
       const filterExplicit = !store.get(allowExplicitAtom);
-      const eligible = filterExplicit ? newTracks.filter(t => !t.explicit) : newTracks;
+      const eligible = filterExplicit
+        ? newTracks.filter((t) => !t.explicit)
+        : newTracks;
       if (eligible.length === 0) return;
       const stamped = stampQids(eligible.map(normalizeTrack));
 
@@ -611,188 +630,191 @@ export function usePlaybackActions() {
       try {
         const repeatMode = store.get(repeatAtom);
 
-      // Repeat-one: replay current track unless explicit skip
-      if (repeatMode === 2 && !options?.explicit) {
-        const current = store.get(currentTrackAtom);
-        if (current) {
-          try {
-            const info = await invokePlayWithRetry(
-              current.id,
-              store.get(useTrackGainAtom),
-              () => {
-                store.set(isPlayingAtom, false);
-                showToast("Preparing exclusive audio…", "info");
-              },
-            );
-            store.set(streamInfoAtom, info);
-            store.set(isPlayingAtom, true);
-            invoke("notify_track_started", {
-              payload: buildTrackStartedPayload(current, false),
-            }).catch(() => {});
-          } catch (error: any) {
-            console.error("Failed to repeat track:", error);
-            store.set(isPlayingAtom, false);
-            if (isNetworkError(error)) {
-              checkNetworkError(error);
-            } else if (isUnplayableError(error)) {
-              showToast("Track unavailable", "info");
+        // Repeat-one: replay current track unless explicit skip
+        if (repeatMode === 2 && !options?.explicit) {
+          const current = store.get(currentTrackAtom);
+          if (current) {
+            try {
+              const info = await invokePlayWithRetry(
+                current.id,
+                store.get(useTrackGainAtom),
+                () => {
+                  store.set(isPlayingAtom, false);
+                  showToast("Preparing exclusive audio…", "info");
+                },
+              );
+              store.set(streamInfoAtom, info);
+              store.set(isPlayingAtom, true);
+              invoke("notify_track_started", {
+                payload: buildTrackStartedPayload(current, false),
+              }).catch(() => {});
+            } catch (error: any) {
+              console.error("Failed to repeat track:", error);
+              store.set(isPlayingAtom, false);
+              if (isNetworkError(error)) {
+                checkNetworkError(error);
+              } else if (isUnplayableError(error)) {
+                showToast("Track unavailable", "info");
+              }
             }
+            return;
           }
-          return;
         }
-      }
 
-      // Stop old pipeline to prevent stale track-finished events
-      await invoke("stop_track").catch(() => {});
+        // Stop old pipeline to prevent stale track-finished events
+        await invoke("stop_track").catch(() => {});
 
-      // Skip-loop helpers (issue #71). Counter resets on explicit user skip
-      // so mashing Next across removed tracks never trips the cap.
-      if (options?.explicit) {
-        store.set(consecutiveFailCountAtom, 0);
-      }
-      let toastedSkipThisCall = false;
-      const recordUnplayableAndCheckCap = (): boolean => {
-        const next = store.get(consecutiveFailCountAtom) + 1;
-        store.set(consecutiveFailCountAtom, next);
-        if (next >= MAX_CONSECUTIVE_PLAY_FAILS) {
-          showToast("Multiple tracks failed to play — stopped", "error");
+        // Skip-loop helpers (issue #71). Counter resets on explicit user skip
+        // so mashing Next across removed tracks never trips the cap.
+        if (options?.explicit) {
           store.set(consecutiveFailCountAtom, 0);
-          store.set(isPlayingAtom, false);
-          return true;
         }
-        if (!toastedSkipThisCall) {
-          showToast("Track unavailable — skipping", "info");
-          toastedSkipThisCall = true;
-        }
-        return false;
-      };
-
-      // Drain manual queue first (skip past unavailable tracks)
-      while (store.get(manualQueueAtom).length > 0) {
-        const manualNow = store.get(manualQueueAtom);
-        const [nextTrack, ...rest] = manualNow;
-
-        // Pre-check: skip via metadata flags, no backend round-trip.
-        if (isTrackUnavailable(nextTrack)) {
-          store.set(manualQueueAtom, rest);
-          if (recordUnplayableAndCheckCap()) return;
-          continue;
-        }
-
-        store.set(manualQueueAtom, rest);
-
-        // Update playbackSourceAtom if this manual track has a source tag
-        const manualSource = (nextTrack as QueuedTrack)._source;
-        const prevPlaybackSource = store.get(playbackSourceAtom);
-        const prevContextSource = store.get(contextSourceAtom);
-        if (manualSource) {
-          if (!prevContextSource) {
-            store.set(contextSourceAtom, prevPlaybackSource);
+        let toastedSkipThisCall = false;
+        const recordUnplayableAndCheckCap = (): boolean => {
+          const next = store.get(consecutiveFailCountAtom) + 1;
+          store.set(consecutiveFailCountAtom, next);
+          if (next >= MAX_CONSECUTIVE_PLAY_FAILS) {
+            showToast("Multiple tracks failed to play — stopped", "error");
+            store.set(consecutiveFailCountAtom, 0);
+            store.set(isPlayingAtom, false);
+            return true;
           }
-          store.set(playbackSourceAtom, {
-            type: manualSource.type,
-            id: manualSource.id,
-            name: manualSource.name,
-            image: manualSource.image,
-            subtitle: manualSource.subtitle,
-            mixType: manualSource.mixType,
-            tracks: [],
+          if (!toastedSkipThisCall) {
+            showToast("Track unavailable — skipping", "info");
+            toastedSkipThisCall = true;
+          }
+          return false;
+        };
+
+        // Drain manual queue first (skip past unavailable tracks)
+        while (store.get(manualQueueAtom).length > 0) {
+          const manualNow = store.get(manualQueueAtom);
+          const [nextTrack, ...rest] = manualNow;
+
+          // Pre-check: skip via metadata flags, no backend round-trip.
+          if (isTrackUnavailable(nextTrack)) {
+            store.set(manualQueueAtom, rest);
+            if (recordUnplayableAndCheckCap()) return;
+            continue;
+          }
+
+          store.set(manualQueueAtom, rest);
+
+          // Update playbackSourceAtom if this manual track has a source tag
+          const manualSource = (nextTrack as QueuedTrack)._source;
+          const prevPlaybackSource = store.get(playbackSourceAtom);
+          const prevContextSource = store.get(contextSourceAtom);
+          if (manualSource) {
+            if (!prevContextSource) {
+              store.set(contextSourceAtom, prevPlaybackSource);
+            }
+            store.set(playbackSourceAtom, {
+              type: manualSource.type,
+              id: manualSource.id,
+              name: manualSource.name,
+              image: manualSource.image,
+              subtitle: manualSource.subtitle,
+              mixType: manualSource.mixType,
+              tracks: [],
+            });
+          }
+
+          // Reset re-entry guard so the loop can call playTrack tightly.
+          lastPlayInvokeRef.current = 0;
+          const result = await playTrack(nextTrack, {
+            chosenByUser: !!options?.explicit,
+            suppressUnplayableToast: true,
           });
-        }
+          if (result.ok) return;
 
-        // Reset re-entry guard so the loop can call playTrack tightly.
-        lastPlayInvokeRef.current = 0;
-        const result = await playTrack(nextTrack, {
-          chosenByUser: !!options?.explicit,
-          suppressUnplayableToast: true,
-        });
-        if (result.ok) return;
-
-        if (result.reason === "unplayable") {
-          // Track never played — roll back the speculative source mutation.
+          if (result.reason === "unplayable") {
+            // Track never played — roll back the speculative source mutation.
+            if (manualSource) {
+              store.set(playbackSourceAtom, prevPlaybackSource);
+              store.set(contextSourceAtom, prevContextSource);
+            }
+            if (recordUnplayableAndCheckCap()) return;
+            continue;
+          }
+          // Network or transient: preserve current behavior — re-insert and bail.
           if (manualSource) {
             store.set(playbackSourceAtom, prevPlaybackSource);
             store.set(contextSourceAtom, prevContextSource);
           }
-          if (recordUnplayableAndCheckCap()) return;
-          continue;
+          store.set(manualQueueAtom, [
+            nextTrack,
+            ...store.get(manualQueueAtom),
+          ]);
+          return;
         }
-        // Network or transient: preserve current behavior — re-insert and bail.
-        if (manualSource) {
-          store.set(playbackSourceAtom, prevPlaybackSource);
-          store.set(contextSourceAtom, prevContextSource);
+
+        // Restore context source when manual queue is exhausted
+        const stashedSource = store.get(contextSourceAtom);
+        if (stashedSource) {
+          store.set(playbackSourceAtom, stashedSource);
+          store.set(contextSourceAtom, null);
         }
-        store.set(manualQueueAtom, [nextTrack, ...store.get(manualQueueAtom)]);
-        return;
-      }
 
-      // Restore context source when manual queue is exhausted
-      const stashedSource = store.get(contextSourceAtom);
-      if (stashedSource) {
-        store.set(playbackSourceAtom, stashedSource);
-        store.set(contextSourceAtom, null);
-      }
+        // Drain context queue (skip past unavailable tracks)
+        while (store.get(queueAtom).length > 0) {
+          const queueNow = store.get(queueAtom);
+          const [nextTrack, ...rest] = queueNow;
+          const isAutoplay = autoplayIdsRef.current.has(nextTrack.id);
 
-      // Drain context queue (skip past unavailable tracks)
-      while (store.get(queueAtom).length > 0) {
-        const queueNow = store.get(queueAtom);
-        const [nextTrack, ...rest] = queueNow;
-        const isAutoplay = autoplayIdsRef.current.has(nextTrack.id);
+          // Pre-check: also filter originalQueueAtom so the skipped track
+          // doesn't reappear when shuffle is toggled off.
+          if (isTrackUnavailable(nextTrack)) {
+            autoplayIdsRef.current.delete(nextTrack.id);
+            store.set(queueAtom, rest);
+            const origPre = store.get(originalQueueAtom);
+            if (origPre) {
+              store.set(
+                originalQueueAtom,
+                origPre.filter((t) => t._qid !== nextTrack._qid),
+              );
+            }
+            if (recordUnplayableAndCheckCap()) return;
+            continue;
+          }
 
-        // Pre-check: also filter originalQueueAtom so the skipped track
-        // doesn't reappear when shuffle is toggled off.
-        if (isTrackUnavailable(nextTrack)) {
           autoplayIdsRef.current.delete(nextTrack.id);
           store.set(queueAtom, rest);
-          const origPre = store.get(originalQueueAtom);
-          if (origPre) {
+          const orig = store.get(originalQueueAtom);
+          if (orig) {
             store.set(
               originalQueueAtom,
-              origPre.filter((t) => t._qid !== nextTrack._qid),
+              orig.filter((t) => t._qid !== nextTrack._qid),
             );
           }
-          if (recordUnplayableAndCheckCap()) return;
-          continue;
+
+          lastPlayInvokeRef.current = 0;
+          const result = await playTrack(nextTrack, {
+            chosenByUser: !isAutoplay,
+            suppressUnplayableToast: true,
+          });
+          if (result.ok) return;
+
+          if (result.reason === "unplayable") {
+            // Already filtered from both queues above. Keep advancing.
+            if (recordUnplayableAndCheckCap()) return;
+            continue;
+          }
+          // Network or transient: re-insert and bail.
+          store.set(queueAtom, [nextTrack, ...store.get(queueAtom)]);
+          if (orig) {
+            store.set(originalQueueAtom, orig);
+          }
+          return;
         }
 
-        autoplayIdsRef.current.delete(nextTrack.id);
-        store.set(queueAtom, rest);
-        const orig = store.get(originalQueueAtom);
-        if (orig) {
-          store.set(
-            originalQueueAtom,
-            orig.filter((t) => t._qid !== nextTrack._qid),
-          );
-        }
-
-        lastPlayInvokeRef.current = 0;
-        const result = await playTrack(nextTrack, {
-          chosenByUser: !isAutoplay,
-          suppressUnplayableToast: true,
-        });
-        if (result.ok) return;
-
-        if (result.reason === "unplayable") {
-          // Already filtered from both queues above. Keep advancing.
-          if (recordUnplayableAndCheckCap()) return;
-          continue;
-        }
-        // Network or transient: re-insert and bail.
-        store.set(queueAtom, [nextTrack, ...store.get(queueAtom)]);
-        if (orig) {
-          store.set(originalQueueAtom, orig);
-        }
-        return;
-      }
-
-      if (repeatMode === 1) {
-        // Repeat-all: rebuild from source (Bug 2) or history+current fallback
-        const repeatSource = store.get(contextSourceAtom) ?? store.get(playbackSourceAtom);
-        const sourceTracks = repeatSource?.tracks;
-        const explicitOk = store.get(allowExplicitAtom);
-        const hasSource = !!(sourceTracks && sourceTracks.length > 0);
-        const raw =
-          hasSource
+        if (repeatMode === 1) {
+          // Repeat-all: rebuild from source (Bug 2) or history+current fallback
+          const repeatSource =
+            store.get(contextSourceAtom) ?? store.get(playbackSourceAtom);
+          const sourceTracks = repeatSource?.tracks;
+          const explicitOk = store.get(allowExplicitAtom);
+          const hasSource = !!(sourceTracks && sourceTracks.length > 0);
+          const raw = hasSource
             ? sourceTracks
             : [
                 ...store.get(historyAtom),
@@ -800,82 +822,86 @@ export function usePlaybackActions() {
                   ? [store.get(currentTrackAtom)!]
                   : []),
               ];
-        // Pre-filter unavailable so the rebuilt queue doesn't immediately hit them.
-        const all = stampQids(
-          (explicitOk ? raw : raw.filter(t => !t.explicit)).filter(t => !isTrackUnavailable(t)),
-        );
+          // Pre-filter unavailable so the rebuilt queue doesn't immediately hit them.
+          const all = stampQids(
+            (explicitOk ? raw : raw.filter((t) => !t.explicit)).filter(
+              (t) => !isTrackUnavailable(t),
+            ),
+          );
 
-        if (all.length > 0) {
-          const ordered = store.get(shuffleAtom)
-            ? fisherYatesShuffle(all)
-            : all;
-          const [first, ...rest] = ordered;
-          store.set(queueAtom, rest);
-          // Bug 6 fix: preserve originalQueueAtom when shuffle is on (exclude currently playing track)
-          store.set(
-            originalQueueAtom,
-            store.get(shuffleAtom)
-              ? all.filter((t) => t._qid !== first._qid)
-              : null,
-          );
-          // Source-backed loops keep history so Previous + the history view
-          // survive the loop; the history-derived fallback clears it so the
-          // rebuilt queue doesn't grow each loop.
-          if (!hasSource) store.set(historyAtom, []);
-          const result = await playTrack(
-            first,
-            hasSource ? undefined : { skipHistoryPush: true },
-          );
-          if (!result.ok && result.reason === "unplayable") {
-            // First track lied about its metadata. Release the lock and re-enter
-            // playNext so the context-queue skip-loop handles the rest.
-            playNextLockRef.current = false;
-            await playNext();
-            return;
+          if (all.length > 0) {
+            const ordered = store.get(shuffleAtom)
+              ? fisherYatesShuffle(all)
+              : all;
+            const [first, ...rest] = ordered;
+            store.set(queueAtom, rest);
+            // Bug 6 fix: preserve originalQueueAtom when shuffle is on (exclude currently playing track)
+            store.set(
+              originalQueueAtom,
+              store.get(shuffleAtom)
+                ? all.filter((t) => t._qid !== first._qid)
+                : null,
+            );
+            // Source-backed loops keep history so Previous + the history view
+            // survive the loop; the history-derived fallback clears it so the
+            // rebuilt queue doesn't grow each loop.
+            if (!hasSource) store.set(historyAtom, []);
+            const result = await playTrack(
+              first,
+              hasSource ? undefined : { skipHistoryPush: true },
+            );
+            if (!result.ok && result.reason === "unplayable") {
+              // First track lied about its metadata. Release the lock and re-enter
+              // playNext so the context-queue skip-loop handles the rest.
+              playNextLockRef.current = false;
+              await playNext();
+              return;
+            }
+          } else {
+            store.set(isPlayingAtom, false);
           }
+        } else if (store.get(autoplayAtom)) {
+          const current = store.get(currentTrackAtom);
+          if (current) {
+            try {
+              const historyIds = new Set(
+                store.get(historyAtom).map((t) => t.id),
+              );
+              historyIds.add(current.id);
+              const trackMixId = current.mixes?.TRACK_MIX;
+              if (!trackMixId) return;
+              const { tracks: radio } = await getMixItems(trackMixId);
+              const explicitOk = store.get(allowExplicitAtom);
+              const fresh = radio.filter(
+                (t) =>
+                  !historyIds.has(t.id) &&
+                  (explicitOk || !t.explicit) &&
+                  !isTrackUnavailable(t),
+              );
+              if (fresh.length > 0) {
+                const [next, ...rest] = fresh;
+                autoplayIdsRef.current = new Set(rest.map((t) => t.id));
+                store.set(queueAtom, stampQids(rest.map(normalizeTrack)));
+                store.set(useTrackGainAtom, true); // radio = mixed context
+                const result = await playTrack(next, { chosenByUser: false });
+                if (!result.ok && result.reason === "unplayable") {
+                  playNextLockRef.current = false;
+                  await playNext();
+                  return;
+                }
+                return;
+              }
+            } catch (error: unknown) {
+              if (isNetworkError(error)) {
+                checkNetworkError(error);
+              }
+              /* fall through to stop */
+            }
+          }
+          store.set(isPlayingAtom, false);
         } else {
           store.set(isPlayingAtom, false);
         }
-      } else if (store.get(autoplayAtom)) {
-        const current = store.get(currentTrackAtom);
-        if (current) {
-          try {
-            const historyIds = new Set(store.get(historyAtom).map((t) => t.id));
-            historyIds.add(current.id);
-            const trackMixId = current.mixes?.TRACK_MIX;
-            if (!trackMixId) return;
-            const { tracks: radio } = await getMixItems(trackMixId);
-            const explicitOk = store.get(allowExplicitAtom);
-            const fresh = radio.filter(
-              (t) =>
-                !historyIds.has(t.id) &&
-                (explicitOk || !t.explicit) &&
-                !isTrackUnavailable(t),
-            );
-            if (fresh.length > 0) {
-              const [next, ...rest] = fresh;
-              autoplayIdsRef.current = new Set(rest.map((t) => t.id));
-              store.set(queueAtom, stampQids(rest.map(normalizeTrack)));
-              store.set(useTrackGainAtom, true); // radio = mixed context
-              const result = await playTrack(next, { chosenByUser: false });
-              if (!result.ok && result.reason === "unplayable") {
-                playNextLockRef.current = false;
-                await playNext();
-                return;
-              }
-              return;
-            }
-          } catch (error: unknown) {
-            if (isNetworkError(error)) {
-              checkNetworkError(error);
-            }
-            /* fall through to stop */
-          }
-        }
-        store.set(isPlayingAtom, false);
-      } else {
-        store.set(isPlayingAtom, false);
-      }
       } finally {
         playNextLockRef.current = false;
       }
@@ -896,196 +922,203 @@ export function usePlaybackActions() {
       // Explicit user action — clear the skip-loop counter.
       store.set(consecutiveFailCountAtom, 0);
 
-    // Stop old pipeline to prevent stale track-finished events
-    await invoke("stop_track").catch(() => {});
+      // Stop old pipeline to prevent stale track-finished events
+      await invoke("stop_track").catch(() => {});
 
-    const history = store.get(historyAtom);
-    if (history.length > 0) {
-      const newHistory = [...history];
-      const prevTrack = newHistory.pop()!;
+      const history = store.get(historyAtom);
+      if (history.length > 0) {
+        const newHistory = [...history];
+        const prevTrack = newHistory.pop()!;
 
-      // Save full state snapshot for rollback
-      const savedCurrentTrack = store.get(currentTrackAtom);
-      const savedQueue = store.get(queueAtom);
-      const savedOriginalQueue = store.get(originalQueueAtom);
-      const savedManualQueue = store.get(manualQueueAtom);
-      const savedPlaybackSource = store.get(playbackSourceAtom);
-      const savedContextSource = store.get(contextSourceAtom);
+        // Save full state snapshot for rollback
+        const savedCurrentTrack = store.get(currentTrackAtom);
+        const savedQueue = store.get(queueAtom);
+        const savedOriginalQueue = store.get(originalQueueAtom);
+        const savedManualQueue = store.get(manualQueueAtom);
+        const savedPlaybackSource = store.get(playbackSourceAtom);
+        const savedContextSource = store.get(contextSourceAtom);
 
-      // Eagerly update all state (including UI)
-      store.set(historyAtom, newHistory);
-      if (savedCurrentTrack) {
-        // Always push to manual queue with source tag so forward navigation
-        // restores the correct "Playing from" via playNext's _source handling
-        const src = savedPlaybackSource;
-        const sourceTag = src ? {
-          type: src.type,
-          id: src.id,
-          name: src.name,
-          image: src.image,
-          subtitle: src.subtitle,
-          mixType: src.mixType,
-        } : undefined;
-        const tagged = sourceTag
-          ? { ...savedCurrentTrack, _source: sourceTag }
-          : savedCurrentTrack;
-        store.set(manualQueueAtom, [tagged, ...savedManualQueue]);
-      }
-
-      // Restore source from history entry for correct "Playing from" display
-      const prevPlayingFrom = (prevTrack as any)._playingFrom;
-      if (prevPlayingFrom !== undefined) {
-        store.set(playbackSourceAtom, prevPlayingFrom);
-        store.set(contextSourceAtom, (prevTrack as any)._contextFrom ?? null);
-      }
-
-      // Stamp source context on prevTrack for future history entries
-      (prevTrack as any)._playingFrom = store.get(playbackSourceAtom);
-      (prevTrack as any)._contextFrom = store.get(contextSourceAtom);
-      store.set(currentTrackAtom, prevTrack);
-
-      try {
-        preloadImage(getTidalImageUrl(prevTrack.album?.cover, 640));
-        preloadImage(getTidalImageUrl(prevTrack.album?.cover, 1280));
-        const info = await invokePlayWithRetry(
-          prevTrack.id,
-          store.get(useTrackGainAtom),
-          () => {
-            store.set(isPlayingAtom, false);
-            showToast("Preparing exclusive audio…", "info");
-          },
-        );
-        store.set(streamInfoAtom, info);
-        store.set(isPlayingAtom, true);
-
-        // Notify backend for scrobbling
-        invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(prevTrack, true),
-        }).catch(() => {});
-      } catch (error: any) {
-        // Rollback all state
-        store.set(currentTrackAtom, savedCurrentTrack);
-        store.set(historyAtom, history);
-        store.set(queueAtom, savedQueue);
-        store.set(originalQueueAtom, savedOriginalQueue);
-        store.set(manualQueueAtom, savedManualQueue);
-        store.set(playbackSourceAtom, savedPlaybackSource);
-        store.set(contextSourceAtom, savedContextSource);
-        console.error("Failed to play previous track:", error);
-        store.set(isPlayingAtom, false);
-        if (isNetworkError(error)) {
-          checkNetworkError(error);
-        } else if (isUnplayableError(error)) {
-          showToast("Track unavailable", "info");
-        } else {
-          window.dispatchEvent(
-            new CustomEvent("playback-error", {
-              detail: extractPlaybackError(error),
-            }),
-          );
+        // Eagerly update all state (including UI)
+        store.set(historyAtom, newHistory);
+        if (savedCurrentTrack) {
+          // Always push to manual queue with source tag so forward navigation
+          // restores the correct "Playing from" via playNext's _source handling
+          const src = savedPlaybackSource;
+          const sourceTag = src
+            ? {
+                type: src.type,
+                id: src.id,
+                name: src.name,
+                image: src.image,
+                subtitle: src.subtitle,
+                mixType: src.mixType,
+              }
+            : undefined;
+          const tagged = sourceTag
+            ? { ...savedCurrentTrack, _source: sourceTag }
+            : savedCurrentTrack;
+          store.set(manualQueueAtom, [tagged, ...savedManualQueue]);
         }
-      }
-    } else {
-      // Bug 1 fix: try source fallback when history is empty
-      const source = store.get(playbackSourceAtom);
-      const current = store.get(currentTrackAtom);
-      if (source && current) {
-        const idx = source.tracks.findIndex((t) => t.id === current.id);
-        if (idx > 0) {
-          const prevTrack = stampQid(source.tracks[idx - 1]);
 
-          // Save state for rollback
-          const savedQueue = store.get(queueAtom);
-          const savedOriginalQueue = store.get(originalQueueAtom);
-          const savedManualQueue = store.get(manualQueueAtom);
+        // Restore source from history entry for correct "Playing from" display
+        const prevPlayingFrom = (prevTrack as any)._playingFrom;
+        if (prevPlayingFrom !== undefined) {
+          store.set(playbackSourceAtom, prevPlayingFrom);
+          store.set(contextSourceAtom, (prevTrack as any)._contextFrom ?? null);
+        }
 
-          // Push current back onto queue
-          if (savedManualQueue.length > 0) {
-            // Push to front of manual queue with source tag
-            const src = store.get(playbackSourceAtom);
-            const sourceTag = src ? {
-              type: src.type,
-              id: src.id,
-              name: src.name,
-              image: src.image,
-              subtitle: src.subtitle,
-              mixType: src.mixType,
-            } : undefined;
-            const tagged = sourceTag
-              ? { ...current, _source: sourceTag }
-              : current;
-            store.set(manualQueueAtom, [tagged, ...savedManualQueue]);
+        // Stamp source context on prevTrack for future history entries
+        (prevTrack as any)._playingFrom = store.get(playbackSourceAtom);
+        (prevTrack as any)._contextFrom = store.get(contextSourceAtom);
+        store.set(currentTrackAtom, prevTrack);
+
+        try {
+          preloadImage(getTidalImageUrl(prevTrack.album?.cover, 640));
+          preloadImage(getTidalImageUrl(prevTrack.album?.cover, 1280));
+          const info = await invokePlayWithRetry(
+            prevTrack.id,
+            store.get(useTrackGainAtom),
+            () => {
+              store.set(isPlayingAtom, false);
+              showToast("Preparing exclusive audio…", "info");
+            },
+          );
+          store.set(streamInfoAtom, info);
+          store.set(isPlayingAtom, true);
+
+          // Notify backend for scrobbling
+          invoke("notify_track_started", {
+            payload: buildTrackStartedPayload(prevTrack, true),
+          }).catch(() => {});
+        } catch (error: any) {
+          // Rollback all state
+          store.set(currentTrackAtom, savedCurrentTrack);
+          store.set(historyAtom, history);
+          store.set(queueAtom, savedQueue);
+          store.set(originalQueueAtom, savedOriginalQueue);
+          store.set(manualQueueAtom, savedManualQueue);
+          store.set(playbackSourceAtom, savedPlaybackSource);
+          store.set(contextSourceAtom, savedContextSource);
+          console.error("Failed to play previous track:", error);
+          store.set(isPlayingAtom, false);
+          if (isNetworkError(error)) {
+            checkNetworkError(error);
+          } else if (isUnplayableError(error)) {
+            showToast("Track unavailable", "info");
           } else {
-            store.set(queueAtom, [current, ...savedQueue]);
-            // Bug G fix: insert at correct position in originalQueueAtom
-            if (savedOriginalQueue) {
-              const sourceIdx = source.tracks.findIndex(
-                (t) => t.id === current.id,
-              );
-              if (sourceIdx >= 0) {
-                const insertIdx = savedOriginalQueue.findIndex((t) => {
-                  const tIdx = source.tracks.findIndex((s) => s.id === t.id);
-                  return tIdx > sourceIdx;
-                });
-                const newOrig = [...savedOriginalQueue];
-                newOrig.splice(
-                  insertIdx === -1 ? savedOriginalQueue.length : insertIdx,
-                  0,
-                  current,
+            window.dispatchEvent(
+              new CustomEvent("playback-error", {
+                detail: extractPlaybackError(error),
+              }),
+            );
+          }
+        }
+      } else {
+        // Bug 1 fix: try source fallback when history is empty
+        const source = store.get(playbackSourceAtom);
+        const current = store.get(currentTrackAtom);
+        if (source && current) {
+          const idx = source.tracks.findIndex((t) => t.id === current.id);
+          if (idx > 0) {
+            const prevTrack = stampQid(source.tracks[idx - 1]);
+
+            // Save state for rollback
+            const savedQueue = store.get(queueAtom);
+            const savedOriginalQueue = store.get(originalQueueAtom);
+            const savedManualQueue = store.get(manualQueueAtom);
+
+            // Push current back onto queue
+            if (savedManualQueue.length > 0) {
+              // Push to front of manual queue with source tag
+              const src = store.get(playbackSourceAtom);
+              const sourceTag = src
+                ? {
+                    type: src.type,
+                    id: src.id,
+                    name: src.name,
+                    image: src.image,
+                    subtitle: src.subtitle,
+                    mixType: src.mixType,
+                  }
+                : undefined;
+              const tagged = sourceTag
+                ? { ...current, _source: sourceTag }
+                : current;
+              store.set(manualQueueAtom, [tagged, ...savedManualQueue]);
+            } else {
+              store.set(queueAtom, [current, ...savedQueue]);
+              // Bug G fix: insert at correct position in originalQueueAtom
+              if (savedOriginalQueue) {
+                const sourceIdx = source.tracks.findIndex(
+                  (t) => t.id === current.id,
                 );
-                store.set(originalQueueAtom, newOrig);
-              } else {
-                store.set(originalQueueAtom, [current, ...savedOriginalQueue]);
+                if (sourceIdx >= 0) {
+                  const insertIdx = savedOriginalQueue.findIndex((t) => {
+                    const tIdx = source.tracks.findIndex((s) => s.id === t.id);
+                    return tIdx > sourceIdx;
+                  });
+                  const newOrig = [...savedOriginalQueue];
+                  newOrig.splice(
+                    insertIdx === -1 ? savedOriginalQueue.length : insertIdx,
+                    0,
+                    current,
+                  );
+                  store.set(originalQueueAtom, newOrig);
+                } else {
+                  store.set(originalQueueAtom, [
+                    current,
+                    ...savedOriginalQueue,
+                  ]);
+                }
               }
             }
-          }
 
-          // Eagerly update UI
-          store.set(currentTrackAtom, prevTrack);
+            // Eagerly update UI
+            store.set(currentTrackAtom, prevTrack);
 
-          try {
-            const info = await invokePlayWithRetry(
-              prevTrack.id,
-              store.get(useTrackGainAtom),
-              () => {
-                store.set(isPlayingAtom, false);
-                showToast("Preparing exclusive audio…", "info");
-              },
-            );
-            store.set(streamInfoAtom, info);
-            store.set(isPlayingAtom, true);
-
-            // Notify backend for scrobbling
-            invoke("notify_track_started", {
-              payload: buildTrackStartedPayload(prevTrack, true),
-            }).catch(() => {});
-          } catch (error: any) {
-            // Rollback all state
-            store.set(currentTrackAtom, current);
-            store.set(queueAtom, savedQueue);
-            store.set(originalQueueAtom, savedOriginalQueue);
-            store.set(manualQueueAtom, savedManualQueue);
-            console.error("Failed to play previous track:", error);
-            store.set(isPlayingAtom, false);
-            if (isNetworkError(error)) {
-              checkNetworkError(error);
-            } else if (isUnplayableError(error)) {
-              showToast("Track unavailable", "info");
-            } else {
-              window.dispatchEvent(
-                new CustomEvent("playback-error", {
-                  detail: extractPlaybackError(error),
-                }),
+            try {
+              const info = await invokePlayWithRetry(
+                prevTrack.id,
+                store.get(useTrackGainAtom),
+                () => {
+                  store.set(isPlayingAtom, false);
+                  showToast("Preparing exclusive audio…", "info");
+                },
               );
+              store.set(streamInfoAtom, info);
+              store.set(isPlayingAtom, true);
+
+              // Notify backend for scrobbling
+              invoke("notify_track_started", {
+                payload: buildTrackStartedPayload(prevTrack, true),
+              }).catch(() => {});
+            } catch (error: any) {
+              // Rollback all state
+              store.set(currentTrackAtom, current);
+              store.set(queueAtom, savedQueue);
+              store.set(originalQueueAtom, savedOriginalQueue);
+              store.set(manualQueueAtom, savedManualQueue);
+              console.error("Failed to play previous track:", error);
+              store.set(isPlayingAtom, false);
+              if (isNetworkError(error)) {
+                checkNetworkError(error);
+              } else if (isUnplayableError(error)) {
+                showToast("Track unavailable", "info");
+              } else {
+                window.dispatchEvent(
+                  new CustomEvent("playback-error", {
+                    detail: extractPlaybackError(error),
+                  }),
+                );
+              }
             }
+          } else if (current) {
+            await seekTo(0);
           }
         } else if (current) {
           await seekTo(0);
         }
-      } else if (current) {
-        await seekTo(0);
       }
-    }
     } finally {
       playNextLockRef.current = false;
     }
@@ -1132,7 +1165,9 @@ export function usePlaybackActions() {
       },
     ) => {
       const filterExplicit = !store.get(allowExplicitAtom);
-      const eligible = filterExplicit ? tracks.filter(t => !t.explicit) : tracks;
+      const eligible = filterExplicit
+        ? tracks.filter((t) => !t.explicit)
+        : tracks;
       const stamped = stampQids(eligible.map(normalizeTrack));
       store.set(manualQueueAtom, []);
       store.set(contextSourceAtom, null);
@@ -1218,7 +1253,9 @@ export function usePlaybackActions() {
       },
     ) => {
       const filterExplicit = !store.get(allowExplicitAtom);
-      const eligible = filterExplicit ? allTracks.filter(t => !t.explicit) : allTracks;
+      const eligible = filterExplicit
+        ? allTracks.filter((t) => !t.explicit)
+        : allTracks;
       const idx = eligible.findIndex((t) => t.id === track.id);
       const rest =
         idx >= 0

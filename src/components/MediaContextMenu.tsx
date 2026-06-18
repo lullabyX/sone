@@ -129,11 +129,27 @@ export default function MediaContextMenu({
   // Lightweight source tag for manual queue items
   const manualSource = (() => {
     if (item.type === "album")
-      return { type: "album" as const, id: item.id, name: item.title, image: item.cover };
+      return {
+        type: "album" as const,
+        id: item.id,
+        name: item.title,
+        image: item.cover,
+      };
     if (item.type === "playlist")
-      return { type: "playlist" as const, id: item.uuid, name: item.title, image: item.image };
+      return {
+        type: "playlist" as const,
+        id: item.uuid,
+        name: item.title,
+        image: item.image,
+      };
     if (item.type === "mix")
-      return { type: "mix" as const, id: item.mixId, name: item.title, image: item.image, subtitle: item.subtitle };
+      return {
+        type: "mix" as const,
+        id: item.mixId,
+        name: item.title,
+        image: item.image,
+        subtitle: item.subtitle,
+      };
     return undefined;
   })();
 
@@ -286,7 +302,9 @@ export default function MediaContextMenu({
             id: item.mixId,
             title: item.title,
             subTitle: item.subtitle || "",
-            images: item.image ? { SMALL: { url: item.image }, MEDIUM: { url: item.image } } : undefined,
+            images: item.image
+              ? { SMALL: { url: item.image }, MEDIUM: { url: item.image } }
+              : undefined,
           });
           showToast(`Added "${itemLabel}" to library`);
         }

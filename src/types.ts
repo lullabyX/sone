@@ -111,7 +111,10 @@ export interface Track {
   _qid?: string;
 }
 
-export function getTrackDisplayTitle(track: { title: string; version?: string }): string {
+export function getTrackDisplayTitle(track: {
+  title: string;
+  version?: string;
+}): string {
   if (track.version) return `${track.title} (${track.version})`;
   return track.title;
 }
@@ -228,7 +231,12 @@ export type AppView =
   | {
       type: "mix";
       mixId: string;
-      mixInfo?: { title: string; image?: string; subtitle?: string; mixType?: string };
+      mixInfo?: {
+        title: string;
+        image?: string;
+        subtitle?: string;
+        mixType?: string;
+      };
     }
   | { type: "explore" }
   | { type: "explorePage"; apiPath: string; title: string }

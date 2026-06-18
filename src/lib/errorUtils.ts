@@ -28,7 +28,11 @@ export function getApiStatus(err: unknown): number | null {
   if (!isSoneError(err)) return null;
   if (err.kind !== "Api") return null;
   const msg = err.message;
-  if (typeof msg === "object" && msg !== null && typeof msg.status === "number") {
+  if (
+    typeof msg === "object" &&
+    msg !== null &&
+    typeof msg.status === "number"
+  ) {
     return msg.status;
   }
   return null;
@@ -39,12 +43,17 @@ export function safeErrorMessage(err: unknown, fallback: string): string {
   if (isSoneError(err)) {
     const msg = err.message;
     if (typeof msg === "string") return msg;
-    if (typeof msg === "object" && msg !== null && typeof msg.body === "string") {
+    if (
+      typeof msg === "object" &&
+      msg !== null &&
+      typeof msg.body === "string"
+    ) {
       return msg.body || fallback;
     }
     return fallback;
   }
-  if (err instanceof Error && typeof err.message === "string") return err.message;
+  if (err instanceof Error && typeof err.message === "string")
+    return err.message;
   return fallback;
 }
 

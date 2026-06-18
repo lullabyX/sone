@@ -73,7 +73,12 @@ export default function TrackContextMenu({
     trackTitle.length > 30 ? trackTitle.slice(0, 28) + "…" : trackTitle;
 
   const trackSource = track.album
-    ? { type: "album" as const, id: track.album.id, name: track.album.title, image: track.album.cover }
+    ? {
+        type: "album" as const,
+        id: track.album.id,
+        name: track.album.title,
+        image: track.album.cover,
+      }
     : undefined;
 
   const handlePlayNext = useCallback(() => {
@@ -135,7 +140,9 @@ export default function TrackContextMenu({
     }
     navigateToMix(mixId, {
       title: `${track.title} Radio`,
-      image: track.album?.cover ? getTidalImageUrl(track.album.cover, 640) : undefined,
+      image: track.album?.cover
+        ? getTidalImageUrl(track.album.cover, 640)
+        : undefined,
       subtitle: `Based on ${track.artist?.name ?? ""}`,
       mixType: "TRACK_MIX",
     });
@@ -239,7 +246,9 @@ export default function TrackContextMenu({
               disabled={radioLoading}
             >
               <Radio size={18} className="shrink-0 text-th-text-muted" />
-              <span>{radioLoading ? "Loading radio…" : "Go to track radio"}</span>
+              <span>
+                {radioLoading ? "Loading radio…" : "Go to track radio"}
+              </span>
             </button>
           </>
         )}

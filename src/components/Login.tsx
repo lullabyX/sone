@@ -1,10 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
-import {
-  isAuthenticatedAtom,
-  authTokensAtom,
-} from "../atoms/auth";
+import { isAuthenticatedAtom, authTokensAtom } from "../atoms/auth";
 import {
   getSavedCredentials,
   getDefaultCredentials,
@@ -584,7 +581,9 @@ export default function Login() {
           <div className="w-10 h-12 text-th-accent">
             <Icon />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-th-text-primary">ONE</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-th-text-primary">
+            ONE
+          </h1>
         </div>
 
         {/* ==================== Simple View — Idle ==================== */}
@@ -705,7 +704,8 @@ export default function Login() {
                   <>
                     <p className="text-[12px] text-th-text-faint mb-5">
                       Get a 6-character code and enter it on{" "}
-                      <span className="text-th-text-faint">link.tidal.com</span>.
+                      <span className="text-th-text-faint">link.tidal.com</span>
+                      .
                     </p>
                     <button
                       onClick={handleSimpleLoginCode}
@@ -1327,18 +1327,24 @@ export default function Login() {
               </p>
 
               <div>
-                <p className="text-th-text-primary font-medium mb-2">Do I need both?</p>
+                <p className="text-th-text-primary font-medium mb-2">
+                  Do I need both?
+                </p>
                 <p className="mb-2">No. There are two login methods:</p>
                 <ul className="list-disc list-inside space-y-1.5 ml-1">
                   <li>
-                    <span className="text-th-text-primary font-medium">Device Code</span>{" "}
+                    <span className="text-th-text-primary font-medium">
+                      Device Code
+                    </span>{" "}
                     — works with Client ID alone (CD-quality lossless,
                     16-bit/44.1kHz). Adding Client Secret unlocks Hi-Res up to
                     24-bit/192kHz.
                   </li>
                   <li>
-                    <span className="text-th-text-primary font-medium">PKCE</span> —
-                    requires both Client ID and Client Secret. Supports Hi-Res
+                    <span className="text-th-text-primary font-medium">
+                      PKCE
+                    </span>{" "}
+                    — requires both Client ID and Client Secret. Supports Hi-Res
                     up to 24-bit/192kHz.
                   </li>
                 </ul>

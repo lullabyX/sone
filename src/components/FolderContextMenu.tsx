@@ -1,5 +1,11 @@
 import { Pencil, Trash2, ListMusic, Loader2, X } from "lucide-react";
-import { useState, useRef, useEffect, useCallback, startTransition } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  startTransition,
+} from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useToast } from "../contexts/ToastContext";
 import { useFolders } from "../hooks/useFolders";
@@ -202,10 +208,7 @@ export default function FolderContextMenu({
         onContextMenu={(e) => e.stopPropagation()}
       >
         {/* Rename */}
-        <button
-          className={menuItemClass}
-          onClick={() => setShowRename(true)}
-        >
+        <button className={menuItemClass} onClick={() => setShowRename(true)}>
           <Pencil size={18} className="shrink-0 text-th-text-muted" />
           <span>Rename</span>
         </button>

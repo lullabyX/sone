@@ -46,22 +46,72 @@ const c = (
 });
 
 export const ACTION_REGISTRY: readonly ActionMeta[] = [
-  { id: "playPause",        label: "Play / Pause",                default: c("Space") },
-  { id: "nextTrack",        label: "Next track",                  default: c("ArrowRight", { mod: true }), repeatable: false },
-  { id: "prevTrack",        label: "Previous track",              default: c("ArrowLeft", { mod: true }), repeatable: false },
-  { id: "volumeUp",         label: "Volume up",                   default: c("ArrowUp") },
-  { id: "volumeDown",       label: "Volume down",                 default: c("ArrowDown") },
-  { id: "muteToggle",       label: "Mute / Unmute",               default: c("KeyM"), repeatable: false },
-  { id: "likeToggle",       label: "Like / Unlike current track", default: c("KeyL"), repeatable: false },
-  { id: "focusSearch",      label: "Focus search bar",            default: c("KeyS", { mod: true }) },
-  { id: "refreshData",      label: "Refresh app data",            default: c("KeyR", { mod: true, shift: true }) },
-  { id: "closeDrawer",      label: "Close now-playing drawer",    default: c("Escape") },
-  { id: "zoomIn",           label: "Zoom in",                     default: c("Equal", { mod: true }) },
-  { id: "zoomOut",          label: "Zoom out",                    default: c("Minus", { mod: true }) },
-  { id: "zoomReset",        label: "Reset zoom to 100%",          default: c("Digit0", { mod: true }) },
-  { id: "toggleExclusive",  label: "Toggle exclusive output",     default: c("KeyE", { mod: true }), repeatable: false },
-  { id: "toggleBitPerfect", label: "Toggle bit-perfect mode",     default: c("KeyB", { mod: true }), repeatable: false },
-  { id: "toggleShortcuts",  label: "Show keyboard shortcuts",     default: c("Slash", { shift: true }) },
+  { id: "playPause", label: "Play / Pause", default: c("Space") },
+  {
+    id: "nextTrack",
+    label: "Next track",
+    default: c("ArrowRight", { mod: true }),
+    repeatable: false,
+  },
+  {
+    id: "prevTrack",
+    label: "Previous track",
+    default: c("ArrowLeft", { mod: true }),
+    repeatable: false,
+  },
+  { id: "volumeUp", label: "Volume up", default: c("ArrowUp") },
+  { id: "volumeDown", label: "Volume down", default: c("ArrowDown") },
+  {
+    id: "muteToggle",
+    label: "Mute / Unmute",
+    default: c("KeyM"),
+    repeatable: false,
+  },
+  {
+    id: "likeToggle",
+    label: "Like / Unlike current track",
+    default: c("KeyL"),
+    repeatable: false,
+  },
+  {
+    id: "focusSearch",
+    label: "Focus search bar",
+    default: c("KeyS", { mod: true }),
+  },
+  {
+    id: "refreshData",
+    label: "Refresh app data",
+    default: c("KeyR", { mod: true, shift: true }),
+  },
+  {
+    id: "closeDrawer",
+    label: "Close now-playing drawer",
+    default: c("Escape"),
+  },
+  { id: "zoomIn", label: "Zoom in", default: c("Equal", { mod: true }) },
+  { id: "zoomOut", label: "Zoom out", default: c("Minus", { mod: true }) },
+  {
+    id: "zoomReset",
+    label: "Reset zoom to 100%",
+    default: c("Digit0", { mod: true }),
+  },
+  {
+    id: "toggleExclusive",
+    label: "Toggle exclusive output",
+    default: c("KeyE", { mod: true }),
+    repeatable: false,
+  },
+  {
+    id: "toggleBitPerfect",
+    label: "Toggle bit-perfect mode",
+    default: c("KeyB", { mod: true }),
+    repeatable: false,
+  },
+  {
+    id: "toggleShortcuts",
+    label: "Show keyboard shortcuts",
+    default: c("Slash", { shift: true }),
+  },
 ] as const;
 
 export const ACTION_BY_ID: ReadonlyMap<ActionId, ActionMeta> = new Map(
@@ -69,9 +119,10 @@ export const ACTION_BY_ID: ReadonlyMap<ActionId, ActionMeta> = new Map(
 );
 
 export const DEFAULT_BINDINGS: Record<ActionId, KeyCombo | null> =
-  Object.fromEntries(
-    ACTION_REGISTRY.map((a) => [a.id, a.default]),
-  ) as Record<ActionId, KeyCombo | null>;
+  Object.fromEntries(ACTION_REGISTRY.map((a) => [a.id, a.default])) as Record<
+    ActionId,
+    KeyCombo | null
+  >;
 
 const RESERVED_COMBOS: readonly KeyCombo[] = [c("KeyR", { mod: true })];
 
@@ -85,10 +136,7 @@ export function comboKey(combo: KeyCombo | null): string {
   return `${combo.code}|${combo.mod ? "m" : ""}${combo.shift ? "s" : ""}${combo.alt ? "a" : ""}`;
 }
 
-export function comboEquals(
-  a: KeyCombo | null,
-  b: KeyCombo | null,
-): boolean {
+export function comboEquals(a: KeyCombo | null, b: KeyCombo | null): boolean {
   if (!a || !b) return a === b;
   return (
     a.code === b.code &&

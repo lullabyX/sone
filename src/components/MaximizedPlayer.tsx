@@ -94,7 +94,8 @@ function boxBlurPass(
       line[x * 4 + 1] = sg / div;
       line[x * 4 + 2] = sb / div;
       line[x * 4 + 3] = sa / div;
-      const pOut = base + Math.min(lineLen - 1, Math.max(0, x - radius)) * stride;
+      const pOut =
+        base + Math.min(lineLen - 1, Math.max(0, x - radius)) * stride;
       const pIn =
         base + Math.min(lineLen - 1, Math.max(0, x + radius + 1)) * stride;
       sr += data[pIn] - data[pOut];
@@ -735,8 +736,7 @@ export default function MaximizedPlayer() {
   // Progressive album art: 160px instantly, upgrade to 1280 when ready
   const coverKey = currentTrack?.album?.cover;
   const videoCovers = useAtomValue(videoCoversAtom);
-  const animatedCover =
-    videoCovers && Boolean(currentTrack?.album?.videoCover);
+  const animatedCover = videoCovers && Boolean(currentTrack?.album?.videoCover);
   const [hiResReady, setHiResReady] = useState(false);
   useEffect(() => {
     if (!coverKey) return;
