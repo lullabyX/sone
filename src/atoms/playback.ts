@@ -81,6 +81,8 @@ export const bitPerfectAtom = atom(false);
 
 /** Gapless playback kill-switch (Normal mode only). Default ON. */
 export const gaplessAtom = atom(true);
+/** Max streaming-quality ceiling: "HI_RES_LOSSLESS" | "LOSSLESS" | "HIGH". Backend-authoritative. */
+export const maxQualityAtom = atom("HI_RES_LOSSLESS");
 export const exclusiveDeviceAtom = atom<string | null>(null);
 export const volumeNormalizationAtom = atom(false);
 

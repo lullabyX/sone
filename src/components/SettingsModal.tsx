@@ -14,11 +14,13 @@ import {
   ShieldAlert,
   FileText,
   Cpu,
+  Music,
 } from "lucide-react";
 import {
   autoplayAtom,
   bitPerfectAtom,
   volumeNormalizationAtom,
+  maxQualityAtom,
   allowExplicitAtom,
   currentTrackAtom,
   isPlayingAtom,
@@ -29,6 +31,12 @@ import {
   playbackSourceAtom,
   contextSourceAtom,
 } from "../atoms/playback";
+
+const QUALITY_OPTIONS = [
+  ["HI_RES_LOSSLESS", "Hi-Res Lossless"],
+  ["LOSSLESS", "Lossless"],
+  ["HIGH", "High"],
+] as const;
 
 function ExplicitContentToggle() {
   const [allowExplicit, setAllowExplicit] = useAtom(allowExplicitAtom);
@@ -224,6 +232,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [volumeNormalization, setVolumeNormalization] = useAtom(
     volumeNormalizationAtom,
   );
+  const [maxQuality, setMaxQuality] = useAtom(maxQualityAtom);
   const [discordRpc, setDiscordRpc] = useState(false);
   const [discordStatusText, setDiscordStatusText] = useState("");
   const [decorations, setDecorations] = useAtom(decorationsAtom);
@@ -448,6 +457,41 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                   >
                     <Toggle on={volumeNormalization} />
                   </button>
+                </div>
+
+                {/* Max streaming quality */}
+                <div className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Music size={16} className="text-th-text-muted shrink-0" />
+                    <div>
+                      <p className="text-[13px] text-th-text-secondary">
+                        Max streaming quality
+                      </p>
+                      <p className="text-[11px] text-th-text-muted">
+                        Cap the quality requested from Tidal
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    {QUALITY_OPTIONS.map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => {
+                          setMaxQuality(value);
+                          invoke("set_max_quality", { quality: value }).catch(
+                            () => {},
+                          );
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-[12px] border transition-colors ${
+                          maxQuality === value
+                            ? "text-th-accent bg-th-accent/10 border-th-accent/50"
+                            : "text-th-text-secondary bg-th-inset border-th-border-subtle hover:border-th-accent/50"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Allow explicit content */}

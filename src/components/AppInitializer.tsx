@@ -44,6 +44,7 @@ import {
   exclusiveModeAtom,
   bitPerfectAtom,
   gaplessAtom,
+  maxQualityAtom,
   exclusiveDeviceAtom,
   volumeNormalizationAtom,
   originalQueueAtom,
@@ -298,6 +299,9 @@ export function AppInitializer() {
           .catch(() => {});
         invoke<boolean>("get_gapless")
           .then((v) => store.set(gaplessAtom, v))
+          .catch(() => {});
+        invoke<string>("get_max_quality")
+          .then((v) => store.set(maxQualityAtom, v))
           .catch(() => {});
         invoke<string | null>("get_exclusive_device")
           .then((v) => store.set(exclusiveDeviceAtom, v))
