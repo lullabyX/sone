@@ -1,10 +1,4 @@
-import {
-  Music,
-  Loader2,
-  Heart,
-  Shuffle,
-  MoreHorizontal,
-} from "lucide-react";
+import { Music, Loader2, Heart, Shuffle, MoreHorizontal } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import SourcePlayButton from "./SourcePlayButton";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
@@ -73,12 +67,8 @@ export default function AlbumView({
   albumInfo,
   onBack,
 }: AlbumViewProps) {
-  const {
-    playTrack,
-    setShuffledQueue,
-    playFromSource,
-    playAllFromSource,
-  } = usePlaybackActions();
+  const { playTrack, setShuffledQueue, playFromSource, playAllFromSource } =
+    usePlaybackActions();
   const {
     favoriteAlbumIds,
     addFavoriteAlbum,
@@ -358,223 +348,231 @@ export default function AlbumView({
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Album Header */}
       <div className="relative">
-      <CoverBanner src={getTidalImageUrl(displayCover, 640)} variant="dark" />
-      <PageContainer>
-      <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
-        <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover">
-          <TidalVideoCover
-            cover={displayCover}
-            videoCover={album?.videoCover}
-            size={640}
-            alt={displayTitle}
-            className="w-full h-full"
-          />
-        </div>
-        <div className="flex flex-col gap-2 pb-2 min-w-0">
-          <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-            Album
-          </span>
-          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
-            {displayTitle}
-          </h1>
-          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-            <TrackArtists
-              artists={album?.artists}
-              artist={album?.artist}
-              className="text-th-text-primary font-semibold hover:underline cursor-pointer"
-              fallback={albumInfo?.artistName || "Unknown Artist"}
-            />
-            {album?.releaseDate && (
-              <>
-                <span className="mx-1">&bull;</span>
-                <span>{new Date(album.releaseDate).getFullYear()}</span>
-              </>
-            )}
-            {album?.numberOfTracks != null && (
-              <>
-                <span className="mx-1">&bull;</span>
-                <span>
-                  {album.numberOfTracks} TRACK
-                  {album.numberOfTracks !== 1 ? "S" : ""}
-                </span>
-              </>
-            )}
-            {album?.duration != null && album.duration > 0 && (
-              <>
-                <span className="mx-1">&bull;</span>
-                <span>{formatTotalDuration(album.duration)}</span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Play Controls */}
-      <div className="px-8 py-5 flex items-center justify-between relative z-10">
-        <div className="flex items-center gap-3">
-          <SourcePlayButton
-            sourceType="album"
-            sourceId={albumId}
-            onPlay={handlePlayAll}
-          />
-          <button
-            onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-          >
-            <Shuffle size={18} />
-            Shuffle
-          </button>
-        </div>
-        <div className="flex items-center gap-2 relative">
-          <button
-            onClick={handleToggleFavorite}
-            disabled={favoritePending}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
-              albumFavorited
-                ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
-            } disabled:opacity-60 disabled:cursor-not-allowed`}
-            title={
-              albumFavorited ? "Remove from favorites" : "Add to favorites"
-            }
-            aria-label={albumFavorited ? "Unfavorite album" : "Favorite album"}
-          >
-            {favoritePending ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Heart
-                size={20}
-                fill={albumFavorited ? "currentColor" : "none"}
-                strokeWidth={albumFavorited ? 0 : 2}
+        <CoverBanner
+          src={getTidalImageUrl(displayCover, 1280)}
+          variant="dark"
+        />
+        <PageContainer>
+          <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
+            <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover">
+              <TidalVideoCover
+                cover={displayCover}
+                videoCover={album?.videoCover}
+                size={640}
+                alt={displayTitle}
+                className="w-full h-full"
               />
-            )}
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setContextMenu({ x: e.clientX, y: e.clientY });
-            }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
-            title="More options"
-          >
-            <MoreHorizontal size={20} />
-          </button>
-          {contextMenu && (
-            <MediaContextMenu
-              cursorPosition={contextMenu}
-              item={{
-                id: albumId,
-                title: displayTitle,
-                type: "album",
-                cover: displayCover,
-                artistName: album?.artist?.name || album?.artists?.[0]?.name || albumInfo?.artistName,
-              }}
-              onClose={() => setContextMenu(null)}
-            />
-          )}
-        </div>
-      </div>
-      </PageContainer>
+            </div>
+            <div className="flex flex-col gap-2 pb-2 min-w-0">
+              <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+                Album
+              </span>
+              <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+                {displayTitle}
+              </h1>
+              <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
+                <TrackArtists
+                  artists={album?.artists}
+                  artist={album?.artist}
+                  className="text-th-text-primary font-semibold hover:underline cursor-pointer"
+                  fallback={albumInfo?.artistName || "Unknown Artist"}
+                />
+                {album?.releaseDate && (
+                  <>
+                    <span className="mx-1">&bull;</span>
+                    <span>{new Date(album.releaseDate).getFullYear()}</span>
+                  </>
+                )}
+                {album?.numberOfTracks != null && (
+                  <>
+                    <span className="mx-1">&bull;</span>
+                    <span>
+                      {album.numberOfTracks} TRACK
+                      {album.numberOfTracks !== 1 ? "S" : ""}
+                    </span>
+                  </>
+                )}
+                {album?.duration != null && album.duration > 0 && (
+                  <>
+                    <span className="mx-1">&bull;</span>
+                    <span>{formatTotalDuration(album.duration)}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Play Controls */}
+          <div className="px-8 py-5 flex items-center justify-between relative z-10">
+            <div className="flex items-center gap-3">
+              <SourcePlayButton
+                sourceType="album"
+                sourceId={albumId}
+                onPlay={handlePlayAll}
+              />
+              <button
+                onClick={handleShuffle}
+                className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+              >
+                <Shuffle size={18} />
+                Shuffle
+              </button>
+            </div>
+            <div className="flex items-center gap-2 relative">
+              <button
+                onClick={handleToggleFavorite}
+                disabled={favoritePending}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
+                  albumFavorited
+                    ? "text-th-accent hover:brightness-110"
+                    : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
+                } disabled:opacity-60 disabled:cursor-not-allowed`}
+                title={
+                  albumFavorited ? "Remove from favorites" : "Add to favorites"
+                }
+                aria-label={
+                  albumFavorited ? "Unfavorite album" : "Favorite album"
+                }
+              >
+                {favoritePending ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Heart
+                    size={20}
+                    fill={albumFavorited ? "currentColor" : "none"}
+                    strokeWidth={albumFavorited ? 0 : 2}
+                  />
+                )}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenu({ x: e.clientX, y: e.clientY });
+                }}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
+                title="More options"
+              >
+                <MoreHorizontal size={20} />
+              </button>
+              {contextMenu && (
+                <MediaContextMenu
+                  cursorPosition={contextMenu}
+                  item={{
+                    id: albumId,
+                    title: displayTitle,
+                    type: "album",
+                    cover: displayCover,
+                    artistName:
+                      album?.artist?.name ||
+                      album?.artists?.[0]?.name ||
+                      albumInfo?.artistName,
+                  }}
+                  onClose={() => setContextMenu(null)}
+                />
+              )}
+            </div>
+          </div>
+        </PageContainer>
       </div>
 
       <PageContainer>
-      {/* Track List */}
-      <div className="px-8 pt-4 pb-2">
-        {isMultiVolume ? (
-          (() => {
-            let flatOffset = 0;
-            return [...volumeGroups.entries()].map(([vol, volTracks]) => {
-              const startOffset = flatOffset;
-              flatOffset += volTracks.length;
-              return (
-                <div key={vol}>
-                  <h3
-                    className={`text-md font-semibold text-th-text-primary mb-2${
-                      vol > 1 ? " mt-6" : ""
-                    }`}
-                  >
-                    Volume {vol}
-                  </h3>
-                  <TrackList
-                    tracks={volTracks}
-                    onPlay={(track, localIndex) =>
-                      handlePlayTrack(track, startOffset + localIndex)
-                    }
-                    showDateAdded={false}
-                    showArtist={true}
-                    showAlbum={false}
-                    showCover={false}
-                    context="album"
-                  />
-                </div>
-              );
-            });
-          })()
-        ) : (
-          <TrackList
-            tracks={tracks}
-            onPlay={handlePlayTrack}
-            showDateAdded={false}
-            showArtist={true}
-            showAlbum={false}
-            showCover={false}
-            context="album"
-          />
-        )}
-      </div>
-
-      {/* Album Footer */}
-      {tracks.length > 0 && (
-        <div className="px-8 pt-4 pb-8">
-          <div className="text-[13px] text-th-text-disabled">
-            {album?.releaseDate && (
-              <span>{formatReleaseDateLong(album.releaseDate)}</span>
-            )}
-            {album?.releaseDate && <span className="mx-1.5">&bull;</span>}
-            <span>
-              {tracks.length} TRACK{tracks.length !== 1 ? "S" : ""}
-              {totalDuration > 0 && ` (${formatTotalDuration(totalDuration)})`}
-            </span>
-          </div>
-          {copyright && (
-            <div className="text-[12px] text-th-text-disabled mt-1 uppercase">
-              {copyright}
-            </div>
+        {/* Track List */}
+        <div className="px-8 pt-4 pb-2">
+          {isMultiVolume ? (
+            (() => {
+              let flatOffset = 0;
+              return [...volumeGroups.entries()].map(([vol, volTracks]) => {
+                const startOffset = flatOffset;
+                flatOffset += volTracks.length;
+                return (
+                  <div key={vol}>
+                    <h3
+                      className={`text-md font-semibold text-th-text-primary mb-2${
+                        vol > 1 ? " mt-6" : ""
+                      }`}
+                    >
+                      Volume {vol}
+                    </h3>
+                    <TrackList
+                      tracks={volTracks}
+                      onPlay={(track, localIndex) =>
+                        handlePlayTrack(track, startOffset + localIndex)
+                      }
+                      showDateAdded={false}
+                      showArtist={true}
+                      showAlbum={false}
+                      showCover={false}
+                      context="album"
+                    />
+                  </div>
+                );
+              });
+            })()
+          ) : (
+            <TrackList
+              tracks={tracks}
+              onPlay={handlePlayTrack}
+              showDateAdded={false}
+              showArtist={true}
+              showAlbum={false}
+              showCover={false}
+              context="album"
+            />
           )}
         </div>
-      )}
 
-      {/* Related Sections */}
-      {sections.map((section, idx) => {
-        if (!section.items || section.items.length === 0) return null;
+        {/* Album Footer */}
+        {tracks.length > 0 && (
+          <div className="px-8 pt-4 pb-8">
+            <div className="text-[13px] text-th-text-disabled">
+              {album?.releaseDate && (
+                <span>{formatReleaseDateLong(album.releaseDate)}</span>
+              )}
+              {album?.releaseDate && <span className="mx-1.5">&bull;</span>}
+              <span>
+                {tracks.length} TRACK{tracks.length !== 1 ? "S" : ""}
+                {totalDuration > 0 &&
+                  ` (${formatTotalDuration(totalDuration)})`}
+              </span>
+            </div>
+            {copyright && (
+              <div className="text-[12px] text-th-text-disabled mt-1 uppercase">
+                {copyright}
+              </div>
+            )}
+          </div>
+        )}
 
-        return (
-          <CardScrollSection
-            key={idx}
-            section={section}
-            onCardClick={handleCardClick}
-            onContextMenu={handleCardContextMenu}
-            onViewAll={
-              section.apiPath
-                ? () => navigateToViewAll(section.title, section.apiPath!)
-                : undefined
-            }
-            favoriteAlbumIds={favoriteAlbumIds}
-            addFavoriteAlbum={addFavoriteAlbum}
-            removeFavoriteAlbum={removeFavoriteAlbum}
-            favoritePlaylistUuids={favoritePlaylistUuids}
-            addFavoritePlaylist={addFavoritePlaylist}
-            removeFavoritePlaylist={removeFavoritePlaylist}
-            followedArtistIds={followedArtistIds}
-            followArtist={followArtist}
-            unfollowArtist={unfollowArtist}
-            favoriteMixIds={favoriteMixIds}
-            addFavoriteMix={addFavoriteMix}
-            removeFavoriteMix={removeFavoriteMix}
-          />
-        );
-      })}
+        {/* Related Sections */}
+        {sections.map((section, idx) => {
+          if (!section.items || section.items.length === 0) return null;
 
+          return (
+            <CardScrollSection
+              key={idx}
+              section={section}
+              onCardClick={handleCardClick}
+              onContextMenu={handleCardContextMenu}
+              onViewAll={
+                section.apiPath
+                  ? () => navigateToViewAll(section.title, section.apiPath!)
+                  : undefined
+              }
+              favoriteAlbumIds={favoriteAlbumIds}
+              addFavoriteAlbum={addFavoriteAlbum}
+              removeFavoriteAlbum={removeFavoriteAlbum}
+              favoritePlaylistUuids={favoritePlaylistUuids}
+              addFavoritePlaylist={addFavoritePlaylist}
+              removeFavoritePlaylist={removeFavoritePlaylist}
+              followedArtistIds={followedArtistIds}
+              followArtist={followArtist}
+              unfollowArtist={unfollowArtist}
+              favoriteMixIds={favoriteMixIds}
+              addFavoriteMix={addFavoriteMix}
+              removeFavoriteMix={removeFavoriteMix}
+            />
+          );
+        })}
       </PageContainer>
 
       {sectionContextMenu && (

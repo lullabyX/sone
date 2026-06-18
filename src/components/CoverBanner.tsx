@@ -52,11 +52,19 @@ export default function CoverBanner({
         </>
       ) : (
         <>
-          <div className="absolute inset-0 scale-105 brightness-[0.65]">
-            <TidalImage src={src} alt="" className="h-full w-full" />
+          <div className="absolute inset-0">
+            <TidalImage
+              src={src}
+              alt=""
+              className="w-full h-full"
+              objectFit="object-cover"
+            />
           </div>
+          {/* Semitransparent base-tone layer: darkens on dark themes, lightens on
+              light themes, so the bright blur reads as TIDAL's deep tone either way. */}
+          <div className="absolute inset-0 bg-th-base/50" />
           {/* Tint the left where the title/metadata sit (theme base), reveal art on the right. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-th-base/70 via-th-base/30 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-th-base/30 via-th-base/70 to-transparent" />
         </>
       )}
     </div>
