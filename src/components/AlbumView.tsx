@@ -1,5 +1,6 @@
-import { Music, Loader2, Heart, Shuffle, MoreHorizontal } from "lucide-react";
+import { Music, Loader2, Heart, Shuffle, MoreHorizontal, Share } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useToast } from "../contexts/ToastContext";
 import SourcePlayButton from "./SourcePlayButton";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
@@ -14,7 +15,7 @@ import {
 } from "../types";
 import TidalVideoCover from "./TidalVideoCover";
 import CoverBanner from "./CoverBanner";
-import { getTidalImageUrl } from "../types";
+import { getTidalImageUrl, getTidalArtistImageUrl } from "../types";
 import TrackList from "./TrackList";
 import { TrackArtists } from "./TrackArtists";
 import MediaContextMenu from "./MediaContextMenu";
@@ -26,6 +27,8 @@ import {
   getItemSubtitle,
   getItemImage,
   isMixItem,
+  getShareUrl,
+  getAudioQualityBadge,
 } from "../utils/itemHelpers";
 
 interface AlbumViewProps {
@@ -90,6 +93,7 @@ export default function AlbumView({
     navigateToMix,
     navigateToViewAll,
   } = useNavigation();
+  const { showToast } = useToast();
 
   const [pageData, setPageData] = useState<AlbumPageResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -222,6 +226,41 @@ export default function AlbumView({
 
   const displayTitle = album?.title || albumInfo?.title || "Album";
   const displayCover = album?.cover || albumInfo?.cover;
+  const artistPicture =
+    album?.artists?.[0]?.picture ?? album?.artist?.picture;
+  const releaseYear = album?.releaseDate
+    ? new Date(album.releaseDate).getFullYear()
+    : null;
+  const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+  const headerDuration = album?.duration ?? totalDuration;
+  const qualityBadge = getAudioQualityBadge(album?.audioQuality);
+  const qualityBadgeClass =
+    qualityBadge?.tier === "max"
+      ? "bg-th-accent text-black"
+      : qualityBadge?.tier === "hifi"
+        ? "bg-th-accent/70 text-black"
+        : "bg-th-button-hover text-th-text-primary";
+
+  const albumMediaItem: MediaItemType = {
+    id: albumId,
+    title: displayTitle,
+    type: "album",
+    cover: displayCover,
+    artistName:
+      album?.artist?.name ||
+      album?.artists?.[0]?.name ||
+      albumInfo?.artistName,
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(getShareUrl(albumMediaItem));
+      showToast("Copied share link to clipboard");
+    } catch {
+      showToast("Failed to copy link", "error");
+    }
+  };
+
   const [sectionContextMenu, setSectionContextMenu] = useState<{
     item: MediaItemType;
     position: { x: number; y: number };
@@ -342,8 +381,6 @@ export default function AlbumView({
     );
   }
 
-  const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
-
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Album Header */}
@@ -370,35 +407,50 @@ export default function AlbumView({
               <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
                 {displayTitle}
               </h1>
-              <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-                <TrackArtists
-                  artists={album?.artists}
-                  artist={album?.artist}
-                  className="text-th-text-primary font-semibold hover:underline cursor-pointer"
-                  fallback={albumInfo?.artistName || "Unknown Artist"}
-                />
-                {album?.releaseDate && (
-                  <>
-                    <span className="mx-1">&bull;</span>
-                    <span>{new Date(album.releaseDate).getFullYear()}</span>
-                  </>
+              <div className="flex items-center gap-2 mt-2 min-w-0 text-[15px]">
+                {artistPicture && (
+                  <img
+                    src={getTidalArtistImageUrl(artistPicture, 160)}
+                    alt=""
+                    className="w-7 h-7 rounded-full object-cover shrink-0 bg-th-surface-hover"
+                  />
                 )}
-                {album?.numberOfTracks != null && (
-                  <>
-                    <span className="mx-1">&bull;</span>
+                <span className="text-th-text-primary font-semibold truncate">
+                  <TrackArtists
+                    artists={album?.artists}
+                    artist={album?.artist}
+                    className="hover:underline cursor-pointer"
+                    fallback={albumInfo?.artistName || "Unknown Artist"}
+                  />
+                </span>
+              </div>
+
+              {(album?.numberOfTracks != null || headerDuration > 0) && (
+                <div className="text-[13px] text-th-text-muted uppercase tracking-wide">
+                  {album?.numberOfTracks != null && (
                     <span>
                       {album.numberOfTracks} TRACK
                       {album.numberOfTracks !== 1 ? "S" : ""}
                     </span>
-                  </>
-                )}
-                {album?.duration != null && album.duration > 0 && (
-                  <>
-                    <span className="mx-1">&bull;</span>
-                    <span>{formatTotalDuration(album.duration)}</span>
-                  </>
-                )}
-              </div>
+                  )}
+                  {headerDuration > 0 && (
+                    <span> ({formatTotalDuration(headerDuration)})</span>
+                  )}
+                </div>
+              )}
+
+              {(releaseYear || qualityBadge) && (
+                <div className="flex items-center gap-2 text-[13px] text-th-text-muted">
+                  {releaseYear && <span>{releaseYear}</span>}
+                  {qualityBadge && (
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-black rounded tracking-wider leading-none ${qualityBadgeClass}`}
+                    >
+                      {qualityBadge.label}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -418,15 +470,15 @@ export default function AlbumView({
                 Shuffle
               </button>
             </div>
-            <div className="flex items-center gap-2 relative">
+            <div className="flex items-end gap-6 relative">
               <button
                 onClick={handleToggleFavorite}
                 disabled={favoritePending}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
+                className={`flex flex-col items-center gap-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                   albumFavorited
                     ? "text-th-accent hover:brightness-110"
-                    : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
-                } disabled:opacity-60 disabled:cursor-not-allowed`}
+                    : "text-th-text-muted hover:text-th-text-primary"
+                }`}
                 title={
                   albumFavorited ? "Remove from favorites" : "Add to favorites"
                 }
@@ -435,38 +487,46 @@ export default function AlbumView({
                 }
               >
                 {favoritePending ? (
-                  <Loader2 size={18} className="animate-spin" />
+                  <Loader2 size={22} className="animate-spin" />
                 ) : (
                   <Heart
-                    size={20}
+                    size={22}
                     fill={albumFavorited ? "currentColor" : "none"}
                     strokeWidth={albumFavorited ? 0 : 2}
                   />
                 )}
+                <span className="text-[11px] font-medium">
+                  {albumFavorited ? "Added" : "Add"}
+                </span>
               </button>
+
+              <button
+                onClick={handleShare}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="Copy share link"
+                aria-label="Share album"
+              >
+                <Share size={22} />
+                <span className="text-[11px] font-medium">Share</span>
+              </button>
+
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setContextMenu({ x: e.clientX, y: e.clientY });
                 }}
-                className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
                 title="More options"
+                aria-label="More options"
               >
-                <MoreHorizontal size={20} />
+                <MoreHorizontal size={22} />
+                <span className="text-[11px] font-medium">More</span>
               </button>
+
               {contextMenu && (
                 <MediaContextMenu
                   cursorPosition={contextMenu}
-                  item={{
-                    id: albumId,
-                    title: displayTitle,
-                    type: "album",
-                    cover: displayCover,
-                    artistName:
-                      album?.artist?.name ||
-                      album?.artists?.[0]?.name ||
-                      albumInfo?.artistName,
-                  }}
+                  item={albumMediaItem}
                   onClose={() => setContextMenu(null)}
                 />
               )}
