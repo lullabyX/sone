@@ -1,4 +1,11 @@
-import { Music, Shuffle, Heart, MoreHorizontal, Radio } from "lucide-react";
+import {
+  Music,
+  Shuffle,
+  Heart,
+  MoreHorizontal,
+  Radio,
+  Share,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import SourcePlayButton from "./SourcePlayButton";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
@@ -6,12 +13,15 @@ import { useFavorites } from "../hooks/useFavorites";
 import { getMixItems } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import NotFoundPage from "./NotFoundPage";
-import { type Track } from "../types";
+import { type Track, type MediaItemType, getTidalArtistImageUrl } from "../types";
 import TrackList from "./TrackList";
 import MediaContextMenu from "./MediaContextMenu";
 import PageContainer from "./PageContainer";
 import CoverBanner from "./CoverBanner";
 import { DetailPageSkeleton } from "./PageSkeleton";
+import { useToast } from "../contexts/ToastContext";
+import { getShareUrl, formatTotalDuration } from "../utils/itemHelpers";
+import { TrackArtists } from "./TrackArtists";
 
 interface MixPageProps {
   mixId: string;
@@ -30,6 +40,7 @@ interface MixPageProps {
 export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const { playTrack, setShuffledQueue, playFromSource, playAllFromSource } =
     usePlaybackActions();
+  const { showToast } = useToast();
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,6 +170,34 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
   const displaySubtitle = mixInfo?.subtitle || fetchedSubtitle;
   const displayImage = mixInfo?.image || fetchedImage;
 
+  const seedArtist =
+    mixInfo?.artistId != null
+      ? {
+          id: mixInfo.artistId,
+          name: mixInfo.artistName ?? "",
+          picture: mixInfo.artistPicture,
+        }
+      : (tracks[0]?.artists?.[0] ?? tracks[0]?.artist);
+
+  const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+
+  const mixMediaItem: MediaItemType = {
+    type: "mix",
+    mixId,
+    title: displayTitle,
+    image: displayImage ?? undefined,
+    subtitle: displaySubtitle ?? undefined,
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(getShareUrl(mixMediaItem));
+      showToast("Copied share link to clipboard");
+    } catch {
+      showToast("Failed to copy link", "error");
+    }
+  };
+
   if (notFound) {
     return <NotFoundPage />;
   }
@@ -224,18 +263,40 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
                 {isTrackRadio ? "Track Radio" : "Mix"}
               </span>
-              <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
                 {displayTitle}
               </h1>
-              {displaySubtitle && (
-                <p className="text-[14px] text-th-text-muted mt-1 line-clamp-2 max-w-[800px]">
-                  {displaySubtitle}
-                </p>
+              {isTrackRadio && seedArtist?.id ? (
+                <div className="flex items-center gap-2 mt-2 min-w-0 text-[14px]">
+                  {seedArtist.picture && (
+                    <img
+                      src={getTidalArtistImageUrl(seedArtist.picture, 160)}
+                      alt=""
+                      className="w-6 h-6 rounded-full object-cover shrink-0 bg-th-surface-hover"
+                    />
+                  )}
+                  <span className="text-th-text-primary font-semibold truncate">
+                    <TrackArtists
+                      artist={seedArtist}
+                      className="hover:underline cursor-pointer"
+                      fallback={seedArtist.name}
+                    />
+                  </span>
+                </div>
+              ) : (
+                displaySubtitle && (
+                  <p className="text-[14px] text-th-text-muted mt-2 line-clamp-2 max-w-[800px]">
+                    {displaySubtitle}
+                  </p>
+                )
               )}
-              <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
+              <div className="text-[12px] text-th-text-muted uppercase tracking-wide mt-2">
                 <span>
                   {tracks.length} TRACK{tracks.length !== 1 ? "S" : ""}
                 </span>
+                {totalDuration > 0 && (
+                  <span> ({formatTotalDuration(totalDuration)})</span>
+                )}
               </div>
             </div>
           </div>
@@ -257,45 +318,57 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
                 Shuffle
               </button>
             </div>
-            {/* Right — Heart & More icons */}
-            <div className="flex items-center gap-2 relative">
+            {/* Right — labelled action buttons */}
+            <div className="flex items-end gap-6 relative">
               <button
                 onClick={handleToggleFavorite}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
+                className={`flex flex-col items-center gap-1.5 transition-colors ${
                   mixFavorited
                     ? "text-th-accent hover:brightness-110"
-                    : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
+                    : "text-th-text-muted hover:text-th-text-primary"
                 }`}
                 title={
                   mixFavorited ? "Remove from favorites" : "Add to favorites"
                 }
+                aria-label={mixFavorited ? "Unfavorite mix" : "Favorite mix"}
               >
                 <Heart
-                  size={20}
+                  size={22}
                   fill={mixFavorited ? "currentColor" : "none"}
                   strokeWidth={mixFavorited ? 0 : 2}
                 />
+                <span className="text-[11px] font-medium">
+                  {mixFavorited ? "Added" : "Add"}
+                </span>
               </button>
+
+              <button
+                onClick={handleShare}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="Copy share link"
+                aria-label="Share mix"
+              >
+                <Share size={22} />
+                <span className="text-[11px] font-medium">Share</span>
+              </button>
+
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setContextMenu({ x: e.clientX, y: e.clientY });
                 }}
-                className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
                 title="More options"
+                aria-label="More options"
               >
-                <MoreHorizontal size={20} />
+                <MoreHorizontal size={22} />
+                <span className="text-[11px] font-medium">More</span>
               </button>
+
               {contextMenu && (
                 <MediaContextMenu
                   cursorPosition={contextMenu}
-                  item={{
-                    type: "mix",
-                    mixId,
-                    title: displayTitle,
-                    image: displayImage ?? undefined,
-                    subtitle: displaySubtitle ?? undefined,
-                  }}
+                  item={mixMediaItem}
                   onClose={() => setContextMenu(null)}
                 />
               )}
