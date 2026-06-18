@@ -790,8 +790,9 @@ export function usePlaybackActions() {
         const repeatSource = store.get(contextSourceAtom) ?? store.get(playbackSourceAtom);
         const sourceTracks = repeatSource?.tracks;
         const explicitOk = store.get(allowExplicitAtom);
+        const hasSource = !!(sourceTracks && sourceTracks.length > 0);
         const raw =
-          sourceTracks && sourceTracks.length > 0
+          hasSource
             ? sourceTracks
             : [
                 ...store.get(historyAtom),
@@ -805,7 +806,6 @@ export function usePlaybackActions() {
         );
 
         if (all.length > 0) {
-          store.set(historyAtom, []);
           const ordered = store.get(shuffleAtom)
             ? fisherYatesShuffle(all)
             : all;
@@ -818,7 +818,14 @@ export function usePlaybackActions() {
               ? all.filter((t) => t._qid !== first._qid)
               : null,
           );
-          const result = await playTrack(first, { skipHistoryPush: true });
+          // Source-backed loops keep history so Previous + the history view
+          // survive the loop; the history-derived fallback clears it so the
+          // rebuilt queue doesn't grow each loop.
+          if (!hasSource) store.set(historyAtom, []);
+          const result = await playTrack(
+            first,
+            hasSource ? undefined : { skipHistoryPush: true },
+          );
           if (!result.ok && result.reason === "unplayable") {
             // First track lied about its metadata. Release the lock and re-enter
             // playNext so the context-queue skip-loop handles the rest.
