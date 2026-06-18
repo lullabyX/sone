@@ -236,6 +236,9 @@ export type AppView =
         image?: string;
         subtitle?: string;
         mixType?: string;
+        artistId?: number;
+        artistName?: string;
+        artistPicture?: string;
       };
     }
   | { type: "explore" }
