@@ -233,10 +233,10 @@ export default function AlbumView({
   );
   const qualityBadgeClass =
     qualityBadge?.tier === "max"
-      ? "bg-th-accent text-black"
+      ? "bg-th-accent/20 backdrop-blur-md text-th-text-primary"
       : qualityBadge?.tier === "hifi"
-        ? "bg-th-accent/70 text-black"
-        : "bg-th-button-hover text-th-text-primary";
+        ? "bg-th-accent/15 backdrop-blur-md text-th-text-primary"
+        : "bg-th-button-hover/40 backdrop-blur-md text-th-text-primary";
 
   const albumMediaItem: MediaItemType = {
     id: albumId,
@@ -439,7 +439,7 @@ export default function AlbumView({
                   {releaseYear && <span>{releaseYear}</span>}
                   {qualityBadge && (
                     <span
-                      className={`px-2 py-0.5 text-[10px] font-black rounded tracking-wider leading-none ${qualityBadgeClass}`}
+                      className={`px-2 py-0.5 text-[10px] font-semibold rounded tracking-wider leading-none ${qualityBadgeClass}`}
                     >
                       {qualityBadge.label}
                     </span>
