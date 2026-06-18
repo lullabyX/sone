@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTrackPrimaryArtist, getAudioQualityBadge } from "./itemHelpers";
+import { getTrackPrimaryArtist, getAudioQualityBadge, formatTotalDuration } from "./itemHelpers";
 
 describe("getTrackPrimaryArtist", () => {
   it("returns the first MAIN artist (runtime field is `type`)", () => {
@@ -72,5 +72,19 @@ describe("getAudioQualityBadge", () => {
       label: "HIGH",
       tier: "high",
     });
+  });
+});
+
+describe("formatTotalDuration", () => {
+  it("formats durations under an hour as m:ss", () => {
+    expect(formatTotalDuration(0)).toBe("0:00");
+    expect(formatTotalDuration(59)).toBe("0:59");
+    expect(formatTotalDuration(75)).toBe("1:15");
+    expect(formatTotalDuration(2560)).toBe("42:40");
+  });
+
+  it("formats durations of an hour or more as h:mm:ss", () => {
+    expect(formatTotalDuration(3600)).toBe("1:00:00");
+    expect(formatTotalDuration(5073)).toBe("1:24:33");
   });
 });

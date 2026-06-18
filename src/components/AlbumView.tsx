@@ -29,25 +29,13 @@ import {
   isMixItem,
   getShareUrl,
   getAudioQualityBadge,
+  formatTotalDuration,
 } from "../utils/itemHelpers";
 
 interface AlbumViewProps {
   albumId: number;
   albumInfo?: { title: string; cover?: string; artistName?: string };
   onBack: () => void;
-}
-
-function formatTotalDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  if (hours > 0) {
-    return `${hours}:${String(mins).padStart(2, "0")}:${String(secs).padStart(
-      2,
-      "0",
-    )}`;
-  }
-  return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
 function formatReleaseDateLong(dateStr: string): string {
