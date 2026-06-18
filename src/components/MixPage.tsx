@@ -20,6 +20,9 @@ interface MixPageProps {
     image?: string;
     subtitle?: string;
     mixType?: string;
+    artistId?: number;
+    artistName?: string;
+    artistPicture?: string;
   };
   onBack: () => void;
 }

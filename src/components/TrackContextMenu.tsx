@@ -145,6 +145,9 @@ export default function TrackContextMenu({
         : undefined,
       subtitle: `Based on ${track.artist?.name ?? ""}`,
       mixType: "TRACK_MIX",
+      artistId: track.artist?.id,
+      artistName: track.artist?.name,
+      artistPicture: track.artist?.picture,
     });
     onClose();
   }, [radioLoading, track, navigateToMix, showToast, onClose]);

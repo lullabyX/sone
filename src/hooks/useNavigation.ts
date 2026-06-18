@@ -91,6 +91,9 @@ export function useNavigation() {
         image?: string;
         subtitle?: string;
         mixType?: string;
+        artistId?: number;
+        artistName?: string;
+        artistPicture?: string;
       },
     ) => {
       navigate({ type: "mix", mixId, mixInfo });
