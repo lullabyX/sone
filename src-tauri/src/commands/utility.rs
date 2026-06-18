@@ -229,6 +229,23 @@ pub fn set_gapless(state: State<'_, AppState>, enabled: bool) -> Result<(), Sone
 }
 
 #[tauri::command]
+pub fn get_max_quality(state: State<'_, AppState>) -> String {
+    state.max_quality.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn set_max_quality(state: State<'_, AppState>, quality: String) -> Result<(), SoneError> {
+    if !matches!(quality.as_str(), "HI_RES_LOSSLESS" | "LOSSLESS" | "HIGH") {
+        return Err(SoneError::Parse(format!("invalid max_quality: {quality}")));
+    }
+    *state.max_quality.lock().unwrap() = quality.clone();
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.max_quality = quality;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_exclusive_device(state: State<'_, AppState>) -> Option<String> {
     state.exclusive_device.lock().unwrap().clone()
 }

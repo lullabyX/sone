@@ -944,6 +944,8 @@ pub fn run() {
             commands::utility::get_gapless,
             commands::utility::get_gapless_supported,
             commands::utility::set_gapless,
+            commands::utility::get_max_quality,
+            commands::utility::set_max_quality,
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
