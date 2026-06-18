@@ -1,4 +1,11 @@
-import { Music, Loader2, Heart, Shuffle, MoreHorizontal, Share } from "lucide-react";
+import {
+  Music,
+  Loader2,
+  Heart,
+  Shuffle,
+  MoreHorizontal,
+  Share,
+} from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useToast } from "../contexts/ToastContext";
 import SourcePlayButton from "./SourcePlayButton";
@@ -28,7 +35,7 @@ import {
   getItemImage,
   isMixItem,
   getShareUrl,
-  getAudioQualityBadge,
+  getMediaQualityBadge,
   formatTotalDuration,
 } from "../utils/itemHelpers";
 
@@ -214,14 +221,16 @@ export default function AlbumView({
 
   const displayTitle = album?.title || albumInfo?.title || "Album";
   const displayCover = album?.cover || albumInfo?.cover;
-  const artistPicture =
-    album?.artists?.[0]?.picture ?? album?.artist?.picture;
+  const artistPicture = album?.artists?.[0]?.picture ?? album?.artist?.picture;
   const releaseYear = album?.releaseDate
     ? new Date(album.releaseDate).getFullYear()
     : null;
   const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
   const headerDuration = album?.duration ?? totalDuration;
-  const qualityBadge = getAudioQualityBadge(album?.audioQuality);
+  const qualityBadge = getMediaQualityBadge(
+    album?.mediaMetadata,
+    album?.audioQuality,
+  );
   const qualityBadgeClass =
     qualityBadge?.tier === "max"
       ? "bg-th-accent text-black"
@@ -235,9 +244,7 @@ export default function AlbumView({
     type: "album",
     cover: displayCover,
     artistName:
-      album?.artist?.name ||
-      album?.artists?.[0]?.name ||
-      albumInfo?.artistName,
+      album?.artist?.name || album?.artists?.[0]?.name || albumInfo?.artistName,
   };
 
   const handleShare = async () => {
