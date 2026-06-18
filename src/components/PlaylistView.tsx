@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Lock,
   Unlock,
+  Share,
 } from "lucide-react";
 import {
   useEffect,
@@ -17,16 +18,18 @@ import {
   useRef,
   startTransition,
 } from "react";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { trackSortPrefsAtom } from "../atoms/favorites";
+import { userNameAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useToast } from "../contexts/ToastContext";
 import { getPlaylistTracksPage, getPlaylistRecommendations, invalidateCache, getPlaylistDetails } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import { getShareUrl, formatTotalDuration } from "../utils/itemHelpers";
 import NotFoundPage from "./NotFoundPage";
-import { getTidalImageUrl, type Track } from "../types";
+import { getTidalImageUrl, type Track, type MediaItemType } from "../types";
 import TidalImage from "./TidalImage";
 import CoverBanner from "./CoverBanner";
 import TrackList from "./TrackList";
@@ -56,6 +59,7 @@ export default function PlaylistView({
   onBack,
 }: PlaylistViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
+  const userName = useAtomValue(userNameAtom);
   const {
     playTrack,
     setShuffledQueue,
@@ -74,6 +78,7 @@ export default function PlaylistView({
   const [notFound, setNotFound] = useState(false);
   const [fetchedInfo, setFetchedInfo] = useState<typeof playlistInfo>(undefined);
   const [resolvedAccessType, setResolvedAccessType] = useState<string | undefined>();
+  const [metaDuration, setMetaDuration] = useState<number | undefined>(undefined);
   const savedSort = trackSortPrefs[playlistId];
   const [sortColumn, setSortColumn] = useState<string | null>(savedSort?.order ?? null);
   const [sortDirection, setSortDirection] = useState<"ASC" | "DESC" | null>(
@@ -109,6 +114,21 @@ export default function PlaylistView({
         if (p.accessType) setResolvedAccessType(p.accessType);
       })
       .catch(() => {});
+  }, [playlistId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMetaDuration(undefined);
+    getPlaylistDetails(playlistId)
+      .then((p) => {
+        if (!cancelled && typeof p.duration === "number") {
+          setMetaDuration(p.duration);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [playlistId]);
 
   // fetchedInfo takes priority when set (e.g. after editing), otherwise use navigation prop
@@ -480,13 +500,32 @@ export default function PlaylistView({
   const displayDescription = effectiveInfo?.description;
   // Show "You" for user's own playlists, actual creator name for public ones
   const displayCreator = effectiveInfo?.isUserPlaylist
-    ? "You"
+    ? userName && userName !== "TIDAL User"
+      ? userName
+      : "You"
     : effectiveInfo?.creatorName || undefined;
   const displayTrackCount =
     totalTracks > 0 ? totalTracks : (effectiveInfo?.numberOfTracks ?? 0);
 
   // Show "Read more" if description is long enough to be truncated
   const descriptionIsLong = (displayDescription?.length ?? 0) > 120;
+
+  const playlistMediaItem: MediaItemType = {
+    type: "playlist",
+    uuid: playlistId,
+    title: displayTitle,
+    image: effectiveInfo?.image,
+    creatorName: effectiveInfo?.creatorName,
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(getShareUrl(playlistMediaItem));
+      showToast("Copied share link to clipboard");
+    } catch {
+      showToast("Failed to copy link", "error");
+    }
+  };
 
   if (loading) {
     return <DetailPageSkeleton type="playlist" />;
@@ -538,9 +577,14 @@ export default function PlaylistView({
           <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
             Playlist
           </span>
-          <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+          <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
             {displayTitle}
           </h1>
+          {displayCreator && (
+            <div className="mt-2 text-[14px] text-th-text-primary font-semibold truncate">
+              {displayCreator}
+            </div>
+          )}
           {displayDescription && (
             <div className="mt-1 max-w-[800px]">
               <p className="text-[14px] text-th-text-muted line-clamp-2">
@@ -556,18 +600,13 @@ export default function PlaylistView({
               )}
             </div>
           )}
-          <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-            {displayCreator && (
-              <>
-                <span className="text-th-text-primary font-semibold">
-                  {displayCreator}
-                </span>
-                <span className="mx-1">•</span>
-              </>
-            )}
+          <div className="text-[12px] text-th-text-muted uppercase tracking-wide mt-2">
             <span>
               {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
             </span>
+            {metaDuration != null && metaDuration > 0 && (
+              <span> ({formatTotalDuration(metaDuration)})</span>
+            )}
           </div>
         </div>
       </div>
@@ -589,67 +628,90 @@ export default function PlaylistView({
             Shuffle
           </button>
         </div>
-        {/* Right — Heart, Edit & More icons */}
-        <div className="flex items-center gap-2 relative">
-          {effectiveInfo?.isUserPlaylist && (
-            <>
-              <button
-                onClick={() => setShowEditModal(true)}
-                className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
-                title="Edit playlist"
-              >
-                <Pencil size={18} />
-              </button>
-              <button
-                onClick={handleToggleAccess}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
-                  isPublic
-                    ? "text-th-accent hover:brightness-110"
-                    : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
-                }`}
-                title={isPublic ? "Make private" : "Make public"}
-              >
-                {isPublic ? <Unlock size={18} /> : <Lock size={18} />}
-              </button>
-            </>
-          )}
+        {/* Right — labelled action buttons */}
+        <div className="flex items-end gap-6 relative">
           <button
             onClick={handleToggleFavorite}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-[color,filter] duration-150 ${
+            className={`flex flex-col items-center gap-1.5 transition-colors ${
               playlistFavorited
                 ? "text-th-accent hover:brightness-110"
-                : "text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med"
+                : "text-th-text-muted hover:text-th-text-primary"
             }`}
             title={
               playlistFavorited ? "Remove from favorites" : "Add to favorites"
             }
+            aria-label={
+              playlistFavorited ? "Unfavorite playlist" : "Favorite playlist"
+            }
           >
             <Heart
-              size={20}
+              size={22}
               fill={playlistFavorited ? "currentColor" : "none"}
               strokeWidth={playlistFavorited ? 0 : 2}
             />
+            <span className="text-[11px] font-medium">
+              {playlistFavorited ? "Added" : "Add"}
+            </span>
           </button>
+
+          {effectiveInfo?.isUserPlaylist && (
+            <>
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="Edit playlist"
+                aria-label="Edit playlist"
+              >
+                <Pencil size={22} />
+                <span className="text-[11px] font-medium">Edit</span>
+              </button>
+              <button
+                onClick={handleToggleAccess}
+                className={`flex flex-col items-center gap-1.5 transition-colors ${
+                  isPublic
+                    ? "text-th-accent hover:brightness-110"
+                    : "text-th-text-muted hover:text-th-text-primary"
+                }`}
+                title={isPublic ? "Make private" : "Make public"}
+                aria-label={
+                  isPublic ? "Make playlist private" : "Make playlist public"
+                }
+              >
+                {isPublic ? <Unlock size={22} /> : <Lock size={22} />}
+                <span className="text-[11px] font-medium">
+                  {isPublic ? "Public" : "Private"}
+                </span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={handleShare}
+            className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+            title="Copy share link"
+            aria-label="Share playlist"
+          >
+            <Share size={22} />
+            <span className="text-[11px] font-medium">Share</span>
+          </button>
+
           <button
             onClick={(e) => {
               e.stopPropagation();
               setContextMenu({ x: e.clientX, y: e.clientY });
             }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors"
+            className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
             title="More options"
+            aria-label="More options"
           >
-            <MoreHorizontal size={20} />
+            <MoreHorizontal size={22} />
+            <span className="text-[11px] font-medium">More</span>
           </button>
+
           {contextMenu && (
             <MediaContextMenu
               cursorPosition={contextMenu}
-              item={{
-                type: "playlist",
-                uuid: playlistId,
-                title: displayTitle,
-                image: effectiveInfo?.image,
-                creatorName: effectiveInfo?.creatorName,
-              }}
+              item={playlistMediaItem}
               onClose={() => setContextMenu(null)}
             />
           )}
