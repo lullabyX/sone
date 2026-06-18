@@ -1565,8 +1565,7 @@ function QueueTabWrapper() {
 export default function NowPlayingDrawer() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const videoCovers = useAtomValue(videoCoversAtom);
-  const animatedCover =
-    videoCovers && Boolean(currentTrack?.album?.videoCover);
+  const animatedCover = videoCovers && Boolean(currentTrack?.album?.videoCover);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;

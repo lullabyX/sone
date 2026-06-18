@@ -78,7 +78,13 @@ export function useFolders() {
 
       // Attempt 2: Re-fetch folder list and find newest match
       try {
-        const resp = await getPlaylistFolders("root", 0, 50, "DATE_UPDATED", "DESC");
+        const resp = await getPlaylistFolders(
+          "root",
+          0,
+          50,
+          "DATE_UPDATED",
+          "DESC",
+        );
         const normalized = normalizePlaylistFolders(resp);
         for (const item of normalized.items) {
           if (item.kind === "folder" && item.data.name === name) {
@@ -136,10 +142,17 @@ export function useFolders() {
   );
 
   const movePlaylistTo = useCallback(
-    async ({ playlistUuid, targetFolderId, sourceFolderId, playlistSnapshot }: MovePlaylistOptions): Promise<void> => {
+    async ({
+      playlistUuid,
+      targetFolderId,
+      sourceFolderId,
+      playlistSnapshot,
+    }: MovePlaylistOptions): Promise<void> => {
       // Optimistic: update atoms immediately
       if (sourceFolderId) {
-        setMovedPlaylists((prev) => new Map(prev).set(playlistUuid, sourceFolderId));
+        setMovedPlaylists((prev) =>
+          new Map(prev).set(playlistUuid, sourceFolderId),
+        );
         setCountAdjustments((prev) => {
           const next = new Map(prev);
           next.set(sourceFolderId, (next.get(sourceFolderId) ?? 0) - 1);
@@ -158,21 +171,27 @@ export function useFolders() {
         setAddedToFolder((prev) => {
           const next = new Map(prev);
           const list = next.get(key) ?? [];
-          next.set(key, [...list, {
-            kind: "playlist" as const,
-            data: {
-              uuid: playlistUuid,
-              title: playlistSnapshot.title,
-              image: playlistSnapshot.image,
-              creator: { id: 0, name: playlistSnapshot.creatorName },
-            } as any,
-          }]);
+          next.set(key, [
+            ...list,
+            {
+              kind: "playlist" as const,
+              data: {
+                uuid: playlistUuid,
+                title: playlistSnapshot.title,
+                image: playlistSnapshot.image,
+                creator: { id: 0, name: playlistSnapshot.creatorName },
+              } as any,
+            },
+          ]);
           return next;
         });
       }
 
       try {
-        await movePlaylistToFolder(targetFolderId, `trn:playlist:${playlistUuid}`);
+        await movePlaylistToFolder(
+          targetFolderId,
+          `trn:playlist:${playlistUuid}`,
+        );
         if (targetFolderId !== "root") {
           pushRecentFolderId(targetFolderId);
         }

@@ -102,7 +102,9 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-th-border-subtle">
           <div className="flex items-center gap-2.5">
             <Palette size={18} className="text-th-accent" />
-            <h2 className="text-[16px] font-bold text-th-text-primary">Theme</h2>
+            <h2 className="text-[16px] font-bold text-th-text-primary">
+              Theme
+            </h2>
           </div>
           <button
             onClick={onClose}

@@ -39,7 +39,11 @@ export interface MiniplayerState {
   shuffle: boolean;
   repeat: number;
   volume: number;
-  playbackSourceLabel: { type: string; id: string | number; name: string } | null;
+  playbackSourceLabel: {
+    type: string;
+    id: string | number;
+    name: string;
+  } | null;
   bitPerfect: boolean;
   accentColor: string;
   error?: string;
@@ -59,7 +63,8 @@ export function useMiniplayerEmitter() {
     const repeat = store.get(repeatAtom);
     const volume = store.get(volumeAtom);
     const favoriteIds = store.get(favoriteTrackIdsAtom);
-    const source = store.get(contextSourceAtom) || store.get(playbackSourceAtom);
+    const source =
+      store.get(contextSourceAtom) || store.get(playbackSourceAtom);
 
     // Read accent from theme in localStorage
     let accentColor = "#A855F7"; // fallback
@@ -147,7 +152,10 @@ export function useMiniplayerEmitter() {
     // Listen for playback errors (DOM CustomEvent) and relay to miniplayer
     const onPlaybackError = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      lastErrorRef.current = typeof detail === "string" ? detail : detail?.message || "Playback error";
+      lastErrorRef.current =
+        typeof detail === "string"
+          ? detail
+          : detail?.message || "Playback error";
       scheduleEmit();
       // Auto-clear error after 5 seconds
       setTimeout(() => {
@@ -166,11 +174,24 @@ export function useMiniplayerEmitter() {
   }, [miniplayerOpen, store, scheduleEmit, buildState]);
 
   // Listen for miniplayer-command events and dispatch to existing hooks
-  const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle, seekTo, setVolume } =
-    usePlaybackActions();
+  const {
+    pauseTrack,
+    resumeTrack,
+    playNext,
+    playPrevious,
+    toggleShuffle,
+    seekTo,
+    setVolume,
+  } = usePlaybackActions();
   const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
   const { openDrawerToTab } = useDrawer();
-  const { navigateToArtist, navigateToAlbum, navigateToPlaylist, navigateToMix, navigateToFavorites } = useNavigation();
+  const {
+    navigateToArtist,
+    navigateToAlbum,
+    navigateToPlaylist,
+    navigateToMix,
+    navigateToFavorites,
+  } = useNavigation();
   const { showToast } = useToast();
 
   const focusMainWindow = useCallback(async () => {
@@ -255,20 +276,26 @@ export function useMiniplayerEmitter() {
             break;
           }
           case "show-source": {
-            const src = store.get(contextSourceAtom) || store.get(playbackSourceAtom);
+            const src =
+              store.get(contextSourceAtom) || store.get(playbackSourceAtom);
             if (!src) break;
             await focusMainWindow();
             if (src.type === "favorites") navigateToFavorites();
-            else if (src.type === "album") navigateToAlbum(Number(src.id), { title: src.name });
-            else if (src.type === "playlist") navigateToPlaylist(String(src.id), { title: src.name });
-            else if (src.type === "mix") navigateToMix(String(src.id), { title: src.name });
+            else if (src.type === "album")
+              navigateToAlbum(Number(src.id), { title: src.name });
+            else if (src.type === "playlist")
+              navigateToPlaylist(String(src.id), { title: src.name });
+            else if (src.type === "mix")
+              navigateToMix(String(src.id), { title: src.name });
             break;
           }
           case "share": {
             const shareTrack = store.get(currentTrackAtom);
             if (shareTrack) {
               try {
-                await navigator.clipboard.writeText(getTrackShareUrl(shareTrack.id));
+                await navigator.clipboard.writeText(
+                  getTrackShareUrl(shareTrack.id),
+                );
                 showToast("Copied share link to clipboard");
               } catch {
                 showToast("Failed to copy link", "error");
@@ -280,13 +307,28 @@ export function useMiniplayerEmitter() {
       },
     );
 
-    return () => { unlisten.then((fn) => fn()); };
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [
-    miniplayerOpen, store,
-    pauseTrack, resumeTrack, playNext, playPrevious,
-    toggleShuffle, seekTo, setVolume,
-    addFavoriteTrack, removeFavoriteTrack, openDrawerToTab,
-    focusMainWindow, navigateToArtist, navigateToAlbum, navigateToPlaylist, navigateToMix, navigateToFavorites,
+    miniplayerOpen,
+    store,
+    pauseTrack,
+    resumeTrack,
+    playNext,
+    playPrevious,
+    toggleShuffle,
+    seekTo,
+    setVolume,
+    addFavoriteTrack,
+    removeFavoriteTrack,
+    openDrawerToTab,
+    focusMainWindow,
+    navigateToArtist,
+    navigateToAlbum,
+    navigateToPlaylist,
+    navigateToMix,
+    navigateToFavorites,
     showToast,
   ]);
 
@@ -298,15 +340,17 @@ export function useMiniplayerEmitter() {
       const track = store.get(currentTrackAtom);
       if (!track) {
         // Check if main window is visible
-        getCurrentWindow().isVisible().then((visible) => {
-          if (visible) {
-            // Main window is visible — close miniplayer
-            WebviewWindow.getByLabel("miniplayer").then((win) => {
-              if (win) win.close();
-            });
-          }
-          // If main window is hidden (tray), keep miniplayer open showing last track
-        });
+        getCurrentWindow()
+          .isVisible()
+          .then((visible) => {
+            if (visible) {
+              // Main window is visible — close miniplayer
+              WebviewWindow.getByLabel("miniplayer").then((win) => {
+                if (win) win.close();
+              });
+            }
+            // If main window is hidden (tray), keep miniplayer open showing last track
+          });
       }
     });
 

@@ -1,13 +1,32 @@
-import { Play, Heart, MoreHorizontal, Plus, ListPlus, ChevronUp, ChevronDown } from "lucide-react";
+import {
+  Play,
+  Heart,
+  MoreHorizontal,
+  Plus,
+  ListPlus,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import TrackContextMenu from "./TrackContextMenu";
-import { useRef, useEffect, useLayoutEffect, useState, memo, useMemo } from "react";
+import {
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  memo,
+  useMemo,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAtomValue, atom } from "jotai";
-import { currentTrackAtom, isPlayingAtom, allowExplicitAtom } from "../atoms/playback";
+import {
+  currentTrackAtom,
+  isPlayingAtom,
+  allowExplicitAtom,
+} from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
@@ -136,7 +155,12 @@ const TrackRow = memo(function TrackRow({
   const isActive = useAtomValue(isActiveAtom);
 
   const isPlayingHereAtom = useMemo(
-    () => atom((get) => (get(currentTrackAtom)?.id ?? null) === track.id && get(isPlayingAtom)),
+    () =>
+      atom(
+        (get) =>
+          (get(currentTrackAtom)?.id ?? null) === track.id &&
+          get(isPlayingAtom),
+      ),
     [track.id],
   );
   const playing = useAtomValue(isPlayingHereAtom);
@@ -610,9 +634,11 @@ function VirtualTrackRows({
 // ─── SortIndicator ─────────────────────────────────────────────────────────
 
 function SortIndicator({ direction }: { direction: "ASC" | "DESC" }) {
-  return direction === "ASC"
-    ? <ChevronUp size={14} className="inline ml-0.5" />
-    : <ChevronDown size={14} className="inline ml-0.5" />;
+  return direction === "ASC" ? (
+    <ChevronUp size={14} className="inline ml-0.5" />
+  ) : (
+    <ChevronDown size={14} className="inline ml-0.5" />
+  );
 }
 
 // ─── TrackList ─────────────────────────────────────────────────────────────
@@ -702,44 +728,84 @@ export default memo(function TrackList({
         <span className="text-right">#</span>
         <span>
           {sortable ? (
-            <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("NAME")}>
-              Title{sortColumn === "NAME" && sortDirection && <SortIndicator direction={sortDirection} />}
+            <span
+              className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap"
+              onClick={() => handleHeaderClick("NAME")}
+            >
+              Title
+              {sortColumn === "NAME" && sortDirection && (
+                <SortIndicator direction={sortDirection} />
+              )}
             </span>
-          ) : "Title"}
+          ) : (
+            "Title"
+          )}
         </span>
         {showArtist && (
           <span>
             {sortable ? (
-              <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("ARTIST")}>
-                Artist{sortColumn === "ARTIST" && sortDirection && <SortIndicator direction={sortDirection} />}
+              <span
+                className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap"
+                onClick={() => handleHeaderClick("ARTIST")}
+              >
+                Artist
+                {sortColumn === "ARTIST" && sortDirection && (
+                  <SortIndicator direction={sortDirection} />
+                )}
               </span>
-            ) : "Artist"}
+            ) : (
+              "Artist"
+            )}
           </span>
         )}
         {showAlbum && (
           <span>
             {sortable ? (
-              <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("ALBUM")}>
-                Album{sortColumn === "ALBUM" && sortDirection && <SortIndicator direction={sortDirection} />}
+              <span
+                className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap"
+                onClick={() => handleHeaderClick("ALBUM")}
+              >
+                Album
+                {sortColumn === "ALBUM" && sortDirection && (
+                  <SortIndicator direction={sortDirection} />
+                )}
               </span>
-            ) : "Album"}
+            ) : (
+              "Album"
+            )}
           </span>
         )}
         {showDateAdded && (
           <span>
             {sortable ? (
-              <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("DATE")}>
-                Date Added{sortColumn === "DATE" && sortDirection && <SortIndicator direction={sortDirection} />}
+              <span
+                className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap"
+                onClick={() => handleHeaderClick("DATE")}
+              >
+                Date Added
+                {sortColumn === "DATE" && sortDirection && (
+                  <SortIndicator direction={sortDirection} />
+                )}
               </span>
-            ) : "Date Added"}
+            ) : (
+              "Date Added"
+            )}
           </span>
         )}
         <span className="text-right">
           {sortable ? (
-            <span className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap" onClick={() => handleHeaderClick("LENGTH")}>
-              Time{sortColumn === "LENGTH" && sortDirection && <SortIndicator direction={sortDirection} />}
+            <span
+              className="cursor-pointer select-none hover:text-th-accent whitespace-nowrap"
+              onClick={() => handleHeaderClick("LENGTH")}
+            >
+              Time
+              {sortColumn === "LENGTH" && sortDirection && (
+                <SortIndicator direction={sortDirection} />
+              )}
             </span>
-          ) : "Time"}
+          ) : (
+            "Time"
+          )}
         </span>
         <span /> {/* Actions column header */}
       </div>

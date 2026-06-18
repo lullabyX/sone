@@ -25,10 +25,7 @@ import {
   authTokensAtom,
   userNameAtom,
 } from "../atoms/auth";
-import {
-  userPlaylistsAtom,
-  deletedPlaylistIdsAtom,
-} from "../atoms/playlists";
+import { userPlaylistsAtom, deletedPlaylistIdsAtom } from "../atoms/playlists";
 import {
   favoriteTrackIdsAtom,
   favoriteAlbumIdsAtom,
@@ -60,12 +57,19 @@ import {
   useTrackGainAtom,
   type SignalPath,
 } from "../atoms/playback";
-import { decorationsAtom, drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
+import {
+  decorationsAtom,
+  drawerOpenAtom,
+  maximizedPlayerAtom,
+} from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
-import { useGaplessPrefetch, type PendingNext } from "../hooks/useGaplessPrefetch";
+import {
+  useGaplessPrefetch,
+  type PendingNext,
+} from "../hooks/useGaplessPrefetch";
 import { useFavorites } from "../hooks/useFavorites";
 import { useShortcuts } from "../hooks/useShortcuts";
 import { useMcpBridge } from "../hooks/useMcpBridge";
@@ -132,7 +136,9 @@ function sanitizeTrackForPersistence(track: Track): Track {
   return sanitized;
 }
 
-function sanitizeTracksForPersistence(tracks: Track[] | null | undefined): Track[] {
+function sanitizeTracksForPersistence(
+  tracks: Track[] | null | undefined,
+): Track[] {
   if (!Array.isArray(tracks) || tracks.length === 0) return [];
   return tracks.map(sanitizeTrackForPersistence);
 }
@@ -308,7 +314,10 @@ export function AppInitializer() {
           const result = await getPlaylistFolders("root", 0, 50);
           const normalized = normalizePlaylistFolders(result);
           const playlists = normalized.items
-            .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+            .filter(
+              (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+                i.kind === "playlist",
+            )
             .map((i) => i.data);
           setUserPlaylists(playlists);
         } catch (playlistErr: any) {
@@ -334,7 +343,10 @@ export function AppInitializer() {
               const retryResult = await getPlaylistFolders("root", 0, 50);
               const retryNormalized = normalizePlaylistFolders(retryResult);
               const retryPlaylists = retryNormalized.items
-                .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+                .filter(
+                  (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+                    i.kind === "playlist",
+                )
                 .map((i) => i.data);
               setUserPlaylists(retryPlaylists);
             } catch (refreshErr) {
@@ -574,7 +586,8 @@ export function AppInitializer() {
       } else {
         setOriginalQueue(null);
       }
-      if (Array.isArray(parsed.manualQueue)) setManualQueue(restoredManualQueue);
+      if (Array.isArray(parsed.manualQueue))
+        setManualQueue(restoredManualQueue);
       if (restoredPlaybackSource) setPlaybackSource(restoredPlaybackSource);
       if (restoredContextSource) setContextSource(restoredContextSource);
 
@@ -745,7 +758,8 @@ export function AppInitializer() {
         // Reconcile: remove EXACTLY ONE instance — the one matching qid — from
         // whichever queue holds it. Do NOT broadly filter by id: a playlist/queue
         // can contain the same id twice (distinct _qid).
-        const qidOf = (t: Track) => (t as { _qid?: string })._qid ?? String(t.id);
+        const qidOf = (t: Track) =>
+          (t as { _qid?: string })._qid ?? String(t.id);
         const removeAt = (arr: Track[], i: number) => [
           ...arr.slice(0, i),
           ...arr.slice(i + 1),
@@ -796,7 +810,10 @@ export function AppInitializer() {
             .then(([info, t]) => advanceToTrack(t, info))
             .catch((err) => {
               // give up; signal-path heartbeat + next user action recover
-              console.warn("[gapless] track-advanced stash-miss recovery failed", err);
+              console.warn(
+                "[gapless] track-advanced stash-miss recovery failed",
+                err,
+              );
             });
         }
         // prefetch hook re-fires on the queue/currentTrack change → registers the new next
@@ -889,7 +906,10 @@ export function AppInitializer() {
         const { from, to } = event.payload;
         const fromKhz = from >= 1000 ? `${from / 1000}kHz` : `${from}Hz`;
         const toKhz = to >= 1000 ? `${to / 1000}kHz` : `${to}Hz`;
-        showToast(`DAC doesn't support ${fromKhz} — resampling to ${toKhz}`, "info");
+        showToast(
+          `DAC doesn't support ${fromKhz} — resampling to ${toKhz}`,
+          "info",
+        );
       },
     );
     return () => {
@@ -1020,7 +1040,9 @@ export function AppInitializer() {
   //  MPRIS — push metadata & playback status to backend for D-Bus
   // ================================================================
   useEffect(() => {
-    const formatQualityText = (info: import("../types").StreamInfo | null): string => {
+    const formatQualityText = (
+      info: import("../types").StreamInfo | null,
+    ): string => {
       if (!info) return "";
       const parts: string[] = [];
       if (info.bitDepth) parts.push(`${info.bitDepth}-BIT`);
@@ -1069,7 +1091,11 @@ export function AppInitializer() {
     const unsubTrack = store.sub(currentTrackAtom, pushMetadata);
     const unsubStream = store.sub(streamInfoAtom, pushMetadata);
     const unsubFav = store.sub(favoriteTrackIdsAtom, pushMetadata);
-    return () => { unsubTrack(); unsubStream(); unsubFav(); };
+    return () => {
+      unsubTrack();
+      unsubStream();
+      unsubFav();
+    };
   }, [store]);
 
   useEffect(() => {
@@ -1088,7 +1114,9 @@ export function AppInitializer() {
 
   useEffect(() => {
     const push = () => {
-      invoke("update_mpris_shuffle", { enabled: store.get(shuffleAtom) }).catch(() => {});
+      invoke("update_mpris_shuffle", { enabled: store.get(shuffleAtom) }).catch(
+        () => {},
+      );
     };
     push();
     return store.sub(shuffleAtom, push);
@@ -1096,7 +1124,9 @@ export function AppInitializer() {
 
   useEffect(() => {
     const push = () => {
-      invoke("update_mpris_loop_status", { mode: store.get(repeatAtom) }).catch(() => {});
+      invoke("update_mpris_loop_status", { mode: store.get(repeatAtom) }).catch(
+        () => {},
+      );
     };
     push();
     return store.sub(repeatAtom, push);
@@ -1122,10 +1152,13 @@ export function AppInitializer() {
     const unlistenLoop = listen<number>("mpris:set-loop-status", (event) => {
       store.set(repeatAtom, event.payload);
     });
-    const unlistenSetPosition = listen<number>("mpris:set-position", async (event) => {
-      const pos = Math.max(0, event.payload);
-      await seekTo(pos);
-    });
+    const unlistenSetPosition = listen<number>(
+      "mpris:set-position",
+      async (event) => {
+        const pos = Math.max(0, event.payload);
+        await seekTo(pos);
+      },
+    );
     const unlistenOpenUri = listen<string>("mpris:open-uri", (event) => {
       const url = event.payload;
       if (!url) return;
@@ -1135,9 +1168,12 @@ export function AppInitializer() {
       }
       handleDeepLink(url);
     });
-    const unlistenFullscreen = listen<boolean>("mpris:set-fullscreen", (event) => {
-      store.set(maximizedPlayerAtom, event.payload);
-    });
+    const unlistenFullscreen = listen<boolean>(
+      "mpris:set-fullscreen",
+      (event) => {
+        store.set(maximizedPlayerAtom, event.payload);
+      },
+    );
     return () => {
       unlistenSeek.then((fn) => fn());
       unlistenVolume.then((fn) => fn());

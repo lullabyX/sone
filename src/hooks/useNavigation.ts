@@ -86,7 +86,12 @@ export function useNavigation() {
   const navigateToMix = useCallback(
     (
       mixId: string,
-      mixInfo?: { title: string; image?: string; subtitle?: string; mixType?: string },
+      mixInfo?: {
+        title: string;
+        image?: string;
+        subtitle?: string;
+        mixType?: string;
+      },
     ) => {
       navigate({ type: "mix", mixId, mixInfo });
     },

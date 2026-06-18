@@ -83,7 +83,11 @@ export function CreatePlaylistModal({
     setError(null);
     setSaving(true);
     try {
-      const playlist = await createPlaylist(title.trim(), description.trim(), isPublic ? "PUBLIC" : "UNLISTED");
+      const playlist = await createPlaylist(
+        title.trim(),
+        description.trim(),
+        isPublic ? "PUBLIC" : "UNLISTED",
+      );
       if (trackIds.length > 0) {
         await addTracksToPlaylist(playlist.uuid, trackIds);
       }
@@ -178,7 +182,8 @@ export function CreatePlaylistModal({
                 Make it public
               </p>
               <p className="text-[11px] text-th-text-muted">
-                Your playlist will be visible on your Profile and accessible by anyone.
+                Your playlist will be visible on your Profile and accessible by
+                anyone.
               </p>
             </div>
             <button
@@ -217,7 +222,12 @@ export function EditPlaylistModal({
   onClose,
   onUpdated,
 }: {
-  playlist: { uuid: string; title: string; description?: string; accessType?: string };
+  playlist: {
+    uuid: string;
+    title: string;
+    description?: string;
+    accessType?: string;
+  };
   onClose: () => void;
   onUpdated: (playlist: Playlist) => void;
 }) {
@@ -260,7 +270,16 @@ export function EditPlaylistModal({
       setError("Failed to update playlist");
       setSaving(false);
     }
-  }, [title, description, isPublic, saving, updatePlaylist, playlist.uuid, showToast, onUpdated]);
+  }, [
+    title,
+    description,
+    isPublic,
+    saving,
+    updatePlaylist,
+    playlist.uuid,
+    showToast,
+    onUpdated,
+  ]);
 
   return (
     <div
@@ -307,7 +326,8 @@ export function EditPlaylistModal({
               placeholder="Write a description"
               value={description}
               onChange={(e) => {
-                if (e.target.value.length <= 500) setDescription(e.target.value);
+                if (e.target.value.length <= 500)
+                  setDescription(e.target.value);
               }}
               disabled={saving}
               rows={4}
@@ -327,7 +347,8 @@ export function EditPlaylistModal({
                 Make it public
               </p>
               <p className="text-[11px] text-th-text-muted">
-                Your playlist will be visible on your Profile and accessible by anyone.
+                Your playlist will be visible on your Profile and accessible by
+                anyone.
               </p>
             </div>
             <button
@@ -406,7 +427,9 @@ export default function AddToPlaylistMenu({
       })
       .catch(() => {});
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [allPlaylists.length, authTokens?.user_id, setAllPlaylists]);
 
   const { menuRef, style } = useContextMenu({
@@ -713,10 +736,13 @@ export default function AddToPlaylistMenu({
             setAddedToFolder((prev) => {
               const next = new Map(prev);
               const list = next.get("root") ?? [];
-              next.set("root", [...list, {
-                kind: "playlist" as const,
-                data: { ...playlist, numberOfTracks: trackIds.length },
-              }]);
+              next.set("root", [
+                ...list,
+                {
+                  kind: "playlist" as const,
+                  data: { ...playlist, numberOfTracks: trackIds.length },
+                },
+              ]);
               return next;
             });
             setShowCreateModal(false);

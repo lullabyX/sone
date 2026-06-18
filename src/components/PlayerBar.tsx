@@ -8,7 +8,6 @@ import {
   Heart,
   ListMusic,
   Mic2,
-
   Maximize2,
   MoreHorizontal,
   PictureInPicture2,
@@ -22,7 +21,6 @@ import { useAtomValue, useAtom, useSetAtom } from "jotai";
 import {
   currentTrackAtom,
   isPlayingAtom,
-
   repeatAtom,
   shuffleAtom,
   playbackSourceAtom,
@@ -119,7 +117,9 @@ const FavoriteButton = memo(function FavoriteButton() {
     <button
       onClick={toggleLike}
       className={`ml-1 flex-shrink-0 transition-[color,transform] duration-200 active:scale-90 ${
-        isLiked ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+        isLiked
+          ? "text-th-accent"
+          : "text-th-text-faint hover:text-th-text-primary"
       }`}
     >
       <Heart
@@ -325,7 +325,6 @@ const ProgressScrubber = memo(function ProgressScrubber() {
 
 // ─── TransportControls ─────────────────────────────────────────────────────
 
-
 const TransportControls = memo(function TransportControls() {
   const isPlaying = useAtomValue(isPlayingAtom);
   const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } =
@@ -364,7 +363,11 @@ const TransportControls = memo(function TransportControls() {
           {isPlaying ? (
             <Pause size={17} fill="currentColor" className="text-th-base" />
           ) : (
-            <Play size={17} fill="currentColor" className="text-th-base ml-0.5" />
+            <Play
+              size={17}
+              fill="currentColor"
+              className="text-th-base ml-0.5"
+            />
           )}
         </button>
         <button
@@ -391,7 +394,6 @@ const TransportControls = memo(function TransportControls() {
             <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-th-accent" />
           )}
         </button>
-
       </div>
 
       {/* Progress bar */}
@@ -413,7 +415,9 @@ const DrawerButtons = memo(function DrawerButtons() {
       <button
         onClick={() => toggleDrawerTab("lyrics")}
         className={`${
-          lyricsActive ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+          lyricsActive
+            ? "text-th-accent"
+            : "text-th-text-faint hover:text-th-text-primary"
         } transition-colors duration-150`}
         title="Lyrics"
       >
@@ -423,7 +427,9 @@ const DrawerButtons = memo(function DrawerButtons() {
       <button
         onClick={() => toggleDrawerTab("queue")}
         className={`${
-          queueActive ? "text-th-accent" : "text-th-text-faint hover:text-th-text-primary"
+          queueActive
+            ? "text-th-accent"
+            : "text-th-text-faint hover:text-th-text-primary"
         } transition-colors duration-150`}
         title="Play queue"
       >
@@ -481,7 +487,9 @@ export default function PlayerBar() {
   const [signalPathOpen, setSignalPathOpen] = useState(false);
 
   return (
-    <div className={`player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none ${maximized ? "invisible" : ""}`}>
+    <div
+      className={`player-bar h-[90px] bg-th-elevated border-t border-th-border-subtle px-4 flex items-center justify-between relative z-50 select-none ${maximized ? "invisible" : ""}`}
+    >
       {/* Left: Track Info */}
       <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
         <TrackInfoSection />
@@ -500,7 +508,10 @@ export default function PlayerBar() {
         <MaximizeButton />
       </div>
 
-      <SignalPathPanel open={signalPathOpen} onClose={() => setSignalPathOpen(false)} />
+      <SignalPathPanel
+        open={signalPathOpen}
+        onClose={() => setSignalPathOpen(false)}
+      />
     </div>
   );
 }

@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef, useCallback, type RefObject } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type RefObject,
+} from "react";
 import {
   Play,
   Pause,
@@ -35,9 +41,19 @@ interface VibrantColors {
 
 // ─── useTier ────────────────────────────────────────────────────────────────
 
-function useTier(ref: RefObject<HTMLDivElement | null>): { tier: Tier; width: number; height: number } {
-  const [state, setState] = useState<{ tier: Tier; width: number; height: number }>({
-    tier: "full", width: 300, height: 120,
+function useTier(ref: RefObject<HTMLDivElement | null>): {
+  tier: Tier;
+  width: number;
+  height: number;
+} {
+  const [state, setState] = useState<{
+    tier: Tier;
+    width: number;
+    height: number;
+  }>({
+    tier: "full",
+    width: 300,
+    height: 120,
   });
 
   useEffect(() => {
@@ -73,7 +89,11 @@ function parseHex(hex: string): [number, number, number] | null {
   const m = hex.match(/^#?([0-9a-f]{6})$/i);
   if (!m) return null;
   const h = m[1];
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
 }
 
 function useVibrantColors(vibrantColor?: string): VibrantColors {
@@ -130,7 +150,10 @@ function DragHandle({ tier }: { tier: Tier }) {
         className="absolute top-0 left-0 bottom-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
         style={{ width: 20 }}
       >
-        <div data-tauri-drag-region className="grid grid-cols-2 grid-rows-3 gap-[2px]">
+        <div
+          data-tauri-drag-region
+          className="grid grid-cols-2 grid-rows-3 gap-[2px]"
+        >
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
@@ -176,7 +199,9 @@ function CloseButton({ tier, colors }: { tier: Tier; colors: VibrantColors }) {
         isNarrow ? "top-1 left-0.5" : "top-1 left-1.5"
       }`}
       style={{
-        backgroundColor: colors.isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)",
+        backgroundColor: colors.isDark
+          ? "rgba(255,255,255,0.15)"
+          : "rgba(0,0,0,0.1)",
         color: colors.textPrimary,
       }}
     >
@@ -198,9 +223,30 @@ function ResizeGrip({ colors }: { colors: VibrantColors }) {
       }}
     >
       <svg width="100%" height="100%" viewBox="0 0 10 10">
-        <line x1="9" y1="1" x2="1" y2="9" stroke={colors.textSecondary} strokeWidth="1.2" />
-        <line x1="9" y1="4.5" x2="4.5" y2="9" stroke={colors.textSecondary} strokeWidth="1.2" />
-        <line x1="9" y1="8" x2="8" y2="9" stroke={colors.textSecondary} strokeWidth="1.2" />
+        <line
+          x1="9"
+          y1="1"
+          x2="1"
+          y2="9"
+          stroke={colors.textSecondary}
+          strokeWidth="1.2"
+        />
+        <line
+          x1="9"
+          y1="4.5"
+          x2="4.5"
+          y2="9"
+          stroke={colors.textSecondary}
+          strokeWidth="1.2"
+        />
+        <line
+          x1="9"
+          y1="8"
+          x2="8"
+          y2="9"
+          stroke={colors.textSecondary}
+          strokeWidth="1.2"
+        />
       </svg>
     </div>
   );
@@ -229,7 +275,11 @@ function FavoriteButton({
         color: isFavorite ? accentColor : colors.textSecondary,
       }}
     >
-      <Heart size={size} fill={isFavorite ? "currentColor" : "none"} strokeWidth={isFavorite ? 0 : 2} />
+      <Heart
+        size={size}
+        fill={isFavorite ? "currentColor" : "none"}
+        strokeWidth={isFavorite ? 0 : 2}
+      />
     </button>
   );
 }
@@ -252,7 +302,11 @@ function AlbumArt({
   onClick?: () => void;
 }) {
   return (
-    <div className={`overflow-hidden ${className ?? ""}`} style={style} onClick={onClick}>
+    <div
+      className={`overflow-hidden ${className ?? ""}`}
+      style={style}
+      onClick={onClick}
+    >
       <TidalImage
         src={getTidalImageUrl(cover, imageSize)}
         alt={title}
@@ -286,27 +340,41 @@ function ArtOverlayControls({
   return (
     <div
       className="absolute inset-0 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity duration-200 rounded-lg"
-      style={{ background: full
-        ? `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), ${full.colors.bgRgba.replace(/[\d.]+\)$/, "0.4)")}`
-        : "rgba(0,0,0,0.6)"
+      style={{
+        background: full
+          ? `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), ${full.colors.bgRgba.replace(/[\d.]+\)$/, "0.4)")}`
+          : "rgba(0,0,0,0.6)",
       }}
     >
       {/* Primary transport */}
       <div className="flex items-center justify-center gap-6">
         <button
-          onClick={(e) => { e.stopPropagation(); sendCommand("play-previous"); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            sendCommand("play-previous");
+          }}
           className="w-9 h-9 flex items-center justify-center text-white/80 hover:text-white transition-colors"
         >
           <SkipBack size={20} fill="currentColor" />
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); sendCommand("toggle-play"); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            sendCommand("toggle-play");
+          }}
           className="w-12 h-12 rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 text-white transition-colors backdrop-blur-sm"
         >
-          {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" style={{ marginLeft: 2 }} />}
+          {isPlaying ? (
+            <Pause size={24} fill="currentColor" />
+          ) : (
+            <Play size={24} fill="currentColor" style={{ marginLeft: 2 }} />
+          )}
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); sendCommand("play-next"); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            sendCommand("play-next");
+          }}
           className="w-9 h-9 flex items-center justify-center text-white/80 hover:text-white transition-colors"
         >
           <SkipForward size={20} fill="currentColor" />
@@ -317,25 +385,50 @@ function ArtOverlayControls({
         <div className="flex items-center justify-center gap-4 mt-3">
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
-              onClick={(e) => { e.stopPropagation(); if (!full.bitPerfect) setShowVolume((v) => !v); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!full.bitPerfect) setShowVolume((v) => !v);
+              }}
               className={`w-9 h-9 flex items-center justify-center transition-colors ${full.bitPerfect ? "text-white/30 cursor-not-allowed" : "text-white/70 hover:text-white"}`}
-              title={full.bitPerfect ? "Volume disabled in bit-perfect mode" : undefined}
+              title={
+                full.bitPerfect
+                  ? "Volume disabled in bit-perfect mode"
+                  : undefined
+              }
             >
-              {full.bitPerfect ? <VolumeX size={20} /> : full.volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              {full.bitPerfect ? (
+                <VolumeX size={20} />
+              ) : full.volume === 0 ? (
+                <VolumeX size={20} />
+              ) : (
+                <Volume2 size={20} />
+              )}
             </button>
             {showVolume && !full.bitPerfect && (
-              <VolumeSlider volume={full.volume} sendVolume={full.sendVolume} colors={full.colors} horizontal={false} onClose={() => setShowVolume(false)} />
+              <VolumeSlider
+                volume={full.volume}
+                sendVolume={full.sendVolume}
+                colors={full.colors}
+                horizontal={false}
+                onClose={() => setShowVolume(false)}
+              />
             )}
           </div>
           <button
-            onClick={(e) => { e.stopPropagation(); sendCommand("toggle-shuffle"); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              sendCommand("toggle-shuffle");
+            }}
             className={`w-9 h-9 flex items-center justify-center transition-colors ${full.shuffle ? "" : "text-white/70 hover:text-white"}`}
             style={full.shuffle ? { color: full.accentColor } : undefined}
           >
             <Shuffle size={20} strokeWidth={2} />
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); sendCommand("cycle-repeat"); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              sendCommand("cycle-repeat");
+            }}
             className={`w-9 h-9 flex items-center justify-center transition-colors relative ${full.repeat > 0 ? "" : "text-white/70 hover:text-white"}`}
             style={full.repeat > 0 ? { color: full.accentColor } : undefined}
           >
@@ -343,14 +436,20 @@ function ArtOverlayControls({
             {full.repeat === 2 && (
               <span
                 className="absolute -top-0.5 -right-0.5 text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none"
-                style={{ backgroundColor: full.accentColor, color: full.colors.bg }}
+                style={{
+                  backgroundColor: full.accentColor,
+                  color: full.colors.bg,
+                }}
               >
                 1
               </span>
             )}
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); sendCommand("share"); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              sendCommand("share");
+            }}
             className="w-9 h-9 flex items-center justify-center text-white/70 hover:text-white transition-colors"
           >
             <Share2 size={20} />
@@ -450,7 +549,10 @@ function VolumeSlider({
           />
           <div
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-md"
-            style={{ left: `calc(${localVol * 100}% - 6px)`, backgroundColor: "#fff" }}
+            style={{
+              left: `calc(${localVol * 100}% - 6px)`,
+              backgroundColor: "#fff",
+            }}
           />
         </div>
       </div>
@@ -478,7 +580,10 @@ function VolumeSlider({
         />
         <div
           className="absolute left-1/2 -translate-x-1/2 w-3 h-3 rounded-full shadow-md"
-          style={{ bottom: `calc(${localVol * 100}% - 6px)`, backgroundColor: "#fff" }}
+          style={{
+            bottom: `calc(${localVol * 100}% - 6px)`,
+            backgroundColor: "#fff",
+          }}
         />
       </div>
     </div>
@@ -545,7 +650,9 @@ function ProgressBar({
 
   const currentTime = isDragging ? dragProgress * duration : displayPosition;
 
-  const trackColor = colors.isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)";
+  const trackColor = colors.isDark
+    ? "rgba(255,255,255,0.2)"
+    : "rgba(0,0,0,0.15)";
   const fillColor = colors.textPrimary;
 
   return (
@@ -561,7 +668,10 @@ function ProgressBar({
         onMouseDown={handleMouseDown}
         className="flex-1 relative cursor-pointer h-[14px] flex items-center"
       >
-        <div className="relative w-full h-[4px] rounded-full" style={{ backgroundColor: trackColor }}>
+        <div
+          className="relative w-full h-[4px] rounded-full"
+          style={{ backgroundColor: trackColor }}
+        >
           <div
             className="absolute left-0 top-0 h-full rounded-full"
             style={{
@@ -632,7 +742,10 @@ function NarrowTier({
   const showShare = containerWidth >= 520;
 
   return (
-    <div className="flex items-center gap-1.5 w-full h-full p-1.5" style={{ containerType: "size" }}>
+    <div
+      className="flex items-center gap-1.5 w-full h-full p-1.5"
+      style={{ containerType: "size" }}
+    >
       <AlbumArt
         cover={track?.album?.cover}
         title={title}
@@ -668,15 +781,31 @@ function NarrowTier({
         {showVolume && (
           <div className="relative flex-shrink-0">
             <button
-              onClick={() => { if (!bitPerfect) setShowVolumeSlider((v) => !v); }}
+              onClick={() => {
+                if (!bitPerfect) setShowVolumeSlider((v) => !v);
+              }}
               className={`w-6 h-8 flex items-center justify-center transition-colors ${bitPerfect ? "opacity-30 cursor-not-allowed" : "hover:!text-white"}`}
               style={{ color: colors.textSecondary }}
-              title={bitPerfect ? "Volume disabled in bit-perfect mode" : undefined}
+              title={
+                bitPerfect ? "Volume disabled in bit-perfect mode" : undefined
+              }
             >
-              {bitPerfect ? <VolumeX size={18} /> : volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {bitPerfect ? (
+                <VolumeX size={18} />
+              ) : volume === 0 ? (
+                <VolumeX size={18} />
+              ) : (
+                <Volume2 size={18} />
+              )}
             </button>
             {showVolumeSlider && !bitPerfect && (
-              <VolumeSlider volume={volume} sendVolume={sendVolume} colors={colors} horizontal={true} onClose={() => setShowVolumeSlider(false)} />
+              <VolumeSlider
+                volume={volume}
+                sendVolume={sendVolume}
+                colors={colors}
+                horizontal={true}
+                onClose={() => setShowVolumeSlider(false)}
+              />
             )}
           </div>
         )}
@@ -703,7 +832,11 @@ function NarrowTier({
           className="w-8 h-8 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform flex-shrink-0"
           style={{ backgroundColor: colors.textPrimary, color: colors.bg }}
         >
-          {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" style={{ marginLeft: 1 }} />}
+          {isPlaying ? (
+            <Pause size={18} fill="currentColor" />
+          ) : (
+            <Play size={18} fill="currentColor" style={{ marginLeft: 1 }} />
+          )}
         </button>
         {showNext && (
           <button
@@ -780,7 +913,10 @@ function CompactTier({
   return (
     <div className="flex flex-col w-full h-full p-2 pb-3 gap-1.5">
       {/* Row 1: Art + Info + Fav */}
-      <div className="flex items-center gap-2.5 min-w-0 min-h-0 flex-1" style={{ containerType: "size" }}>
+      <div
+        className="flex items-center gap-2.5 min-w-0 min-h-0 flex-1"
+        style={{ containerType: "size" }}
+      >
         <AlbumArt
           cover={track?.album?.cover}
           title={title}
@@ -828,15 +964,31 @@ function CompactTier({
         {showCompactVolume && (
           <div className="relative flex-shrink-0">
             <button
-              onClick={() => { if (!bitPerfect) setShowVolume((v) => !v); }}
+              onClick={() => {
+                if (!bitPerfect) setShowVolume((v) => !v);
+              }}
               className={`w-8 h-8 flex items-center justify-center transition-colors ${bitPerfect ? "opacity-30 cursor-not-allowed" : "hover:!text-white"}`}
               style={{ color: colors.textSecondary }}
-              title={bitPerfect ? "Volume disabled in bit-perfect mode" : undefined}
+              title={
+                bitPerfect ? "Volume disabled in bit-perfect mode" : undefined
+              }
             >
-              {bitPerfect ? <VolumeX size={18} /> : volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {bitPerfect ? (
+                <VolumeX size={18} />
+              ) : volume === 0 ? (
+                <VolumeX size={18} />
+              ) : (
+                <Volume2 size={18} />
+              )}
             </button>
             {showVolume && !bitPerfect && (
-              <VolumeSlider volume={volume} sendVolume={sendVolume} colors={colors} horizontal={containerHeight < 180} onClose={() => setShowVolume(false)} />
+              <VolumeSlider
+                volume={volume}
+                sendVolume={sendVolume}
+                colors={colors}
+                horizontal={containerHeight < 180}
+                onClose={() => setShowVolume(false)}
+              />
             )}
           </div>
         )}
@@ -859,7 +1011,11 @@ function CompactTier({
           className="w-8 h-8 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform flex-shrink-0"
           style={{ backgroundColor: colors.textPrimary, color: colors.bg }}
         >
-          {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" style={{ marginLeft: 1 }} />}
+          {isPlaying ? (
+            <Pause size={18} fill="currentColor" />
+          ) : (
+            <Play size={18} fill="currentColor" style={{ marginLeft: 1 }} />
+          )}
         </button>
         <button
           onClick={() => sendCommand("play-next")}
@@ -943,7 +1099,10 @@ function FullTier({
       >
         <div
           className="rounded-sm overflow-hidden"
-          style={{ width: "min(100cqw, 100cqh)", height: "min(100cqw, 100cqh)" }}
+          style={{
+            width: "min(100cqw, 100cqh)",
+            height: "min(100cqw, 100cqh)",
+          }}
         >
           <TidalImage
             src={getTidalImageUrl(track?.album?.cover, 640)}
@@ -954,7 +1113,15 @@ function FullTier({
         <ArtOverlayControls
           isPlaying={isPlaying}
           sendCommand={sendCommand}
-          full={{ shuffle, repeat, volume, bitPerfect, sendVolume, colors, accentColor }}
+          full={{
+            shuffle,
+            repeat,
+            volume,
+            bitPerfect,
+            sendVolume,
+            colors,
+            accentColor,
+          }}
         />
       </div>
 
@@ -1037,7 +1204,8 @@ function ErrorOverlay({ error }: { error?: string }) {
 export default function MiniPlayer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { tier, width, height } = useTier(containerRef);
-  const { state, displayPosition, isPlaying, sendCommand, sendVolume } = useMiniplayerBridge();
+  const { state, displayPosition, isPlaying, sendCommand, sendVolume } =
+    useMiniplayerBridge();
   const colors = useVibrantColors(state.track?.album?.vibrantColor);
 
   // Crossfade on tier change
@@ -1141,59 +1309,63 @@ export default function MiniPlayer() {
   return (
     <div className="w-full h-full relative">
       <ResizeEdges top={12} bottom={12} left={12} right={12} />
-      <div className="w-full h-full pointer-events-none" style={{ padding: "12px" }}>
       <div
-        ref={containerRef}
-        className="group w-full h-full overflow-hidden relative pointer-events-auto"
-        style={{
-          borderRadius: 0,
-          boxShadow: "2px 4px 8px rgba(0,0,0,0.4), 1px 3px 9px rgba(0,0,0,0.25), 1px 1px 2px rgba(0,0,0,0.15)",
-          transform: "translateZ(0)",
-        }}
+        className="w-full h-full pointer-events-none"
+        style={{ padding: "12px" }}
       >
-      {/* Dark base background */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ backgroundColor: colors.bg }}
-      />
-      {/* Vibrant color at 50% opacity */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundColor: colors.bgRgba,
-          transition: "background-color 500ms ease",
-        }}
-      />
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ backgroundColor: colors.overlay }}
-      />
+        <div
+          ref={containerRef}
+          className="group w-full h-full overflow-hidden relative pointer-events-auto"
+          style={{
+            borderRadius: 0,
+            boxShadow:
+              "2px 4px 8px rgba(0,0,0,0.4), 1px 3px 9px rgba(0,0,0,0.25), 1px 1px 2px rgba(0,0,0,0.15)",
+            transform: "translateZ(0)",
+          }}
+        >
+          {/* Dark base background */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ backgroundColor: colors.bg }}
+          />
+          {/* Vibrant color at 50% opacity */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundColor: colors.bgRgba,
+              transition: "background-color 500ms ease",
+            }}
+          />
+          {/* Overlay */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ backgroundColor: colors.overlay }}
+          />
 
-      {/* Drag region + close + resize grip */}
-      <DragHandle tier={tier} />
-      <CloseButton tier={tier} colors={colors} />
-      <ResizeGrip colors={colors} />
+          {/* Drag region + close + resize grip */}
+          <DragHandle tier={tier} />
+          <CloseButton tier={tier} colors={colors} />
+          <ResizeGrip colors={colors} />
 
-      {/* Error */}
-      <ErrorOverlay error={state.error} />
+          {/* Error */}
+          <ErrorOverlay error={state.error} />
 
-      {/* Content with crossfade + hover padding */}
-      <div
-        className={`relative z-0 w-full h-full ${
-          tier === "narrow"
-            ? "pl-0 group-hover:pl-[20px]"
-            : "pt-0 group-hover:pt-[16px]"
-        }`}
-        style={{
-          opacity,
-          transition: "opacity 150ms ease, padding 200ms ease",
-        }}
-      >
-        {renderTier()}
+          {/* Content with crossfade + hover padding */}
+          <div
+            className={`relative z-0 w-full h-full ${
+              tier === "narrow"
+                ? "pl-0 group-hover:pl-[20px]"
+                : "pt-0 group-hover:pt-[16px]"
+            }`}
+            style={{
+              opacity,
+              transition: "opacity 150ms ease, padding 200ms ease",
+            }}
+          >
+            {renderTier()}
+          </div>
+        </div>
       </div>
-    </div>
-    </div>
     </div>
   );
 }

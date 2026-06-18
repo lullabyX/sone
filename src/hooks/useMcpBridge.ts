@@ -81,7 +81,10 @@ async function fetchSourceWithMetadata(
       };
     } catch {
       // metadata fetch failed — fall back to tracks-only
-      return { tracks, source: { type: "playlist", id, name: "Playlist", allTracks: tracks } };
+      return {
+        tracks,
+        source: { type: "playlist", id, name: "Playlist", allTracks: tracks },
+      };
     }
   } else if (sourceType === "album") {
     const { page } = await getAlbumPage(Number(id));
@@ -114,7 +117,15 @@ async function fetchSourceWithMetadata(
       };
     } catch {
       // metadata fetch failed — fall back to tracks-only
-      return { tracks, source: { type: "artist", id: Number(id), name: "Artist", allTracks: tracks } };
+      return {
+        tracks,
+        source: {
+          type: "artist",
+          id: Number(id),
+          name: "Artist",
+          allTracks: tracks,
+        },
+      };
     }
   } else if (sourceType === "mix") {
     const result = await getMixItems(id);
@@ -218,67 +229,108 @@ export function useMcpBridge() {
     const unlisteners: Array<Promise<() => void>> = [];
 
     unlisteners.push(
-      listen<{ trackIds: number[]; action: string }>("mcp:play-tracks", async (e) => {
-        const { trackIds, action } = e.payload;
-        try {
-          const settled = await Promise.allSettled(
-            trackIds.map((id) => getTrack(id)),
-          );
-          const tracks = settled
-            .filter((r): r is PromiseFulfilledResult<Track> => r.status === "fulfilled")
-            .map((r) => r.value);
-          if (tracks.length === 0) return;
+      listen<{ trackIds: number[]; action: string }>(
+        "mcp:play-tracks",
+        async (e) => {
+          const { trackIds, action } = e.payload;
+          try {
+            const settled = await Promise.allSettled(
+              trackIds.map((id) => getTrack(id)),
+            );
+            const tracks = settled
+              .filter(
+                (r): r is PromiseFulfilledResult<Track> =>
+                  r.status === "fulfilled",
+              )
+              .map((r) => r.value);
+            if (tracks.length === 0) return;
 
-          if (action === "play_now") {
-            await actionsRef.current.playAllFromSource(tracks);
-          } else if (action === "queue") {
-            for (const t of tracks) actionsRef.current.addToQueue(t);
-          } else if (action === "play_next") {
-            for (const t of [...tracks].reverse()) actionsRef.current.playNextInQueue(t);
+            if (action === "play_now") {
+              await actionsRef.current.playAllFromSource(tracks);
+            } else if (action === "queue") {
+              for (const t of tracks) actionsRef.current.addToQueue(t);
+            } else if (action === "play_next") {
+              for (const t of [...tracks].reverse())
+                actionsRef.current.playNextInQueue(t);
+            }
+          } catch (err) {
+            console.error("mcp:play-tracks failed:", err);
           }
-        } catch (err) {
-          console.error("mcp:play-tracks failed:", err);
-        }
-      }),
+        },
+      ),
     );
 
     unlisteners.push(
-      listen<{ sourceType: string; id: string }>("mcp:play-source", async (e) => {
-        const { sourceType, id } = e.payload;
-        try {
-          const data = await fetchSourceWithMetadata(sourceType, id);
-          if (!data || data.tracks.length === 0) return;
-          const opts: { source: typeof data.source; albumMode?: boolean } = { source: data.source };
-          if (data.albumMode) opts.albumMode = true;
-          await actionsRef.current.playAllFromSource(data.tracks, opts);
-        } catch (err) {
-          console.error("mcp:play-source failed:", err);
-        }
-      }),
+      listen<{ sourceType: string; id: string }>(
+        "mcp:play-source",
+        async (e) => {
+          const { sourceType, id } = e.payload;
+          try {
+            const data = await fetchSourceWithMetadata(sourceType, id);
+            if (!data || data.tracks.length === 0) return;
+            const opts: { source: typeof data.source; albumMode?: boolean } = {
+              source: data.source,
+            };
+            if (data.albumMode) opts.albumMode = true;
+            await actionsRef.current.playAllFromSource(data.tracks, opts);
+          } catch (err) {
+            console.error("mcp:play-source failed:", err);
+          }
+        },
+      ),
     );
 
     unlisteners.push(
-      listen<{ sourceType: string; id: string }>("mcp:shuffle-source", async (e) => {
-        const { sourceType, id } = e.payload;
-        try {
-          const data = await fetchSourceWithMetadata(sourceType, id);
-          if (!data || data.tracks.length === 0) return;
-          setShuffle(true);
-          const opts: { source: typeof data.source; albumMode?: boolean } = { source: data.source };
-          if (data.albumMode) opts.albumMode = true;
-          await actionsRef.current.playAllFromSource(data.tracks, opts);
-        } catch (err) {
-          console.error("mcp:shuffle-source failed:", err);
-        }
-      }),
+      listen<{ sourceType: string; id: string }>(
+        "mcp:shuffle-source",
+        async (e) => {
+          const { sourceType, id } = e.payload;
+          try {
+            const data = await fetchSourceWithMetadata(sourceType, id);
+            if (!data || data.tracks.length === 0) return;
+            setShuffle(true);
+            const opts: { source: typeof data.source; albumMode?: boolean } = {
+              source: data.source,
+            };
+            if (data.albumMode) opts.albumMode = true;
+            await actionsRef.current.playAllFromSource(data.tracks, opts);
+          } catch (err) {
+            console.error("mcp:shuffle-source failed:", err);
+          }
+        },
+      ),
     );
 
-    unlisteners.push(listen("mcp:pause", () => { actionsRef.current.pauseTrack().catch(() => {}); }));
-    unlisteners.push(listen("mcp:resume", () => { actionsRef.current.resumeTrack().catch(() => {}); }));
-    unlisteners.push(listen("mcp:skip-next", () => { actionsRef.current.playNext({ explicit: true }).catch(() => {}); }));
-    unlisteners.push(listen("mcp:skip-previous", () => { actionsRef.current.playPrevious().catch(() => {}); }));
-    unlisteners.push(listen("mcp:clear-queue", () => { actionsRef.current.clearQueue(); }));
-    unlisteners.push(listen("mcp:toggle-shuffle", () => { actionsRef.current.toggleShuffle(); }));
+    unlisteners.push(
+      listen("mcp:pause", () => {
+        actionsRef.current.pauseTrack().catch(() => {});
+      }),
+    );
+    unlisteners.push(
+      listen("mcp:resume", () => {
+        actionsRef.current.resumeTrack().catch(() => {});
+      }),
+    );
+    unlisteners.push(
+      listen("mcp:skip-next", () => {
+        actionsRef.current.playNext({ explicit: true }).catch(() => {});
+      }),
+    );
+    unlisteners.push(
+      listen("mcp:skip-previous", () => {
+        actionsRef.current.playPrevious().catch(() => {});
+      }),
+    );
+    unlisteners.push(
+      listen("mcp:clear-queue", () => {
+        actionsRef.current.clearQueue();
+      }),
+    );
+    unlisteners.push(
+      listen("mcp:toggle-shuffle", () => {
+        actionsRef.current.toggleShuffle();
+      }),
+    );
 
     unlisteners.push(
       listen<{ positionSeconds: number }>("mcp:seek", (e) => {
@@ -321,7 +373,10 @@ export function useMcpBridge() {
         .then((res) => {
           const normalized = normalizePlaylistFolders(res);
           const fresh = normalized.items
-            .filter((i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> => i.kind === "playlist")
+            .filter(
+              (i): i is Extract<PlaylistOrFolder, { kind: "playlist" }> =>
+                i.kind === "playlist",
+            )
             .map((i) => i.data);
           if (!fresh.length) return;
           store.set(userPlaylistsAtom, (prev) => {
@@ -338,7 +393,11 @@ export function useMcpBridge() {
             const updated = rootList.map((entry) => {
               if (entry.kind !== "playlist") return entry;
               const ref = freshMap.get(entry.data.uuid);
-              if (ref && (ref.image !== entry.data.image || ref.numberOfTracks !== entry.data.numberOfTracks)) {
+              if (
+                ref &&
+                (ref.image !== entry.data.image ||
+                  ref.numberOfTracks !== entry.data.numberOfTracks)
+              ) {
                 changed = true;
                 return { ...entry, data: { ...entry.data, ...ref } };
               }
@@ -357,13 +416,23 @@ export function useMcpBridge() {
       listen<Playlist>("mcp:playlist-created", (e) => {
         const playlist = e.payload;
         store.set(userPlaylistsAtom, (prev) =>
-          prev.some((p) => p.uuid === playlist.uuid) ? prev : [playlist, ...prev],
+          prev.some((p) => p.uuid === playlist.uuid)
+            ? prev
+            : [playlist, ...prev],
         );
         store.set(addedToFolderAtom, (prev) => {
           const next = new Map(prev);
           const list = next.get("root") ?? [];
-          if (list.some((e) => e.kind === "playlist" && e.data.uuid === playlist.uuid)) return prev;
-          next.set("root", [...list, { kind: "playlist" as const, data: playlist }]);
+          if (
+            list.some(
+              (e) => e.kind === "playlist" && e.data.uuid === playlist.uuid,
+            )
+          )
+            return prev;
+          next.set("root", [
+            ...list,
+            { kind: "playlist" as const, data: playlist },
+          ]);
           return next;
         });
         invalidateCache("user-playlists");
@@ -373,39 +442,45 @@ export function useMcpBridge() {
     );
 
     unlisteners.push(
-      listen<{ uuid: string; title: string | null; description: string | null }>(
-        "mcp:playlist-updated",
-        (e) => {
-          const { uuid, title, description } = e.payload;
-          store.set(userPlaylistsAtom, (prev) =>
-            prev.map((p) =>
-              p.uuid === uuid
-                ? {
-                    ...p,
-                    ...(title != null ? { title } : {}),
-                    ...(description != null ? { description } : {}),
-                  }
-                : p,
-            ),
-          );
-          store.set(updatedPlaylistsAtom, (prev) => {
-            const next = new Map(prev);
-            const existing = next.get(uuid) ?? { title: title ?? "", description: undefined };
-            next.set(uuid, {
-              title: title ?? existing.title,
-              description: description ?? existing.description,
-            });
-            return next;
+      listen<{
+        uuid: string;
+        title: string | null;
+        description: string | null;
+      }>("mcp:playlist-updated", (e) => {
+        const { uuid, title, description } = e.payload;
+        store.set(userPlaylistsAtom, (prev) =>
+          prev.map((p) =>
+            p.uuid === uuid
+              ? {
+                  ...p,
+                  ...(title != null ? { title } : {}),
+                  ...(description != null ? { description } : {}),
+                }
+              : p,
+          ),
+        );
+        store.set(updatedPlaylistsAtom, (prev) => {
+          const next = new Map(prev);
+          const existing = next.get(uuid) ?? {
+            title: title ?? "",
+            description: undefined,
+          };
+          next.set(uuid, {
+            title: title ?? existing.title,
+            description: description ?? existing.description,
           });
-          invalidateCache("user-playlists");
-        },
-      ),
+          return next;
+        });
+        invalidateCache("user-playlists");
+      }),
     );
 
     unlisteners.push(
       listen<{ uuid: string }>("mcp:playlist-deleted", (e) => {
         const { uuid } = e.payload;
-        store.set(userPlaylistsAtom, (prev) => prev.filter((p) => p.uuid !== uuid));
+        store.set(userPlaylistsAtom, (prev) =>
+          prev.filter((p) => p.uuid !== uuid),
+        );
         store.set(deletedPlaylistIdsAtom, (prev) => new Set(prev).add(uuid));
         invalidateCache("user-playlists");
         invalidateCache(`playlist:${uuid}`);
@@ -414,82 +489,101 @@ export function useMcpBridge() {
     );
 
     unlisteners.push(
-      listen<{ uuid: string; delta: number }>("mcp:playlist-tracks-changed", (e) => {
-        const { uuid, delta } = e.payload;
-        store.set(userPlaylistsAtom, (prev) =>
-          prev.map((p) =>
-            p.uuid === uuid
-              ? { ...p, numberOfTracks: Math.max(0, (p.numberOfTracks ?? 0) + delta) }
-              : p,
-          ),
-        );
-        invalidateCache(`playlist:${uuid}`);
-        invalidateCache(`playlist-page:${uuid}`);
-        invalidateCache("user-playlists");
-        // Refresh to re-sync exact count + cover art with the server
-        setTimeout(refreshSidebarPlaylists, 3000);
-      }),
+      listen<{ uuid: string; delta: number }>(
+        "mcp:playlist-tracks-changed",
+        (e) => {
+          const { uuid, delta } = e.payload;
+          store.set(userPlaylistsAtom, (prev) =>
+            prev.map((p) =>
+              p.uuid === uuid
+                ? {
+                    ...p,
+                    numberOfTracks: Math.max(
+                      0,
+                      (p.numberOfTracks ?? 0) + delta,
+                    ),
+                  }
+                : p,
+            ),
+          );
+          invalidateCache(`playlist:${uuid}`);
+          invalidateCache(`playlist-page:${uuid}`);
+          invalidateCache("user-playlists");
+          // Refresh to re-sync exact count + cover art with the server
+          setTimeout(refreshSidebarPlaylists, 3000);
+        },
+      ),
     );
 
     unlisteners.push(
-      listen<{ kind: string; id: number; action: string }>("mcp:favorite-changed", (e) => {
-        const { kind, id, action } = e.payload;
-        const userId = store.get(authTokensAtom)?.user_id;
-        if (kind === "track") {
-          if (action === "add") {
-            store.set(favoriteTrackIdsAtom, (prev) => new Set([...prev, id]));
-          } else {
-            store.set(favoriteTrackIdsAtom, (prev) => {
-              const next = new Set(prev);
-              next.delete(id);
-              return next;
-            });
-            if (userId) removeTrackFromFavoritesCache(userId, id);
+      listen<{ kind: string; id: number; action: string }>(
+        "mcp:favorite-changed",
+        (e) => {
+          const { kind, id, action } = e.payload;
+          const userId = store.get(authTokensAtom)?.user_id;
+          if (kind === "track") {
+            if (action === "add") {
+              store.set(favoriteTrackIdsAtom, (prev) => new Set([...prev, id]));
+            } else {
+              store.set(favoriteTrackIdsAtom, (prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+              });
+              if (userId) removeTrackFromFavoritesCache(userId, id);
+            }
+          } else if (kind === "album") {
+            if (action === "add") {
+              store.set(favoriteAlbumIdsAtom, (prev) => new Set([...prev, id]));
+              getAlbumDetail(id)
+                .then((album) => {
+                  if (userId) addAlbumToFavoritesCache(userId, album);
+                  store.set(optimisticFavoriteAlbumsAtom, (prev) => [
+                    album,
+                    ...prev.filter((a) => a.id !== id),
+                  ]);
+                })
+                .catch(() => {});
+            } else {
+              store.set(favoriteAlbumIdsAtom, (prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+              });
+              store.set(optimisticFavoriteAlbumsAtom, (prev) =>
+                prev.filter((a) => a.id !== id),
+              );
+              if (userId) removeAlbumFromFavoritesCache(userId, id);
+            }
+          } else if (kind === "artist") {
+            if (action === "add") {
+              store.set(
+                followedArtistIdsAtom,
+                (prev) => new Set([...prev, id]),
+              );
+              getArtistDetail(id)
+                .then((artist) => {
+                  if (userId) addArtistToFollowedCache(userId, artist);
+                  store.set(optimisticFollowedArtistsAtom, (prev) => [
+                    artist,
+                    ...prev.filter((a) => a.id !== id),
+                  ]);
+                })
+                .catch(() => {});
+            } else {
+              store.set(followedArtistIdsAtom, (prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+              });
+              store.set(optimisticFollowedArtistsAtom, (prev) =>
+                prev.filter((a) => a.id !== id),
+              );
+              if (userId) removeArtistFromFollowedCache(userId, id);
+            }
           }
-        } else if (kind === "album") {
-          if (action === "add") {
-            store.set(favoriteAlbumIdsAtom, (prev) => new Set([...prev, id]));
-            getAlbumDetail(id)
-              .then((album) => {
-                if (userId) addAlbumToFavoritesCache(userId, album);
-                store.set(optimisticFavoriteAlbumsAtom, (prev) => [
-                  album,
-                  ...prev.filter((a) => a.id !== id),
-                ]);
-              })
-              .catch(() => {});
-          } else {
-            store.set(favoriteAlbumIdsAtom, (prev) => {
-              const next = new Set(prev);
-              next.delete(id);
-              return next;
-            });
-            store.set(optimisticFavoriteAlbumsAtom, (prev) => prev.filter((a) => a.id !== id));
-            if (userId) removeAlbumFromFavoritesCache(userId, id);
-          }
-        } else if (kind === "artist") {
-          if (action === "add") {
-            store.set(followedArtistIdsAtom, (prev) => new Set([...prev, id]));
-            getArtistDetail(id)
-              .then((artist) => {
-                if (userId) addArtistToFollowedCache(userId, artist);
-                store.set(optimisticFollowedArtistsAtom, (prev) => [
-                  artist,
-                  ...prev.filter((a) => a.id !== id),
-                ]);
-              })
-              .catch(() => {});
-          } else {
-            store.set(followedArtistIdsAtom, (prev) => {
-              const next = new Set(prev);
-              next.delete(id);
-              return next;
-            });
-            store.set(optimisticFollowedArtistsAtom, (prev) => prev.filter((a) => a.id !== id));
-            if (userId) removeArtistFromFollowedCache(userId, id);
-          }
-        }
-      }),
+        },
+      ),
     );
 
     return () => {

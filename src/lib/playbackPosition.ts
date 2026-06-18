@@ -96,7 +96,9 @@ export function notifySeek(targetSecs: number) {
   trackResetTime = 0;
 
   // Notify miniplayer emitter of position change
-  window.dispatchEvent(new CustomEvent("playback-seeked", { detail: targetSecs }));
+  window.dispatchEvent(
+    new CustomEvent("playback-seeked", { detail: targetSecs }),
+  );
 
   // Cancel any pending correction from a previous seek
   if (seekCorrectionTimer !== null) {
