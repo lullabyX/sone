@@ -42,6 +42,7 @@ mod defaults {
     pub fn volume() -> f32 { 1.0 }
     pub fn mcp_enabled() -> bool { false }
     pub fn mcp_port() -> u16 { 5577 }
+    pub fn max_quality() -> String { "HI_RES_LOSSLESS".to_string() }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -142,6 +143,8 @@ pub struct Settings {
     pub bit_perfect: bool,
     #[serde(default = "defaults::yes")]
     pub gapless: bool,
+    #[serde(default = "defaults::max_quality")]
+    pub max_quality: String,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
@@ -181,6 +184,7 @@ impl Default for Settings {
             exclusive_device: None,
             bit_perfect: false,
             gapless: true,
+            max_quality: "HI_RES_LOSSLESS".to_string(),
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
@@ -207,6 +211,7 @@ pub struct AppState {
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
     pub gapless: AtomicBool,
+    pub max_quality: std::sync::Mutex<String>,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
@@ -311,6 +316,10 @@ impl AppState {
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
+        let max_quality = saved
+            .as_ref()
+            .map(|s| s.max_quality.clone())
+            .unwrap_or_else(defaults::max_quality);
 
         let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
         let scrobble_http_client = crate::tidal_api::build_http_client(&proxy_settings)
@@ -367,6 +376,7 @@ impl AppState {
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
             gapless: AtomicBool::new(gapless),
+            max_quality: std::sync::Mutex::new(max_quality),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
