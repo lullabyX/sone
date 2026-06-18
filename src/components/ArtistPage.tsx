@@ -507,63 +507,61 @@ export default function ArtistPage({
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
-      <PageContainer>
-        {/* Artist Hero */}
-        <div
-          className={`relative w-full h-[560px] overflow-hidden flex items-end mb-8`}
-        >
-          {/* Low-res blob: confirm it decodes (else step source). Rendered opacity-0
+      {/* Artist Hero — full-bleed banner */}
+      <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
+        {/* Low-res blob: confirm it decodes (else step source). Rendered opacity-0
             (not display:none) so WebKitGTK actually loads it and fires events. */}
-          {lowBlob && !showLow && (
-            <img
-              aria-hidden
-              alt=""
-              src={lowBlob}
-              className={`pointer-events-none absolute inset-0 opacity-0`}
-              onLoad={() => setShowLow(lowBlob)}
-              onError={() =>
-                setHeroSrcIdx((i) => (i + 1 < heroSources.length ? i + 1 : i))
-              }
-            />
-          )}
-          {/* Hi-res blob: loaded in the background, swaps in once it has decoded. */}
-          {hiBlob && !showHi && (
-            <img
-              aria-hidden
-              alt=""
-              src={hiBlob}
-              className="pointer-events-none absolute inset-0 opacity-0"
-              onLoad={() => setShowHi(hiBlob)}
-            />
-          )}
-          {heroDisplay && (
-            <div
-              className={`absolute inset-0 flex justify-center overflow-hidden ${!hiBlob ? "blur-2xl" : ""}`}
-              style={{ maskImage: HERO_FADE, WebkitMaskImage: HERO_FADE }}
-            >
-              {/* Square copies stitched edge-to-edge; the centre one stays bright,
+        {lowBlob && !showLow && (
+          <img
+            aria-hidden
+            alt=""
+            src={lowBlob}
+            className={`pointer-events-none absolute inset-0 opacity-0`}
+            onLoad={() => setShowLow(lowBlob)}
+            onError={() =>
+              setHeroSrcIdx((i) => (i + 1 < heroSources.length ? i + 1 : i))
+            }
+          />
+        )}
+        {/* Hi-res blob: loaded in the background, swaps in once it has decoded. */}
+        {hiBlob && !showHi && (
+          <img
+            aria-hidden
+            alt=""
+            src={hiBlob}
+            className="pointer-events-none absolute inset-0 opacity-0"
+            onLoad={() => setShowHi(hiBlob)}
+          />
+        )}
+        {heroDisplay && (
+          <div
+            className={`absolute inset-0 flex justify-center overflow-hidden ${!hiBlob ? "blur-2xl" : ""}`}
+            style={{ maskImage: HERO_FADE, WebkitMaskImage: HERO_FADE }}
+          >
+            {/* Square copies stitched edge-to-edge; the centre one stays bright,
                 the flanking copies are darkened. */}
-              {[0, 1, 2, 3, 4].map((i) => (
-                <img
-                  key={i}
-                  src={heroDisplay}
-                  alt=""
-                  draggable={false}
-                  className={`h-full w-auto shrink-0 select-none object-cover ${
-                    i === 2 ? "" : "brightness-[0.32]"
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-          {/* Legibility scrims — tinted to the theme base so they track any theme */}
-          <div className="absolute inset-0 bg-gradient-to-t from-th-base/85 via-th-base/25 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-r from-th-base/50 to-transparent" />
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+              <img
+                key={i}
+                src={heroDisplay}
+                alt=""
+                draggable={false}
+                className={`h-full w-auto shrink-0 select-none object-cover ${
+                  i === 3 ? "" : "brightness-[0.32]"
+                }`}
+              />
+            ))}
+          </div>
+        )}
+        {/* Legibility scrims — tinted to the theme base so they track any theme */}
+        <div className="absolute inset-0 bg-gradient-to-t from-th-base/85 via-th-base/25 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-th-base/50 to-transparent" />
 
-          {/* Foreground content */}
-          <div className="relative z-10 w-full px-8 pb-6">
+        {/* Foreground content */}
+        <PageContainer className="relative z-10 w-full">
+          <div className="px-8 pb-6">
             <div className="max-w-[820px] min-w-0">
-              <h1 className="text-[64px] font-extrabold text-th-text-primary leading-[1.1] tracking-tight line-clamp-2 pb-1">
+              <h1 className="text-[56px] font-extrabold text-th-text-primary leading-[1.1] tracking-tight line-clamp-2 pb-1">
                 {displayName}
               </h1>
               {fansLabel && (
@@ -635,8 +633,10 @@ export default function ArtistPage({
               </div>
             </div>
           </div>
-        </div>
+        </PageContainer>
+      </div>
 
+      <PageContainer>
         {/* Bio Modal */}
         {showBioModal && bio && (
           <div
