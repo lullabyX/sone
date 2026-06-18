@@ -172,27 +172,56 @@ export function DetailPageSkeleton({
         {/* Cover art skeleton */}
         <Pulse className="w-[232px] h-[232px] shrink-0 rounded-lg" />
         {/* Text skeleton */}
-        <div className="flex flex-col gap-3 pb-2 flex-1 min-w-0">
-          <Pulse className="w-16 h-3 rounded-full" />
-          <Pulse className="w-[60%] h-10 rounded-lg" />
-          {type === "playlist" && (
-            <Pulse className="w-[40%] h-4 rounded-full" />
-          )}
-          <Pulse className="w-24 h-3 rounded-full mt-1" />
-        </div>
+        {type === "album" ? (
+          <div className="flex flex-col gap-2 pb-2 flex-1 min-w-0">
+            <Pulse className="w-16 h-3 rounded-full" />
+            <Pulse className="w-[55%] h-9 rounded-lg" />
+            {/* Artist row: avatar + name */}
+            <div className="flex items-center gap-2 mt-2">
+              <Pulse className="w-6 h-6 rounded-full!" />
+              <Pulse className="w-32 h-3.5 rounded-full" />
+            </div>
+            {/* Track count + duration */}
+            <Pulse className="w-40 h-3 rounded-full" />
+            {/* Year + quality badge */}
+            <div className="flex items-center gap-2">
+              <Pulse className="w-10 h-3 rounded-full" />
+              <Pulse className="w-16 h-4 rounded" />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 pb-2 flex-1 min-w-0">
+            <Pulse className="w-16 h-3 rounded-full" />
+            <Pulse className="w-[60%] h-10 rounded-lg" />
+            {type === "playlist" && (
+              <Pulse className="w-[40%] h-4 rounded-full" />
+            )}
+            <Pulse className="w-24 h-3 rounded-full mt-1" />
+          </div>
+        )}
       </div>
 
-      {/* Controls skeleton — Play + Shuffle left, Heart + More right */}
+      {/* Controls skeleton — Play + Shuffle left, action cluster right */}
       {showControls && (
         <div className="px-8 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Pulse className="w-24 h-10 rounded-full" />
-            <Pulse className="w-28 h-10 rounded-full" />
+            <Pulse className="w-24 h-10 rounded-full!" />
+            <Pulse className="w-28 h-10 rounded-full!" />
           </div>
+          {type === "album" && (
+            <div className="flex items-end gap-6">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-1.5">
+                  <Pulse className="w-[22px] h-[22px] rounded" />
+                  <Pulse className="w-9 h-2.5 rounded-full" />
+                </div>
+              ))}
+            </div>
+          )}
           {type === "playlist" && (
             <div className="flex items-center gap-2">
-              <Pulse className="w-10 h-10 rounded-full" />
-              <Pulse className="w-10 h-10 rounded-full" />
+              <Pulse className="w-10 h-10 rounded-full!" />
+              <Pulse className="w-10 h-10 rounded-full!" />
             </div>
           )}
         </div>
