@@ -15,6 +15,7 @@ import { safeErrorMessage } from "../lib/errorUtils";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
 import { type Track } from "../types";
 import TrackList from "./TrackList";
+import LovedTracksBanner from "./LovedTracksBanner";
 import DebouncedFilterInput from "./DebouncedFilterInput";
 import PageContainer from "./PageContainer";
 import SourcePlayButton from "./SourcePlayButton";
@@ -341,56 +342,60 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
-      <PageContainer>
-        {/* Favorites Header */}
-        <div className="px-8 py-8 flex items-end gap-7">
-          <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
-            <Heart
-              size={80}
-              className="text-white drop-shadow-lg"
-              fill="white"
-            />
-          </div>
-          <div className="flex flex-col gap-2 pb-2 min-w-0">
-            <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
-              Collection
-            </span>
-            <h1 className="text-[48px] font-extrabold text-th-text-primary leading-none tracking-tight">
-              Loved Tracks
-            </h1>
-            <div className="flex items-center gap-1.5 text-[14px] text-th-text-muted mt-2">
-              <span>
-                {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+      {/* Favorites Header — banner bleeds full width, content stays in PageContainer */}
+      <div className="relative">
+        <LovedTracksBanner />
+        <PageContainer>
+          <div className="px-8 py-8 flex items-end gap-7 relative z-10">
+            <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-2xl bg-linear-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff] flex items-center justify-center">
+              <Heart
+                size={80}
+                className="text-white drop-shadow-lg"
+                fill="white"
+              />
+            </div>
+            <div className="flex flex-col gap-2 pb-2 min-w-0">
+              <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
+                Collection
               </span>
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight">
+                Loved Tracks
+              </h1>
+              <div className="text-[12px] text-th-text-muted uppercase tracking-wide mt-2">
+                <span>
+                  {totalTracks} TRACK{totalTracks !== 1 ? "S" : ""}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+          {/* Play Controls */}
+          <div className="px-8 py-5 flex items-center gap-3 relative z-10">
+            <SourcePlayButton
+              sourceType="favorites"
+              sourceId="favorites"
+              onPlay={handlePlayAll}
+            />
+            <button
+              onClick={handleShuffle}
+              className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            >
+              <Shuffle size={18} />
+              Shuffle
+            </button>
+          </div>
 
-        {/* Play Controls */}
-        <div className="px-8 py-5 flex items-center gap-3">
-          <SourcePlayButton
-            sourceType="favorites"
-            sourceId="favorites"
-            onPlay={handlePlayAll}
-          />
-          <button
-            onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
-          >
-            <Shuffle size={18} />
-            Shuffle
-          </button>
-        </div>
+          {/* Search / Filter bar */}
+          <div className="px-8 pb-4 relative z-10">
+            <DebouncedFilterInput
+              placeholder="Filter on title, artist or album"
+              onChange={setSearchQuery}
+              onFocus={handleSearchFocus}
+            />
+          </div>
+        </PageContainer>
+      </div>
 
-        {/* Search / Filter bar */}
-        <div className="px-8 pb-4">
-          <DebouncedFilterInput
-            placeholder="Filter on title, artist or album"
-            onChange={setSearchQuery}
-            onFocus={handleSearchFocus}
-          />
-        </div>
-
+      <PageContainer>
         {/* Track List */}
         <div className="px-8 pb-8">
           <TrackList

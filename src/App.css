@@ -159,6 +159,77 @@ textarea {
   animation: barBounce 1s ease-in-out infinite;
 }
 
+/* Loved Tracks "Living Heart" banner — drifting heart-colored blobs */
+.loved-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(55px);
+  will-change: transform;
+}
+.loved-blob-1 {
+  width: 55%;
+  height: 150%;
+  left: -5%;
+  top: -30%;
+  background: #450af5;
+  opacity: 0.85;
+  animation: lovedDrift1 14s ease-in-out infinite;
+}
+.loved-blob-2 {
+  width: 50%;
+  height: 140%;
+  left: 25%;
+  top: -10%;
+  background: #8e2de2;
+  opacity: 0.85;
+  animation: lovedDrift2 18s ease-in-out infinite;
+}
+.loved-blob-3 {
+  width: 45%;
+  height: 130%;
+  left: 50%;
+  top: -20%;
+  background: #00d2ff;
+  opacity: 0.6;
+  animation: lovedDrift3 16s ease-in-out infinite;
+}
+
+@keyframes lovedDrift1 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(8%, 6%, 0);
+  }
+}
+@keyframes lovedDrift2 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-10%, 4%, 0);
+  }
+}
+@keyframes lovedDrift3 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(6%, -5%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loved-blob-1,
+  .loved-blob-2,
+  .loved-blob-3 {
+    animation: none;
+  }
+}
+
 /* Adaptive card scroll — cards fill container exactly, scroll-snap for paging */
 .card-scroll {
   container-type: inline-size;
