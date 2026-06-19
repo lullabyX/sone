@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Folder } from "lucide-react";
 import { configDir, join } from "@tauri-apps/api/path";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { clearAllCache } from "../../api/tidal";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
@@ -19,9 +19,9 @@ export default function UtilitiesTab() {
   const openLogFolder = async () => {
     try {
       const dir = await join(await configDir(), "sone", "logs");
-      await revealItemInDir(dir);
-    } catch {
-      // ignore — folder may not exist yet or reveal unsupported
+      await openPath(dir);
+    } catch (e) {
+      console.error("Failed to open log folder:", e);
     }
   };
 
