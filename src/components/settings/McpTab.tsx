@@ -100,27 +100,33 @@ export default function McpTab() {
 
           return (
             <div className="px-4 pb-4 pt-4 border-t border-th-border-subtle">
-              {/* Status banner — green when running, neutral when stopped */}
+              {/* Status banner — accent when running, neutral when stopped */}
               <div
                 className={`flex items-center gap-2.5 px-[13px] py-[11px] rounded-[11px] border mb-4 transition-colors ${
                   enabled
-                    ? "bg-[#1ed760]/[0.09] border-[#1ed760]/20"
+                    ? "bg-th-accent/10 border-th-accent/20"
                     : "bg-th-inset border-th-border-subtle"
                 }`}
               >
                 <span
                   className={`w-2 h-2 rounded-full flex-shrink-0 transition-[background,box-shadow] ${
-                    enabled
-                      ? "bg-[#1ed760] shadow-[0_0_0_3px_rgba(30,215,96,0.2)]"
-                      : "bg-th-text-faint"
+                    enabled ? "bg-th-accent" : "bg-th-text-faint"
                   }`}
+                  style={
+                    enabled
+                      ? {
+                          boxShadow:
+                            "0 0 0 3px color-mix(in srgb, var(--th-accent) 20%, transparent)",
+                        }
+                      : undefined
+                  }
                 />
                 <span className="font-mono text-[12px] text-th-text-secondary min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                   127.0.0.1:{info.port}
                 </span>
                 <span
                   className={`ml-auto text-[11px] font-semibold flex-shrink-0 ${
-                    enabled ? "text-[#1ed760]" : "text-th-text-muted"
+                    enabled ? "text-th-accent" : "text-th-text-muted"
                   }`}
                 >
                   {enabled ? "Running" : "Stopped"}
