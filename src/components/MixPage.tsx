@@ -263,11 +263,11 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
                 <Music size={56} className="text-th-text-faint" />
               )}
             </div>
-            <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <div className="flex flex-col gap-2 pb-1 min-w-0">
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
                 {isTrackRadio ? "Track Radio" : "Mix"}
               </span>
-              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-tight tracking-tight line-clamp-2">
                 {displayTitle}
               </h1>
               {isTrackRadio && seedArtist?.id ? (

@@ -395,11 +395,11 @@ export default function AlbumView({
                 className="w-full h-full"
               />
             </div>
-            <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <div className="flex flex-col gap-2 pb-1 min-w-0">
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
                 Album
               </span>
-              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-tight tracking-tight line-clamp-2">
                 {displayTitle}
               </h1>
               <div className="flex items-center gap-2 mt-2 min-w-0 text-[14px]">
