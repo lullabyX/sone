@@ -91,7 +91,9 @@ export default function McpTab() {
 
       {info.url ? (
         (() => {
-          const token = new URL(info.url).searchParams.get("token") ?? "";
+          // URL form: http://127.0.0.1:{port}/{token}/mcp — token is the first path segment
+          const token =
+            new URL(info.url).pathname.split("/").filter(Boolean)[0] ?? "";
           const masked = "•".repeat(12);
           const shown = revealed ? token : masked;
           const shownUrl = token ? info.url.replace(token, shown) : info.url;
