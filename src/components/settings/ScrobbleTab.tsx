@@ -380,7 +380,7 @@ export default function ScrobbleTab() {
 
             {!lbConnected && (
               <div className="mt-3 space-y-2">
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={listenbrainz.token}
