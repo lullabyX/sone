@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAtom } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
-import { Cpu } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { mcpConnectionInfoAtom, type McpConnectionInfo } from "../../atoms/mcp";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
@@ -9,7 +9,9 @@ import SettingRow from "./SettingRow";
 export default function McpTab() {
   const [info, setInfo] = useAtom(mcpConnectionInfoAtom);
   const [enabled, setEnabled] = useState(info.enabled);
-  const [copied, setCopied] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const [snippetCopied, setSnippetCopied] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -21,16 +23,19 @@ export default function McpTab() {
       .catch(() => {});
   }, [setInfo]);
 
-  const copyUrl = async () => {
-    if (!info.url) return;
-    await navigator.clipboard.writeText(info.url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const copy = async (
+    text: string,
+    setFlag: (v: boolean) => void,
+  ): Promise<void> => {
+    await navigator.clipboard.writeText(text);
+    setFlag(true);
+    setTimeout(() => setFlag(false), 1500);
   };
 
   const toggle = async (next: boolean) => {
     setBusy(true);
     setEnabled(next);
+    setRevealed(false);
     try {
       const i = await invoke<McpConnectionInfo>("mcp_set_enabled", {
         enabled: next,
@@ -56,6 +61,7 @@ export default function McpTab() {
     try {
       const i = await invoke<McpConnectionInfo>("mcp_regenerate_token");
       setInfo(i);
+      setRevealed(false);
     } catch (e) {
       console.error("mcp_regenerate_token failed:", e);
     } finally {
@@ -70,9 +76,8 @@ export default function McpTab() {
       </p>
       <div className="border-b border-th-border-subtle">
         <SettingRow
-          icon={Cpu}
           title="MCP server"
-          subtitle="Expose SONE to Claude Code and other MCP clients"
+          subtitle="Expose SONE to AI clients that support MCP"
         >
           <button
             onClick={() => toggle(!enabled)}
@@ -85,36 +90,143 @@ export default function McpTab() {
       </div>
 
       {info.url ? (
-        <div className="py-3 space-y-3">
-          <div>
-            <p className="text-[11px] text-th-text-muted mb-1.5">
-              Connection URL
-            </p>
-            <div className="flex gap-2 items-center">
-              <code className="flex-1 min-w-0 truncate px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[11px] text-th-text-secondary">
-                {info.url}
-              </code>
-              <button
-                onClick={copyUrl}
-                className="shrink-0 px-3 py-1.5 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+        (() => {
+          const token = new URL(info.url).searchParams.get("token") ?? "";
+          const masked = "•".repeat(12);
+          const shown = revealed ? token : masked;
+          const shownUrl = token ? info.url.replace(token, shown) : info.url;
+          const snippet = `{\n  "mcpServers": {\n    "sone": {\n      "type": "http",\n      "url": "${shownUrl}"\n    }\n  }\n}`;
+          const realSnippet = `{\n  "mcpServers": {\n    "sone": {\n      "type": "http",\n      "url": "${info.url}"\n    }\n  }\n}`;
+
+          return (
+            <div className="px-4 pb-4 pt-4 border-t border-th-border-subtle">
+              {/* Status banner — green when running, neutral when stopped */}
+              <div
+                className={`flex items-center gap-2.5 px-[13px] py-[11px] rounded-[11px] border mb-4 transition-colors ${
+                  enabled
+                    ? "bg-[#1ed760]/[0.09] border-[#1ed760]/20"
+                    : "bg-th-inset border-th-border-subtle"
+                }`}
               >
-                {copied ? "Copied" : "Copy"}
-              </button>
+                <span
+                  className={`w-2 h-2 rounded-full flex-shrink-0 transition-[background,box-shadow] ${
+                    enabled
+                      ? "bg-[#1ed760] shadow-[0_0_0_3px_rgba(30,215,96,0.2)]"
+                      : "bg-th-text-faint"
+                  }`}
+                />
+                <span className="font-mono text-[12px] text-th-text-secondary min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                  127.0.0.1:{info.port}
+                </span>
+                <span
+                  className={`ml-auto text-[11px] font-semibold flex-shrink-0 ${
+                    enabled ? "text-[#1ed760]" : "text-th-text-muted"
+                  }`}
+                >
+                  {enabled ? "Running" : "Stopped"}
+                </span>
+              </div>
+
+              {enabled && (
+                <>
+                  {/* Connection details */}
+                  <span className="block text-[10px] font-bold tracking-[0.9px] uppercase text-th-text-faint mb-[7px]">
+                    Connection details
+                  </span>
+                  <div className="rounded-[11px] border border-th-border-subtle bg-th-inset px-[13px] py-0.5">
+                    <div className="flex items-center gap-3 py-2.5">
+                      <span className="w-[84px] flex-shrink-0 text-[10px] font-bold tracking-[0.8px] uppercase text-th-text-faint">
+                        Transport
+                      </span>
+                      <span className="flex-1 min-w-0 font-mono text-[12px] text-th-text-secondary">
+                        Streamable HTTP
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 py-2.5 border-t border-th-border-subtle">
+                      <span className="w-[84px] flex-shrink-0 text-[10px] font-bold tracking-[0.8px] uppercase text-th-text-faint">
+                        URL
+                      </span>
+                      <span className="flex-1 min-w-0 font-mono text-[12px] text-th-text-primary overflow-hidden text-ellipsis whitespace-nowrap">
+                        {shownUrl}
+                      </span>
+                      <span className="flex gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => setRevealed((v) => !v)}
+                          title={revealed ? "Hide token" : "Reveal token"}
+                          className={`w-[34px] h-[34px] rounded-lg border grid place-items-center transition-colors ${
+                            revealed
+                              ? "border-th-accent/45 text-th-accent"
+                              : "border-th-border-subtle text-th-text-muted hover:text-th-text-primary hover:border-th-accent/50"
+                          }`}
+                        >
+                          {revealed ? (
+                            <EyeOff className="w-[15px] h-[15px]" />
+                          ) : (
+                            <Eye className="w-[15px] h-[15px]" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => copy(info.url!, setUrlCopied)}
+                          className="px-2.5 py-1.5 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+                        >
+                          {urlCopied ? "Copied" : "Copy"}
+                        </button>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 py-2.5 border-t border-th-border-subtle">
+                      <span className="w-[84px] flex-shrink-0 text-[10px] font-bold tracking-[0.8px] uppercase text-th-text-faint">
+                        Port
+                      </span>
+                      <span className="flex-1 min-w-0 font-mono text-[12px] text-th-text-secondary">
+                        {info.port}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Client config — portable mcpServers snippet */}
+                  <div className="flex items-center gap-2.5 mt-4 mb-2">
+                    <span className="text-[10px] font-bold tracking-[0.9px] uppercase text-th-text-faint">
+                      Client config
+                    </span>
+                    <button
+                      onClick={() => copy(realSnippet, setSnippetCopied)}
+                      className="ml-auto px-3 py-[5px] text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+                    >
+                      {snippetCopied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                  <div className="rounded-[10px] border border-th-border-subtle bg-th-inset px-[13px] py-3 overflow-x-auto">
+                    <code className="block font-mono text-[11.5px] leading-[1.6] text-th-text-secondary whitespace-pre">
+                      {snippet}
+                    </code>
+                  </div>
+                  <p className="text-[11px] text-th-text-muted mt-2.5">
+                    Standard{" "}
+                    <span className="font-mono text-th-text-secondary">
+                      mcpServers
+                    </span>{" "}
+                    format — drop into Claude, Cursor, Cline, Windsurf, or any
+                    MCP client.
+                  </p>
+
+                  {/* Regenerate token */}
+                  <div className="flex items-center justify-between mt-4">
+                    <button
+                      onClick={regenerate}
+                      disabled={busy}
+                      className="px-3 py-1.5 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Regenerate token
+                    </button>
+                    <span className="text-[11px] text-th-text-muted">
+                      Disconnects connected clients
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <button
-              onClick={regenerate}
-              disabled={busy}
-              className="px-3 py-1.5 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Regenerate token
-            </button>
-            <span className="text-[11px] text-th-text-muted">
-              Port: {info.port}
-            </span>
-          </div>
-        </div>
+          );
+        })()
       ) : (
         <p className="text-[11px] text-th-text-muted pt-3">
           {enabled ? "Starting…" : "Enable the server to get a connection URL."}
