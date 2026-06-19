@@ -56,22 +56,28 @@ export default function NetworkTab() {
 
   const endpoint = `${proxySettings.proxy_type}://${proxySettings.host || "host"}:${proxySettings.port || "port"}`;
 
-  // Banner color treatment: ok → green, err → red, idle/testing → neutral.
+  // Banner color treatment: ok → accent, err → red, idle/testing → neutral.
   const bannerSurface =
     bannerStatus === "ok"
-      ? "bg-[#1ed760]/[0.09] border-[#1ed760]/20"
+      ? "bg-th-accent/10 border-th-accent/20"
       : bannerStatus === "err"
         ? "bg-[#ff6666]/10 border-[#ff6666]/25"
         : "bg-th-inset border-th-border-subtle";
   const dotClass =
     bannerStatus === "ok"
-      ? "bg-[#1ed760] shadow-[0_0_0_3px_rgba(30,215,96,0.2)]"
+      ? "bg-th-accent"
       : bannerStatus === "err"
-        ? "bg-[#ff6666] shadow-[0_0_0_3px_rgba(255,102,102,0.2)]"
+        ? "bg-[#ff6666]"
         : "bg-th-text-faint";
+  const dotGlow =
+    bannerStatus === "ok"
+      ? "0 0 0 3px color-mix(in srgb, var(--th-accent) 20%, transparent)"
+      : bannerStatus === "err"
+        ? "0 0 0 3px rgba(255,102,102,0.2)"
+        : undefined;
   const msgClass =
     bannerStatus === "ok"
-      ? "text-[#1ed760]"
+      ? "text-th-accent"
       : bannerStatus === "err"
         ? "text-[#ff6666]"
         : "text-th-text-muted";
@@ -101,6 +107,7 @@ export default function NetworkTab() {
           >
             <span
               className={`w-2 h-2 rounded-full flex-shrink-0 transition-[background,box-shadow] ${dotClass}`}
+              style={{ boxShadow: dotGlow }}
             />
             <span className="font-mono text-[12px] text-th-text-secondary min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
               {endpoint}
