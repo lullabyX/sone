@@ -125,38 +125,45 @@ export default function ThemesTab() {
               <button
                 key={p.name}
                 onClick={() => handlePresetClick(p)}
-                style={{
-                  ["--acc" as string]: p.accent,
-                  ["--on" as string]: d.onAccent,
-                  background: p.bgBase,
-                }}
-                className={`relative rounded-[11px] px-[11px] pt-[7px] pb-1.5 cursor-pointer border-[1.5px] transition ${
-                  active
-                    ? "border-[var(--acc)] shadow-[0_0_0_1px_var(--acc)]"
-                    : "border-transparent"
-                }`}
+                className="cursor-pointer text-left"
               >
                 <span
-                  className="block w-[26px] h-[26px] rounded-full mb-1.5"
+                  className="relative flex h-14 items-center gap-2 rounded-[10px] px-3.5 transition"
                   style={{
-                    background: p.accent,
-                    boxShadow: "0 0 0 1px rgba(127,127,127,.3)",
+                    background: d.bgSurface,
+                    boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
+                    outline: active
+                      ? `2px solid ${p.accent}`
+                      : "2px solid transparent",
                   }}
-                />
+                >
+                  <span
+                    className="block h-[19px] w-[19px] shrink-0 rounded-full"
+                    style={{ background: p.accent }}
+                  />
+                  <span
+                    className="block h-[19px] w-[19px] shrink-0 rounded-full"
+                    style={{
+                      background: p.bgBase,
+                      boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
+                    }}
+                  />
+                  {active && (
+                    <span
+                      className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full"
+                      style={{ background: p.accent, color: d.onAccent }}
+                    >
+                      <Check size={9} />
+                    </span>
+                  )}
+                </span>
                 <span
-                  className="block text-left text-[11px] font-medium"
-                  style={{ color: d.textPrimary }}
+                  className={`mt-1.5 block text-[11px] font-medium ${
+                    active ? "text-th-text-primary" : "text-th-text-secondary"
+                  }`}
                 >
                   {p.name}
                 </span>
-                {active && (
-                  <span
-                    className="absolute top-[7px] right-[7px] w-4 h-4 rounded-full grid place-items-center"
-                    style={{ background: p.accent, color: d.onAccent }}
-                  >
-                    <Check size={9} />
-                  </span>
-                )}
               </button>
             );
           })}
