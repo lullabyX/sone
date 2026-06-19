@@ -1,8 +1,6 @@
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface SettingRowProps {
-  icon?: LucideIcon; // accepted for back-compat during the de-icon pass; not rendered
   title: ReactNode;
   subtitle?: ReactNode;
   children?: ReactNode;
