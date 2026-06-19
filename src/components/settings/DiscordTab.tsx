@@ -72,11 +72,9 @@ export default function DiscordTab() {
   const album = currentTrack
     ? currentTrack.album?.title || ""
     : "The Division Bell";
-  // Show the real stream format (e.g. "24-BIT 192KHZ FLAC"), the same string
-  // Discord receives — not the coarse quality tier. Static showcase when idle.
-  const quality = currentTrack
-    ? formatStreamQuality(streamInfo)
-    : "24-BIT 192KHZ FLAC";
+  // Show the real stream format (e.g. "24-BIT 192KHZ FLAC"); fall back to the
+  // Hi-Res default when the stream reports no bit/rate/codec info.
+  const quality = formatStreamQuality(streamInfo) || "24-BIT 192KHZ FLAC";
   const coverUrl = currentTrack
     ? getTidalImageUrl(currentTrack.album?.cover, 320)
     : "";
@@ -210,11 +208,9 @@ export default function DiscordTab() {
                   by {artist}
                   {album ? ` on ${album}` : ""}
                 </div>
-                {quality && (
-                  <div className="text-[11px] text-th-text-muted mt-0.5 truncate">
-                    {quality}
-                  </div>
-                )}
+                <div className="text-[11px] text-th-text-muted mt-0.5 truncate">
+                  {quality}
+                </div>
                 <div className="flex items-center gap-[9px] mt-2">
                   <span className="text-[10px] text-th-text-muted tabular-nums">
                     00:19
