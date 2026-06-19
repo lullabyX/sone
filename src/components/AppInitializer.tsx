@@ -102,6 +102,7 @@ import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import {
   getTrackArtistDisplay,
   getTrackArtistDiscordDisplay,
+  formatStreamQuality,
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
 import {
@@ -1044,20 +1045,6 @@ export function AppInitializer() {
   //  MPRIS — push metadata & playback status to backend for D-Bus
   // ================================================================
   useEffect(() => {
-    const formatQualityText = (
-      info: import("../types").StreamInfo | null,
-    ): string => {
-      if (!info) return "";
-      const parts: string[] = [];
-      if (info.bitDepth) parts.push(`${info.bitDepth}-BIT`);
-      if (info.sampleRate) {
-        const khz = info.sampleRate / 1000;
-        parts.push(`${info.sampleRate % 1000 ? khz.toFixed(1) : khz}KHZ`);
-      }
-      if (info.codec) parts.push(info.codec.toUpperCase());
-      return parts.join(" ");
-    };
-
     const pushMetadata = () => {
       const track = store.get(currentTrackAtom);
       if (!track) return;
@@ -1076,7 +1063,7 @@ export function AppInitializer() {
           // tidal:// so xesam:url matches advertised SupportedUriSchemes.
           // Share URL stays Discord-only via the separate quality_text path.
           url: `tidal://track/${track.id}`,
-          qualityText: formatQualityText(streamInfo),
+          qualityText: formatStreamQuality(streamInfo),
           albumArtist: albumArtistName || null,
           trackNumber: track.trackNumber ?? null,
           discNumber: track.volumeNumber ?? null,

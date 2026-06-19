@@ -1,9 +1,26 @@
-import { getTidalImageUrl, type MediaItemType } from "../types";
+import { getTidalImageUrl, type MediaItemType, type StreamInfo } from "../types";
 
 /**
  * Shared helpers for extracting data from raw Tidal API JSON items.
  * These handle both V1 (direct fields) and V2 (unwrapped from data.{}) formats.
  */
+
+/**
+ * Format stream details as a quality string, e.g. "24-BIT 192KHZ FLAC".
+ * Returns "" when no stream info is available. Mirrors the Discord/MPRIS
+ * quality_text the backend receives.
+ */
+export function formatStreamQuality(info: StreamInfo | null): string {
+  if (!info) return "";
+  const parts: string[] = [];
+  if (info.bitDepth) parts.push(`${info.bitDepth}-BIT`);
+  if (info.sampleRate) {
+    const khz = info.sampleRate / 1000;
+    parts.push(`${info.sampleRate % 1000 ? khz.toFixed(1) : khz}KHZ`);
+  }
+  if (info.codec) parts.push(info.codec.toUpperCase());
+  return parts.join(" ");
+}
 
 export function getItemImage(item: any, size: number = 320): string {
   // MAGAZINE: data.imageURL is already a full URL — return as-is, no CDN builder.
