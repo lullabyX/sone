@@ -117,7 +117,7 @@ export default function ThemesTab() {
       {/* Presets */}
       <section>
         <h3 className={SECTION_LABEL}>Presets</h3>
-        <div className="grid grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-5 gap-2.5">
           {PRESET_THEMES.map((p) => {
             const active = activePreset === p.name;
             const d = deriveTheme(p.accent, p.bgBase);
