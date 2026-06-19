@@ -104,18 +104,14 @@ export default function NetworkTab() {
             type="text"
             placeholder="Username (optional)"
             value={proxySettings.username || ""}
-            onChange={(e) =>
-              updateProxy({ username: e.target.value || null })
-            }
+            onChange={(e) => updateProxy({ username: e.target.value || null })}
             className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-th-text-primary placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
           />
           <input
             type="password"
             placeholder="Password (optional)"
             value={proxySettings.password || ""}
-            onChange={(e) =>
-              updateProxy({ password: e.target.value || null })
-            }
+            onChange={(e) => updateProxy({ password: e.target.value || null })}
             className="w-full px-2.5 py-1.5 rounded-md bg-th-inset border border-th-border-subtle text-[12px] text-th-text-primary placeholder:text-th-text-muted focus:border-th-accent/50 focus:outline-none"
           />
 

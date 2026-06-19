@@ -2,10 +2,7 @@ import { useState, useEffect } from "react";
 import { useAtom } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { Cpu } from "lucide-react";
-import {
-  mcpConnectionInfoAtom,
-  type McpConnectionInfo,
-} from "../../atoms/mcp";
+import { mcpConnectionInfoAtom, type McpConnectionInfo } from "../../atoms/mcp";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 

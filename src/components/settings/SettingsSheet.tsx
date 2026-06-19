@@ -20,7 +20,7 @@ import NetworkTab from "./NetworkTab";
 import UtilitiesTab from "./UtilitiesTab";
 import McpTab from "./McpTab";
 
-export type TabId =
+type TabId =
   | "playback"
   | "themes"
   | "scrobble"
