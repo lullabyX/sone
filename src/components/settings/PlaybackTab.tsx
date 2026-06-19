@@ -86,7 +86,7 @@ export default function PlaybackTab() {
               ? undefined
               : !gaplessSupported
                 ? "Requires GStreamer 1.24 or newer"
-                : "Available in normal mode only — disabled while exclusive mode or bit-perfect output is on"
+                : "Available in normal mode only"
           }
         >
           <button
@@ -112,11 +112,7 @@ export default function PlaybackTab() {
               : "Even out volume differences between tracks"
           }
           disabled={bitPerfect}
-          tooltip={
-            bitPerfect
-              ? "Bit-perfect output sends the original signal unaltered, so volume can't be normalized"
-              : undefined
-          }
+          tooltip={bitPerfect ? "Disabled in bit-perfect mode" : undefined}
         >
           <button
             disabled={bitPerfect}
