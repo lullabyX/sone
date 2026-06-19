@@ -3,12 +3,12 @@ import { useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
-import { currentTrackAtom } from "../../atoms/playback";
+import { currentTrackAtom, streamInfoAtom } from "../../atoms/playback";
 import { userNameAtom } from "../../atoms/auth";
 import { getTrackDisplayTitle, getTidalImageUrl } from "../../types";
 import {
   getTrackArtistDiscordDisplay,
-  getAudioQualityBadge,
+  formatStreamQuality,
 } from "../../utils/itemHelpers";
 
 const TAGS = ["{track}", "{artist}", "{album}"] as const;
@@ -20,6 +20,7 @@ export default function DiscordTab() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const currentTrack = useAtomValue(currentTrackAtom);
+  const streamInfo = useAtomValue(streamInfoAtom);
   const userName = useAtomValue(userNameAtom);
 
   useEffect(() => {
@@ -71,8 +72,10 @@ export default function DiscordTab() {
   const album = currentTrack
     ? currentTrack.album?.title || ""
     : "The Division Bell";
+  // Show the real stream format (e.g. "24-BIT 192KHZ FLAC"), the same string
+  // Discord receives — not the coarse quality tier. Static showcase when idle.
   const quality = currentTrack
-    ? (getAudioQualityBadge(currentTrack.audioQuality)?.label ?? "")
+    ? formatStreamQuality(streamInfo)
     : "24-BIT 192KHZ FLAC";
   const coverUrl = currentTrack
     ? getTidalImageUrl(currentTrack.album?.cover, 320)
@@ -207,9 +210,11 @@ export default function DiscordTab() {
                   by {artist}
                   {album ? ` on ${album}` : ""}
                 </div>
-                <div className="text-[11px] text-th-text-muted mt-0.5 truncate">
-                  {quality}
-                </div>
+                {quality && (
+                  <div className="text-[11px] text-th-text-muted mt-0.5 truncate">
+                    {quality}
+                  </div>
+                )}
                 <div className="flex items-center gap-[9px] mt-2">
                   <span className="text-[10px] text-th-text-muted tabular-nums">
                     00:19
@@ -223,12 +228,12 @@ export default function DiscordTab() {
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              className="mt-3 w-full py-2 border border-th-border-subtle rounded-lg bg-transparent text-th-text-secondary text-[12px] font-semibold hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+            <div
+              className="mt-3 w-full py-2 border border-th-border-subtle rounded-lg text-center text-th-text-secondary text-[12px] font-semibold select-none"
+              aria-hidden="true"
             >
               Listen on TIDAL
-            </button>
+            </div>
           </div>
         </div>
       )}
