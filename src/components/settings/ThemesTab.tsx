@@ -128,7 +128,7 @@ export default function ThemesTab() {
                 className="cursor-pointer text-left"
               >
                 <span
-                  className="relative flex h-14 items-center gap-2 rounded-[10px] px-3.5 transition"
+                  className="relative flex h-[42px] items-center gap-2 rounded-[10px] px-3 transition"
                   style={{
                     background: d.bgSurface,
                     boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
@@ -138,11 +138,11 @@ export default function ThemesTab() {
                   }}
                 >
                   <span
-                    className="block h-[19px] w-[19px] shrink-0 rounded-full"
+                    className="block h-[18px] w-[18px] shrink-0 rounded-full"
                     style={{ background: p.accent }}
                   />
                   <span
-                    className="block h-[19px] w-[19px] shrink-0 rounded-full"
+                    className="block h-[18px] w-[18px] shrink-0 rounded-full"
                     style={{
                       background: p.bgBase,
                       boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
@@ -150,7 +150,7 @@ export default function ThemesTab() {
                   />
                   {active && (
                     <span
-                      className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full"
+                      className="absolute right-1.5 top-[5px] grid h-[15px] w-[15px] place-items-center rounded-full"
                       style={{ background: p.accent, color: d.onAccent }}
                     >
                       <Check size={9} />
@@ -158,7 +158,7 @@ export default function ThemesTab() {
                   )}
                 </span>
                 <span
-                  className={`mt-1.5 block text-[11px] font-medium ${
+                  className={`mt-1 block text-[11px] font-medium ${
                     active ? "text-th-text-primary" : "text-th-text-secondary"
                   }`}
                 >
