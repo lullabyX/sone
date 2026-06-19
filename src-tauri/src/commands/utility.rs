@@ -8,6 +8,21 @@ use crate::AppState;
 use crate::SignalPath;
 use crate::SoneError;
 
+/// Open the SONE log directory (`~/.config/sone/logs`) in the system file
+/// manager, creating it if it does not exist yet.
+#[tauri::command]
+pub fn open_log_folder() -> Result<(), String> {
+    let dir = dirs::config_dir()
+        .map(|d| d.join("sone").join("logs"))
+        .ok_or_else(|| "could not resolve config directory".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::process::Command::new("xdg-open")
+        .arg(&dir)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to launch file manager: {e}"))
+}
+
 #[tauri::command]
 pub fn get_signal_path(state: State<'_, AppState>) -> SignalPath {
     state.signal_path.snapshot()
