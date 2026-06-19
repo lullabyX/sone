@@ -20,6 +20,7 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "opener:default",
+    "opener:allow-open-path",
     "global-shortcut:allow-register",
     "deep-link:default"
   ]
