@@ -133,8 +133,8 @@ export default function ThemesTab() {
                     background: d.bgSurface,
                     boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
                     outline: active
-                      ? `2px solid ${p.accent}`
-                      : "2px solid transparent",
+                      ? `1.5px solid ${p.accent}`
+                      : "1.5px solid transparent",
                   }}
                 >
                   <span className="flex gap-1.5">
