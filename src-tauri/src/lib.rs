@@ -932,6 +932,7 @@ pub fn run() {
             commands::utility::set_minimize_to_tray,
             commands::utility::get_enable_logging,
             commands::utility::set_enable_logging,
+            commands::utility::open_log_folder,
             commands::utility::get_decorations,
             commands::utility::set_decorations,
             commands::utility::get_volume_normalization,

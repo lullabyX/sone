@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Folder } from "lucide-react";
-import { configDir, join } from "@tauri-apps/api/path";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { clearAllCache } from "../../api/tidal";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
@@ -18,8 +16,7 @@ export default function UtilitiesTab() {
 
   const openLogFolder = async () => {
     try {
-      const dir = await join(await configDir(), "sone", "logs");
-      await openPath(dir);
+      await invoke("open_log_folder");
     } catch (e) {
       console.error("Failed to open log folder:", e);
     }
