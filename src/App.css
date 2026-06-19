@@ -173,7 +173,7 @@ textarea {
   top: -30%;
   background: #450af5;
   opacity: 0.85;
-  animation: lovedDrift1 14s ease-in-out infinite;
+  animation: lovedDrift1 12s ease-in-out infinite;
 }
 .loved-blob-2 {
   width: 50%;
@@ -182,7 +182,7 @@ textarea {
   top: -10%;
   background: #8e2de2;
   opacity: 0.85;
-  animation: lovedDrift2 18s ease-in-out infinite;
+  animation: lovedDrift2 15s ease-in-out infinite;
 }
 .loved-blob-3 {
   width: 45%;
@@ -191,34 +191,46 @@ textarea {
   top: -20%;
   background: #00d2ff;
   opacity: 0.6;
-  animation: lovedDrift3 16s ease-in-out infinite;
+  animation: lovedDrift3 13s ease-in-out infinite;
 }
 
 @keyframes lovedDrift1 {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
-  50% {
-    transform: translate3d(8%, 6%, 0);
+  33% {
+    transform: translate3d(26%, 12%, 0) scale(1.18);
+  }
+  66% {
+    transform: translate3d(12%, -10%, 0) scale(0.92);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 @keyframes lovedDrift2 {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
   50% {
-    transform: translate3d(-10%, 4%, 0);
+    transform: translate3d(-30%, 14%, 0) scale(1.22);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 @keyframes lovedDrift3 {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
-  50% {
-    transform: translate3d(6%, -5%, 0);
+  40% {
+    transform: translate3d(-22%, -14%, 0) scale(1.12);
+  }
+  80% {
+    transform: translate3d(20%, 10%, 0) scale(0.9);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
