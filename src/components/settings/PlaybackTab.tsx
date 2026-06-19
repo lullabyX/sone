@@ -81,16 +81,16 @@ export default function PlaybackTab() {
           }
           subtitle="Seamless transitions between continuous tracks"
           disabled={gaplessDisabled}
+          tooltip={
+            !gaplessDisabled
+              ? undefined
+              : !gaplessSupported
+                ? "Requires GStreamer 1.24 or newer"
+                : "Available in normal mode only — disabled while exclusive mode or bit-perfect output is on"
+          }
         >
           <button
             disabled={gaplessDisabled}
-            title={
-              !gaplessSupported
-                ? "Requires GStreamer 1.24 or newer"
-                : exclusiveMode || bitPerfect
-                  ? "Gapless is available in normal mode only"
-                  : ""
-            }
             className="disabled:cursor-not-allowed"
             onClick={async () => {
               const next = !gapless;
@@ -112,6 +112,11 @@ export default function PlaybackTab() {
               : "Even out volume differences between tracks"
           }
           disabled={bitPerfect}
+          tooltip={
+            bitPerfect
+              ? "Bit-perfect output sends the original signal unaltered, so volume can't be normalized"
+              : undefined
+          }
         >
           <button
             disabled={bitPerfect}

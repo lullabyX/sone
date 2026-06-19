@@ -5,6 +5,8 @@ interface SettingRowProps {
   subtitle?: ReactNode;
   children?: ReactNode;
   disabled?: boolean;
+  /** HTML title tooltip on the row — used to explain a disabled/grayed state. */
+  tooltip?: string;
 }
 
 export default function SettingRow({
@@ -12,9 +14,11 @@ export default function SettingRow({
   subtitle,
   children,
   disabled,
+  tooltip,
 }: SettingRowProps) {
   return (
     <div
+      title={tooltip}
       className={`flex items-center gap-3.5 px-4 py-3 ${disabled ? "opacity-45" : ""}`}
     >
       <div className="flex-1 min-w-0">
