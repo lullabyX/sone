@@ -7,12 +7,23 @@ interface SettingRowProps {
   disabled?: boolean;
 }
 
-export default function SettingRow({ title, subtitle, children, disabled }: SettingRowProps) {
+export default function SettingRow({
+  title,
+  subtitle,
+  children,
+  disabled,
+}: SettingRowProps) {
   return (
-    <div className={`flex items-center gap-3.5 px-4 py-3 ${disabled ? "opacity-45" : ""}`}>
+    <div
+      className={`flex items-center gap-3.5 px-4 py-3 ${disabled ? "opacity-45" : ""}`}
+    >
       <div className="flex-1 min-w-0">
-        <p className="text-[13.5px] font-semibold text-th-text-primary">{title}</p>
-        {subtitle && <p className="text-[11.5px] text-th-text-muted mt-0.5">{subtitle}</p>}
+        <p className="text-[13.5px] font-semibold text-th-text-primary">
+          {title}
+        </p>
+        {subtitle && (
+          <p className="text-[11.5px] text-th-text-muted mt-0.5">{subtitle}</p>
+        )}
       </div>
       {children}
     </div>
