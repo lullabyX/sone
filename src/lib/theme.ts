@@ -307,7 +307,10 @@ export const PRESET_THEMES: Theme[] = [
   { name: "Rose", accent: "#F43F5E", bgBase: "#140E0F" },
   { name: "Ember", accent: "#F97316", bgBase: "#151010" },
   { name: "Copper", accent: "#E8915A", bgBase: "#12100E" },
+  { name: "Lagoon", accent: "#2DD4BF", bgBase: "#0B1413" },
   { name: "Daylight", accent: "#2563EB", bgBase: "#F5F3EE" },
   { name: "Snowfall", accent: "#0891B2", bgBase: "#F8FAFC" },
   { name: "Paper", accent: "#7C3AED", bgBase: "#FAF5FF" },
+  { name: "Meadow", accent: "#16A34A", bgBase: "#F2F6EE" },
+  { name: "Blossom", accent: "#E11D48", bgBase: "#FEF3F2" },
 ];
