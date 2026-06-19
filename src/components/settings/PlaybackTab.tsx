@@ -2,13 +2,6 @@ import { useEffect, useState } from "react";
 import { useAtom, useAtomValue, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Infinity as InfinityIcon,
-  Zap,
-  Film,
-  Volume2,
-  ShieldAlert,
-} from "lucide-react";
-import {
   autoplayAtom,
   bitPerfectAtom,
   volumeNormalizationAtom,
@@ -64,9 +57,11 @@ export default function PlaybackTab() {
       <p className="text-[10.5px] font-bold tracking-[1.4px] uppercase text-th-text-faint mt-6 mb-1">
         Playback
       </p>
-      <div className="divide-y divide-th-border-subtle">
+      <div
+        className="rounded-[14px] bg-th-surface border border-th-border-subtle overflow-hidden divide-y divide-th-border-subtle"
+        style={{ boxShadow: "inset 0 2px 8px rgba(0,0,0,.32)" }}
+      >
         <SettingRow
-          icon={InfinityIcon}
           title="Autoplay"
           subtitle="Play similar tracks when the queue ends"
         >
@@ -76,7 +71,6 @@ export default function PlaybackTab() {
         </SettingRow>
 
         <SettingRow
-          icon={Zap}
           title={
             <span className="flex items-center gap-2">
               Gapless playback
@@ -111,7 +105,6 @@ export default function PlaybackTab() {
         </SettingRow>
 
         <SettingRow
-          icon={Volume2}
           title="Normalize volume"
           subtitle={
             bitPerfect
@@ -137,7 +130,6 @@ export default function PlaybackTab() {
         </SettingRow>
 
         <SettingRow
-          icon={Film}
           title="Animated album covers"
           subtitle="Play motion covers in the player when available"
         >
@@ -147,7 +139,6 @@ export default function PlaybackTab() {
         </SettingRow>
 
         <SettingRow
-          icon={ShieldAlert}
           title="Allow explicit content"
           subtitle="Allow playing tracks marked as explicit"
         >
