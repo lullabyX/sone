@@ -128,7 +128,7 @@ export default function ThemesTab() {
                 className="cursor-pointer text-left"
               >
                 <span
-                  className="relative flex h-[42px] items-center gap-2 rounded-[10px] px-3 transition"
+                  className="relative flex h-[52px] flex-col justify-between rounded-[10px] px-[11px] py-[9px] transition"
                   style={{
                     background: d.bgSurface,
                     boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
@@ -137,32 +137,33 @@ export default function ThemesTab() {
                       : "2px solid transparent",
                   }}
                 >
+                  <span className="flex gap-1.5">
+                    <span
+                      className="block h-[15px] w-[15px] rounded-full"
+                      style={{ background: p.accent }}
+                    />
+                    <span
+                      className="block h-[15px] w-[15px] rounded-full"
+                      style={{
+                        background: p.bgBase,
+                        boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
+                      }}
+                    />
+                  </span>
                   <span
-                    className="block h-[18px] w-[18px] shrink-0 rounded-full"
-                    style={{ background: p.accent }}
-                  />
-                  <span
-                    className="block h-[18px] w-[18px] shrink-0 rounded-full"
-                    style={{
-                      background: p.bgBase,
-                      boxShadow: `inset 0 0 0 1px ${d.borderSubtle}`,
-                    }}
-                  />
+                    className="block truncate text-[11px] font-medium leading-none"
+                    style={{ color: d.textPrimary }}
+                  >
+                    {p.name}
+                  </span>
                   {active && (
                     <span
-                      className="absolute right-1.5 top-[5px] grid h-[15px] w-[15px] place-items-center rounded-full"
+                      className="absolute right-1.5 top-1.5 grid h-[15px] w-[15px] place-items-center rounded-full"
                       style={{ background: p.accent, color: d.onAccent }}
                     >
                       <Check size={9} />
                     </span>
                   )}
-                </span>
-                <span
-                  className={`mt-1.5 block text-[11px] font-medium ${
-                    active ? "text-th-text-primary" : "text-th-text-secondary"
-                  }`}
-                >
-                  {p.name}
                 </span>
               </button>
             );
