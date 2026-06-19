@@ -47,10 +47,9 @@ export default function NetworkTab() {
       setBannerStatus("ok");
       setBannerMessage(msg || "Connected");
     } catch (e: unknown) {
+      console.error("Proxy connection test failed:", e);
       setBannerStatus("err");
-      setBannerMessage(
-        typeof e === "string" ? e : e instanceof Error ? e.message : "Failed",
-      );
+      setBannerMessage("Connection failed — check host, port, and credentials");
     }
   };
 
