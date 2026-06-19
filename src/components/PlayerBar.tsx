@@ -386,7 +386,7 @@ const TransportControls = memo(function TransportControls() {
         >
           <Repeat size={15} strokeWidth={2} />
           {repeatMode === 2 && (
-            <span className="absolute -top-0.5 -right-0.5 text-[7px] font-bold bg-th-accent text-black rounded-full w-3 h-3 flex items-center justify-center leading-none">
+            <span className="absolute -top-0.5 -right-0.5 text-[7px] font-bold bg-th-accent text-th-on-accent rounded-full w-3 h-3 flex items-center justify-center leading-none">
               1
             </span>
           )}

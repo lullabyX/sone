@@ -158,7 +158,7 @@ function CreateFolderModal({
           <button
             onClick={handleSave}
             disabled={!name.trim() || saving}
-            className="px-6 py-2.5 bg-th-accent text-black text-[14px] font-semibold rounded-full hover:bg-th-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="px-6 py-2.5 bg-th-accent text-th-on-accent text-[14px] font-semibold rounded-full hover:bg-th-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
             {saving && <Loader2 size={16} className="animate-spin" />}
             Save

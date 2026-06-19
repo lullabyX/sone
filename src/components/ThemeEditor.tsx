@@ -344,7 +344,7 @@ export default function ThemeEditor({ open, onClose }: ThemeEditorProps) {
           </button>
           <button
             onClick={onClose}
-            className="px-5 py-2 text-[13px] font-bold rounded-full bg-th-accent text-black hover:brightness-110 active:scale-95 transition-all duration-150"
+            className="px-5 py-2 text-[13px] font-bold rounded-full bg-th-accent text-th-on-accent hover:brightness-110 active:scale-95 transition-all duration-150"
           >
             Done
           </button>

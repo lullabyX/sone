@@ -17,6 +17,7 @@ export default {
           "button-hover": "var(--th-bg-button-hover)",
           accent: "var(--th-accent)",
           "accent-hover": "var(--th-accent-hover)",
+          "on-accent": "var(--th-on-accent)",
           "text-primary": "var(--th-text-primary)",
           "text-secondary": "var(--th-text-secondary)",
           "text-muted": "var(--th-text-muted)",
