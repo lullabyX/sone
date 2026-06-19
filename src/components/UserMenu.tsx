@@ -1,6 +1,5 @@
 import {
   LogOut,
-  Palette,
   User,
   Keyboard,
   X,
@@ -8,9 +7,7 @@ import {
   Shield,
   ChevronDown,
   Settings,
-  Radio,
   Info,
-  Zap,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -21,7 +18,6 @@ import {
   exclusiveModeAtom,
   bitPerfectAtom,
   exclusiveDeviceAtom,
-  gaplessAtom,
 } from "../atoms/playback";
 import { useToast } from "../contexts/ToastContext";
 import {
@@ -35,18 +31,14 @@ import {
   type ActionId,
   type KeyCombo,
 } from "../lib/shortcuts";
-import ThemeEditor from "./ThemeEditor";
-import SettingsModal from "./SettingsModal";
-import ScrobbleModal from "./ScrobbleModal";
+import SettingsSheet from "./settings/SettingsSheet";
 import AboutModal from "./AboutModal";
 import Toggle from "./Toggle";
 
 export default function UserMenu() {
   const { userName, logout } = useAuth();
   const [open, setOpen] = useState(false);
-  const [themeOpen, setThemeOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [scrobbleOpen, setScrobbleOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [bindings, setBindings] = useAtom(shortcutsAtom);
@@ -55,8 +47,6 @@ export default function UserMenu() {
   const [exclusiveMode, setExclusiveMode] = useAtom(exclusiveModeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const [exclusiveDevice, setExclusiveDevice] = useAtom(exclusiveDeviceAtom);
-  const [gapless, setGapless] = useAtom(gaplessAtom);
-  const [gaplessSupported, setGaplessSupported] = useState(false); // assume unsupported until confirmed
   const { setBitPerfect } = usePlaybackActions();
   const [audioDevices, setAudioDevices] = useState<
     Array<{ id: string; name: string }>
@@ -64,16 +54,6 @@ export default function UserMenu() {
   const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
-
-  // Hydrate gapless setting + capability from the backend
-  useEffect(() => {
-    invoke<boolean>("get_gapless")
-      .then(setGapless)
-      .catch(() => {});
-    invoke<boolean>("get_gapless_supported")
-      .then(setGaplessSupported)
-      .catch(() => {});
-  }, [setGapless]);
 
   // Toggle shortcuts modal from ? key
   useEffect(() => {
@@ -282,57 +262,8 @@ export default function UserMenu() {
             </button>
           )}
 
-          {/* Gapless playback (normal mode only) */}
-          <button
-            className={`${menuItemClass} disabled:opacity-40 disabled:cursor-not-allowed`}
-            disabled={!gaplessSupported || exclusiveMode || bitPerfect}
-            title={
-              !gaplessSupported
-                ? "Requires GStreamer 1.24 or newer"
-                : exclusiveMode || bitPerfect
-                  ? "Gapless is available in normal mode only"
-                  : ""
-            }
-            onClick={async () => {
-              const next = !gapless;
-              setGapless(next);
-              await invoke("set_gapless", { enabled: next }).catch(() => {});
-            }}
-          >
-            <Zap size={16} />
-            <span className="flex-1 text-left">Gapless playback</span>
-            <Toggle
-              on={gapless && gaplessSupported && !exclusiveMode && !bitPerfect}
-            />
-          </button>
-
-          {/* ── Scrobbling ── */}
+          {/* ── Settings ── */}
           <div className="border-t border-th-border-subtle my-1" />
-
-          <button
-            onClick={() => {
-              setOpen(false);
-              setScrobbleOpen(true);
-            }}
-            className={menuItemClass}
-          >
-            <Radio size={16} />
-            Scrobbling
-          </button>
-
-          {/* ── Theme + Settings ── */}
-          <div className="border-t border-th-border-subtle my-1" />
-
-          <button
-            onClick={() => {
-              setOpen(false);
-              setThemeOpen(true);
-            }}
-            className={menuItemClass}
-          >
-            <Palette size={16} />
-            Theme
-          </button>
 
           <button
             onClick={() => {
@@ -388,14 +319,9 @@ export default function UserMenu() {
         </div>
       )}
 
-      <ThemeEditor open={themeOpen} onClose={() => setThemeOpen(false)} />
-      <SettingsModal
+      <SettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-      />
-      <ScrobbleModal
-        open={scrobbleOpen}
-        onClose={() => setScrobbleOpen(false)}
       />
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
 
