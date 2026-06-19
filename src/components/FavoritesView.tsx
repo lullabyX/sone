@@ -354,7 +354,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
                 fill="white"
               />
             </div>
-            <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <div className="flex flex-col gap-2 pb-1 min-w-0">
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
                 Collection
               </span>
