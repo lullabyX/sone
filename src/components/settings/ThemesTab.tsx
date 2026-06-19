@@ -158,7 +158,7 @@ export default function ThemesTab() {
                   )}
                 </span>
                 <span
-                  className={`mt-1 block text-[11px] font-medium ${
+                  className={`mt-1.5 block text-[11px] font-medium ${
                     active ? "text-th-text-primary" : "text-th-text-secondary"
                   }`}
                 >
