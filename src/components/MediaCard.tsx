@@ -112,7 +112,11 @@ export default function MediaCard({
                   }}
                   className="absolute bottom-2 left-2 w-10 h-10 bg-th-accent rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 ease-out hover:brightness-110 hover:scale-110 hover:shadow-2xl"
                 >
-                  <Play size={20} fill="currentColor" className="text-th-on-accent ml-0.5" />
+                  <Play
+                    size={20}
+                    fill="currentColor"
+                    className="text-th-on-accent ml-0.5"
+                  />
                 </button>
               </>
             )}

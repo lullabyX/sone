@@ -13,7 +13,11 @@ import { useFavorites } from "../hooks/useFavorites";
 import { getMixItems } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import NotFoundPage from "./NotFoundPage";
-import { type Track, type MediaItemType, getTidalArtistImageUrl } from "../types";
+import {
+  type Track,
+  type MediaItemType,
+  getTidalArtistImageUrl,
+} from "../types";
 import TrackList from "./TrackList";
 import MediaContextMenu from "./MediaContextMenu";
 import PageContainer from "./PageContainer";

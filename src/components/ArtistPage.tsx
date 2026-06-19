@@ -592,9 +592,17 @@ export default function ArtistPage({
                   className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-th-on-accent font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
                 >
                   {artistPlaying ? (
-                    <Pause size={18} fill="currentColor" className="text-th-on-accent" />
+                    <Pause
+                      size={18}
+                      fill="currentColor"
+                      className="text-th-on-accent"
+                    />
                   ) : (
-                    <Play size={18} fill="currentColor" className="text-th-on-accent" />
+                    <Play
+                      size={18}
+                      fill="currentColor"
+                      className="text-th-on-accent"
+                    />
                   )}
                   {artistPlaying ? "Pause" : "Play"}
                 </button>
