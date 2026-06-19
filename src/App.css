@@ -154,6 +154,25 @@ textarea {
   animation: fadeIn 0.2s ease-out both;
 }
 
+@keyframes modalIn {
+  from {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.settings-modal-anim {
+  animation: modalIn 0.22s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-modal-anim {
+    animation: none;
+  }
+}
+
 /* GPU-accelerated "playing" bars animation */
 @keyframes barBounce {
   0%,
