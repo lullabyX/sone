@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   X,
   Volume2,
@@ -30,17 +30,33 @@ type TabId =
   | "utilities"
   | "mcp";
 
-const DISCORD_ICON: LucideIcon = MessageSquare; // replaced below by brand glyph
-
-const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
-  { id: "playback", label: "Playback", icon: Volume2 },
-  { id: "themes", label: "Themes", icon: Palette },
-  { id: "scrobble", label: "Scrobbling", icon: Radio },
-  { id: "discord", label: "Discord", icon: DISCORD_ICON },
-  { id: "general", label: "General", icon: AppWindow },
-  { id: "network", label: "Network", icon: Globe },
-  { id: "utilities", label: "Utilities", icon: FileText },
-  { id: "mcp", label: "MCP", icon: Cpu },
+const GROUPS: {
+  label: string;
+  tabs: { id: TabId; label: string; icon: LucideIcon }[];
+}[] = [
+  {
+    label: "Experience",
+    tabs: [
+      { id: "playback", label: "Playback", icon: Volume2 },
+      { id: "themes", label: "Themes", icon: Palette },
+    ],
+  },
+  {
+    label: "Integrations",
+    tabs: [
+      { id: "scrobble", label: "Scrobbling", icon: Radio },
+      { id: "discord", label: "Discord", icon: MessageSquare },
+      { id: "mcp", label: "MCP", icon: Cpu },
+    ],
+  },
+  {
+    label: "System",
+    tabs: [
+      { id: "general", label: "General", icon: AppWindow },
+      { id: "network", label: "Network", icon: Globe },
+      { id: "utilities", label: "Utilities", icon: FileText },
+    ],
+  },
 ];
 
 function DiscordGlyph({ size = 16 }: { size?: number }) {
@@ -93,11 +109,10 @@ export default function SettingsSheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 backdrop-blur-sm animate-fadeIn">
       <div
         ref={panelRef}
-        className="w-full max-w-[960px] h-[90vh] bg-th-elevated rounded-t-2xl shadow-2xl flex flex-col overflow-hidden border border-th-border-subtle"
-        style={{ animation: "slideUp 0.24s ease-out" }}
+        className="w-full max-w-[800px] h-[min(94vh,740px)] bg-th-elevated rounded-[18px] shadow-2xl flex flex-col overflow-hidden border border-th-border-subtle settings-modal-anim"
       >
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-th-border-subtle">
           <h2 className="text-[20px] font-extrabold text-th-text-primary">
@@ -112,35 +127,42 @@ export default function SettingsSheet({
         </div>
 
         <div className="flex flex-1 min-h-0">
-          <nav className="w-[176px] shrink-0 border-r border-th-border-subtle py-4 px-3 flex flex-col gap-0.5 overflow-y-auto">
-            {TABS.map(({ id, label, icon: Icon }) => {
-              const on = active === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setActive(id)}
-                  className={`relative flex items-center gap-3 px-3 py-2 rounded-md text-left text-[13px] transition-colors ${
-                    on
-                      ? "bg-th-inset text-th-text-primary"
-                      : "text-th-text-secondary hover:bg-th-inset/50"
-                  }`}
-                >
-                  {on && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-th-accent" />
-                  )}
-                  {id === "discord" ? (
-                    <DiscordGlyph />
-                  ) : (
-                    <Icon size={16} className="shrink-0" />
-                  )}
-                  {label}
-                </button>
-              );
-            })}
+          <nav className="w-[204px] shrink-0 border-r border-th-border-subtle py-4 px-3 flex flex-col gap-0.5 overflow-y-auto">
+            {GROUPS.map((group) => (
+              <Fragment key={group.label}>
+                <p className="text-[9.5px] font-bold tracking-[1.1px] uppercase text-th-text-faint px-[11px] mt-3.5 mb-1 first:mt-0.5">
+                  {group.label}
+                </p>
+                {group.tabs.map(({ id, label, icon: Icon }) => {
+                  const on = active === id;
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setActive(id)}
+                      className={`relative flex items-center gap-3 px-[13px] py-2.5 rounded-md text-left text-[14px] transition-colors ${
+                        on
+                          ? "bg-th-accent/10 text-th-accent font-semibold"
+                          : "text-th-text-secondary hover:bg-th-inset/50"
+                      }`}
+                    >
+                      {on && (
+                        <span className="absolute left-0 top-2 bottom-2 w-[2.5px] rounded-full bg-th-accent" />
+                      )}
+                      {id === "discord" ? (
+                        <DiscordGlyph size={17} />
+                      ) : (
+                        <Icon size={17} className="shrink-0" />
+                      )}
+                      {label}
+                    </button>
+                  );
+                })}
+              </Fragment>
+            ))}
           </nav>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5">
-            <div className="max-w-[720px] mx-auto">
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="max-w-[600px] mx-auto">
               {active === "playback" && <PlaybackTab />}
               {active === "themes" && <ThemesTab />}
               {active === "scrobble" && <ScrobbleTab />}
