@@ -25,6 +25,7 @@ export interface DerivedTheme {
   // Accent
   accent: string;
   accentHover: string;
+  onAccent: string; // text/icon color on accent — black on dark themes, white on light
 
   // Text
   textPrimary: string;
@@ -178,6 +179,9 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
 
   // Accent
   const accentHover = scaleBrightness(accent, 0.88);
+  // Accent-button text/icon color: inverts with the theme — dark text on
+  // dark themes, white text on light themes.
+  const onAccent = isDark ? "#000000" : "#ffffff";
 
   // Text: for dark backgrounds, use light text at varying opacities
   // For light backgrounds, use dark text
@@ -229,6 +233,7 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
     bgButtonHover,
     accent,
     accentHover,
+    onAccent,
     textPrimary,
     textSecondary,
     textMuted,
@@ -267,6 +272,7 @@ export function themeToCssVars(dt: DerivedTheme): Record<string, string> {
     "--th-bg-button-hover": dt.bgButtonHover,
     "--th-accent": dt.accent,
     "--th-accent-hover": dt.accentHover,
+    "--th-on-accent": dt.onAccent,
     "--th-text-primary": dt.textPrimary,
     "--th-text-secondary": dt.textSecondary,
     "--th-text-muted": dt.textMuted,

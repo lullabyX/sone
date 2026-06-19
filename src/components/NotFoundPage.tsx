@@ -16,7 +16,7 @@ export default function NotFoundPage() {
         </p>
         <button
           onClick={navigateHome}
-          className="mt-2 px-6 py-2 bg-th-accent text-black rounded-full text-sm font-bold hover:bg-th-accent-hover hover:scale-105 transition-[transform,background-color]"
+          className="mt-2 px-6 py-2 bg-th-accent text-th-on-accent rounded-full text-sm font-bold hover:bg-th-accent-hover hover:scale-105 transition-[transform,background-color]"
         >
           Go home
         </button>

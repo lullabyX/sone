@@ -43,9 +43,9 @@ const QualityBadge = memo(function QualityBadge({
       <span
         className={`px-2 py-0.5 text-[9px] font-black rounded tracking-wider leading-none ${
           isMax
-            ? "bg-th-accent text-black"
+            ? "bg-th-accent text-th-on-accent"
             : isHiFi
-              ? "bg-th-accent/70 text-black"
+              ? "bg-th-accent/70 text-th-on-accent"
               : "bg-th-button-hover text-th-text-primary"
         }`}
       >
