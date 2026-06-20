@@ -50,6 +50,16 @@ impl SoneError {
     pub fn is_network(&self) -> bool {
         matches!(self, SoneError::Network(_))
     }
+
+    /// A log-safe message that omits API response bodies (which may carry
+    /// account data for `/users/` and `/sessions` endpoints). Logs only the
+    /// status for API errors; other variants carry no server response body.
+    pub fn log_safe(&self) -> String {
+        match self {
+            SoneError::Api { status, .. } => format!("API error (status {status})"),
+            other => other.to_string(),
+        }
+    }
 }
 
 impl From<std::io::Error> for SoneError {
