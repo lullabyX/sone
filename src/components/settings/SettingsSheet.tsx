@@ -141,7 +141,7 @@ export default function SettingsSheet({
                       onClick={() => setActive(id)}
                       className={`relative flex items-center gap-3 px-[13px] py-2.5 rounded-md text-left text-[14px] transition-colors ${
                         on
-                          ? "bg-th-accent/10 text-th-accent font-semibold"
+                          ? "bg-th-accent/10 text-th-accent"
                           : "text-th-text-secondary hover:bg-th-inset/50"
                       }`}
                     >
