@@ -206,6 +206,14 @@ impl ScrobbleManager {
         providers.retain(|p| p.name() != name);
     }
 
+    /// Remove all providers, clear the in-memory now-playing track, and wipe
+    /// the retry queue. Used on logout to fully purge scrobbling state.
+    pub async fn disconnect_all(&self) {
+        self.providers.write().await.clear();
+        *self.current_track.lock().await = None;
+        self.queue.clear().await;
+    }
+
     pub async fn provider_statuses(&self) -> Vec<ProviderStatus> {
         let providers = self.providers.read().await;
         let mut statuses = Vec::new();

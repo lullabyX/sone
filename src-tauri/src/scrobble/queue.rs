@@ -72,6 +72,19 @@ impl ScrobbleQueue {
         Ok(())
     }
 
+    /// Drop all queued scrobbles and persist the now-empty queue. Used on
+    /// logout to fully purge pending scrobbles.
+    pub async fn clear(&self) {
+        {
+            let mut entries = self.entries.lock().await;
+            entries.clear();
+        }
+        // Release the entries lock before persist() (which re-locks it).
+        if let Err(e) = self.persist().await {
+            log::warn!("Failed to persist cleared scrobble queue: {e}");
+        }
+    }
+
     pub async fn push(&self, provider: &str, track: ScrobbleTrack) {
         let mut entries = self.entries.lock().await;
         entries.push(QueueEntry {
