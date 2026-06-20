@@ -804,6 +804,8 @@ pub fn run() {
             commands::auth::consume_legacy_auth_notice,
             commands::auth::get_session_user_id,
             commands::auth::get_user_profile,
+            // profile
+            commands::profile::get_profile,
             // library
             commands::library::get_user_playlists,
             commands::library::get_all_playlists,
