@@ -4765,6 +4765,374 @@ impl TidalClient {
             serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
         Self::parse_page_response(&json)
     }
+
+    /// Resolve the user's artistId from `/v1/users/{id}`. Returns `Ok(None)`
+    /// when the account has no associated artist profile.
+    pub async fn get_user_artist_id(&mut self, user_id: u64) -> Result<Option<u64>, SoneError> {
+        let cc = self.country_code.clone();
+        let body = self
+            .api_get_body(&format!("/users/{}", user_id), &[("countryCode", &cc)])
+            .await?;
+        let json: Value = serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        Ok(json.get("artistId").and_then(|v| v.as_u64()))
+    }
+
+    /// Full read-only profile. Falls back to a minimal profile (name/handle from
+    /// the user record, no artist data) when the account has no artistId.
+    pub async fn get_profile(&mut self, user_id: u64) -> Result<Profile, SoneError> {
+        let cc = self.country_code.clone();
+
+        let Some(artist_id) = self.get_user_artist_id(user_id).await? else {
+            let (name, username) = self.get_user_profile(user_id).await?;
+            return Ok(Profile {
+                user_id,
+                artist_id: None,
+                name,
+                handle: username,
+                bio: None,
+                bio_id: None,
+                picture_files: Vec::new(),
+                artwork_id: None,
+                blur_hash: None,
+                palette: Vec::new(),
+                fan_count: None,
+                public_playlists: Vec::new(),
+            });
+        };
+
+        let artist_id_str = artist_id.to_string();
+        let artist_body = self
+            .api_get_body(
+                &format!("{}/artists/{}", TIDAL_OPENAPI_URL, artist_id),
+                &[
+                    ("include", "profileArt,biography,owners"),
+                    ("countryCode", &cc),
+                ],
+            )
+            .await?;
+        let parts = parse_artist_profile(&artist_body)?;
+
+        let playlists_body = self
+            .api_get_body(
+                &format!("{}/playlists", TIDAL_OPENAPI_URL),
+                &[
+                    ("filter[owners.id]", &user_id.to_string()),
+                    ("include", "coverArt"),
+                    ("countryCode", &cc),
+                ],
+            )
+            .await?;
+        let public_playlists = parse_public_playlists(&playlists_body)?;
+
+        let fan_count = self.fetch_fan_count(user_id, &artist_id_str).await.ok();
+
+        Ok(Profile {
+            user_id,
+            artist_id: Some(artist_id),
+            name: parts.name,
+            handle: parts.handle,
+            bio: parts.bio,
+            bio_id: parts.bio_id,
+            picture_files: parts.picture_files,
+            artwork_id: parts.artwork_id,
+            blur_hash: parts.blur_hash,
+            palette: parts.palette,
+            fan_count,
+            public_playlists,
+        })
+    }
+
+    /// Best-effort follower/fan count. Tries the social-host profile endpoint
+    /// first, then the openapi followers relationship.
+    async fn fetch_fan_count(
+        &mut self,
+        user_id: u64,
+        artist_id: &str,
+    ) -> Result<u32, SoneError> {
+        let primary = self
+            .api_get_body(
+                &format!("https://api.tidal.com/v2/profiles/{}", user_id),
+                &[],
+            )
+            .await;
+        if let Ok(body) = primary {
+            if let Ok(json) = serde_json::from_str::<Value>(&body) {
+                if let Some(n) = json.get("numberOfFollowers").and_then(|v| v.as_u64()) {
+                    return Ok(n as u32);
+                }
+            }
+        }
+
+        let body = self
+            .api_get_body(
+                &format!(
+                    "{}/artists/{}/relationships/followers",
+                    TIDAL_OPENAPI_URL, artist_id
+                ),
+                &[("countryCode", &self.country_code.clone())],
+            )
+            .await?;
+        let json: Value = serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        let count = json
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|a| a.len() as u32)
+            .ok_or_else(|| SoneError::Parse("followers: missing data array".into()))?;
+        Ok(count)
+    }
+}
+
+// ==================== Profile ====================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileArtFile {
+    pub href: String,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilePlaylist {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub access_type: Option<String>,
+    #[serde(default)]
+    pub number_of_tracks: Option<u32>,
+    #[serde(default)]
+    pub cover_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Profile {
+    pub user_id: u64,
+    #[serde(default)]
+    pub artist_id: Option<u64>,
+    pub name: String,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub bio: Option<String>,
+    #[serde(default)]
+    pub bio_id: Option<String>,
+    pub picture_files: Vec<ProfileArtFile>,
+    #[serde(default)]
+    pub artwork_id: Option<String>,
+    #[serde(default)]
+    pub blur_hash: Option<String>,
+    pub palette: Vec<String>,
+    #[serde(default)]
+    pub fan_count: Option<u32>,
+    pub public_playlists: Vec<ProfilePlaylist>,
+}
+
+/// Parsed pieces of the openapi `/artists/{id}` JSON:API response, before they
+/// are merged into a `Profile`.
+#[derive(Debug, Clone)]
+pub struct ArtistProfileParts {
+    pub name: String,
+    pub handle: Option<String>,
+    pub bio: Option<String>,
+    pub bio_id: Option<String>,
+    pub picture_files: Vec<ProfileArtFile>,
+    pub artwork_id: Option<String>,
+    pub blur_hash: Option<String>,
+    pub palette: Vec<String>,
+}
+
+/// Find an entry in a JSON:API `included[]` array matching `type` + `id`.
+fn resolve_included<'a>(included: &'a [Value], typ: &str, id: &str) -> Option<&'a Value> {
+    included.iter().find(|e| {
+        e.get("type").and_then(|t| t.as_str()) == Some(typ)
+            && e.get("id").and_then(|i| i.as_str()) == Some(id)
+    })
+}
+
+/// Pull `{href, meta:{width,height}}` art files out of an `artworks` included
+/// object, sorted DESC by width.
+fn art_files_from_artwork(artwork: &Value) -> Vec<ProfileArtFile> {
+    let mut files: Vec<ProfileArtFile> = artwork
+        .get("attributes")
+        .and_then(|a| a.get("files"))
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| {
+                    let href = f.get("href").and_then(|h| h.as_str())?.to_string();
+                    let meta = f.get("meta");
+                    let width = meta
+                        .and_then(|m| m.get("width"))
+                        .and_then(|w| w.as_u64())
+                        .map(|w| w as u32);
+                    let height = meta
+                        .and_then(|m| m.get("height"))
+                        .and_then(|h| h.as_u64())
+                        .map(|h| h as u32);
+                    Some(ProfileArtFile {
+                        href,
+                        width,
+                        height,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort_by_key(|f| std::cmp::Reverse(f.width.unwrap_or(0)));
+    files
+}
+
+fn parse_artist_profile(body: &str) -> Result<ArtistProfileParts, SoneError> {
+    let json: Value = serde_json::from_str(body).map_err(|e| SoneError::Parse(e.to_string()))?;
+    let data = json
+        .get("data")
+        .ok_or_else(|| SoneError::Parse("artist profile: missing data".into()))?;
+    let attrs = data.get("attributes");
+
+    let name = attrs
+        .and_then(|a| a.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let handle = attrs
+        .and_then(|a| a.get("handle"))
+        .and_then(|h| h.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let empty: Vec<Value> = Vec::new();
+    let included = json
+        .get("included")
+        .and_then(|i| i.as_array())
+        .unwrap_or(&empty);
+
+    let relationships = data.get("relationships");
+
+    // profileArt is to-many: take data[0].
+    let (picture_files, artwork_id, blur_hash, palette) = relationships
+        .and_then(|r| r.get("profileArt"))
+        .and_then(|p| p.get("data"))
+        .and_then(|d| d.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|first| {
+            let id = first.get("id").and_then(|i| i.as_str())?;
+            let artwork = resolve_included(included, "artworks", id)?;
+            let aid = Some(id.to_string());
+            let bh = artwork
+                .get("attributes")
+                .and_then(|a| a.get("blurHash"))
+                .and_then(|b| b.as_str())
+                .map(String::from);
+            let pal = artwork
+                .get("attributes")
+                .and_then(|a| a.get("palette"))
+                .and_then(|p| p.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|c| c.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some((art_files_from_artwork(artwork), aid, bh, pal))
+        })
+        .unwrap_or((Vec::new(), None, None, Vec::new()));
+
+    // biography is to-one.
+    let (bio, bio_id) = relationships
+        .and_then(|r| r.get("biography"))
+        .and_then(|b| b.get("data"))
+        .and_then(|d| {
+            let id = d.get("id").and_then(|i| i.as_str())?;
+            let bio_obj = resolve_included(included, "artistBiographies", id)?;
+            let text = bio_obj
+                .get("attributes")
+                .and_then(|a| a.get("text"))
+                .and_then(|t| t.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from);
+            Some((text, Some(id.to_string())))
+        })
+        .unwrap_or((None, None));
+
+    Ok(ArtistProfileParts {
+        name,
+        handle,
+        bio,
+        bio_id,
+        picture_files,
+        artwork_id,
+        blur_hash,
+        palette,
+    })
+}
+
+/// Pick the file href closest to ~320px wide from an `artworks` included object.
+fn cover_url_320(artwork: &Value) -> Option<String> {
+    let files = art_files_from_artwork(artwork);
+    files
+        .iter()
+        .min_by_key(|f| (f.width.unwrap_or(0) as i64 - 320).abs())
+        .map(|f| f.href.clone())
+}
+
+fn parse_public_playlists(body: &str) -> Result<Vec<ProfilePlaylist>, SoneError> {
+    let json: Value = serde_json::from_str(body).map_err(|e| SoneError::Parse(e.to_string()))?;
+    let empty: Vec<Value> = Vec::new();
+    let data = json
+        .get("data")
+        .and_then(|d| d.as_array())
+        .unwrap_or(&empty);
+    let included = json
+        .get("included")
+        .and_then(|i| i.as_array())
+        .unwrap_or(&empty);
+
+    let mut out = Vec::new();
+    for pl in data {
+        let attrs = pl.get("attributes");
+        let access_type = attrs
+            .and_then(|a| a.get("accessType"))
+            .and_then(|t| t.as_str())
+            .map(String::from);
+        if access_type.as_deref() != Some("PUBLIC") {
+            continue;
+        }
+        let id = pl
+            .get("id")
+            .and_then(|i| i.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let title = attrs
+            .and_then(|a| a.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let number_of_tracks = attrs
+            .and_then(|a| a.get("numberOfItems"))
+            .and_then(|n| n.as_u64())
+            .map(|n| n as u32);
+        let cover_url = pl
+            .get("relationships")
+            .and_then(|r| r.get("coverArt"))
+            .and_then(|c| c.get("data"))
+            .and_then(|d| d.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|first| first.get("id").and_then(|i| i.as_str()))
+            .and_then(|aid| resolve_included(included, "artworks", aid))
+            .and_then(cover_url_320);
+        out.push(ProfilePlaylist {
+            id,
+            title,
+            access_type,
+            number_of_tracks,
+            cover_url,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -4793,5 +5161,145 @@ mod home_tab_tests {
     fn returns_empty_when_no_vibes() {
         let body = json!({ "items": [] });
         assert!(TidalClient::parse_home_tabs(&body).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn artist_body_full() -> String {
+        json!({
+            "data": {
+                "type": "artists",
+                "id": "12345",
+                "attributes": { "name": "Test Artist", "handle": "testartist" },
+                "relationships": {
+                    "profileArt": { "data": [{ "type": "artworks", "id": "art-1" }] },
+                    "biography": { "data": { "type": "artistBiographies", "id": "bio-1" } },
+                    "owners": { "data": [{ "type": "users", "id": "999" }] }
+                }
+            },
+            "included": [
+                {
+                    "type": "artworks",
+                    "id": "art-1",
+                    "attributes": {
+                        "blurHash": "L6Pj0^jE.AyE_3t7t7R**0o#DgR4",
+                        "palette": ["#112233", "#445566"],
+                        "files": [
+                            { "href": "https://img/320.jpg", "meta": { "width": 320, "height": 320 } },
+                            { "href": "https://img/1280.jpg", "meta": { "width": 1280, "height": 1280 } },
+                            { "href": "https://img/640.jpg", "meta": { "width": 640, "height": 640 } }
+                        ]
+                    }
+                },
+                {
+                    "type": "artistBiographies",
+                    "id": "bio-1",
+                    "attributes": { "text": "A short bio." }
+                }
+            ]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn parse_artist_profile_full() {
+        let parts = parse_artist_profile(&artist_body_full()).unwrap();
+        assert_eq!(parts.name, "Test Artist");
+        assert_eq!(parts.handle.as_deref(), Some("testartist"));
+        assert_eq!(parts.bio.as_deref(), Some("A short bio."));
+        assert_eq!(parts.bio_id.as_deref(), Some("bio-1"));
+        assert_eq!(parts.artwork_id.as_deref(), Some("art-1"));
+        assert_eq!(parts.blur_hash.as_deref(), Some("L6Pj0^jE.AyE_3t7t7R**0o#DgR4"));
+        assert_eq!(parts.palette, vec!["#112233", "#445566"]);
+        let widths: Vec<u32> = parts
+            .picture_files
+            .iter()
+            .map(|f| f.width.unwrap())
+            .collect();
+        assert_eq!(widths, vec![1280, 640, 320]);
+    }
+
+    #[test]
+    fn parse_artist_profile_no_bio_no_handle() {
+        let body = json!({
+            "data": {
+                "type": "artists",
+                "id": "12345",
+                "attributes": { "name": "No Bio Artist" },
+                "relationships": {
+                    "profileArt": { "data": [] }
+                }
+            },
+            "included": []
+        })
+        .to_string();
+        let parts = parse_artist_profile(&body).unwrap();
+        assert_eq!(parts.name, "No Bio Artist");
+        assert_eq!(parts.handle, None);
+        assert_eq!(parts.bio, None);
+        assert_eq!(parts.bio_id, None);
+        assert!(parts.picture_files.is_empty());
+    }
+
+    #[test]
+    fn parse_public_playlists_filters_to_public() {
+        let body = json!({
+            "data": [
+                {
+                    "type": "playlists",
+                    "id": "pub-uuid",
+                    "attributes": { "name": "My Public Mix", "accessType": "PUBLIC", "numberOfItems": 17 },
+                    "relationships": {
+                        "coverArt": { "data": [{ "type": "artworks", "id": "cover-pub" }] }
+                    }
+                },
+                {
+                    "type": "playlists",
+                    "id": "unlisted-uuid",
+                    "attributes": { "name": "Secret", "accessType": "UNLISTED", "numberOfItems": 3 },
+                    "relationships": {
+                        "coverArt": { "data": [{ "type": "artworks", "id": "cover-unl" }] }
+                    }
+                }
+            ],
+            "included": [
+                {
+                    "type": "artworks",
+                    "id": "cover-pub",
+                    "attributes": {
+                        "files": [
+                            { "href": "https://cov/160.jpg", "meta": { "width": 160 } },
+                            { "href": "https://cov/320.jpg", "meta": { "width": 320 } },
+                            { "href": "https://cov/750.jpg", "meta": { "width": 750 } }
+                        ]
+                    }
+                }
+            ]
+        })
+        .to_string();
+        let playlists = parse_public_playlists(&body).unwrap();
+        assert_eq!(playlists.len(), 1);
+        let p = &playlists[0];
+        assert_eq!(p.id, "pub-uuid");
+        assert_eq!(p.title, "My Public Mix");
+        assert_eq!(p.access_type.as_deref(), Some("PUBLIC"));
+        assert_eq!(p.number_of_tracks, Some(17));
+        assert_eq!(p.cover_url.as_deref(), Some("https://cov/320.jpg"));
+    }
+
+    #[test]
+    fn resolve_included_matches_type_and_id() {
+        let included = vec![
+            json!({ "type": "artworks", "id": "a1", "attributes": {} }),
+            json!({ "type": "artistBiographies", "id": "b1", "attributes": {} }),
+        ];
+        let found = resolve_included(&included, "artistBiographies", "b1");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().get("id").unwrap(), "b1");
+        assert!(resolve_included(&included, "artworks", "missing").is_none());
     }
 }
