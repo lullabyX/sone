@@ -284,12 +284,8 @@ export function AppInitializer() {
 
         if (!userId) return;
 
-        // User name (non-blocking)
-        invoke<[string, string | null]>("get_user_profile", { userId })
-          .then(([name]) => {
-            if (name) setUserName(name);
-          })
-          .catch(() => {});
+        // User name is fetched in the [isAuthenticated]-keyed preload effect
+        // below so it re-populates on in-session re-login, not just startup.
 
         // Exclusive mode settings (non-blocking, backend-authoritative)
         invoke<boolean>("get_exclusive_mode")
@@ -403,6 +399,14 @@ export function AppInitializer() {
 
     const userId = store.get(authTokensAtom)?.user_id;
     if (!userId) return;
+
+    // User name (non-blocking). Keyed on [isAuthenticated] so it re-populates
+    // on in-session re-login, not just on the startup auto-restore.
+    invoke<[string, string | null]>("get_user_profile", { userId })
+      .then(([name]) => {
+        if (name) setUserName(name);
+      })
+      .catch(() => {});
 
     // Favorite IDs — unified endpoint (tracks/albums/artists/playlists in one call)
     // Runs immediately on auth (both saved-token restore AND fresh login).
