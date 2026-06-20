@@ -36,7 +36,11 @@ import {
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
-import { notifySeek, getInterpolatedPosition } from "../lib/playbackPosition";
+import {
+  notifySeek,
+  getInterpolatedPosition,
+  markPlaybackLoading,
+} from "../lib/playbackPosition";
 import {
   isTrackUnavailable,
   isUnplayableError,
@@ -210,6 +214,9 @@ export function usePlaybackActions() {
       // Store source context on track for history-based prev navigation
       (stamped as any)._playingFrom = store.get(playbackSourceAtom);
       (stamped as any)._contextFrom = store.get(contextSourceAtom);
+      // Freeze position interpolation across the load gap so the bar doesn't
+      // climb from 0 before the first sample is actually heard.
+      markPlaybackLoading(true);
       store.set(currentTrackAtom, stamped);
 
       try {
@@ -228,6 +235,8 @@ export function usePlaybackActions() {
         store.set(streamInfoAtom, info);
         store.set(isPlayingAtom, true);
         store.set(consecutiveFailCountAtom, 0);
+        // Playback confirmed — release the load gate and anchor from 0.
+        markPlaybackLoading(false);
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {
@@ -246,6 +255,7 @@ export function usePlaybackActions() {
         store.set(historyAtom, previousHistory);
         console.error("Failed to play track:", error);
         store.set(isPlayingAtom, false);
+        markPlaybackLoading(false);
         if (isNetworkError(error)) {
           checkNetworkError(error);
           return { ok: false, reason: "network" };
@@ -285,6 +295,9 @@ export function usePlaybackActions() {
 
       const isFinished = await invoke<boolean>("is_track_finished");
       if (isFinished) {
+        // Replaying a finished track from the top: gate interpolation so the bar
+        // doesn't show the stale end position during the reload.
+        markPlaybackLoading(true);
         const info = await invokePlayWithRetry(
           track.id,
           store.get(useTrackGainAtom),
@@ -294,6 +307,8 @@ export function usePlaybackActions() {
           },
         );
         store.set(streamInfoAtom, info);
+        // Replay starts at 0; clears the load gate and re-emits to the miniplayer.
+        notifySeek(0);
 
         // Notify backend so the replay is scrobbled
         invoke("notify_track_started", {
@@ -306,6 +321,7 @@ export function usePlaybackActions() {
     } catch (error) {
       console.error("Failed to resume track:", error);
       store.set(isPlayingAtom, false);
+      markPlaybackLoading(false);
       if (isNetworkError(error)) {
         checkNetworkError(error);
       } else if (isUnplayableError(error)) {
@@ -364,6 +380,10 @@ export function usePlaybackActions() {
       // NOT the per-hook ref and NOT the (possibly transient) isPlayingAtom.
       store.set(isPlayingAtom, !store.get(userPausedAtom));
       store.set(consecutiveFailCountAtom, 0);
+      // The generation bump above aborts any in-flight playTrack, which would
+      // otherwise return early without clearing its load gate. Release it here so
+      // the gate can't stay stuck and freeze the position bar on this new track.
+      markPlaybackLoading(false);
       invoke("notify_track_started", {
         payload: buildTrackStartedPayload(stamped, false),
       }).catch(() => {});
@@ -634,6 +654,10 @@ export function usePlaybackActions() {
         if (repeatMode === 2 && !options?.explicit) {
           const current = store.get(currentTrackAtom);
           if (current) {
+            // In-place replay: currentTrackAtom is unchanged, so no track-change
+            // reset fires. Gate interpolation so the bar doesn't keep climbing
+            // past the old track's end during the reload.
+            markPlaybackLoading(true);
             try {
               const info = await invokePlayWithRetry(
                 current.id,
@@ -645,10 +669,13 @@ export function usePlaybackActions() {
               );
               store.set(streamInfoAtom, info);
               store.set(isPlayingAtom, true);
+              // Restart from 0; clears the load gate and re-emits to the miniplayer.
+              notifySeek(0);
               invoke("notify_track_started", {
                 payload: buildTrackStartedPayload(current, false),
               }).catch(() => {});
             } catch (error: any) {
+              markPlaybackLoading(false);
               console.error("Failed to repeat track:", error);
               store.set(isPlayingAtom, false);
               if (isNetworkError(error)) {
@@ -970,6 +997,9 @@ export function usePlaybackActions() {
         // Stamp source context on prevTrack for future history entries
         (prevTrack as any)._playingFrom = store.get(playbackSourceAtom);
         (prevTrack as any)._contextFrom = store.get(contextSourceAtom);
+        // Freeze interpolation across the load gap so the bar doesn't climb
+        // from 0 before the previous track's first sample is heard.
+        markPlaybackLoading(true);
         store.set(currentTrackAtom, prevTrack);
 
         try {
@@ -985,6 +1015,7 @@ export function usePlaybackActions() {
           );
           store.set(streamInfoAtom, info);
           store.set(isPlayingAtom, true);
+          markPlaybackLoading(false);
 
           // Notify backend for scrobbling
           invoke("notify_track_started", {
@@ -1001,6 +1032,7 @@ export function usePlaybackActions() {
           store.set(contextSourceAtom, savedContextSource);
           console.error("Failed to play previous track:", error);
           store.set(isPlayingAtom, false);
+          markPlaybackLoading(false);
           if (isNetworkError(error)) {
             checkNetworkError(error);
           } else if (isUnplayableError(error)) {
@@ -1074,6 +1106,7 @@ export function usePlaybackActions() {
             }
 
             // Eagerly update UI
+            markPlaybackLoading(true);
             store.set(currentTrackAtom, prevTrack);
 
             try {
@@ -1087,6 +1120,7 @@ export function usePlaybackActions() {
               );
               store.set(streamInfoAtom, info);
               store.set(isPlayingAtom, true);
+              markPlaybackLoading(false);
 
               // Notify backend for scrobbling
               invoke("notify_track_started", {
@@ -1100,6 +1134,7 @@ export function usePlaybackActions() {
               store.set(manualQueueAtom, savedManualQueue);
               console.error("Failed to play previous track:", error);
               store.set(isPlayingAtom, false);
+              markPlaybackLoading(false);
               if (isNetworkError(error)) {
                 checkNetworkError(error);
               } else if (isUnplayableError(error)) {

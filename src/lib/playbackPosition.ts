@@ -17,6 +17,11 @@ let trackGeneration = 0;
 // at a gapless boundary (query_position momentarily returns the previous
 // track's total runtime before the new per-track segment applies).
 let trackResetTime = 0;
+// True while a user-initiated play is loading (from the currentTrackAtom reset
+// until the backend confirms playback started). Freezes interpolation so the
+// position doesn't climb from 0 during the load gap, or past the old track's
+// end during an in-place replay. Gapless advances never set this.
+let loadingTrack = false;
 // How long after a track change to apply the guard.
 const SETTLE_WINDOW_MS = 3000;
 // A poll exceeding the expected position by more than this is treated as the
@@ -77,7 +82,7 @@ function stopSyncLoop() {
  * or the frozen position when paused.
  */
 export function getInterpolatedPosition(): number {
-  if (!playing) return lastKnownPosition;
+  if (!playing || loadingTrack) return lastKnownPosition;
   const elapsed = (performance.now() - lastFetchTime) / 1000;
   return lastKnownPosition + elapsed;
 }
@@ -90,6 +95,9 @@ export function getInterpolatedPosition(): number {
 export function notifySeek(targetSecs: number) {
   lastKnownPosition = targetSecs;
   lastFetchTime = performance.now();
+  // A seek is an explicit, known anchor — clear any pending load gate so the
+  // position interpolates from the seek target immediately.
+  loadingTrack = false;
   // A deliberate seek explicitly anchors the position; close any open
   // track-change settle window so the 300ms correction poll (and subsequent
   // polls) are trusted even when the user seeked far forward.
@@ -110,6 +118,22 @@ export function notifySeek(targetSecs: number) {
     seekCorrectionTimer = null;
     fetchAndAnchor();
   }, 300);
+}
+
+/**
+ * Gate interpolation while a user-initiated play is loading.
+ * Call `markPlaybackLoading(true)` just before the currentTrackAtom reset for an
+ * explicit play / in-place replay, and `markPlaybackLoading(false)` once the
+ * backend confirms playback has started. This stops the displayed position from
+ * climbing from 0 during the load gap. Gapless advances (advanceToTrack) leave
+ * this untouched — the pipeline is already rolling, so they interpolate from 0
+ * immediately and the settle window handles the concat transient.
+ */
+export function markPlaybackLoading(loading: boolean) {
+  loadingTrack = loading;
+  // On start, re-anchor the clock so interpolation resumes from the frozen
+  // position at the confirmed-start instant rather than back-dating elapsed.
+  if (!loading) lastFetchTime = performance.now();
 }
 
 /**
@@ -135,15 +159,20 @@ export function initPositionInterpolator(
   unsubPlaying = store.sub(isPlayingAtom, () => {
     const nowPlaying = store.get(isPlayingAtom);
     if (nowPlaying === playing) return;
-    playing = nowPlaying;
 
-    if (playing) {
-      // Resuming — re-anchor and start loop
+    if (nowPlaying) {
+      // Resuming — re-anchor the clock to NOW *before* flipping `playing`, so
+      // the paused interval is not counted as elapsed playback, then re-fetch.
+      lastFetchTime = performance.now();
+      playing = true;
       startSyncLoop();
     } else {
-      // Pausing — freeze at current interpolated position
+      // Pausing — snapshot the LIVE interpolated position *before* flipping
+      // `playing`; otherwise getInterpolatedPosition() short-circuits to the
+      // stale anchor (lines above) and the position jumps backward.
       lastKnownPosition = getInterpolatedPosition();
       lastFetchTime = performance.now();
+      playing = false;
       stopSyncLoop();
     }
   });
@@ -182,5 +211,6 @@ export function destroyPositionInterpolator() {
   lastKnownPosition = 0;
   lastFetchTime = 0;
   trackResetTime = 0;
+  loadingTrack = false;
   playing = false;
 }

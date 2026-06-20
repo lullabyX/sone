@@ -165,11 +165,19 @@ export function useMiniplayerEmitter() {
     };
     window.addEventListener("playback-error", onPlaybackError);
 
+    // Periodic re-emit so the miniplayer self-heals from position drift that
+    // fires no atom change: the async re-anchor right after resume, the 2s
+    // sync-loop correction, or an optimistic toggle the backend never confirmed.
+    // Position lives in a module singleton (not an atom), so without this the
+    // miniplayer can stay stuck on a stale value until the next unrelated change.
+    const heartbeat = setInterval(scheduleEmit, 1000);
+
     return () => {
       unsubs.forEach((fn) => fn());
       unlistenReady.then((fn) => fn());
       window.removeEventListener("playback-seeked", onSeeked);
       window.removeEventListener("playback-error", onPlaybackError);
+      clearInterval(heartbeat);
     };
   }, [miniplayerOpen, store, scheduleEmit, buildState]);
 

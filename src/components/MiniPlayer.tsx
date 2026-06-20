@@ -648,7 +648,11 @@ function ProgressBar({
       ? Math.min(1, displayPosition / duration)
       : 0;
 
-  const currentTime = isDragging ? dragProgress * duration : displayPosition;
+  const currentTime = isDragging
+    ? dragProgress * duration
+    : duration > 0
+      ? Math.min(displayPosition, duration)
+      : displayPosition;
 
   const trackColor = colors.isDark
     ? "rgba(255,255,255,0.2)"

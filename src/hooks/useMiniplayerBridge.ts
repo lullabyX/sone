@@ -25,6 +25,7 @@ export function useMiniplayerBridge() {
     playing: false,
   });
   const seekUntil = useRef(0); // suppress incoming position updates until this timestamp
+  const lastAnchoredTrackId = useRef<number | null>(null); // track the anchor belongs to
   const [displayPosition, setDisplayPosition] = useState(0);
 
   // Listen for state updates from main window
@@ -34,8 +35,13 @@ export function useMiniplayerBridge() {
       (event) => {
         const s = event.payload;
         setState(s);
-        // Skip position update if we recently did an optimistic seek
-        if (performance.now() < seekUntil.current) {
+        // The seek-echo suppression window only applies to the SAME track. If
+        // the track changed, always re-anchor — otherwise a track change landing
+        // within 500ms of a seek keeps interpolating from the stale seek target.
+        const trackChanged =
+          (s.track?.id ?? null) !== lastAnchoredTrackId.current;
+        lastAnchoredTrackId.current = s.track?.id ?? null;
+        if (!trackChanged && performance.now() < seekUntil.current) {
           posAnchor.current.playing = s.isPlaying;
         } else {
           posAnchor.current = {
@@ -97,6 +103,21 @@ export function useMiniplayerBridge() {
     if (action === "toggle-play") {
       const newState = !(optimisticRef.current ?? isPlayingRef.current);
       setOptimisticPlaying(newState);
+      // Optimistically (un)freeze the local position clock so the progress bar
+      // matches the icon immediately, instead of ticking onward until the
+      // round-trip miniplayer-state-update arrives. The authoritative state
+      // re-anchors on arrival (and the emitter's periodic re-emit self-heals if
+      // the backend toggle never lands).
+      const a = posAnchor.current;
+      const current = a.playing
+        ? a.position + (performance.now() - a.time) / 1000
+        : a.position;
+      posAnchor.current = {
+        position: current,
+        time: performance.now(),
+        playing: newState,
+      };
+      setDisplayPosition(current);
       optimisticPlayRef.current = setTimeout(() => {
         setOptimisticPlaying(null);
       }, 2000);

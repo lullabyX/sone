@@ -45,7 +45,11 @@ export function useProgressScrub(options?: UseProgressScrubOptions) {
   }, [currentTrack?.id]);
 
   const duration = currentTrack?.duration ?? 0;
-  const displayTime = isDragging ? dragTime : currentTime;
+  const rawTime = isDragging ? dragTime : currentTime;
+  // Clamp to duration: interpolation can briefly overshoot near the track end
+  // (before the track-finished event lands), which would show e.g. "3:01" on a
+  // 3:00 track.
+  const displayTime = duration > 0 ? Math.min(rawTime, duration) : rawTime;
   const progress = duration > 0 ? (displayTime / duration) * 100 : 0;
   const clampedProgress = Math.min(100, Math.max(0, progress));
 
