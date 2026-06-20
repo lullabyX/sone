@@ -20,7 +20,7 @@ import {
 } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { trackSortPrefsAtom } from "../atoms/favorites";
-import { userNameAtom } from "../atoms/auth";
+import { authTokensAtom, userNameAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
@@ -65,6 +65,7 @@ export default function PlaylistView({
 }: PlaylistViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const userName = useAtomValue(userNameAtom);
+  const userId = useAtomValue(authTokensAtom)?.user_id;
   const {
     playTrack,
     setShuffledQueue,
@@ -100,9 +101,13 @@ export default function PlaylistView({
   const generationRef = useRef(0);
   const prevPlaylistIdRef = useRef(playlistId);
 
-  // Fetch playlist metadata when playlistInfo is not provided (e.g. deep link)
+  // Fetch playlist metadata when the navigation hint doesn't already tell us
+  // whether this is the user's own playlist (e.g. deep link, or "Playing from"
+  // which omits isUserPlaylist). Deriving ownership here — creator vs. current
+  // user, the same rule the sidebar uses — keeps the header correct on every
+  // entry path, not just the sidebar.
   useEffect(() => {
-    if (playlistInfo) return;
+    if (playlistInfo?.isUserPlaylist !== undefined) return;
     getPlaylistDetails(playlistId)
       .then((p) => {
         setFetchedInfo({
@@ -111,11 +116,12 @@ export default function PlaylistView({
           description: p.description,
           creatorName: p.creator?.name,
           numberOfTracks: p.numberOfTracks,
+          isUserPlaylist: userId != null ? p.creator?.id === userId : undefined,
         });
         setResolvedAccessType(p.accessType);
       })
       .catch(() => {});
-  }, [playlistId, playlistInfo]);
+  }, [playlistId, playlistInfo, userId]);
 
   // Resolve accessType for playlists not in the root userPlaylists atom (e.g. in folders)
   useEffect(() => {
