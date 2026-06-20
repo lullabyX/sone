@@ -253,7 +253,8 @@ export type AppView =
       libraryType: "playlists" | "albums" | "artists" | "mixes";
       folderId?: string;
       folderName?: string;
-    };
+    }
+  | { type: "profile" };
 
 export interface SearchResults {
   artists: { id: number; name: string; picture?: string }[];
@@ -735,3 +736,34 @@ export interface Folder {
 export type PlaylistOrFolder =
   | { kind: "playlist"; data: Playlist }
   | { kind: "folder"; data: Folder };
+
+// ==================== Profile (read-only) ====================
+
+export interface ProfileArtFile {
+  href: string;
+  width?: number;
+  height?: number;
+}
+
+export interface ProfilePlaylist {
+  id: string;
+  title: string;
+  accessType?: string;
+  numberOfTracks?: number;
+  coverUrl?: string;
+}
+
+export interface Profile {
+  userId: number;
+  artistId: number | null;
+  name: string;
+  handle: string | null;
+  bio: string | null;
+  bioId: string | null;
+  pictureFiles: ProfileArtFile[];
+  artworkId: string | null;
+  blurHash: string | null;
+  palette: string[];
+  fanCount: number | null;
+  publicPlaylists: ProfilePlaylist[];
+}

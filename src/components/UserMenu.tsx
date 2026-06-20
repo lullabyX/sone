@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAtom, useAtomValue } from "jotai";
 import { useAuth } from "../hooks/useAuth";
+import { useNavigation } from "../hooks/useNavigation";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import {
   exclusiveModeAtom,
@@ -37,6 +38,7 @@ import Toggle from "./Toggle";
 
 export default function UserMenu() {
   const { userName, logout } = useAuth();
+  const { navigateToProfile } = useNavigation();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -261,6 +263,19 @@ export default function UserMenu() {
               <Toggle on={bitPerfect} />
             </button>
           )}
+
+          {/* ── Profile ── */}
+          <div className="border-t border-th-border-subtle my-1" />
+
+          <button
+            onClick={() => {
+              setOpen(false);
+              navigateToProfile();
+            }}
+            className={menuItemClass}
+          >
+            <User size={16} /> Profile
+          </button>
 
           {/* ── Settings ── */}
           <div className="border-t border-th-border-subtle my-1" />
