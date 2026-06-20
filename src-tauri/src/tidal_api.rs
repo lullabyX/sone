@@ -4882,6 +4882,90 @@ impl TidalClient {
             .ok_or_else(|| SoneError::Parse("followers: missing data array".into()))?;
         Ok(count)
     }
+
+    pub async fn update_artist_meta(
+        &self,
+        artist_id: u64,
+        name: Option<&str>,
+        handle: Option<&str>,
+        dry_run: bool,
+    ) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let body = build_artist_meta_body(artist_id, name, handle, dry_run);
+        let response = self
+            .client
+            .patch(format!("{}/artists/{}", TIDAL_OPENAPI_URL, artist_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/vnd.api+json")
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&body)
+            .send()
+            .await?;
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+        Ok(())
+    }
+
+    pub async fn update_bio(&self, bio_id: &str, text: &str) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let body = serde_json::json!({
+            "data": { "type": "artistBiographies", "id": bio_id, "attributes": { "text": text } }
+        });
+        let response = self
+            .client
+            .patch(format!("{}/artistBiographies/{}", TIDAL_OPENAPI_URL, bio_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/vnd.api+json")
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&body)
+            .send()
+            .await?;
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+        Ok(())
+    }
+
+    pub async fn update_external_links(
+        &self,
+        artist_id: u64,
+        links: Vec<ExternalLink>,
+    ) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let body = build_external_links_body(artist_id, &links);
+        let response = self
+            .client
+            .patch(format!("{}/artists/{}", TIDAL_OPENAPI_URL, artist_id))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/vnd.api+json")
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&body)
+            .send()
+            .await?;
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+        Ok(())
+    }
 }
 
 // ==================== Profile ====================
