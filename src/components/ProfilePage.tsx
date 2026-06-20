@@ -79,7 +79,7 @@ function PlaylistsSection({
         {playlists.map((pl) => (
           <MediaCard
             key={pl.id}
-            item={{ title: pl.title }}
+            item={{ title: pl.title, subTitle: subtitle }}
             titleOverride={pl.title}
             showPlayButton={false}
             imageOverride={
