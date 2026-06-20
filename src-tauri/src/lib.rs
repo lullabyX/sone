@@ -806,6 +806,9 @@ pub fn run() {
             commands::auth::get_user_profile,
             // profile
             commands::profile::get_profile,
+            commands::profile::update_profile_meta,
+            commands::profile::update_profile_bio,
+            commands::profile::update_profile_links,
             // library
             commands::library::get_user_playlists,
             commands::library::get_all_playlists,
