@@ -4966,6 +4966,176 @@ impl TidalClient {
         }
         Ok(())
     }
+
+    pub async fn upload_profile_picture(
+        &self,
+        artist_id: u64,
+        jpeg_bytes: Vec<u8>,
+    ) -> Result<(), SoneError> {
+        use base64::Engine;
+
+        let bytes = normalize_square_jpeg(&jpeg_bytes)?;
+        let digest = md5::compute(&bytes);
+        let hex = format!("{:x}", digest);
+        let content_md5 = base64::engine::general_purpose::STANDARD.encode(digest.0);
+        let size = bytes.len();
+
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let bearer = format!("Bearer {}", tokens.access_token);
+
+        // (1) POST /artworks
+        let create_body = serde_json::json!({
+            "data": {
+                "type": "artworks",
+                "attributes": {
+                    "mediaType": "IMAGE",
+                    "sourceFile": { "md5Hash": hex, "size": size }
+                }
+            }
+        });
+        let resp = self
+            .client
+            .post(format!("{}/artworks", TIDAL_OPENAPI_URL))
+            .header("Authorization", &bearer)
+            .header("Content-Type", "application/vnd.api+json")
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&create_body)
+            .send()
+            .await?;
+        let status = resp.status();
+        let create_text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: create_text,
+            });
+        }
+        let create_json: Value =
+            serde_json::from_str(&create_text).map_err(|e| SoneError::Parse(e.to_string()))?;
+        let artwork_id = create_json
+            .get("data")
+            .and_then(|d| d.get("id"))
+            .and_then(|i| i.as_str())
+            .ok_or_else(|| SoneError::Parse("artworks: missing data.id".into()))?
+            .to_string();
+        let upload_href = create_json
+            .pointer("/data/attributes/sourceFile/uploadLink/href")
+            .and_then(|h| h.as_str())
+            .ok_or_else(|| SoneError::Parse("artworks: missing uploadLink.href".into()))?
+            .to_string();
+
+        // (2) S3 PUT — NO Authorization; Content-Type: image/jpeg is REQUIRED.
+        let put = self
+            .client
+            .put(&upload_href)
+            .header("content-md5", &content_md5)
+            .header("Content-Type", "image/jpeg")
+            .body(bytes)
+            .send()
+            .await?;
+        let put_status = put.status();
+        if !put_status.is_success() {
+            let body = put.text().await.unwrap_or_default();
+            return Err(SoneError::Api {
+                status: put_status.as_u16(),
+                body,
+            });
+        }
+
+        // (3) poll GET /artworks/{id}
+        self.poll_artwork_ok(&artwork_id).await?;
+
+        // (4) PATCH /artists/{id}/relationships/profileArt
+        let link_body = serde_json::json!({
+            "data": [ { "type": "artworks", "id": artwork_id } ]
+        });
+        let patch = self
+            .client
+            .patch(format!(
+                "{}/artists/{}/relationships/profileArt",
+                TIDAL_OPENAPI_URL, artist_id
+            ))
+            .header("Authorization", &bearer)
+            .header("Content-Type", "application/vnd.api+json")
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&link_body)
+            .send()
+            .await?;
+        let patch_status = patch.status();
+        let patch_text = patch.text().await.unwrap_or_default();
+        if !patch_status.is_success() {
+            return Err(SoneError::Api {
+                status: patch_status.as_u16(),
+                body: patch_text,
+            });
+        }
+        Ok(())
+    }
+
+    async fn poll_artwork_ok(&self, artwork_id: &str) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let bearer = format!("Bearer {}", tokens.access_token);
+        for _ in 0..20 {
+            let resp = self
+                .client
+                .get(format!("{}/artworks/{}", TIDAL_OPENAPI_URL, artwork_id))
+                .header("Authorization", &bearer)
+                .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+                .query(&[("countryCode", self.country_code.as_str())])
+                .send()
+                .await?;
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if !status.is_success() {
+                return Err(SoneError::Api {
+                    status: status.as_u16(),
+                    body,
+                });
+            }
+            match artwork_status_from_body(&body)? {
+                ArtworkPollOutcome::Ok => return Ok(()),
+                ArtworkPollOutcome::Pending => {
+                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                }
+                ArtworkPollOutcome::Failed(s) => {
+                    return Err(SoneError::Parse(format!(
+                        "artwork processing failed: technicalFileStatus={}",
+                        s
+                    )));
+                }
+            }
+        }
+        Err(SoneError::Parse("artwork processing timed out".into()))
+    }
+
+    pub async fn delete_profile_picture(&self, artist_id: u64) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let body = serde_json::json!({ "data": [] });
+        let response = self
+            .client
+            .patch(format!(
+                "{}/artists/{}/relationships/profileArt",
+                TIDAL_OPENAPI_URL, artist_id
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/vnd.api+json")
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[("countryCode", self.country_code.as_str())])
+            .json(&body)
+            .send()
+            .await?;
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+        Ok(())
+    }
 }
 
 // ==================== Profile ====================
