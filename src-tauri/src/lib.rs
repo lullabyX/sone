@@ -490,34 +490,12 @@ pub fn run() {
 
             app.manage(AppState::new(app.handle().clone()));
 
-            // Start MCP server in background
+            // Start MCP server in background (if enabled). ensure_mcp_started
+            // holds the mcp_handle lock across the start to stay race-free.
             {
                 let handle_for_mcp = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let state = handle_for_mcp.state::<AppState>();
-
-                    let mut settings = state.load_settings().unwrap_or_default();
-
-                    if !settings.mcp_enabled {
-                        log::info!("MCP server disabled in settings");
-                        return;
-                    }
-
-                    if settings.mcp_token.is_empty() {
-                        settings.mcp_token = uuid::Uuid::new_v4().simple().to_string();
-                        if let Err(e) = state.save_settings(&settings) {
-                            log::warn!("Failed to persist MCP token: {e}");
-                        }
-                    }
-
-                    match crate::mcp::start_server(
-                        handle_for_mcp.clone(),
-                        settings.mcp_port,
-                        settings.mcp_token.clone(),
-                    ).await {
-                        Ok(handle) => { *state.mcp_handle.lock().await = Some(handle); }
-                        Err(e) => log::error!("MCP server failed to start: {e}"),
-                    }
+                    crate::mcp::ensure_mcp_started(&handle_for_mcp).await;
                 });
             }
 
