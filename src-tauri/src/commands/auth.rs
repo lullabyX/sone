@@ -392,20 +392,49 @@ pub async fn complete_pkce_auth(
 #[tauri::command]
 pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[logout]");
-    // Clear tokens but preserve credentials for next login
-    let mut client = state.tidal_client.lock().await;
-    client.tokens = None;
 
-    // Save credentials but clear auth tokens
+    // Purge scrobbling: in-memory providers + now-playing + retry queue.
+    // Done before stopping playback so the interrupted track is not scrobbled.
+    state.scrobble_manager.disconnect_all().await;
+
+    // Stop playback: tear down the pipeline + clear MPRIS/Discord now-playing.
+    crate::commands::playback::stop_playback(state.inner())
+        .await
+        .ok();
+
+    // Disconnect Discord RPC (close the IPC socket).
+    state
+        .discord
+        .send(crate::discord::DiscordCommand::Disconnect);
+
+    // Stop the MCP server (cancel its task, drop the listener).
+    if let Some(handle) = state.mcp_handle.lock().await.take() {
+        handle.cancel.cancel();
+    }
+
+    // Release the idle inhibitor if a track had held it.
+    state.idle_inhibitor.lock().await.uninhibit().await;
+
+    // Clear the Tidal session: tokens + cached country. Preserve login
+    // credentials (client_id/secret) for the next login.
+    {
+        let mut client = state.tidal_client.lock().await;
+        client.tokens = None;
+        client.country_code = "US".to_string();
+    }
+
+    // Clear auth tokens + purge scrobble creds from settings; keep the rest
+    // (audio prefs, Discord/MCP settings, mcp_token).
     if let Some(mut settings) = state.load_settings() {
         settings.auth_tokens = None;
         settings.last_track_id = None;
+        settings.scrobble = Default::default();
         state.save_settings(&settings).ok();
     } else {
         fs::remove_file(&state.settings_path).ok();
     }
 
-    // Clear all cached data
+    // Clear all cached data.
     state.disk_cache.clear().await;
 
     Ok(())
