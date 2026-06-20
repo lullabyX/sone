@@ -753,6 +753,11 @@ export interface ProfilePlaylist {
   coverUrl?: string;
 }
 
+export interface ExternalLink {
+  href: string;
+  linkType: string;
+}
+
 export interface Profile {
   userId: number;
   artistId: number | null;
@@ -764,6 +769,7 @@ export interface Profile {
   artworkId: string | null;
   blurHash: string | null;
   palette: string[];
+  externalLinks: ExternalLink[];
   fanCount: number | null;
   publicPlaylists: ProfilePlaylist[];
 }
