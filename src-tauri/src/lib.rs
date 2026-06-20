@@ -809,6 +809,8 @@ pub fn run() {
             commands::profile::update_profile_meta,
             commands::profile::update_profile_bio,
             commands::profile::update_profile_links,
+            commands::profile::upload_profile_picture,
+            commands::profile::delete_profile_picture,
             // library
             commands::library::get_user_playlists,
             commands::library::get_all_playlists,
