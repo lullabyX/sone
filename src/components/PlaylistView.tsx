@@ -156,6 +156,7 @@ export default function PlaylistView({
   // Recommendations state
   const RECS_BATCH = 50;
   const RECS_PAGE = 10;
+  const RECOMMENDED_TRACKS_LABEL = "Recommended Tracks";
   const [recPool, setRecPool] = useState<Track[]>([]);
   const [recPageIndex, setRecPageIndex] = useState(0);
   const [recApiOffset, setRecApiOffset] = useState(0);
@@ -455,6 +456,31 @@ export default function PlaylistView({
       }
     },
     [tracks, playlistSource, fetchRemaining, appendToQueue, playFromSource],
+  );
+
+  const handlePlayRec = useCallback(
+    async (track: Track, _index: number) => {
+      try {
+        await playFromSource(track, visibleRecs, {
+          source: {
+            type: "playlist-recs",
+            id: playlistId,
+            name: `${effectiveInfo?.title || "Playlist"}: Recommended`,
+            image: effectiveInfo?.image,
+            allTracks: visibleRecs,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to play recommended track:", err);
+      }
+    },
+    [
+      visibleRecs,
+      playlistId,
+      effectiveInfo?.title,
+      effectiveInfo?.image,
+      playFromSource,
+    ],
   );
 
   const handlePlayAll = async () => {
@@ -811,11 +837,11 @@ export default function PlaylistView({
           {tracks.length > 0 && !hasMore && visibleRecs.length > 0 && (
             <div className="mt-10">
               <h2 className="text-[18px] font-bold text-th-text-primary mb-4">
-                Recommended Tracks
+                {RECOMMENDED_TRACKS_LABEL}
               </h2>
               <TrackList
                 tracks={visibleRecs}
-                onPlay={handlePlayTrack}
+                onPlay={handlePlayRec}
                 showArtist={true}
                 showAlbum={true}
                 showCover={true}

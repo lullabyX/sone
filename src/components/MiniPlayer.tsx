@@ -22,6 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMiniplayerBridge } from "../hooks/useMiniplayerBridge";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import { formatTime } from "../lib/format";
+import { isNavigableSource } from "../lib/playbackSource";
 import TidalImage from "./TidalImage";
 import ResizeEdges from "./ResizeEdges";
 
@@ -944,15 +945,23 @@ function CompactTier({
           >
             {artistName}
           </span>
-          {showPlayingFrom && (
-            <span
-              className="text-[12px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
-              style={{ color: colors.textMuted }}
-              onClick={() => sendCommand("show-source")}
-            >
-              Playing from {playbackSourceLabel.name}
-            </span>
-          )}
+          {showPlayingFrom &&
+            (isNavigableSource(playbackSourceLabel.type) ? (
+              <span
+                className="text-[12px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
+                style={{ color: colors.textMuted }}
+                onClick={() => sendCommand("show-source")}
+              >
+                Playing from {playbackSourceLabel.name}
+              </span>
+            ) : (
+              <span
+                className="text-[12px] truncate mt-0.5 w-fit max-w-full"
+                style={{ color: colors.textMuted }}
+              >
+                Playing from {playbackSourceLabel.name}
+              </span>
+            ))}
         </div>
         <FavoriteButton
           isFavorite={isFavorite}
@@ -1156,15 +1165,23 @@ function FullTier({
           >
             {artistName}
           </span>
-          {playbackSourceLabel && (
-            <span
-              className="text-[12px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
-              style={{ color: colors.textMuted }}
-              onClick={() => sendCommand("show-source")}
-            >
-              Playing from {playbackSourceLabel.name}
-            </span>
-          )}
+          {playbackSourceLabel &&
+            (isNavigableSource(playbackSourceLabel.type) ? (
+              <span
+                className="text-[12px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
+                style={{ color: colors.textMuted }}
+                onClick={() => sendCommand("show-source")}
+              >
+                Playing from {playbackSourceLabel.name}
+              </span>
+            ) : (
+              <span
+                className="text-[12px] truncate mt-0.5 w-fit max-w-full"
+                style={{ color: colors.textMuted }}
+              >
+                Playing from {playbackSourceLabel.name}
+              </span>
+            ))}
         </div>
         <FavoriteButton
           isFavorite={isFavorite}

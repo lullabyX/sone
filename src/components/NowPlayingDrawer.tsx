@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import ExplicitBadge from "./ExplicitBadge";
 import { parseLrc, type LrcLine } from "../lib/lrc";
+import { isNavigableSource } from "../lib/playbackSource";
 import {
   useState,
   useEffect,
@@ -113,16 +114,7 @@ const QueueTab = memo(function QueueTab({
   } = useNavigation();
   const { showToast } = useToast();
 
-  const navigableSourceTypes = new Set([
-    "album",
-    "playlist",
-    "mix",
-    "artist",
-    "artist-tracks",
-    "favorites",
-    "radio",
-  ]);
-  const sourceIsNavigable = source && navigableSourceTypes.has(source.type);
+  const sourceIsNavigable = isNavigableSource(source?.type);
 
   const navigateToSource = useCallback(() => {
     if (!source) return;
@@ -135,6 +127,9 @@ const QueueTab = memo(function QueueTab({
           title: source.name,
           image: source.image,
         });
+        break;
+      case "playlist-recs":
+        navigateToPlaylist(source.id as string);
         break;
       case "mix":
         navigateToMix(source.id as string, {
@@ -180,6 +175,9 @@ const QueueTab = memo(function QueueTab({
         break;
       case "playlist":
         navigateToPlaylist(s.id as string, { title: s.name, image: s.image });
+        break;
+      case "playlist-recs":
+        navigateToPlaylist(s.id as string);
         break;
       case "mix":
         navigateToMix(s.id as string, {
@@ -426,7 +424,7 @@ const QueueTab = memo(function QueueTab({
                       {source.name}
                     </button>
                   ) : (
-                    <span className="uppercase underline">{source.name}</span>
+                    <span className="uppercase">{source.name}</span>
                   )}
                 </>
               ) : (
@@ -465,7 +463,7 @@ const QueueTab = memo(function QueueTab({
                       {contextQueueSource ? (
                         <>
                           Next up from{" "}
-                          {navigableSourceTypes.has(contextQueueSource.type) ? (
+                          {isNavigableSource(contextQueueSource.type) ? (
                             <button
                               onClick={navigateToContextQueueSource}
                               className="uppercase underline hover:text-th-text-primary transition-colors"
@@ -473,7 +471,7 @@ const QueueTab = memo(function QueueTab({
                               {contextQueueSource.name}
                             </button>
                           ) : (
-                            <span className="uppercase underline">
+                            <span className="uppercase">
                               {contextQueueSource.name}
                             </span>
                           )}

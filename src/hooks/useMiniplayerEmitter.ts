@@ -195,6 +195,7 @@ export function useMiniplayerEmitter() {
   const { openDrawerToTab } = useDrawer();
   const {
     navigateToArtist,
+    navigateToArtistTracks,
     navigateToAlbum,
     navigateToPlaylist,
     navigateToMix,
@@ -287,14 +288,50 @@ export function useMiniplayerEmitter() {
             const src =
               store.get(contextSourceAtom) || store.get(playbackSourceAtom);
             if (!src) break;
-            await focusMainWindow();
-            if (src.type === "favorites") navigateToFavorites();
-            else if (src.type === "album")
-              navigateToAlbum(Number(src.id), { title: src.name });
-            else if (src.type === "playlist")
-              navigateToPlaylist(String(src.id), { title: src.name });
-            else if (src.type === "mix")
-              navigateToMix(String(src.id), { title: src.name });
+            switch (src.type) {
+              case "favorites":
+                await focusMainWindow();
+                navigateToFavorites();
+                break;
+              case "album":
+                await focusMainWindow();
+                navigateToAlbum(Number(src.id), { title: src.name });
+                break;
+              case "playlist":
+                await focusMainWindow();
+                navigateToPlaylist(String(src.id), { title: src.name });
+                break;
+              case "playlist-recs":
+                await focusMainWindow();
+                navigateToPlaylist(String(src.id));
+                break;
+              case "mix":
+                await focusMainWindow();
+                navigateToMix(String(src.id), {
+                  title: src.name,
+                  image: src.image,
+                  subtitle: src.subtitle,
+                  mixType: src.mixType,
+                });
+                break;
+              case "artist":
+                await focusMainWindow();
+                navigateToArtist(Number(src.id));
+                break;
+              case "artist-tracks":
+                await focusMainWindow();
+                navigateToArtistTracks(Number(src.id), src.name);
+                break;
+              case "radio":
+                await focusMainWindow();
+                navigateToMix(String(src.id), {
+                  title: src.name,
+                  image: src.image,
+                  mixType: "TRACK_MIX",
+                });
+                break;
+              // Non-navigable sources (e.g. "playlist-recs"): no focus, no nav.
+            }
             break;
           }
           case "share": {
@@ -333,6 +370,7 @@ export function useMiniplayerEmitter() {
     openDrawerToTab,
     focusMainWindow,
     navigateToArtist,
+    navigateToArtistTracks,
     navigateToAlbum,
     navigateToPlaylist,
     navigateToMix,

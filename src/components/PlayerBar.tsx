@@ -15,6 +15,7 @@ import {
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import { formatTime } from "../lib/format";
+import { isNavigableSource } from "../lib/playbackSource";
 import TidalImage from "./TidalImage";
 import { useCallback, useRef, useState, memo } from "react";
 import { useAtomValue, useAtom, useSetAtom } from "jotai";
@@ -164,17 +165,7 @@ const ContextMenuButton = memo(function ContextMenuButton() {
 
 // ─── PlayingFromLabel ─────────────────────────────────────────────────────
 
-const navigableSourceTypes = new Set([
-  "album",
-  "playlist",
-  "mix",
-  "artist",
-  "artist-tracks",
-  "favorites",
-  "radio",
-]);
-
-const PlayingFromLabel = memo(function PlayingFromLabel() {
+export const PlayingFromLabel = memo(function PlayingFromLabel() {
   const source = useAtomValue(playbackSourceAtom);
   const {
     navigateToAlbum,
@@ -196,6 +187,12 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
           title: source.name,
           image: source.image,
         });
+        break;
+      case "playlist-recs":
+        // Recommendations belong to a playlist; the source name is
+        // "<title>: Recommended", so navigate by id and let the page load
+        // its real title rather than passing the decorated name.
+        navigateToPlaylist(source.id as string);
         break;
       case "mix":
         navigateToMix(source.id as string, {
@@ -234,7 +231,7 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
 
   if (!source) return null;
 
-  const isNavigable = navigableSourceTypes.has(source.type);
+  const isNavigable = isNavigableSource(source.type);
 
   return (
     <span className="flex items-center text-th-text-faint text-[10px] mt-1.5 min-w-0">
@@ -247,7 +244,7 @@ const PlayingFromLabel = memo(function PlayingFromLabel() {
           {source.name}
         </button>
       ) : (
-        <span className="underline truncate">{source.name}</span>
+        <span className="truncate">{source.name}</span>
       )}
     </span>
   );
