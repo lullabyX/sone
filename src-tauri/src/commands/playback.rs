@@ -228,15 +228,22 @@ pub async fn resume_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     result
 }
 
-#[tauri::command]
-pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
-    log::debug!("[stop_track]");
+/// Tear down playback: stop the audio pipeline, clear the MPRIS/Discord
+/// now-playing surfaces, and notify the scrobble manager. Shared by the
+/// `stop_track` command and `logout`.
+pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
     let result = state.audio_player.stop().map_err(SoneError::Audio);
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::Stop);
     state.discord.send(crate::discord::DiscordCommand::Stop);
     state.scrobble_manager.on_track_stopped().await;
     result
+}
+
+#[tauri::command]
+pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
+    log::debug!("[stop_track]");
+    stop_playback(state.inner()).await
 }
 
 #[tauri::command]
