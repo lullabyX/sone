@@ -53,7 +53,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <div className="mt-2 flex gap-3">
             <button
               onClick={this.handleGoHome}
-              className="px-6 py-2 bg-th-accent text-black rounded-full text-sm font-bold hover:bg-th-accent-hover hover:scale-105 transition-[transform,background-color]"
+              className="px-6 py-2 bg-th-accent text-th-on-accent rounded-full text-sm font-bold hover:bg-th-accent-hover hover:scale-105 transition-[transform,background-color]"
             >
               Go home
             </button>

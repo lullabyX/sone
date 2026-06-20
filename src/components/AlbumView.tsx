@@ -233,10 +233,10 @@ export default function AlbumView({
   );
   const qualityBadgeClass =
     qualityBadge?.tier === "max"
-      ? "bg-th-accent text-black"
+      ? "bg-th-accent/20 backdrop-blur-md text-th-text-primary"
       : qualityBadge?.tier === "hifi"
-        ? "bg-th-accent/70 text-black"
-        : "bg-th-button-hover text-th-text-primary";
+        ? "bg-th-accent/15 backdrop-blur-md text-th-text-primary"
+        : "bg-th-button-hover/40 backdrop-blur-md text-th-text-primary";
 
   const albumMediaItem: MediaItemType = {
     id: albumId,
@@ -395,11 +395,11 @@ export default function AlbumView({
                 className="w-full h-full"
               />
             </div>
-            <div className="flex flex-col gap-2 pb-2 min-w-0">
+            <div className="flex flex-col gap-2 pb-1 min-w-0">
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
                 Album
               </span>
-              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-none tracking-tight line-clamp-2">
+              <h1 className="text-[42px] font-extrabold text-th-text-primary leading-tight tracking-tight line-clamp-2">
                 {displayTitle}
               </h1>
               <div className="flex items-center gap-2 mt-2 min-w-0 text-[14px]">
@@ -439,7 +439,7 @@ export default function AlbumView({
                   {releaseYear && <span>{releaseYear}</span>}
                   {qualityBadge && (
                     <span
-                      className={`px-2 py-0.5 text-[10px] font-black rounded tracking-wider leading-none ${qualityBadgeClass}`}
+                      className={`px-2 py-0.5 text-[10px] font-semibold rounded tracking-wider leading-none ${qualityBadgeClass}`}
                     >
                       {qualityBadge.label}
                     </span>

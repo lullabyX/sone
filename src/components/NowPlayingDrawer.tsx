@@ -1125,7 +1125,7 @@ const LyricsTab = memo(function LyricsTab() {
         {userScrolled && (
           <button
             onClick={handleResync}
-            className="absolute bottom-4 right-8 flex items-center gap-2 px-4 py-2.5 bg-th-accent text-black text-[12px] font-bold rounded-full shadow-lg shadow-black/40 hover:brightness-110 active:scale-95 transition-[filter,transform] duration-150 animate-fadeIn"
+            className="absolute bottom-4 right-8 flex items-center gap-2 px-4 py-2.5 bg-th-accent text-th-on-accent text-[12px] font-bold rounded-full shadow-lg shadow-black/40 hover:brightness-110 active:scale-95 transition-[filter,transform] duration-150 animate-fadeIn"
           >
             <Mic2 size={14} />
             Sync lyrics

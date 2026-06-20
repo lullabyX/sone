@@ -616,7 +616,7 @@ export default function Login() {
                     }}
                     className={`relative z-10 py-2 text-[13px] font-medium rounded-full transition-colors duration-300 ${
                       simpleTab === "pkce"
-                        ? "text-black"
+                        ? "text-th-on-accent"
                         : "text-th-text-muted hover:text-th-text-primary"
                     }`}
                   >
@@ -630,7 +630,7 @@ export default function Login() {
                     }}
                     className={`relative z-10 py-2 text-[13px] font-medium rounded-full transition-colors duration-300 ${
                       simpleTab === "loginCode"
-                        ? "text-black"
+                        ? "text-th-on-accent"
                         : "text-th-text-muted hover:text-th-text-primary"
                     }`}
                   >
@@ -688,7 +688,7 @@ export default function Login() {
                     </p>
                     <button
                       onClick={handleSimplePkceWindow}
-                      className="w-full px-6 py-3.5 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
+                      className="w-full px-6 py-3.5 bg-th-accent text-th-on-accent font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
                     >
                       Sign in with TIDAL
                     </button>
@@ -709,7 +709,7 @@ export default function Login() {
                     </p>
                     <button
                       onClick={handleSimpleLoginCode}
-                      className="w-full px-6 py-3.5 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
+                      className="w-full px-6 py-3.5 bg-th-accent text-th-on-accent font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[16px] shadow-xl"
                     >
                       Get Login Code
                     </button>
@@ -985,7 +985,7 @@ export default function Login() {
                     <button
                       onClick={handleDeviceLogin}
                       disabled={!clientId.trim()}
-                      className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full px-6 py-3 bg-th-accent text-th-on-accent font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Get Login Code
                     </button>
@@ -1007,7 +1007,7 @@ export default function Login() {
                     <button
                       onClick={handlePkceLogin}
                       disabled={!clientId.trim() || !hasSecret}
-                      className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full px-6 py-3 bg-th-accent text-th-on-accent font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Login with TIDAL
                     </button>
@@ -1133,7 +1133,7 @@ export default function Login() {
                       disabled={
                         (!curlText.trim() && !responseText.trim()) || importing
                       }
-                      className="w-full px-6 py-3 bg-th-accent text-black font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full px-6 py-3 bg-th-accent text-th-on-accent font-bold rounded-full hover:scale-[1.02] hover:brightness-110 transition-all text-[15px] shadow-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {importing ? (
                         <span className="flex items-center justify-center gap-2">
@@ -1233,7 +1233,7 @@ export default function Login() {
               <button
                 onClick={handleSubmitUrl}
                 disabled={!pasteUrl.trim()}
-                className="flex-1 px-4 py-2.5 bg-th-accent text-black rounded-full text-[13px] font-bold hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 px-4 py-2.5 bg-th-accent text-th-on-accent rounded-full text-[13px] font-bold hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Complete Login
               </button>

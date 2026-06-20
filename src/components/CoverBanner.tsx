@@ -36,7 +36,7 @@ export default function CoverBanner({
     >
       {variant === "blur" ? (
         <>
-          <div className="absolute inset-0 blur-3xl saturate-150">
+          <div className="absolute inset-0 blur-[48px] saturate-[1.2]">
             <TidalImage
               src={src}
               alt=""
@@ -46,9 +46,9 @@ export default function CoverBanner({
           </div>
           {/* Semitransparent base-tone layer: darkens on dark themes, lightens on
               light themes, so the bright blur reads as TIDAL's deep tone either way. */}
-          <div className="absolute inset-0 bg-th-base/60" />
+          <div className="absolute inset-0 bg-th-base/50" />
           {/* Keep the title/metadata side readable, like TIDAL. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-th-base/20 to-th-base/60" />
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-th-base/10 to-th-base/60" />
         </>
       ) : (
         <>

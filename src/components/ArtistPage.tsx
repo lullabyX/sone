@@ -589,12 +589,20 @@ export default function ArtistPage({
               <div className="flex items-center gap-3">
                 <button
                   onClick={handlePlayAll}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-black font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-th-on-accent font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
                 >
                   {artistPlaying ? (
-                    <Pause size={18} fill="black" className="text-black" />
+                    <Pause
+                      size={18}
+                      fill="currentColor"
+                      className="text-th-on-accent"
+                    />
                   ) : (
-                    <Play size={18} fill="black" className="text-black" />
+                    <Play
+                      size={18}
+                      fill="currentColor"
+                      className="text-th-on-accent"
+                    />
                   )}
                   {artistPlaying ? "Pause" : "Play"}
                 </button>
