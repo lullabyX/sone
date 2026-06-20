@@ -1109,6 +1109,17 @@ export async function updateProfileLinks(
   await invoke("update_profile_links", { artistId, links });
 }
 
+export async function uploadProfilePicture(
+  artistId: number,
+  imageB64: string,
+): Promise<void> {
+  await invoke("upload_profile_picture", { artistId, imageB64 });
+}
+
+export async function deleteProfilePicture(artistId: number): Promise<void> {
+  await invoke("delete_profile_picture", { artistId });
+}
+
 // ==================== Auth helpers (never cached) ====================
 
 export async function getSavedCredentials(): Promise<{
