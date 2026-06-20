@@ -4795,6 +4795,7 @@ impl TidalClient {
                 artwork_id: None,
                 blur_hash: None,
                 palette: Vec::new(),
+                external_links: Vec::new(),
                 fan_count: None,
                 public_playlists: Vec::new(),
             });
@@ -4837,6 +4838,7 @@ impl TidalClient {
             artwork_id: parts.artwork_id,
             blur_hash: parts.blur_hash,
             palette: parts.palette,
+            external_links: parts.external_links,
             fan_count,
             public_playlists,
         })
@@ -4933,6 +4935,7 @@ pub struct Profile {
     #[serde(default)]
     pub blur_hash: Option<String>,
     pub palette: Vec<String>,
+    pub external_links: Vec<ExternalLink>,
     #[serde(default)]
     pub fan_count: Option<u32>,
     pub public_playlists: Vec<ProfilePlaylist>,
@@ -4950,6 +4953,7 @@ pub struct ArtistProfileParts {
     pub artwork_id: Option<String>,
     pub blur_hash: Option<String>,
     pub palette: Vec<String>,
+    pub external_links: Vec<ExternalLink>,
 }
 
 /// Find an entry in a JSON:API `included[]` array matching `type` + `id`.
@@ -5010,6 +5014,25 @@ fn parse_artist_profile(body: &str) -> Result<ArtistProfileParts, SoneError> {
         .and_then(|h| h.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+
+    let external_links = attrs
+        .and_then(|a| a.get("externalLinks"))
+        .and_then(|l| l.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let href = item.get("href").and_then(|h| h.as_str())?.to_string();
+                    let link_type = item
+                        .get("meta")
+                        .and_then(|m| m.get("type"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    Some(ExternalLink { href, link_type })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let empty: Vec<Value> = Vec::new();
     let included = json
@@ -5074,6 +5097,7 @@ fn parse_artist_profile(body: &str) -> Result<ArtistProfileParts, SoneError> {
         artwork_id,
         blur_hash,
         palette,
+        external_links,
     })
 }
 
@@ -5389,5 +5413,30 @@ mod profile_tests {
         let body = build_external_links_body(42, &[]);
         let arr = body["data"]["attributes"]["externalLinks"].as_array().unwrap();
         assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn parse_artist_profile_reads_external_links() {
+        let body = json!({
+            "data": {
+                "type": "artists",
+                "id": "12345",
+                "attributes": {
+                    "name": "Linked Artist",
+                    "externalLinks": [
+                        { "href": "https://instagram.com/me", "meta": { "type": "INSTAGRAM" } },
+                        { "href": "https://me.com", "meta": { "type": "OFFICIAL_HOMEPAGE" } }
+                    ]
+                },
+                "relationships": { "profileArt": { "data": [] } }
+            },
+            "included": []
+        })
+        .to_string();
+        let parts = parse_artist_profile(&body).unwrap();
+        assert_eq!(parts.external_links.len(), 2);
+        assert_eq!(parts.external_links[0].href, "https://instagram.com/me");
+        assert_eq!(parts.external_links[0].link_type, "INSTAGRAM");
+        assert_eq!(parts.external_links[1].link_type, "OFFICIAL_HOMEPAGE");
     }
 }
