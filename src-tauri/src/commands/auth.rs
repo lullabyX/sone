@@ -207,6 +207,7 @@ pub fn parse_token_data(raw_text: String) -> Result<ParsedTokens, SoneError> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn import_session(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     client_id: String,
     client_secret: String,
     refresh_token: String,
@@ -245,7 +246,10 @@ pub async fn import_session(
             token_type: "Bearer".to_string(),
             user_id: None,
         });
-        client.refresh_token().await?
+        let tokens = client.refresh_token().await?;
+        // Refresh the session country for the refresh-only path too.
+        client.get_session_info().await.ok();
+        tokens
     };
 
     let mut settings = state.load_settings().unwrap_or_default();
@@ -256,6 +260,9 @@ pub async fn import_session(
         settings.client_secret = client_secret;
     }
     state.save_settings(&settings)?;
+
+    restore_session_services(&app).await;
+
     Ok(final_tokens)
 }
 
@@ -274,6 +281,7 @@ pub async fn start_device_auth(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn poll_device_auth(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     device_code: String,
     client_id: String,
     client_secret: String,
@@ -284,6 +292,9 @@ pub async fn poll_device_auth(
 
     match client.poll_device_token(&device_code).await? {
         Some(tokens) => {
+            // Refresh the session country for the now-logged-in account.
+            client.get_session_info().await.ok();
+
             // Save tokens and credentials
             let mut settings = state.load_settings().unwrap_or_default();
             settings.auth_tokens = Some(tokens.clone());
@@ -297,6 +308,10 @@ pub async fn poll_device_auth(
                 settings.client_secret = String::new();
             }
             state.save_settings(&settings)?;
+
+            // restore_session_services does not lock tidal_client, so calling
+            // it while `client` is still in scope is safe (no re-entrant lock).
+            restore_session_services(&app).await;
 
             Ok(Some(tokens))
         }
@@ -356,6 +371,7 @@ pub fn start_pkce_auth(client_id: String) -> Result<PkceAuthParams, SoneError> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn complete_pkce_auth(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     code: String,
     code_verifier: String,
     client_unique_key: String,
@@ -368,6 +384,9 @@ pub async fn complete_pkce_auth(
     let tokens = client
         .exchange_pkce_code(&code, &code_verifier, PKCE_REDIRECT_URI, &client_unique_key)
         .await?;
+
+    // Refresh the session country for the now-logged-in account.
+    client.get_session_info().await.ok();
 
     // Save tokens and credentials
     let mut settings = state.load_settings().unwrap_or_default();
@@ -385,6 +404,8 @@ pub async fn complete_pkce_auth(
         settings.client_secret = String::new();
     }
     state.save_settings(&settings)?;
+
+    restore_session_services(&app).await;
 
     Ok(tokens)
 }
@@ -438,6 +459,21 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
     state.disk_cache.clear().await;
 
     Ok(())
+}
+
+/// Re-arm session-bound background services after a successful login. Mirrors
+/// what app startup does: reconnect Discord (if enabled) and (re)start the MCP
+/// server (if enabled). Intentionally does NOT re-register scrobblers (logout
+/// purges them) and does NOT lock `tidal_client` (callers hold that lock).
+pub(crate) async fn restore_session_services(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let discord_rpc = state.load_settings().map(|s| s.discord_rpc).unwrap_or(false);
+    if discord_rpc {
+        state
+            .discord
+            .send(crate::discord::DiscordCommand::Connect);
+    }
+    crate::mcp::ensure_mcp_started(app).await;
 }
 
 /// Returns `true` and increments the persisted counter when the user is on
@@ -513,6 +549,9 @@ async fn finish_embedded_pkce(
         .exchange_pkce_code(&code, &code_verifier, PKCE_REDIRECT_URI, &client_unique_key)
         .await?;
 
+    // Refresh the session country for the now-logged-in account.
+    client.get_session_info().await.ok();
+
     let mut settings = state.load_settings().unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
     settings.auth_method = AuthMethod::Pkce;
@@ -520,6 +559,9 @@ async fn finish_embedded_pkce(
     settings.client_id = String::new();
     settings.client_secret = String::new();
     state.save_settings(&settings)?;
+
+    // Covers both the embedded-webview path and complete_pkce_browser_login.
+    restore_session_services(&app).await;
 
     Ok(tokens)
 }
