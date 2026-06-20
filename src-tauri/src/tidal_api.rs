@@ -5249,6 +5249,27 @@ fn artwork_status_from_body(body: &str) -> Result<ArtworkPollOutcome, SoneError>
     }
 }
 
+fn normalize_square_jpeg(bytes: &[u8]) -> Result<Vec<u8>, SoneError> {
+    let img = image::load_from_memory(bytes)
+        .map_err(|e| SoneError::Parse(format!("decode image: {}", e)))?;
+    let (w, h) = (img.width(), img.height());
+    let side = w.min(h);
+    let x = (w - side) / 2;
+    let y = (h - side) / 2;
+    let mut square = img.crop_imm(x, y, side, side);
+    if side > 1280 {
+        square = square.resize(1280, 1280, image::imageops::FilterType::Lanczos3);
+    }
+    let mut out = std::io::Cursor::new(Vec::new());
+    square
+        .to_rgb8()
+        .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+            &mut out, 90,
+        ))
+        .map_err(|e| SoneError::Parse(format!("encode jpeg: {}", e)))?;
+    Ok(out.into_inner())
+}
+
 /// Pick the file href closest to ~320px wide from an `artworks` included object.
 fn cover_url_320(artwork: &Value) -> Option<String> {
     let files = art_files_from_artwork(artwork);
@@ -5587,5 +5608,26 @@ mod profile_upload_tests {
                 ArtworkPollOutcome::Failed(_)
             ));
         }
+    }
+
+    #[test]
+    fn normalize_square_jpeg_produces_square_capped_jpeg() {
+        // a 200x100 red PNG, decoded by the image crate
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let img = image::RgbImage::from_pixel(200, 100, image::Rgb([200, 30, 30]));
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, image::ImageFormat::Png)
+            .unwrap();
+        let out = normalize_square_jpeg(&buf.into_inner()).unwrap();
+        let decoded = image::load_from_memory(&out).unwrap();
+        assert_eq!(decoded.width(), decoded.height());
+        assert!(decoded.width() <= 1280);
+        // JPEG SOI marker
+        assert_eq!(&out[0..2], &[0xFF, 0xD8]);
+    }
+
+    #[test]
+    fn normalize_square_jpeg_rejects_garbage() {
+        assert!(normalize_square_jpeg(b"not an image").is_err());
     }
 }
