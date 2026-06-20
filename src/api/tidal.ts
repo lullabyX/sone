@@ -11,6 +11,7 @@ import type {
   HomePageCached,
   HomePageResponse,
   Lyrics,
+  ExternalLink,
   MediaItemType,
   Paginated,
   PaginatedTracks,
@@ -1086,6 +1087,26 @@ export async function getAllFavoriteIds(
 
 export async function getProfile(userId: number): Promise<Profile> {
   return invoke<Profile>("get_profile", { userId });
+}
+
+export async function updateProfileMeta(
+  artistId: number,
+  name: string | null,
+  handle: string | null,
+  dryRun: boolean,
+): Promise<void> {
+  await invoke("update_profile_meta", { artistId, name, handle, dryRun });
+}
+
+export async function updateProfileBio(bioId: string, text: string): Promise<void> {
+  await invoke("update_profile_bio", { bioId, text });
+}
+
+export async function updateProfileLinks(
+  artistId: number,
+  links: ExternalLink[],
+): Promise<void> {
+  await invoke("update_profile_links", { artistId, links });
 }
 
 // ==================== Auth helpers (never cached) ====================
