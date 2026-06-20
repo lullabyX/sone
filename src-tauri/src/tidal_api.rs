@@ -5070,6 +5070,32 @@ fn parse_artist_profile(body: &str) -> Result<ArtistProfileParts, SoneError> {
     })
 }
 
+fn build_artist_meta_body(
+    artist_id: u64,
+    name: Option<&str>,
+    handle: Option<&str>,
+    dry_run: bool,
+) -> Value {
+    let mut attributes = serde_json::Map::new();
+    if let Some(n) = name {
+        attributes.insert("name".into(), Value::String(n.to_string()));
+    }
+    if let Some(h) = handle {
+        attributes.insert("handle".into(), Value::String(h.to_string()));
+    }
+    let mut body = serde_json::json!({
+        "data": {
+            "type": "artists",
+            "id": artist_id.to_string(),
+            "attributes": Value::Object(attributes),
+        }
+    });
+    if dry_run {
+        body["meta"] = serde_json::json!({ "dryRun": true });
+    }
+    body
+}
+
 /// Pick the file href closest to ~320px wide from an `artworks` included object.
 fn cover_url_320(artwork: &Value) -> Option<String> {
     let files = art_files_from_artwork(artwork);
@@ -5301,5 +5327,23 @@ mod profile_tests {
         assert!(found.is_some());
         assert_eq!(found.unwrap().get("id").unwrap(), "b1");
         assert!(resolve_included(&included, "artworks", "missing").is_none());
+    }
+
+    #[test]
+    fn build_artist_meta_body_dry_run_with_both_fields() {
+        let body = build_artist_meta_body(12345, Some("New Name"), Some("newhandle"), true);
+        assert_eq!(body["data"]["type"], "artists");
+        assert_eq!(body["data"]["id"], "12345");
+        assert_eq!(body["data"]["attributes"]["name"], "New Name");
+        assert_eq!(body["data"]["attributes"]["handle"], "newhandle");
+        assert_eq!(body["meta"]["dryRun"], true);
+    }
+
+    #[test]
+    fn build_artist_meta_body_commit_omits_meta_and_absent_fields() {
+        let body = build_artist_meta_body(7, None, Some("onlyhandle"), false);
+        assert_eq!(body["data"]["attributes"]["handle"], "onlyhandle");
+        assert!(body["data"]["attributes"].get("name").is_none());
+        assert!(body.get("meta").is_none());
     }
 }
