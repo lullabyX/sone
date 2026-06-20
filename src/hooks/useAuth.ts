@@ -6,14 +6,38 @@ import {
   authTokensAtom,
   userNameAtom,
 } from "../atoms/auth";
-import { userPlaylistsAtom } from "../atoms/playlists";
+import {
+  userPlaylistsAtom,
+  allPlaylistsAtom,
+  allFoldersAtom,
+  allFoldersFetchedAtom,
+  deletedPlaylistIdsAtom,
+  deletedFolderIdsAtom,
+  movedPlaylistsAtom,
+  folderCountAdjustmentsAtom,
+  addedToFolderAtom,
+  renamedFoldersAtom,
+  updatedPlaylistsAtom,
+} from "../atoms/playlists";
 import {
   isPlayingAtom,
   currentTrackAtom,
   queueAtom,
   historyAtom,
+  streamInfoAtom,
+  userPausedAtom,
 } from "../atoms/playback";
-import { favoriteTrackIdsAtom } from "../atoms/favorites";
+import {
+  favoriteTrackIdsAtom,
+  favoriteAlbumIdsAtom,
+  favoritePlaylistUuidsAtom,
+  followedArtistIdsAtom,
+  favoriteMixIdsAtom,
+  optimisticFavoriteAlbumsAtom,
+  optimisticFollowedArtistsAtom,
+  optimisticFavoriteMixesAtom,
+} from "../atoms/favorites";
+import { currentViewAtom } from "../atoms/navigation";
 import {
   clearCache,
   getPlaylistFolders,
@@ -36,12 +60,35 @@ export function useAuth() {
   const userName = useAtomValue(userNameAtom);
 
   // Cross-domain setters for logout
+  const setUserName = useSetAtom(userNameAtom);
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
   const setIsPlaying = useSetAtom(isPlayingAtom);
   const setCurrentTrack = useSetAtom(currentTrackAtom);
   const setQueue = useSetAtom(queueAtom);
   const setHistory = useSetAtom(historyAtom);
+  const setStreamInfo = useSetAtom(streamInfoAtom);
+  const setUserPaused = useSetAtom(userPausedAtom);
   const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
+  const setFavoriteAlbumIds = useSetAtom(favoriteAlbumIdsAtom);
+  const setFavoritePlaylistUuids = useSetAtom(favoritePlaylistUuidsAtom);
+  const setFollowedArtistIds = useSetAtom(followedArtistIdsAtom);
+  const setFavoriteMixIds = useSetAtom(favoriteMixIdsAtom);
+  const setOptimisticFavoriteAlbums = useSetAtom(optimisticFavoriteAlbumsAtom);
+  const setOptimisticFollowedArtists = useSetAtom(
+    optimisticFollowedArtistsAtom,
+  );
+  const setOptimisticFavoriteMixes = useSetAtom(optimisticFavoriteMixesAtom);
+  const setCurrentView = useSetAtom(currentViewAtom);
+  const setAllPlaylists = useSetAtom(allPlaylistsAtom);
+  const setAllFolders = useSetAtom(allFoldersAtom);
+  const setAllFoldersFetched = useSetAtom(allFoldersFetchedAtom);
+  const setDeletedPlaylistIds = useSetAtom(deletedPlaylistIdsAtom);
+  const setDeletedFolderIds = useSetAtom(deletedFolderIdsAtom);
+  const setMovedPlaylists = useSetAtom(movedPlaylistsAtom);
+  const setFolderCountAdjustments = useSetAtom(folderCountAdjustmentsAtom);
+  const setAddedToFolder = useSetAtom(addedToFolderAtom);
+  const setRenamedFolders = useSetAtom(renamedFoldersAtom);
+  const setUpdatedPlaylists = useSetAtom(updatedPlaylistsAtom);
 
   // NOTE: Auth loading effect has been moved to AppInitializer
   // to avoid running once per component that calls useAuth().
@@ -186,35 +233,84 @@ export function useAuth() {
   );
 
   const logout = useCallback(async () => {
+    // Clear playback intent immediately so any in-flight track event is ignored.
+    setIsPlaying(false);
+    setCurrentTrack(null);
+    setQueue([]);
     try {
       await invoke("logout");
+    } catch (error) {
+      console.error("Failed to logout:", error);
+    } finally {
       clearCache();
       setAuthTokens(null);
       setIsAuthenticated(false);
-      setUserPlaylists([]);
-      setCurrentTrack(null);
-      setIsPlaying(false);
-      setQueue([]);
+      setUserName("TIDAL User");
+      // Playback
       setHistory([]);
+      setStreamInfo(null);
+      setUserPaused(false);
+      // Favorites (all kinds) + optimistic overlays
       setFavoriteTrackIds(new Set());
+      setFavoriteAlbumIds(new Set());
+      setFavoritePlaylistUuids(new Set());
+      setFollowedArtistIds(new Set());
+      setFavoriteMixIds(new Set());
+      setOptimisticFavoriteAlbums([]);
+      setOptimisticFollowedArtists([]);
+      setOptimisticFavoriteMixes([]);
+      // Playlists / folders (lists + optimistic mutation overlays)
+      setUserPlaylists([]);
+      setAllPlaylists([]);
+      setAllFolders([]);
+      setAllFoldersFetched(false);
+      setDeletedPlaylistIds(new Set());
+      setDeletedFolderIds(new Set());
+      setMovedPlaylists(new Map());
+      setFolderCountAdjustments(new Map());
+      setAddedToFolder(new Map());
+      setRenamedFolders(new Map());
+      setUpdatedPlaylists(new Map());
+      // Navigation
+      setCurrentView({ type: "home" });
       try {
         localStorage.removeItem(PLAYBACK_STATE_KEY);
         localStorage.removeItem(VOLUME_STATE_KEY);
+        localStorage.removeItem("sone.search-history");
       } catch (err) {
-        console.error("Failed to clear playback state:", err);
+        console.error("Failed to clear local storage:", err);
       }
-    } catch (error) {
-      console.error("Failed to logout:", error);
     }
   }, [
     setAuthTokens,
     setIsAuthenticated,
+    setUserName,
     setUserPlaylists,
-    setCurrentTrack,
     setIsPlaying,
+    setCurrentTrack,
     setQueue,
     setHistory,
+    setStreamInfo,
+    setUserPaused,
     setFavoriteTrackIds,
+    setFavoriteAlbumIds,
+    setFavoritePlaylistUuids,
+    setFollowedArtistIds,
+    setFavoriteMixIds,
+    setOptimisticFavoriteAlbums,
+    setOptimisticFollowedArtists,
+    setOptimisticFavoriteMixes,
+    setAllPlaylists,
+    setAllFolders,
+    setAllFoldersFetched,
+    setDeletedPlaylistIds,
+    setDeletedFolderIds,
+    setMovedPlaylists,
+    setFolderCountAdjustments,
+    setAddedToFolder,
+    setRenamedFolders,
+    setUpdatedPlaylists,
+    setCurrentView,
   ]);
 
   const getUserPlaylists = useCallback(
