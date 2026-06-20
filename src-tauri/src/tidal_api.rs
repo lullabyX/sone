@@ -5225,6 +5225,30 @@ fn build_external_links_body(artist_id: u64, links: &[ExternalLink]) -> Value {
     })
 }
 
+#[derive(Debug)]
+enum ArtworkPollOutcome {
+    Ok,
+    Pending,
+    Failed(String),
+}
+
+fn artwork_status_from_body(body: &str) -> Result<ArtworkPollOutcome, SoneError> {
+    let json: Value = serde_json::from_str(body).map_err(|e| SoneError::Parse(e.to_string()))?;
+    let status = json
+        .get("data")
+        .and_then(|d| d.get("attributes"))
+        .and_then(|a| a.get("sourceFile"))
+        .and_then(|s| s.get("status"))
+        .and_then(|s| s.get("technicalFileStatus"))
+        .and_then(|s| s.as_str())
+        .ok_or_else(|| SoneError::Parse("artwork: missing technicalFileStatus".into()))?;
+    match status {
+        "OK" => Ok(ArtworkPollOutcome::Ok),
+        "UPLOAD_REQUESTED" | "PROCESSING" => Ok(ArtworkPollOutcome::Pending),
+        other => Ok(ArtworkPollOutcome::Failed(other.to_string())),
+    }
+}
+
 /// Pick the file href closest to ~320px wide from an `artworks` included object.
 fn cover_url_320(artwork: &Value) -> Option<String> {
     let files = art_files_from_artwork(artwork);
@@ -5522,5 +5546,46 @@ mod profile_tests {
         assert_eq!(parts.external_links[0].href, "https://instagram.com/me");
         assert_eq!(parts.external_links[0].link_type, "INSTAGRAM");
         assert_eq!(parts.external_links[1].link_type, "OFFICIAL_HOMEPAGE");
+    }
+}
+
+#[cfg(test)]
+mod profile_upload_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn status_body(s: &str) -> String {
+        json!({
+            "data": { "attributes": { "sourceFile": { "status": { "technicalFileStatus": s } } } }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn artwork_status_ok() {
+        assert!(matches!(
+            artwork_status_from_body(&status_body("OK")).unwrap(),
+            ArtworkPollOutcome::Ok
+        ));
+    }
+
+    #[test]
+    fn artwork_status_pending_states() {
+        for s in ["UPLOAD_REQUESTED", "PROCESSING"] {
+            assert!(matches!(
+                artwork_status_from_body(&status_body(s)).unwrap(),
+                ArtworkPollOutcome::Pending
+            ));
+        }
+    }
+
+    #[test]
+    fn artwork_status_hard_fail_states() {
+        for s in ["ERROR", "DELETED"] {
+            assert!(matches!(
+                artwork_status_from_body(&status_body(s)).unwrap(),
+                ArtworkPollOutcome::Failed(_)
+            ));
+        }
     }
 }
