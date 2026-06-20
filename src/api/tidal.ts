@@ -18,6 +18,7 @@ import type {
   PlaylistFolderItem,
   PlaylistFoldersResponse,
   PlaylistOrFolder,
+  Profile,
   SearchResults,
   SuggestionsResponse,
   Track,
@@ -1079,6 +1080,12 @@ export async function getAllFavoriteIds(
   userId: number,
 ): Promise<AllFavoriteIds> {
   return invoke<AllFavoriteIds>("get_all_favorite_ids", { userId });
+}
+
+// ==================== Profile ====================
+
+export async function getProfile(userId: number): Promise<Profile> {
+  return invoke<Profile>("get_profile", { userId });
 }
 
 // ==================== Auth helpers (never cached) ====================

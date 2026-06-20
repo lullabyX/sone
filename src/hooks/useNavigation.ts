@@ -108,6 +108,10 @@ export function useNavigation() {
     [navigate],
   );
 
+  const navigateToProfile = useCallback(() => {
+    navigate({ type: "profile" });
+  }, [navigate]);
+
   const navigateToExplore = useCallback(() => {
     navigate({ type: "explore" });
   }, [navigate]);
@@ -148,6 +152,7 @@ export function useNavigation() {
     navigateToArtist,
     navigateToArtistTracks,
     navigateToMix,
+    navigateToProfile,
     navigateToExplore,
     navigateToExplorePage,
     navigateToLibraryViewAll,
