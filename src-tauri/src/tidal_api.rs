@@ -4896,6 +4896,13 @@ pub struct ProfileArtFile {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ExternalLink {
+    pub href: String,
+    pub link_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ProfilePlaylist {
     pub id: String,
     pub title: String,
@@ -5094,6 +5101,20 @@ fn build_artist_meta_body(
         body["meta"] = serde_json::json!({ "dryRun": true });
     }
     body
+}
+
+fn build_external_links_body(artist_id: u64, links: &[ExternalLink]) -> Value {
+    let items: Vec<Value> = links
+        .iter()
+        .map(|l| serde_json::json!({ "href": l.href, "meta": { "type": l.link_type } }))
+        .collect();
+    serde_json::json!({
+        "data": {
+            "type": "artists",
+            "id": artist_id.to_string(),
+            "attributes": { "externalLinks": items },
+        }
+    })
 }
 
 /// Pick the file href closest to ~320px wide from an `artworks` included object.
@@ -5345,5 +5366,28 @@ mod profile_tests {
         assert_eq!(body["data"]["attributes"]["handle"], "onlyhandle");
         assert!(body["data"]["attributes"].get("name").is_none());
         assert!(body.get("meta").is_none());
+    }
+
+    #[test]
+    fn build_external_links_body_maps_href_and_type() {
+        let links = vec![
+            ExternalLink { href: "https://instagram.com/me".into(), link_type: "INSTAGRAM".into() },
+            ExternalLink { href: "https://me.com".into(), link_type: "OFFICIAL_HOMEPAGE".into() },
+        ];
+        let body = build_external_links_body(42, &links);
+        assert_eq!(body["data"]["type"], "artists");
+        assert_eq!(body["data"]["id"], "42");
+        let arr = body["data"]["attributes"]["externalLinks"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["href"], "https://instagram.com/me");
+        assert_eq!(arr[0]["meta"]["type"], "INSTAGRAM");
+        assert_eq!(arr[1]["meta"]["type"], "OFFICIAL_HOMEPAGE");
+    }
+
+    #[test]
+    fn build_external_links_body_empty_clears() {
+        let body = build_external_links_body(42, &[]);
+        let arr = body["data"]["attributes"]["externalLinks"].as_array().unwrap();
+        assert!(arr.is_empty());
     }
 }
