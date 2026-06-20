@@ -248,7 +248,9 @@ pub async fn import_session(
         });
         let tokens = client.refresh_token().await?;
         // Refresh the session country for the refresh-only path too.
-        client.get_session_info().await.ok();
+        if let Err(e) = client.get_session_info().await {
+            log::warn!("session country refresh failed: {e}");
+        }
         tokens
     };
 
@@ -293,7 +295,9 @@ pub async fn poll_device_auth(
     match client.poll_device_token(&device_code).await? {
         Some(tokens) => {
             // Refresh the session country for the now-logged-in account.
-            client.get_session_info().await.ok();
+            if let Err(e) = client.get_session_info().await {
+                log::warn!("session country refresh failed: {e}");
+            }
 
             // Save tokens and credentials
             let mut settings = state.load_settings().unwrap_or_default();
@@ -386,7 +390,9 @@ pub async fn complete_pkce_auth(
         .await?;
 
     // Refresh the session country for the now-logged-in account.
-    client.get_session_info().await.ok();
+    if let Err(e) = client.get_session_info().await {
+        log::warn!("session country refresh failed: {e}");
+    }
 
     // Save tokens and credentials
     let mut settings = state.load_settings().unwrap_or_default();
@@ -550,7 +556,9 @@ async fn finish_embedded_pkce(
         .await?;
 
     // Refresh the session country for the now-logged-in account.
-    client.get_session_info().await.ok();
+    if let Err(e) = client.get_session_info().await {
+        log::warn!("session country refresh failed: {e}");
+    }
 
     let mut settings = state.load_settings().unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
