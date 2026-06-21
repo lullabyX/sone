@@ -5,6 +5,7 @@ import {
   isAuthenticatedAtom,
   authTokensAtom,
   userNameAtom,
+  currentUserAvatarAtom,
 } from "../atoms/auth";
 import {
   userPlaylistsAtom,
@@ -61,6 +62,7 @@ export function useAuth() {
 
   // Cross-domain setters for logout
   const setUserName = useSetAtom(userNameAtom);
+  const setCurrentUserAvatar = useSetAtom(currentUserAvatarAtom);
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
   const setIsPlaying = useSetAtom(isPlayingAtom);
   const setCurrentTrack = useSetAtom(currentTrackAtom);
@@ -246,6 +248,7 @@ export function useAuth() {
       setAuthTokens(null);
       setIsAuthenticated(false);
       setUserName("TIDAL User");
+      setCurrentUserAvatar(null);
       // Playback
       setHistory([]);
       setStreamInfo(null);
@@ -285,6 +288,7 @@ export function useAuth() {
     setAuthTokens,
     setIsAuthenticated,
     setUserName,
+    setCurrentUserAvatar,
     setUserPlaylists,
     setIsPlaying,
     setCurrentTrack,
