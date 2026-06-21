@@ -5,11 +5,13 @@ import {
   updateProfileMeta,
   updateProfileBio,
   updateProfileLinks,
+  uploadProfilePicture,
 } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { safeErrorMessage } from "../lib/errorUtils";
 import { splitLinks, assembleExternalLinks } from "../lib/socialLinks";
 import SocialMediaPanel from "./SocialMediaPanel";
+import AvatarCropper from "./AvatarCropper";
 import { pickProfileHeroImage } from "./ProfilePage";
 import { fetchCachedImageUrl } from "./TidalImage";
 
@@ -20,7 +22,6 @@ interface ProfileEditModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
-  onPickPicture: () => void;
   onDeletePicture: () => void;
 }
 
@@ -29,7 +30,6 @@ export default function ProfileEditModal({
   open,
   onClose,
   onSaved,
-  onPickPicture,
   onDeletePicture,
 }: ProfileEditModalProps) {
   const { showToast } = useToast();
@@ -46,6 +46,8 @@ export default function ProfileEditModal({
   const [showSocial, setShowSocial] = useState(false);
   const [saving, setSaving] = useState(false);
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -118,8 +120,51 @@ export default function ProfileEditModal({
     }
   };
 
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setCropSrc(url);
+  };
+
+  const handleCropConfirm = async (base64Jpeg: string) => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(null);
+    if (artistId == null) return;
+    setSaving(true);
+    try {
+      await uploadProfilePicture(artistId, base64Jpeg);
+      showToast("Picture uploaded — it may take a moment to appear");
+      onSaved();
+    } catch (err) {
+      showToast(safeErrorMessage(err, "Failed to upload picture"), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCropCancel = () => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(null);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFile}
+      />
+      {cropSrc && (
+        <AvatarCropper
+          imageSrc={cropSrc}
+          onCancel={handleCropCancel}
+          onConfirm={handleCropConfirm}
+        />
+      )}
       {showSocial ? (
         <SocialMediaPanel
           socials={socials}
@@ -168,7 +213,7 @@ export default function ProfileEditModal({
                 </p>
                 <p className="mt-0.5 flex items-center gap-2">
                   <button
-                    onClick={onPickPicture}
+                    onClick={() => fileInputRef.current?.click()}
                     className="text-th-accent hover:underline"
                   >
                     Choose profile picture
