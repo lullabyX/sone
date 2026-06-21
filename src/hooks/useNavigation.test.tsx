@@ -5,6 +5,7 @@ import type { PropsWithChildren } from "react";
 import { useNavigation } from "./useNavigation";
 import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { currentViewAtom } from "../atoms/navigation";
+import type { ProfilePlaylist } from "../types";
 
 describe("useNavigation overlay dismissal", () => {
   beforeEach(() => {
@@ -46,6 +47,38 @@ describe("useNavigation overlay dismissal", () => {
     expect(store.get(currentViewAtom)).toMatchObject({
       type: "artist",
       artistId: 7,
+    });
+  });
+});
+
+describe("useNavigation profile playlists", () => {
+  beforeEach(() => {
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+  });
+
+  it("navigates to the profile playlists view with the passed list and name", () => {
+    const store = createStore();
+    store.set(drawerOpenAtom, true);
+    store.set(maximizedPlayerAtom, true);
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result } = renderHook(() => useNavigation(), { wrapper });
+
+    const playlists: ProfilePlaylist[] = [
+      { id: "p1", title: "First" },
+      { id: "p2", title: "Second" },
+    ];
+    act(() => {
+      result.current.navigateToProfilePlaylists(playlists, "Alice");
+    });
+
+    expect(store.get(drawerOpenAtom)).toBe(false);
+    expect(store.get(maximizedPlayerAtom)).toBe(false);
+    expect(store.get(currentViewAtom)).toMatchObject({
+      type: "profilePlaylists",
+      profileName: "Alice",
+      playlists,
     });
   });
 });

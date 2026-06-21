@@ -254,7 +254,12 @@ export type AppView =
       folderId?: string;
       folderName?: string;
     }
-  | { type: "profile" };
+  | { type: "profile" }
+  | {
+      type: "profilePlaylists";
+      playlists: ProfilePlaylist[];
+      profileName: string;
+    };
 
 export interface SearchResults {
   artists: { id: number; name: string; picture?: string }[];
