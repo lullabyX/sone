@@ -56,6 +56,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 ### Audio
 
 - **Lossless FLAC and MQA streaming** up to Hi-Res (24-bit/192kHz) with automatic quality fallback
+- **Max streaming quality** — cap streaming at your preferred quality tier
 - **Bit-perfect output** — no resampling, no dithering. Your DAC receives the unaltered decoded signal
 - **Exclusive ALSA** — bypasses PipeWire/PulseAudio entirely for direct hardware access
 - **Smart DAC matching** — automatically detects your hardware's supported formats and sample rates, picking the best fit
@@ -66,7 +67,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 
 ### Interface
 
-- **Custom themes** — 12 presets and a full color picker for accent and background with both light/dark mode
+- **Custom themes** — 15 presets and a full color picker for accent and background with both light/dark mode
 - **Lyrics** — synced lyrics display for supported tracks
 - **Miniplayer** — compact floating window with album art, playback controls, and resizable-adaptive layout
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
@@ -81,6 +82,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Library management** — browse and sort your playlists, albums, artists, and mixes with playlist folder support
 - **Share** — share tracks, albums, playlists, artists, and mixes with your friends via a direct TIDAL link
 - **Deep links** — open `tidal://` URLs directly in SONE
+- **Profile** — edit your bio, social links, and avatar
 
 ### Integrations
 
