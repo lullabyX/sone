@@ -38,6 +38,25 @@ export function getApiStatus(err: unknown): number | null {
   return null;
 }
 
+// JSON:API error bodies look like { errors: [{ detail, title, ... }] }. Surface
+// the human-readable detail(s) instead of the raw JSON envelope.
+function apiBodyDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      errors?: Array<{ detail?: string; title?: string }>;
+    };
+    if (parsed && Array.isArray(parsed.errors)) {
+      const details = parsed.errors
+        .map((e) => e.detail || e.title)
+        .filter((d): d is string => typeof d === "string" && d.length > 0);
+      if (details.length > 0) return details.join("\n");
+    }
+  } catch {
+    // not JSON — fall through to the raw body
+  }
+  return body;
+}
+
 export function safeErrorMessage(err: unknown, fallback: string): string {
   if (typeof err === "string") return err;
   if (isSoneError(err)) {
@@ -48,7 +67,7 @@ export function safeErrorMessage(err: unknown, fallback: string): string {
       msg !== null &&
       typeof msg.body === "string"
     ) {
-      return msg.body || fallback;
+      return apiBodyDetail(msg.body) || fallback;
     }
     return fallback;
   }
@@ -74,7 +93,7 @@ export function formatSoneError(err: unknown): string {
   if (typeof msg === "string") return msg;
   if (msg && typeof msg === "object") {
     const body = (msg as { body?: unknown }).body;
-    return typeof body === "string" ? body : JSON.stringify(body);
+    return typeof body === "string" ? apiBodyDetail(body) : JSON.stringify(body);
   }
   return typeof err === "string" ? err : "An unexpected error occurred";
 }
