@@ -85,22 +85,22 @@ describe("pickProfileAvatarHref", () => {
 });
 
 describe("profilePlaylistsViewAll", () => {
-  it("shows all and no view-all link when total is below the cap", () => {
+  it("shows all and a view-all link when total is below the cap", () => {
     const r = profilePlaylistsViewAll(3, 8);
     expect(r.visibleCount).toBe(3);
-    expect(r.showViewAll).toBe(false);
-  });
-
-  it("shows all and no view-all link when total equals the cap", () => {
-    const r = profilePlaylistsViewAll(8, 8);
-    expect(r.visibleCount).toBe(8);
-    expect(r.showViewAll).toBe(false);
+    expect(r.showViewAll).toBe(true);
   });
 
   it("caps the visible count and shows view-all when total exceeds the cap", () => {
     const r = profilePlaylistsViewAll(12, 8);
     expect(r.visibleCount).toBe(8);
     expect(r.showViewAll).toBe(true);
+  });
+
+  it("hides the view-all link when there are no playlists", () => {
+    const r = profilePlaylistsViewAll(0, 8);
+    expect(r.visibleCount).toBe(0);
+    expect(r.showViewAll).toBe(false);
   });
 
   it("exposes the inline cap as 8", () => {
