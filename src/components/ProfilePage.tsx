@@ -1,4 +1,4 @@
-import { User, Share } from "lucide-react";
+import { User, Share, Pencil } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useStore } from "jotai";
 import { authTokensAtom } from "../atoms/auth";
@@ -15,6 +15,7 @@ import MediaGrid from "./MediaGrid";
 import MediaCard from "./MediaCard";
 import PageContainer from "./PageContainer";
 import { ArtistPageSkeleton } from "./PageSkeleton";
+import ProfileEditModal from "./ProfileEditModal";
 
 // Fades the stitched banner into the page background at its bottom edge.
 const HERO_FADE =
@@ -121,6 +122,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [heroBlob, setHeroBlob] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (userId == null) {
@@ -155,6 +157,16 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
       cancelled = true;
     };
   }, [userId]);
+
+  const reloadProfile = async () => {
+    if (userId == null) return;
+    try {
+      const data = await getProfile(userId);
+      setProfile(data);
+    } catch (err) {
+      console.error("Failed to reload profile:", err);
+    }
+  };
 
   const heroHref = profile ? pickProfileHeroImage(profile.pictureFiles) : null;
 
@@ -287,15 +299,22 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
               )}
             </div>
 
-            {handle && (
-              <div className="mt-6 flex items-center gap-7">
+            <div className="mt-6 flex items-center gap-7">
+              {profile.artistId != null && (
+                <HeaderAction
+                  icon={<Pencil size={22} />}
+                  label="Edit profile"
+                  onClick={() => setEditOpen(true)}
+                />
+              )}
+              {handle && (
                 <HeaderAction
                   icon={<Share size={22} />}
                   label="Share"
                   onClick={handleShare}
                 />
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </PageContainer>
       </div>
@@ -305,6 +324,17 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
           <PlaylistsSection playlists={publicPlaylists} subtitle={name} />
         )}
       </PageContainer>
+
+      {editOpen && (
+        <ProfileEditModal
+          profile={profile}
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          onSaved={reloadProfile}
+          onPickPicture={() => {}}
+          onDeletePicture={() => {}}
+        />
+      )}
     </div>
   );
 }
