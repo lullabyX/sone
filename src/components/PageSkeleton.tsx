@@ -4,7 +4,6 @@
  */
 
 import PageContainer from "./PageContainer";
-import { MediaGridSkeleton } from "./MediaGrid";
 
 function Pulse({ className }: { className: string }) {
   return <div className={`animate-pulse bg-th-hl-med rounded ${className}`} />;
@@ -121,10 +120,20 @@ export function ProfilePageSkeleton() {
       </div>
 
       <PageContainer>
-        {/* Public playlists */}
+        {/* Public playlists — horizontal scroll row */}
         <div className="px-8 pb-8">
           <Pulse className="w-44 h-6 rounded-lg mb-4" />
-          <MediaGridSkeleton count={6} />
+          <div className="card-scroll">
+            <div className="card-scroll-track">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="card-scroll-item p-3">
+                  <Pulse className="w-full aspect-square rounded-md mb-3" />
+                  <Pulse className="w-[75%] h-3.5 rounded mb-2" />
+                  <Pulse className="w-[50%] h-3 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
         {/* Social */}
         <div className="px-8 pb-8">

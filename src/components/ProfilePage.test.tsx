@@ -2,9 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   pickProfileHeroImage,
   pickProfileAvatarHref,
-  profilePlaylistsViewAll,
   shouldShowAddBio,
-  PROFILE_PLAYLISTS_INLINE_CAP,
 } from "./ProfilePage";
 import type { ProfileArtFile } from "../types";
 
@@ -81,30 +79,6 @@ describe("pickProfileAvatarHref", () => {
       { href: "https://img/320wide.jpg", width: 320, height: 180 },
     ];
     expect(pickProfileAvatarHref(files)).toBe("https://img/320sq.jpg");
-  });
-});
-
-describe("profilePlaylistsViewAll", () => {
-  it("shows all and a view-all link when total is below the cap", () => {
-    const r = profilePlaylistsViewAll(3, 8);
-    expect(r.visibleCount).toBe(3);
-    expect(r.showViewAll).toBe(true);
-  });
-
-  it("caps the visible count and shows view-all when total exceeds the cap", () => {
-    const r = profilePlaylistsViewAll(12, 8);
-    expect(r.visibleCount).toBe(8);
-    expect(r.showViewAll).toBe(true);
-  });
-
-  it("hides the view-all link when there are no playlists", () => {
-    const r = profilePlaylistsViewAll(0, 8);
-    expect(r.visibleCount).toBe(0);
-    expect(r.showViewAll).toBe(false);
-  });
-
-  it("exposes the inline cap as 8", () => {
-    expect(PROFILE_PLAYLISTS_INLINE_CAP).toBe(8);
   });
 });
 
