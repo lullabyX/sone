@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { pickProfileHeroImage, pickProfileAvatarHref } from "./ProfilePage";
+import {
+  pickProfileHeroImage,
+  pickProfileAvatarHref,
+  profilePlaylistsViewAll,
+  PROFILE_PLAYLISTS_INLINE_CAP,
+} from "./ProfilePage";
 import type { ProfileArtFile } from "../types";
 
 describe("pickProfileHeroImage", () => {
@@ -60,5 +65,29 @@ describe("pickProfileAvatarHref", () => {
       { href: "https://img/solo.jpg", width: 750 },
     ];
     expect(pickProfileAvatarHref(files)).toBe("https://img/solo.jpg");
+  });
+});
+
+describe("profilePlaylistsViewAll", () => {
+  it("shows all and no view-all link when total is below the cap", () => {
+    const r = profilePlaylistsViewAll(3, 8);
+    expect(r.visibleCount).toBe(3);
+    expect(r.showViewAll).toBe(false);
+  });
+
+  it("shows all and no view-all link when total equals the cap", () => {
+    const r = profilePlaylistsViewAll(8, 8);
+    expect(r.visibleCount).toBe(8);
+    expect(r.showViewAll).toBe(false);
+  });
+
+  it("caps the visible count and shows view-all when total exceeds the cap", () => {
+    const r = profilePlaylistsViewAll(12, 8);
+    expect(r.visibleCount).toBe(8);
+    expect(r.showViewAll).toBe(true);
+  });
+
+  it("exposes the inline cap as 8", () => {
+    expect(PROFILE_PLAYLISTS_INLINE_CAP).toBe(8);
   });
 });
