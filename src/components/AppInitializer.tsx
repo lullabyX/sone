@@ -24,6 +24,7 @@ import {
   isAuthCheckingAtom,
   authTokensAtom,
   userNameAtom,
+  currentUserAvatarAtom,
 } from "../atoms/auth";
 import { userPlaylistsAtom, deletedPlaylistIdsAtom } from "../atoms/playlists";
 import {
@@ -88,7 +89,9 @@ import {
   getPlaylistFolders,
   normalizePlaylistFolders,
   getTrack,
+  getProfile,
 } from "../api/tidal";
+import { pickProfileAvatarHref } from "./ProfilePage";
 
 import type {
   AuthTokens,
@@ -154,6 +157,7 @@ export function AppInitializer() {
   const setIsAuthChecking = useSetAtom(isAuthCheckingAtom);
   const setAuthTokens = useSetAtom(authTokensAtom);
   const setUserName = useSetAtom(userNameAtom);
+  const setCurrentUserAvatar = useSetAtom(currentUserAvatarAtom);
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
   const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
   const setFavoriteAlbumIds = useSetAtom(favoriteAlbumIdsAtom);
@@ -406,6 +410,13 @@ export function AppInitializer() {
       .then(([name]) => {
         if (name) setUserName(name);
       })
+      .catch(() => {});
+
+    // Topbar avatar (non-blocking). The lighter get_user_profile above returns
+    // no picture, so getProfile is the source. pictureFiles is sorted desc by
+    // width — smallest (last) is plenty for a tiny round avatar.
+    getProfile(userId)
+      .then((p) => setCurrentUserAvatar(pickProfileAvatarHref(p.pictureFiles)))
       .catch(() => {});
 
     // Favorite IDs — unified endpoint (tracks/albums/artists/playlists in one call)
