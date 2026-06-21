@@ -4,6 +4,7 @@
  */
 
 import PageContainer from "./PageContainer";
+import { MediaGridSkeleton } from "./MediaGrid";
 
 function Pulse({ className }: { className: string }) {
   return <div className={`animate-pulse bg-th-hl-med rounded ${className}`} />;
@@ -87,6 +88,43 @@ export function ArtistPageSkeleton() {
               ))}
             </div>
           </div>
+        </div>
+      </PageContainer>
+    </div>
+  );
+}
+
+/** Skeleton for the profile page — hero with name/handle/fans + add-bio + edit/share, then a public-playlists grid */
+export function ProfilePageSkeleton() {
+  return (
+    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
+      {/* Hero banner — content anchored bottom-left */}
+      <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
+        <div className="absolute inset-0 animate-pulse bg-th-hl-faint" />
+        <PageContainer className="relative z-10 w-full">
+          <div className="px-8 pb-6">
+            {/* Name + @handle · fans + add-bio pill */}
+            <Pulse className="w-[40%] h-14 rounded-lg" />
+            <Pulse className="w-44 h-4 rounded-full mt-5" />
+            <Pulse className="w-24 h-8 rounded-full mt-4" />
+            {/* Edit + Share icon actions */}
+            <div className="mt-6 flex items-end gap-7">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-2">
+                  <Pulse className="w-6 h-6" />
+                  <Pulse className="w-12 h-2.5 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </PageContainer>
+      </div>
+
+      <PageContainer>
+        {/* Public playlists */}
+        <div className="px-8 pb-8">
+          <Pulse className="w-44 h-6 rounded-lg mb-4" />
+          <MediaGridSkeleton count={6} />
         </div>
       </PageContainer>
     </div>
