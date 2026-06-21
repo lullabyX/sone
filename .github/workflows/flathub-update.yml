@@ -104,11 +104,6 @@ jobs:
         run: |
           pip install ./flatpak-builder-tools/node
           flatpak-node-generator pnpm --pnpm-store-version v11 sone/pnpm-lock.yaml -o flathub/pnpm-sources.json
-          # Workaround: flatpak-builder-tools ee65dc7a emits invalid YAML in the
-          # storeDir setup command for --pnpm-store-version v11.
-          # See node/flatpak_node_generator/providers/pnpm.py around line 294.
-          # Drop this sed once the upstream fix is released and the pin bumped.
-          sed -i 's|"storeDir=\$PWD/|"storeDir: \$PWD/|g' flathub/pnpm-sources.json
 
       - name: Commit and push
         if: steps.check.outputs.skip != 'true'
