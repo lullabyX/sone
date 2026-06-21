@@ -11,6 +11,7 @@ import ViewAllPage from "./components/ViewAllPage";
 import ArtistPage from "./components/ArtistPage";
 import ArtistTracksPage from "./components/ArtistTracksPage";
 import ProfilePage from "./components/ProfilePage";
+import ProfilePlaylistsPage from "./components/ProfilePlaylistsPage";
 import MixPage from "./components/MixPage";
 import ExplorePage from "./components/ExplorePage";
 import ExploreSubPage from "./components/ExploreSubPage";
@@ -177,6 +178,13 @@ function AppContent() {
         );
       case "profile":
         return <ProfilePage onBack={navigateHome} />;
+      case "profilePlaylists":
+        return (
+          <ProfilePlaylistsPage
+            playlists={currentView.playlists}
+            profileName={currentView.profileName}
+          />
+        );
       case "explore":
         return <ExplorePage />;
       case "explorePage":

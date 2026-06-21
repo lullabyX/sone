@@ -93,15 +93,30 @@ function PlaylistsSection({
   playlists: ProfilePlaylist[];
   subtitle: string;
 }) {
-  const { navigateToPlaylist } = useNavigation();
+  const { navigateToPlaylist, navigateToProfilePlaylists } = useNavigation();
+  const { visibleCount, showViewAll } = profilePlaylistsViewAll(
+    playlists.length,
+    PROFILE_PLAYLISTS_INLINE_CAP,
+  );
+  const visible = playlists.slice(0, visibleCount);
 
   return (
     <div className="px-8 pb-8">
-      <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight mb-4">
-        Public playlists
-      </h2>
+      <div className="flex items-end justify-between mb-4">
+        <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight">
+          Public playlists
+        </h2>
+        {showViewAll && (
+          <button
+            onClick={() => navigateToProfilePlaylists(playlists, subtitle)}
+            className="text-[12px] font-semibold text-th-text-secondary hover:text-th-text-primary transition-colors"
+          >
+            View all
+          </button>
+        )}
+      </div>
       <MediaGrid>
-        {playlists.map((pl) => (
+        {visible.map((pl) => (
           <MediaCard
             key={pl.id}
             item={{ title: pl.title, subTitle: subtitle }}
