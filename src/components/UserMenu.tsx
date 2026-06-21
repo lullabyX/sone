@@ -1,6 +1,5 @@
 import {
   LogOut,
-  User,
   Keyboard,
   X,
   Headphones,
@@ -20,6 +19,7 @@ import {
   bitPerfectAtom,
   exclusiveDeviceAtom,
 } from "../atoms/playback";
+import { currentUserAvatarAtom } from "../atoms/auth";
 import { useToast } from "../contexts/ToastContext";
 import {
   ACTION_REGISTRY,
@@ -35,10 +35,12 @@ import {
 import SettingsSheet from "./settings/SettingsSheet";
 import AboutModal from "./AboutModal";
 import Toggle from "./Toggle";
+import TidalImage from "./TidalImage";
 
 export default function UserMenu() {
   const { userName, logout } = useAuth();
   const { navigateToProfile } = useNavigation();
+  const avatarUrl = useAtomValue(currentUserAvatarAtom);
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -152,27 +154,43 @@ export default function UserMenu() {
     <div ref={menuRef} className="relative">
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="w-8 h-8 rounded-full bg-th-button hover:bg-th-button-hover flex items-center justify-center transition-colors"
+        className="w-8 h-8 rounded-full bg-th-button hover:bg-th-button-hover flex items-center justify-center transition-colors overflow-hidden"
         title="Account"
       >
-        <User size={16} className="text-th-text-secondary" />
+        <TidalImage
+          src={avatarUrl ?? undefined}
+          alt=""
+          type="artist"
+          className="w-full h-full"
+        />
       </button>
 
       {open && (
         <div className="absolute right-0 top-full mt-2 w-72 bg-th-surface rounded-lg shadow-2xl shadow-black/60 border border-th-border-subtle z-50 py-1 animate-fadeIn">
-          {/* User info */}
-          <div className="px-4 py-3 border-b border-th-border-subtle">
+          {/* User info — navigates to profile */}
+          <button
+            onClick={() => {
+              navigateToProfile();
+              setOpen(false);
+            }}
+            className="w-full px-4 py-3 border-b border-th-border-subtle hover:bg-th-border-subtle transition-colors"
+          >
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-th-button flex items-center justify-center shrink-0">
-                <User size={16} className="text-th-text-muted" />
+              <div className="w-9 h-9 rounded-full bg-th-button overflow-hidden shrink-0">
+                <TidalImage
+                  src={avatarUrl ?? undefined}
+                  alt=""
+                  type="artist"
+                  className="w-full h-full"
+                />
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 text-left">
                 <p className="text-[13px] font-medium text-th-text-primary truncate">
                   {userName}
                 </p>
               </div>
             </div>
-          </div>
+          </button>
 
           {/* ── Exclusive output group ── */}
 
@@ -263,19 +281,6 @@ export default function UserMenu() {
               <Toggle on={bitPerfect} />
             </button>
           )}
-
-          {/* ── Profile ── */}
-          <div className="border-t border-th-border-subtle my-1" />
-
-          <button
-            onClick={() => {
-              setOpen(false);
-              navigateToProfile();
-            }}
-            className={menuItemClass}
-          >
-            <User size={16} /> Profile
-          </button>
 
           {/* ── Settings ── */}
           <div className="border-t border-th-border-subtle my-1" />
