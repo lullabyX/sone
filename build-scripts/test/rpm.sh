@@ -88,7 +88,7 @@ fi
 # ── openSUSE tests ────────────────────────────────────────────────────────────
 if [[ -n "$OPENSUSE_RPM" ]]; then
     OPENSUSE_DISTROS=(
-        "openSUSE TW|opensuse/tumbleweed|zypper --non-interactive --no-gpg-checks install /pkg/*.rpm xorg-x11-server-Xvfb dbus-1-x11 xdotool"
+        "openSUSE TW|opensuse/tumbleweed|zypper --non-interactive --no-gpg-checks install /pkg/*.rpm xorg-x11-server-Xvfb dbus-1-daemon dbus-1-tools xdotool"
     )
 
     for distro in "${OPENSUSE_DISTROS[@]}"; do
