@@ -3,6 +3,7 @@ import {
   pickProfileHeroImage,
   pickProfileAvatarHref,
   profilePlaylistsViewAll,
+  shouldShowAddBio,
   PROFILE_PLAYLISTS_INLINE_CAP,
 } from "./ProfilePage";
 import type { ProfileArtFile } from "../types";
@@ -89,5 +90,22 @@ describe("profilePlaylistsViewAll", () => {
 
   it("exposes the inline cap as 8", () => {
     expect(PROFILE_PLAYLISTS_INLINE_CAP).toBe(8);
+  });
+});
+
+describe("shouldShowAddBio", () => {
+  it("shows on the own profile when the bio is empty", () => {
+    expect(shouldShowAddBio(null, 123)).toBe(true);
+    expect(shouldShowAddBio("", 123)).toBe(true);
+  });
+
+  it("hides when a bio is present (BioText renders instead)", () => {
+    expect(shouldShowAddBio("hello", 123)).toBe(false);
+  });
+
+  it("hides when it is not the own profile (no artistId)", () => {
+    expect(shouldShowAddBio(null, null)).toBe(false);
+    expect(shouldShowAddBio("", null)).toBe(false);
+    expect(shouldShowAddBio("hello", null)).toBe(false);
   });
 });

@@ -54,6 +54,17 @@ export function pickProfileAvatarHref(files: ProfileArtFile[]): string | null {
 export const PROFILE_PLAYLISTS_INLINE_CAP = 8;
 
 /**
+ * Whether to offer the "Add bio" affordance: only on the own profile
+ * (artistId present, the same gate as the Edit button) when the bio is empty.
+ */
+export function shouldShowAddBio(
+  bio: string | null | undefined,
+  artistId: number | null | undefined,
+): boolean {
+  return !bio && artistId != null;
+}
+
+/**
  * Decide how many public playlists to show inline on the profile and whether to
  * surface a "View all" affordance. The list is whatever getProfile returned
  * (one openapi page); full pagination is a deferred backend follow-up.
@@ -336,6 +347,14 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
                     className="text-th-text-muted line-clamp-3"
                   />
                 </div>
+              )}
+              {shouldShowAddBio(bio, profile.artistId) && (
+                <button
+                  onClick={() => setEditOpen(true)}
+                  className="mt-3 inline-flex items-center px-4 py-1.5 rounded-full border border-dashed border-th-border-subtle text-[13px] font-semibold text-th-text-secondary hover:text-th-text-primary hover:border-th-text-secondary transition-colors"
+                >
+                  Add bio
+                </button>
               )}
             </div>
 
