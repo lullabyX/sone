@@ -14,9 +14,8 @@ import BioText from "./BioText";
 import MediaGrid from "./MediaGrid";
 import MediaCard from "./MediaCard";
 import PageContainer from "./PageContainer";
-import { ArtistPageSkeleton } from "./PageSkeleton";
+import { ProfilePageSkeleton } from "./PageSkeleton";
 import ProfileEditModal from "./ProfileEditModal";
-
 
 /**
  * Pick the hero photo href from a profile's pictureFiles. The backend sorts
@@ -217,7 +216,10 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
     try {
       const data = await getProfile(userId);
       setProfile(data);
-      store.set(currentUserAvatarAtom, pickProfileAvatarHref(data.pictureFiles));
+      store.set(
+        currentUserAvatarAtom,
+        pickProfileAvatarHref(data.pictureFiles),
+      );
     } catch (err) {
       console.error("Failed to reload profile:", err);
     }
@@ -256,7 +258,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
   }
 
   if (loading) {
-    return <ArtistPageSkeleton />;
+    return <ProfilePageSkeleton />;
   }
 
   if (notFound) {
@@ -285,7 +287,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
     );
   }
 
-  const { name, handle, bio, fanCount, publicPlaylists } = profile;
+  const { name, handle, bio, fanCount, publicPlaylists, artistId } = profile;
   const fansLabel =
     typeof fanCount === "number"
       ? `${new Intl.NumberFormat("en", {
@@ -296,38 +298,64 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
   const metaParts = [handle ? `@${handle}` : null, fansLabel].filter(Boolean);
 
   const handleShare = async () => {
-    if (!handle) return;
+    if (artistId == null) return;
     try {
-      await navigator.clipboard.writeText(`https://tidal.com/user/${handle}`);
+      // The artist/profile share URL works regardless of whether a @handle is set.
+      await navigator.clipboard.writeText(
+        `https://tidal.com/artist/${artistId}/u`,
+      );
       showToast("Copied share link to clipboard");
     } catch {
       showToast("Failed to copy share link");
     }
   };
 
+  // The hero photo, tiled to fill the banner width. Reused for a sharp base
+  // layer and a blurred copy so only the bottom frosts (see the hero below).
+  const heroTiles = heroBlob
+    ? [0, 1, 2, 3, 4, 5, 6].map((i) => (
+        <img
+          key={i}
+          src={heroBlob}
+          alt=""
+          draggable={false}
+          className={`h-full w-auto shrink-0 select-none object-cover ${
+            i === 3 ? "" : "opacity-40"
+          }`}
+        />
+      ))
+    : null;
+
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
-      {/* Profile hero — blurred photo backdrop that feathers into the page */}
+      {/* Profile hero — sharp photo up top, real filter-blur frost at the bottom */}
       <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
         {heroBlob && (
-          <div className="absolute inset-0 flex justify-center overflow-hidden blur-xl scale-110">
-            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-              <img
-                key={i}
-                src={heroBlob}
-                alt=""
-                draggable={false}
-                className={`h-full w-auto shrink-0 select-none object-cover ${
-                  i === 3 ? "" : "brightness-[0.4]"
-                }`}
-              />
-            ))}
-          </div>
+          <>
+            <div className="absolute inset-0 flex justify-center overflow-hidden">
+              {heroTiles}
+            </div>
+            {/* Blurred copy revealed only toward the bottom. Uses a real CSS
+                filter blur (WebKitGTK renders this; backdrop-filter it does not). */}
+            <div
+              aria-hidden
+              className="absolute inset-0 flex justify-center overflow-hidden blur-3xl scale-110 pointer-events-none"
+              style={{
+                maskImage:
+                  "linear-gradient(to bottom, transparent 0%, transparent 35%, #000 80%)",
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, transparent 0%, transparent 35%, #000 80%)",
+              }}
+            >
+              {heroTiles}
+            </div>
+          </>
         )}
-        {/* Vignette — feather the blurred photo into the theme base on every edge,
-            fully at the bottom (melts into the page) and strongest left (legibility) */}
-        <div className="absolute inset-0 bg-gradient-to-b from-th-base/50 via-transparent to-th-base" />
-        <div className="absolute inset-0 bg-gradient-to-r from-th-base/80 via-transparent to-th-base/50" />
+        {/* Theme-aware vignette — fade the photo into the theme base on every
+            edge (works in light + dark): top lightly, bottom fully (melts into
+            the page), strongest on the left for name legibility. */}
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-th-base/50 via-transparent to-th-base" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-th-base/85 via-transparent to-th-base/55" />
 
         {/* Foreground content */}
         <PageContainer className="relative z-10 w-full">
@@ -346,14 +374,14 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
                   <BioText
                     bio={bio}
                     onArtistClick={(id, n) => navigateToArtist(id, { name: n })}
-                    className="text-th-text-muted line-clamp-3"
+                    className="text-th-text/80 font-semibold line-clamp-3"
                   />
                 </div>
               )}
               {shouldShowAddBio(bio, profile.artistId) && (
                 <button
                   onClick={() => setEditOpen(true)}
-                  className="mt-3 inline-flex items-center px-4 py-1.5 rounded-full border border-dashed border-th-border-subtle text-[13px] font-semibold text-th-text-secondary hover:text-th-text-primary hover:border-th-text-secondary transition-colors"
+                  className="mt-3 inline-flex items-center px-4 py-1.5 rounded-full border border-dashed border-th-text-secondary text-[13px] font-semibold text-th-text-primary hover:bg-th-button/60 hover:border-th-text-primary hover:scale-[1.03] transition-[transform,background-color,border-color,color] duration-150"
                 >
                   Add bio
                 </button>
@@ -368,7 +396,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
                   onClick={() => setEditOpen(true)}
                 />
               )}
-              {handle && (
+              {artistId != null && (
                 <HeaderAction
                   icon={<Share size={22} />}
                   label="Share"
