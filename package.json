@@ -31,7 +31,8 @@
     "lucide-react": "^0.563.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-easy-crop": "^6.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.3",
