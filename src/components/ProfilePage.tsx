@@ -51,6 +51,20 @@ export function pickProfileAvatarHref(files: ProfileArtFile[]): string | null {
   return files[files.length - 1]?.href ?? null;
 }
 
+export const PROFILE_PLAYLISTS_INLINE_CAP = 8;
+
+/**
+ * Decide how many public playlists to show inline on the profile and whether to
+ * surface a "View all" affordance. The list is whatever getProfile returned
+ * (one openapi page); full pagination is a deferred backend follow-up.
+ */
+export function profilePlaylistsViewAll(
+  total: number,
+  cap: number,
+): { visibleCount: number; showViewAll: boolean } {
+  return { visibleCount: Math.min(total, cap), showViewAll: total > cap };
+}
+
 function HeaderAction({
   icon,
   label,
