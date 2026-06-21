@@ -149,6 +149,40 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.20.0" date="2026-06-21">
+      <description>
+        <p>Profiles</p>
+        <ul>
+          <li>View and edit your profile — bio, social links, and a croppable avatar; your public playlists appear as a scrolling row</li>
+        </ul>
+        <p>Settings</p>
+        <ul>
+          <li>Redesigned as a single centered window with a grouped sidebar for playback, themes, network, MCP, Discord, scrobbling, and more</li>
+        </ul>
+        <p>Themes</p>
+        <ul>
+          <li>Three new presets — Noir, Meadow, and Blossom — plus a custom color picker with a live in-app preview</li>
+        </ul>
+        <p>Streaming Quality</p>
+        <ul>
+          <li>Set a maximum streaming quality ceiling in playback settings</li>
+        </ul>
+        <p>Design</p>
+        <ul>
+          <li>Animated album covers in the drawer, fullscreen, and album page</li>
+          <li>Full-width cover-art banners and redesigned album, playlist, artist, and mix headers</li>
+          <li>Animated Living Heart banner on the Loved Tracks header</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Logging out fully tears down your session and clears cross-account state; re-login restores Discord and MCP</li>
+          <li>Playing a recommended track from a playlist now queues the visible recommended tracks, not the playlist</li>
+          <li>Detail-page shuffle button no longer toggles global shuffle</li>
+          <li>Repeat-all preserves play history on source-backed playlists</li>
+          <li>Playback position stays correct on pause/resume and miniplayer sync</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.19.0" date="2026-06-06">
       <description>
         <p>Gapless Playback</p>
