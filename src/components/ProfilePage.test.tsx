@@ -67,6 +67,21 @@ describe("pickProfileAvatarHref", () => {
     ];
     expect(pickProfileAvatarHref(files)).toBe("https://img/solo.jpg");
   });
+
+  it("prefers the smallest SQUARE rendition over a narrower 16:9 one", () => {
+    // TIDAL returns both 1:1 and 16:9 renditions; the backend sorts desc by
+    // width, so the list ends with 320x180 (16:9). The round avatar must use
+    // the smallest SQUARE (320x320), never the rectangular one.
+    const files: ProfileArtFile[] = [
+      { href: "https://img/1280sq.jpg", width: 1280, height: 1280 },
+      { href: "https://img/1280wide.jpg", width: 1280, height: 720 },
+      { href: "https://img/640sq.jpg", width: 640, height: 640 },
+      { href: "https://img/640wide.jpg", width: 640, height: 360 },
+      { href: "https://img/320sq.jpg", width: 320, height: 320 },
+      { href: "https://img/320wide.jpg", width: 320, height: 180 },
+    ];
+    expect(pickProfileAvatarHref(files)).toBe("https://img/320sq.jpg");
+  });
 });
 
 describe("profilePlaylistsViewAll", () => {

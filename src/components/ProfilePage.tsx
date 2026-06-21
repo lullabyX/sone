@@ -42,13 +42,20 @@ export function pickProfileHeroImage(files: ProfileArtFile[]): string | null {
 }
 
 /**
- * Pick the avatar href from a profile's pictureFiles. The backend sorts these
- * desc by width, so the smallest (cheapest for a tiny round avatar) is the last
- * entry. The hrefs are already full URLs.
+ * Pick the avatar href from a profile's pictureFiles. TIDAL returns both 1:1
+ * and 16:9 renditions, so the round avatar must use a SQUARE one. Prefer
+ * squares; the list is sorted desc by width, so the last square is the smallest
+ * (cheapest for a tiny avatar). Fall back to the smallest overall only when no
+ * square rendition is available (e.g. width/height metadata missing). The hrefs
+ * are already full URLs.
  */
 export function pickProfileAvatarHref(files: ProfileArtFile[]): string | null {
   if (files.length === 0) return null;
-  return files[files.length - 1]?.href ?? null;
+  const squares = files.filter(
+    (f) => typeof f.width === "number" && f.width === f.height,
+  );
+  const pool = squares.length > 0 ? squares : files;
+  return pool[pool.length - 1]?.href ?? null;
 }
 
 export const PROFILE_PLAYLISTS_INLINE_CAP = 8;
