@@ -126,6 +126,18 @@ export function ProfilePageSkeleton() {
           <Pulse className="w-44 h-6 rounded-lg mb-4" />
           <MediaGridSkeleton count={6} />
         </div>
+        {/* Social */}
+        <div className="px-8 pb-8">
+          <Pulse className="w-24 h-6 rounded-lg mb-4" />
+          <div className="flex flex-col gap-3">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Pulse className="w-5 h-5 rounded" />
+                <Pulse className="w-20 h-3.5 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
       </PageContainer>
     </div>
   );

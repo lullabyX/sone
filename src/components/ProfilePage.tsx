@@ -16,6 +16,7 @@ import MediaCard from "./MediaCard";
 import PageContainer from "./PageContainer";
 import { ProfilePageSkeleton } from "./PageSkeleton";
 import ProfileEditModal from "./ProfileEditModal";
+import SocialLinks from "./SocialLinks";
 
 /**
  * Pick the hero photo href from a profile's pictureFiles. The backend sorts
@@ -412,6 +413,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
         {publicPlaylists.length > 0 && (
           <PlaylistsSection playlists={publicPlaylists} subtitle={name} />
         )}
+        <SocialLinks links={profile.externalLinks} />
       </PageContainer>
 
       {editOpen && (
