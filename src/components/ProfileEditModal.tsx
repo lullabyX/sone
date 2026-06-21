@@ -103,8 +103,11 @@ export default function ProfileEditModal({
           false,
         );
       }
-      if (profile.bioId && bio !== (profile.bio ?? "")) {
-        await updateProfileBio(profile.bioId, bio);
+      if (bio !== (profile.bio ?? "")) {
+        // The biography resource is keyed by the artist id, so PATCH
+        // /artistBiographies/{artistId} creates-or-updates it — no separate
+        // bioId needed (TIDAL's own editor patches the artist id here).
+        await updateProfileBio(String(artistId), bio);
       }
       await updateProfileLinks(
         artistId,
@@ -279,14 +282,14 @@ export default function ProfileEditModal({
                 <textarea
                   placeholder="Bio"
                   value={bio}
-                  disabled={!profile.bioId}
+                  disabled={artistId == null}
                   maxLength={BIO_MAX}
                   onChange={(e) => setBio(e.target.value)}
                   rows={4}
                   className="bg-th-inset rounded-md px-3 py-2 text-[14px] text-th-text-primary placeholder:text-th-text-faint outline-none focus:ring-1 focus:ring-th-accent resize-y disabled:opacity-50"
                 />
               </label>
-              {profile.bioId ? (
+              {artistId != null ? (
                 <p className="text-[11px] text-th-text-faint">
                   {BIO_MAX - bio.length} characters remaining
                 </p>
