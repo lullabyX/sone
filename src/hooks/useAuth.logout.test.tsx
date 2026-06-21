@@ -13,7 +13,7 @@ vi.mock("../api/tidal", () => ({
 }));
 
 import { useAuth } from "./useAuth";
-import { userNameAtom } from "../atoms/auth";
+import { userNameAtom, currentUserAvatarAtom } from "../atoms/auth";
 import { favoriteAlbumIdsAtom, favoriteMixIdsAtom } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
 import { allFoldersFetchedAtom } from "../atoms/playlists";
@@ -26,6 +26,7 @@ describe("useAuth logout", () => {
   it("clears cross-account state and localStorage on logout", async () => {
     const store = createStore();
     store.set(userNameAtom, "Alice");
+    store.set(currentUserAvatarAtom, "https://img/avatar.jpg");
     store.set(favoriteAlbumIdsAtom, new Set([1, 2, 3]));
     store.set(favoriteMixIdsAtom, new Set(["m1"]));
     store.set(currentViewAtom, { type: "playlist", id: "p1" } as never);
@@ -42,6 +43,7 @@ describe("useAuth logout", () => {
     });
 
     expect(store.get(userNameAtom)).toBe("TIDAL User");
+    expect(store.get(currentUserAvatarAtom)).toBeNull();
     expect(store.get(favoriteAlbumIdsAtom).size).toBe(0);
     expect(store.get(favoriteMixIdsAtom).size).toBe(0);
     expect(store.get(currentViewAtom)).toEqual({ type: "home" });

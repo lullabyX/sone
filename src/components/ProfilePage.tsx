@@ -1,7 +1,7 @@
 import { User, Share, Pencil } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useStore } from "jotai";
-import { authTokensAtom } from "../atoms/auth";
+import { authTokensAtom, currentUserAvatarAtom } from "../atoms/auth";
 import { useNavigation } from "../hooks/useNavigation";
 import { useToast } from "../contexts/ToastContext";
 import { getProfile, deleteProfilePicture } from "../api/tidal";
@@ -173,6 +173,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
     try {
       const data = await getProfile(userId);
       setProfile(data);
+      store.set(currentUserAvatarAtom, pickProfileAvatarHref(data.pictureFiles));
     } catch (err) {
       console.error("Failed to reload profile:", err);
     }
