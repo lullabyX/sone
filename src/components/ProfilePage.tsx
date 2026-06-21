@@ -307,10 +307,10 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
-      {/* Profile hero — full-bleed photo banner */}
+      {/* Profile hero — blurred photo backdrop that feathers into the page */}
       <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
         {heroBlob && (
-          <div className="absolute inset-0 flex justify-center overflow-hidden">
+          <div className="absolute inset-0 flex justify-center overflow-hidden blur-xl scale-110">
             {[0, 1, 2, 3, 4, 5, 6].map((i) => (
               <img
                 key={i}
@@ -318,22 +318,16 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
                 alt=""
                 draggable={false}
                 className={`h-full w-auto shrink-0 select-none object-cover ${
-                  i === 3 ? "" : "brightness-[0.32]"
+                  i === 3 ? "" : "brightness-[0.4]"
                 }`}
               />
             ))}
           </div>
         )}
-        {/* Left scrim for text legibility (tracks the theme base) */}
-        <div className="absolute inset-0 bg-gradient-to-r from-th-base/70 via-th-base/30 to-transparent" />
-        {/* Glassy frosted fade-out — the tiled photo blurs and melts into the page */}
-        <div
-          className="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none backdrop-blur-2xl bg-gradient-to-b from-transparent via-th-base/30 to-th-base"
-          style={{
-            maskImage: "linear-gradient(to bottom, transparent 0%, #000 45%)",
-            WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, #000 45%)",
-          }}
-        />
+        {/* Vignette — feather the blurred photo into the theme base on every edge,
+            fully at the bottom (melts into the page) and strongest left (legibility) */}
+        <div className="absolute inset-0 bg-gradient-to-b from-th-base/50 via-transparent to-th-base" />
+        <div className="absolute inset-0 bg-gradient-to-r from-th-base/80 via-transparent to-th-base/50" />
 
         {/* Foreground content */}
         <PageContainer className="relative z-10 w-full">
