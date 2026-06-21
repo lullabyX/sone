@@ -2,7 +2,7 @@ import { useCallback, startTransition } from "react";
 import { useSetAtom } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
-import type { AppView } from "../types";
+import type { AppView, ProfilePlaylist } from "../types";
 
 export function useNavigation() {
   const setCurrentView = useSetAtom(currentViewAtom);
@@ -112,6 +112,13 @@ export function useNavigation() {
     navigate({ type: "profile" });
   }, [navigate]);
 
+  const navigateToProfilePlaylists = useCallback(
+    (playlists: ProfilePlaylist[], profileName: string) => {
+      navigate({ type: "profilePlaylists", playlists, profileName });
+    },
+    [navigate],
+  );
+
   const navigateToExplore = useCallback(() => {
     navigate({ type: "explore" });
   }, [navigate]);
@@ -153,6 +160,7 @@ export function useNavigation() {
     navigateToArtistTracks,
     navigateToMix,
     navigateToProfile,
+    navigateToProfilePlaylists,
     navigateToExplore,
     navigateToExplorePage,
     navigateToLibraryViewAll,
