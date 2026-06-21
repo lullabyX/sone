@@ -1,5 +1,11 @@
-import { User, Share, Pencil } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { User, Share, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+  type ReactNode,
+} from "react";
 import { useStore } from "jotai";
 import { authTokensAtom, currentUserAvatarAtom } from "../atoms/auth";
 import { useNavigation } from "../hooks/useNavigation";
@@ -11,7 +17,6 @@ import NotFoundPage from "./NotFoundPage";
 import { fetchCachedImageUrl } from "./TidalImage";
 import TidalImage from "./TidalImage";
 import BioText from "./BioText";
-import MediaGrid from "./MediaGrid";
 import MediaCard from "./MediaCard";
 import PageContainer from "./PageContainer";
 import { ProfilePageSkeleton } from "./PageSkeleton";
@@ -55,8 +60,6 @@ export function pickProfileAvatarHref(files: ProfileArtFile[]): string | null {
   return pool[pool.length - 1]?.href ?? null;
 }
 
-export const PROFILE_PLAYLISTS_INLINE_CAP = 8;
-
 /**
  * Whether to offer the "Add bio" affordance: only on the own profile
  * (artistId present, the same gate as the Edit button) when the bio is empty.
@@ -66,18 +69,6 @@ export function shouldShowAddBio(
   artistId: number | null | undefined,
 ): boolean {
   return !bio && artistId != null;
-}
-
-/**
- * Decide how many public playlists to show inline on the profile and whether to
- * surface a "View all" affordance. The list is whatever getProfile returned
- * (one openapi page); full pagination is a deferred backend follow-up.
- */
-export function profilePlaylistsViewAll(
-  total: number,
-  cap: number,
-): { visibleCount: number; showViewAll: boolean } {
-  return { visibleCount: Math.min(total, cap), showViewAll: total > 0 };
 }
 
 function HeaderAction({
@@ -109,53 +100,98 @@ function PlaylistsSection({
   subtitle: string;
 }) {
   const { navigateToPlaylist, navigateToProfilePlaylists } = useNavigation();
-  const { visibleCount, showViewAll } = profilePlaylistsViewAll(
-    playlists.length,
-    PROFILE_PLAYLISTS_INLINE_CAP,
-  );
-  const visible = playlists.slice(0, visibleCount);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 10);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 10);
+  }, []);
+
+  const scroll = useCallback((direction: "left" | "right") => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const amount = el.clientWidth + 16;
+    el.scrollBy({
+      left: direction === "left" ? -amount : amount,
+      behavior: "smooth",
+    });
+  }, []);
 
   return (
     <div className="px-8 pb-8">
-      <div className="flex items-end justify-between mb-4">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight">
           Public playlists
         </h2>
-        {showViewAll && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => scroll("left")}
+            disabled={!canScrollLeft}
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+              canScrollLeft
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
+                : "text-th-text-disabled cursor-default"
+            }`}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            onClick={() => scroll("right")}
+            disabled={!canScrollRight}
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+              canScrollRight
+                ? "bg-th-inset hover:bg-th-inset-hover text-th-text-primary"
+                : "text-th-text-disabled cursor-default"
+            }`}
+          >
+            <ChevronRight size={18} />
+          </button>
           <button
             onClick={() => navigateToProfilePlaylists(playlists, subtitle)}
-            className="text-[12px] font-semibold text-th-text-secondary hover:text-th-text-primary transition-colors"
+            className="px-3 py-1.5 text-[13px] font-bold text-th-text-muted hover:text-th-text-primary transition-colors"
           >
             View all
           </button>
-        )}
+        </div>
       </div>
-      <MediaGrid>
-        {visible.map((pl) => (
-          <MediaCard
-            key={pl.id}
-            item={{ title: pl.title, subTitle: subtitle }}
-            titleOverride={pl.title}
-            showPlayButton={false}
-            imageOverride={
-              <TidalImage
-                src={pl.coverUrl}
-                alt={pl.title}
-                type="playlist"
-                className="w-full h-full"
-              />
-            }
-            onClick={() =>
-              navigateToPlaylist(pl.id, {
-                title: pl.title,
-                image: pl.coverUrl,
-                creatorName: subtitle,
-                numberOfTracks: pl.numberOfTracks,
-              })
-            }
-          />
-        ))}
-      </MediaGrid>
+
+      <div className="card-scroll">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="card-scroll-track pb-2"
+        >
+          {playlists.map((pl) => (
+            <MediaCard
+              key={pl.id}
+              item={{ title: pl.title, subTitle: subtitle }}
+              titleOverride={pl.title}
+              showPlayButton={false}
+              widthClass="card-scroll-item"
+              imageOverride={
+                <TidalImage
+                  src={pl.coverUrl}
+                  alt={pl.title}
+                  type="playlist"
+                  className="w-full h-full"
+                />
+              }
+              onClick={() =>
+                navigateToPlaylist(pl.id, {
+                  title: pl.title,
+                  image: pl.coverUrl,
+                  creatorName: subtitle,
+                  numberOfTracks: pl.numberOfTracks,
+                })
+              }
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
