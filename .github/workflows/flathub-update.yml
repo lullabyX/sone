@@ -89,8 +89,8 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools.git
           cd flatpak-builder-tools
-          git fetch --depth 1 origin ee65dc7a798be56de8c4c1ab73411461cac020b4
-          git checkout ee65dc7a798be56de8c4c1ab73411461cac020b4
+          git fetch --depth 1 origin ac5a296ac6111aa2319daf532f609a067b88d8a9
+          git checkout ac5a296ac6111aa2319daf532f609a067b88d8a9
 
       - name: Regenerate cargo-sources.json
         if: steps.check.outputs.skip != 'true'
