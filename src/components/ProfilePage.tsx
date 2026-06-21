@@ -41,6 +41,16 @@ export function pickProfileHeroImage(files: ProfileArtFile[]): string | null {
   return widest.href;
 }
 
+/**
+ * Pick the avatar href from a profile's pictureFiles. The backend sorts these
+ * desc by width, so the smallest (cheapest for a tiny round avatar) is the last
+ * entry. The hrefs are already full URLs.
+ */
+export function pickProfileAvatarHref(files: ProfileArtFile[]): string | null {
+  if (files.length === 0) return null;
+  return files[files.length - 1]?.href ?? null;
+}
+
 function HeaderAction({
   icon,
   label,

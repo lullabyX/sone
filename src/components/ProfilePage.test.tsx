@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickProfileHeroImage } from "./ProfilePage";
+import { pickProfileHeroImage, pickProfileAvatarHref } from "./ProfilePage";
 import type { ProfileArtFile } from "../types";
 
 describe("pickProfileHeroImage", () => {
@@ -38,5 +38,27 @@ describe("pickProfileHeroImage", () => {
       { href: "https://img/b.jpg" },
     ];
     expect(pickProfileHeroImage(files)).toBe("https://img/a.jpg");
+  });
+});
+
+describe("pickProfileAvatarHref", () => {
+  it("returns null for an empty list", () => {
+    expect(pickProfileAvatarHref([])).toBeNull();
+  });
+
+  it("returns the last (smallest) entry from a desc-by-width list", () => {
+    const files: ProfileArtFile[] = [
+      { href: "https://img/1280.jpg", width: 1280 },
+      { href: "https://img/640.jpg", width: 640 },
+      { href: "https://img/320.jpg", width: 320 },
+    ];
+    expect(pickProfileAvatarHref(files)).toBe("https://img/320.jpg");
+  });
+
+  it("returns the only entry when the list has one", () => {
+    const files: ProfileArtFile[] = [
+      { href: "https://img/solo.jpg", width: 750 },
+    ];
+    expect(pickProfileAvatarHref(files)).toBe("https://img/solo.jpg");
   });
 });
