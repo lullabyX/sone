@@ -4,7 +4,7 @@ import { useStore } from "jotai";
 import { authTokensAtom } from "../atoms/auth";
 import { useNavigation } from "../hooks/useNavigation";
 import { useToast } from "../contexts/ToastContext";
-import { getProfile } from "../api/tidal";
+import { getProfile, deleteProfilePicture } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import type { Profile, ProfileArtFile, ProfilePlaylist } from "../types";
 import NotFoundPage from "./NotFoundPage";
@@ -331,8 +331,19 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
           open={editOpen}
           onClose={() => setEditOpen(false)}
           onSaved={reloadProfile}
-          onPickPicture={() => {}}
-          onDeletePicture={() => {}}
+          onDeletePicture={async () => {
+            if (profile.artistId == null) return;
+            try {
+              await deleteProfilePicture(profile.artistId);
+              showToast("Profile picture removed");
+              reloadProfile();
+            } catch (err) {
+              showToast(
+                safeErrorMessage(err, "Failed to remove picture"),
+                "error",
+              );
+            }
+          }}
         />
       )}
     </div>
