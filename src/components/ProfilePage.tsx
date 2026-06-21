@@ -77,7 +77,7 @@ export function profilePlaylistsViewAll(
   total: number,
   cap: number,
 ): { visibleCount: number; showViewAll: boolean } {
-  return { visibleCount: Math.min(total, cap), showViewAll: total > cap };
+  return { visibleCount: Math.min(total, cap), showViewAll: total > 0 };
 }
 
 function HeaderAction({
