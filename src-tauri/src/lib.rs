@@ -882,6 +882,8 @@ pub fn run() {
             commands::playback::set_next_track,
             commands::playback::clear_next_track,
             commands::playback::get_stream_info,
+            commands::playback::get_video_stream_info,
+            commands::playback::get_video_metadata,
             commands::playback::pause_track,
             commands::playback::resume_track,
             commands::playback::stop_track,

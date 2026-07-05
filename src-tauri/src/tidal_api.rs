@@ -110,6 +110,12 @@ pub struct TidalTrack {
     /// Present on track detail responses — contains mix IDs like `TRACK_MIX`.
     #[serde(default)]
     pub mixes: Option<Value>,
+    /// From the `/playlists/{id}/items` wrapper `type` — "track" or "video".
+    #[serde(default)]
+    pub item_type: Option<String>,
+    /// Video thumbnail UUID (videos carry `imageId` instead of `album.cover`).
+    #[serde(default)]
+    pub image_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -134,6 +140,34 @@ impl TidalTrack {
             }
         }
     }
+}
+
+/// Parse `/playlists/{id}/items` wrapper entries (`{ item, type }`) into TidalTracks.
+/// A video's inner `item` deserializes cleanly (its missing track-only fields are
+/// all `#[serde(default)]`); we stamp `item_type` from the wrapper and copy `imageId`.
+fn parse_playlist_items(items: Vec<Value>) -> Result<Vec<TidalTrack>, SoneError> {
+    let mut out = Vec::with_capacity(items.len());
+    for entry in items {
+        let item_type = entry
+            .get("type")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_lowercase());
+        let Some(inner) = entry.get("item") else {
+            continue;
+        };
+        let mut track: TidalTrack = serde_json::from_value(inner.clone())
+            .map_err(|e| SoneError::Parse(format!("{} - Item: {}", e, inner)))?;
+        if track.image_id.is_none() {
+            track.image_id = inner
+                .get("imageId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+        }
+        track.item_type = item_type;
+        track.backfill_artist();
+        out.push(track);
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -499,6 +533,40 @@ pub struct StreamInfo {
     pub track_replay_gain: Option<f64>,
     #[serde(default)]
     pub track_peak_amplitude: Option<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoStreamInfo {
+    pub url: String,
+    pub video_quality: String,
+    pub manifest_mime_type: String,
+    pub video_id: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TidalVideo {
+    pub id: u64,
+    pub title: String,
+    #[serde(default)]
+    pub duration: Option<u32>,
+    #[serde(default)]
+    pub image_id: Option<String>,
+    #[serde(default)]
+    pub vibrant_color: Option<String>,
+    #[serde(default)]
+    pub quality: Option<String>,
+    #[serde(default, rename = "type")]
+    pub video_type: Option<String>,
+    #[serde(default)]
+    pub explicit: Option<bool>,
+    #[serde(default)]
+    pub ads_pre_paywall_only: Option<bool>,
+    #[serde(default)]
+    pub artist: Option<TidalArtist>,
+    #[serde(default)]
+    pub artists: Option<Vec<TidalArtist>>,
 }
 
 // ==================== v2 Home Feed MIX types ====================
@@ -1778,12 +1846,14 @@ impl TidalClient {
         &mut self,
         playlist_id: &str,
     ) -> Result<Vec<TidalTrack>, SoneError> {
-        let path = format!("/playlists/{}/tracks", playlist_id);
+        // `/items` (not `/tracks`) returns the real entries: tracks AND videos,
+        // each wrapped as `{ "item": {...}, "type": "track" | "video" }`.
+        let path = format!("/playlists/{}/items", playlist_id);
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct TracksResponse {
-            items: Vec<TidalTrack>,
+        struct ItemsResponse {
+            items: Vec<Value>,
             total_number_of_items: u32,
         }
 
@@ -1806,14 +1876,12 @@ impl TidalClient {
                 )
                 .await?;
 
-            let mut data: TracksResponse = serde_json::from_str(&body)
+            let data: ItemsResponse = serde_json::from_str(&body)
                 .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body)))?;
 
             let fetched = data.items.len() as u32;
-            for t in &mut data.items {
-                t.backfill_artist();
-            }
-            all_tracks.append(&mut data.items);
+            let mut tracks = parse_playlist_items(data.items)?;
+            all_tracks.append(&mut tracks);
 
             if fetched == 0 || all_tracks.len() as u32 >= data.total_number_of_items {
                 break;
@@ -1846,17 +1914,18 @@ impl TidalClient {
         if let Some(od) = order_direction {
             params.push(("orderDirection", od));
         }
+        // `/items` returns tracks AND videos, each wrapped as `{ item, type }`.
         let body = self
             .api_get_body(
-                &format!("/playlists/{}/tracks", playlist_id),
+                &format!("/playlists/{}/items", playlist_id),
                 &params,
             )
             .await?;
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct TracksResponse {
-            items: Vec<TidalTrack>,
+        struct ItemsResponse {
+            items: Vec<Value>,
             total_number_of_items: u32,
             #[serde(default)]
             offset: u32,
@@ -1864,13 +1933,11 @@ impl TidalClient {
             limit: u32,
         }
 
-        let mut data: TracksResponse = serde_json::from_str(&body)
+        let data: ItemsResponse = serde_json::from_str(&body)
             .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body)))?;
-        for t in &mut data.items {
-            t.backfill_artist();
-        }
+        let items = parse_playlist_items(data.items)?;
         Ok(PaginatedTracks {
-            items: data.items,
+            items,
             total_number_of_items: data.total_number_of_items,
             offset: data.offset,
             limit: data.limit,
@@ -3176,6 +3243,79 @@ impl TidalClient {
             track_replay_gain: data.track_replay_gain,
             track_peak_amplitude: data.track_peak_amplitude,
         })
+    }
+
+    pub async fn get_video_stream_url(
+        &mut self,
+        video_id: u64,
+        video_quality: &str,
+    ) -> Result<VideoStreamInfo, SoneError> {
+        let cc = self.country_code.clone();
+        let body = self
+            .api_get_body(
+                &format!("/videos/{}/playbackinfopostpaywall", video_id),
+                &[
+                    ("countryCode", &cc),
+                    ("videoquality", video_quality),
+                    ("playbackmode", "STREAM"),
+                    ("assetpresentation", "FULL"),
+                ],
+            )
+            .await?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct PlaybackInfo {
+            video_id: u64,
+            video_quality: String,
+            manifest_mime_type: String,
+            manifest: String,
+        }
+
+        let data = serde_json::from_str::<PlaybackInfo>(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body)))?;
+
+        use base64::Engine;
+        let manifest_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&data.manifest)
+            .map_err(|e| SoneError::Parse(format!("Failed to decode manifest: {}", e)))?;
+        let manifest_str = String::from_utf8(manifest_bytes)
+            .map_err(|e| SoneError::Parse(format!("Invalid manifest encoding: {}", e)))?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct EmuManifest {
+            urls: Vec<String>,
+        }
+
+        let manifest_data = serde_json::from_str::<EmuManifest>(&manifest_str)
+            .map_err(|e| SoneError::Parse(format!("{} - Manifest: {}", e, manifest_str)))?;
+
+        let url = manifest_data
+            .urls
+            .into_iter()
+            .next()
+            .ok_or(SoneError::Parse("No URL in video manifest".into()))?;
+
+        Ok(VideoStreamInfo {
+            url,
+            video_quality: data.video_quality,
+            manifest_mime_type: data.manifest_mime_type,
+            video_id: data.video_id,
+        })
+    }
+
+    pub async fn get_video(&mut self, video_id: u64) -> Result<TidalVideo, SoneError> {
+        let cc = self.country_code.clone();
+        self.api_get(
+            &format!("/videos/{}", video_id),
+            &[
+                ("countryCode", &cc),
+                ("locale", "en_US"),
+                ("deviceType", "BROWSER"),
+            ],
+        )
+        .await
     }
 
     pub async fn get_track_lyrics(&mut self, track_id: u64) -> Result<TidalLyrics, SoneError> {
