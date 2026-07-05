@@ -35,6 +35,7 @@ import {
   favoriteMixIdsAtom,
 } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
+import { currentVideoAtom } from "../atoms/video";
 import {
   isPlayingAtom,
   currentTrackAtom,
@@ -754,8 +755,13 @@ export function AppInitializer() {
   useEffect(() => {
     if (!volumeSyncedRef.current) {
       volumeSyncedRef.current = true;
-      const vol = store.get(volumeAtom);
-      invoke("set_volume", { level: vol }).catch(() => {});
+      // Never push a persisted volume into a bit-perfect pipeline — it must stay
+      // at unity. The stored value can be non-unity if the user adjusted volume
+      // during video playback (video audio is lossy and always controllable).
+      if (!store.get(bitPerfectAtom)) {
+        const vol = store.get(volumeAtom);
+        invoke("set_volume", { level: vol }).catch(() => {});
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1063,6 +1069,7 @@ export function AppInitializer() {
     const pushMetadata = () => {
       const track = store.get(currentTrackAtom);
       if (!track) return;
+      if (store.get(currentVideoAtom)) return; // video is current → don't overwrite MPRIS with audio metadata
       const streamInfo = store.get(streamInfoAtom);
       const favoriteIds = store.get(favoriteTrackIdsAtom);
       // Track.album has no artist field; fall back to track's own artist.

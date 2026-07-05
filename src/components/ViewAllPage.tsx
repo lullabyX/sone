@@ -155,6 +155,11 @@ export default function ViewAllPage({
   }, [artistId, hasMore, handleLoadMore]);
 
   const handleItemClick = (item: any) => {
+    const mediaItem = buildMediaItem(item);
+    if (mediaItem?.type === "video") {
+      playMedia(mediaItem);
+      return;
+    }
     if (isTrackItem(item)) {
       const allTrackItems = items.filter((t) => isTrackItem(t));
       playFromSource(item, allTrackItems, {

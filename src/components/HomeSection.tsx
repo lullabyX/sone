@@ -121,6 +121,11 @@ export default function HomeSection({ section }: HomeSectionProps) {
       }
       return;
     }
+    const asMedia = buildMediaItem(item, section.sectionType);
+    if (asMedia?.type === "video") {
+      playMedia(asMedia);
+      return;
+    }
     if (isTrackItem(item, section.sectionType)) {
       const allTrackItems = items.filter((t: any) =>
         isTrackItem(t, section.sectionType),

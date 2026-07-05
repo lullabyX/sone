@@ -1,4 +1,9 @@
-import { getTidalImageUrl, type MediaItemType, type StreamInfo } from "../types";
+import {
+  getTidalImageUrl,
+  type MediaItemType,
+  type StreamInfo,
+  type Track,
+} from "../types";
 
 /**
  * Shared helpers for extracting data from raw Tidal API JSON items.
@@ -189,6 +194,12 @@ export function isDeepLinkItem(item: any): boolean {
   return item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK";
 }
 
+export function isVideoItem(item: any, sectionType?: string): boolean {
+  const t = getItemType(item);
+  // v2 typed lists use "VIDEO"; the v1 catalog object uses "Music Video".
+  return sectionType === "VIDEO_LIST" || t === "VIDEO" || t === "Music Video";
+}
+
 /** Detect the special "My Tracks" shortcut from Tidal's v2 feed. */
 export function isMyTracksItem(item: any): boolean {
   if (
@@ -223,6 +234,19 @@ export function buildMediaItem(
         uuid: d.artifactId,
         title: d.shortHeader ?? "",
         image: d.imageURL,
+      };
+    }
+    return null;
+  }
+  if (isVideoItem(item, sectionType)) {
+    if (item.id != null) {
+      return {
+        type: "video",
+        id: Number(item.id),
+        title: item.title || getItemTitle(item),
+        imageId: item.imageId,
+        artist: item.artist?.name || item.artists?.[0]?.name,
+        duration: item.duration,
       };
     }
     return null;
@@ -266,6 +290,11 @@ export function buildMediaItem(
     };
   }
   return null;
+}
+
+/** Cover image UUID for a track — videos carry `imageId`, not `album.cover`. */
+export function trackCoverId(track: Track): string | undefined {
+  return track.itemType === "video" ? track.imageId : track.album?.cover;
 }
 
 /** Return comma-separated artist names for a track (plain text, no links). */
@@ -348,6 +377,8 @@ export function getShareUrl(item: MediaItemType): string {
       return `${TIDAL_SHARE_BASE}/mix/${item.mixId}`;
     case "artist":
       return `${TIDAL_SHARE_BASE}/artist/${item.id}`;
+    case "video":
+      return `${TIDAL_SHARE_BASE}/video/${item.id}`;
   }
 }
 

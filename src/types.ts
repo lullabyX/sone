@@ -108,6 +108,10 @@ export interface Track {
   audioModes?: string[]; // "STEREO" | "DOLBY_ATMOS"
   mediaMetadata?: MediaMetadata;
   mixes?: { TRACK_MIX?: string; MASTER_TRACK_MIX?: string };
+  /** From `/playlists/{id}/items`: "track" | "video". */
+  itemType?: string;
+  /** Video thumbnail UUID (videos carry `imageId` instead of `album.cover`). */
+  imageId?: string;
   _qid?: string;
 }
 
@@ -380,6 +384,27 @@ export interface StreamInfo {
   trackPeakAmplitude?: number;
 }
 
+export interface VideoStreamInfo {
+  url: string;
+  videoQuality: string;
+  manifestMimeType: string;
+  videoId: number;
+}
+
+export interface TidalVideo {
+  id: number;
+  title: string;
+  duration: number;
+  imageId?: string;
+  vibrantColor?: string;
+  quality?: string;
+  type?: string;
+  explicit?: boolean;
+  adsPrePaywallOnly?: boolean;
+  artist?: { id: number; name: string; picture?: string };
+  artists?: { id: number; name: string; picture?: string }[];
+}
+
 // ==================== v2 Home Feed MIX types ====================
 
 /** @public */
@@ -575,7 +600,15 @@ export type MediaItemType =
       image?: string;
       subtitle?: string;
     }
-  | { type: "artist"; id: number; name: string; picture?: string };
+  | { type: "artist"; id: number; name: string; picture?: string }
+  | {
+      type: "video";
+      id: number;
+      title: string;
+      imageId?: string;
+      artist?: string;
+      duration?: number;
+    };
 
 export interface FavoriteMix {
   id: string;

@@ -451,11 +451,13 @@ export default function PlaylistView({
   const handlePlayTrack = useCallback(
     async (track: Track, _index: number) => {
       try {
-        await playFromSource(track, tracks, { source: playlistSource(tracks) });
+        await playFromSource(track, tracks, {
+          source: playlistSource(tracks),
+        });
 
         // Fire-and-forget: append remaining pages to queue as they arrive
         if (hasMoreRef.current && !bgFetchingRef.current) {
-          fetchRemaining(appendToQueue);
+          fetchRemaining((items) => appendToQueue(items));
         }
       } catch (err) {
         console.error("Failed to play playlist track:", err);
@@ -492,10 +494,12 @@ export default function PlaylistView({
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
     try {
-      await playAllFromSource(tracks, { source: playlistSource(tracks) });
+      await playAllFromSource(tracks, {
+        source: playlistSource(tracks),
+      });
 
       if (hasMoreRef.current && !bgFetchingRef.current) {
-        fetchRemaining(appendToQueue);
+        fetchRemaining((items) => appendToQueue(items));
       }
     } catch (err) {
       console.error("Failed to play playlist:", err);
@@ -511,6 +515,7 @@ export default function PlaylistView({
     }
 
     const all = allTracksRef.current.length > 0 ? allTracksRef.current : tracks;
+    if (all.length === 0) return;
     const firstIdx = Math.floor(Math.random() * all.length);
     const first = all[firstIdx];
     const rest = all.filter((_, i) => i !== firstIdx);

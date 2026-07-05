@@ -503,6 +503,7 @@ const V2_TYPE_TO_SECTION: Record<string, string> = {
   ARTIST: "ARTIST_LIST",
   PLAYLIST: "PLAYLIST_LIST",
   MIX: "MIX_LIST",
+  VIDEO: "VIDEO_LIST",
 };
 
 function parseArtistPageV2(json: any): ArtistPageData {
@@ -527,10 +528,14 @@ function parseArtistPageV2(json: any): ArtistPageData {
     if (rawItems.length === 0) continue;
 
     const firstType = rawItems[0]?.type as string;
-    if (firstType === "VIDEO" || firstType === "TRACK_CREDITS") continue;
+    if (firstType === "TRACK_CREDITS") continue;
 
     const sectionType = V2_TYPE_TO_SECTION[firstType] || firstType;
-    const items = rawItems.map((i: any) => i.data || i);
+    const items = rawItems.map((i: any) =>
+      firstType === "VIDEO"
+        ? { ...(i.data || i), _itemType: "VIDEO" }
+        : i.data || i,
+    );
 
     if (sectionType === "TRACK_LIST" && result.topTracks.length === 0) {
       result.topTracks = items;
@@ -790,6 +795,9 @@ export async function fetchMediaTracks(item: MediaItemType): Promise<Track[]> {
     case "artist": {
       return await getArtistTopTracks(item.id);
     }
+    case "video":
+      // Videos are not audio tracks — handled by the video player, not the queue.
+      return [];
   }
 }
 
