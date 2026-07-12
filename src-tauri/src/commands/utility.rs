@@ -290,10 +290,15 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
 
     // First call: probe directly (not via audio thread) and cache
     let devices =
-        crate::audio::list_alsa_devices_with_override(state.alsa_device_override.as_deref())
-            .map_err(SoneError::Audio)?;
+        crate::audio::list_alsa_devices_with_override(state.alsa_device_override.as_deref());
     *state.cached_audio_devices.lock().unwrap() = Some(devices.clone());
     Ok(devices)
+}
+
+#[tauri::command]
+pub fn refresh_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>, SoneError> {
+    *state.cached_audio_devices.lock().unwrap() = None;
+    list_audio_devices(state)
 }
 
 #[tauri::command]

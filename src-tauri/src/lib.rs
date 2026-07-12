@@ -513,6 +513,7 @@ impl AppState {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{parse_alsa_device_cli_override, resolve_alsa_device_override};
 
@@ -642,12 +643,10 @@ pub fn run() {
                         let state = handle.state::<AppState>();
                         state.alsa_device_override.clone()
                     };
-                    if let Ok(devices) =
-                        crate::audio::list_alsa_devices_with_override(override_device.as_deref())
-                    {
-                        let state = handle.state::<AppState>();
-                        *state.cached_audio_devices.lock().unwrap() = Some(devices);
-                    }
+                    let devices =
+                        crate::audio::list_alsa_devices_with_override(override_device.as_deref());
+                    let state = handle.state::<AppState>();
+                    *state.cached_audio_devices.lock().unwrap() = Some(devices);
                 });
             }
 
@@ -1055,6 +1054,7 @@ pub fn run() {
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
+            commands::utility::refresh_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
             commands::utility::get_discord_status_text,

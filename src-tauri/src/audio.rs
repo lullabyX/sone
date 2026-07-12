@@ -3,6 +3,7 @@ use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
@@ -513,7 +514,7 @@ fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
 ///   2. Narrowest lossless promotion the DAC supports (container widening or, for S24_32LE,
 ///      shrinking to S24LE which holds the same 24 audio bits in 3 bytes).
 ///   3. Lossy fallback: DAC's first probed format (widest per probe order).
-/// In case 3, the writer's `resolve_pending` still emits a truthful from→to toast.
+///      The writer's `resolve_pending` still emits a truthful from→to toast.
 #[cfg(target_os = "linux")]
 fn pick_capsfilter_format(source: &str, dac_supported: &[String]) -> String {
     // 1. Pass-through.
@@ -765,6 +766,7 @@ fn configure_alsa_hwparams(
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 fn spawn_alsa_writer(
     device: &str,
@@ -2784,7 +2786,7 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::ListDevices { reply } => {
-                        let result = list_alsa_devices_inner();
+                        let result = Ok(list_alsa_devices_with_override(None));
                         reply.send(result).ok();
                     }
                 }
@@ -2913,6 +2915,7 @@ fn stereo_pad_mix_matrix(out_channels: u32) -> gst::Array {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
 fn build_appsink_pipeline(
     uri: &str,
     exclusive: bool,
@@ -3324,21 +3327,379 @@ fn build_appsink_pipeline(
 
 // ── Device enumeration ─────────────────────────────────────────────────
 
-/// Enumerate ALSA hardware devices. Does NOT use the audio pipeline,
-/// so it is safe to call from any thread.
-#[allow(dead_code)]
-pub fn list_alsa_devices() -> Result<Vec<AudioDevice>, String> {
-    list_alsa_devices_with_override(None)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct HardwareEndpointKey {
+    card_id: String,
+    device: u32,
 }
 
-pub fn list_alsa_devices_with_override(
-    manual_device: Option<&str>,
-) -> Result<Vec<AudioDevice>, String> {
-    let devices = list_alsa_devices_inner()?;
-    Ok(merge_manual_alsa_device(devices, manual_device))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioDeviceSource {
+    Native,
+    GStreamer,
+    Manual,
 }
 
-fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
+#[derive(Debug, Clone)]
+struct AudioDeviceEntry {
+    device: AudioDevice,
+    sort_label: String,
+    sort_card_label: String,
+    sort_card_id: String,
+    sort_device: Option<u32>,
+    card_index: Option<i32>,
+    hardware_key: Option<HardwareEndpointKey>,
+    source: AudioDeviceSource,
+}
+
+impl AudioDeviceEntry {
+    fn dedup_key(&self) -> DeviceDedupKey {
+        if let Some(key) = &self.hardware_key {
+            DeviceDedupKey::Hardware(key.clone())
+        } else {
+            DeviceDedupKey::Exact(self.device.id.clone())
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum DeviceDedupKey {
+    Hardware(HardwareEndpointKey),
+    Exact(String),
+}
+
+#[derive(Debug, Clone)]
+struct NativeCardMeta {
+    index: i32,
+    id: String,
+    name: String,
+    longname: String,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedHwEndpoint {
+    card_token: String,
+    device: u32,
+}
+
+struct AudioDeviceDiscovery {
+    entries: Vec<AudioDeviceEntry>,
+    gstreamer_count: usize,
+    native_alsa_count: usize,
+    manual_count: usize,
+}
+
+fn build_hw_device_id(card_id: &str, device: u32) -> String {
+    format!("hw:CARD={card_id},DEV={device}")
+}
+
+fn format_device_name(label: &str, id: &str) -> String {
+    format!("{label} — {id}")
+}
+
+fn label_score(label: &str, source: AudioDeviceSource) -> usize {
+    let mut score = label.trim().len();
+    if label.contains(" / ") {
+        score += 8;
+    }
+    if label.contains(" - ") || label.contains(" | ") {
+        score += 4;
+    }
+    score
+        + match source {
+            AudioDeviceSource::Native => 20,
+            AudioDeviceSource::GStreamer => 10,
+            AudioDeviceSource::Manual => 0,
+        }
+}
+
+fn better_audio_device_entry(candidate: &AudioDeviceEntry, current: &AudioDeviceEntry) -> bool {
+    let candidate_score = label_score(&candidate.sort_label, candidate.source);
+    let current_score = label_score(&current.sort_label, current.source);
+    candidate_score > current_score
+}
+
+fn sort_audio_device_entries(a: &AudioDeviceEntry, b: &AudioDeviceEntry) -> std::cmp::Ordering {
+    a.sort_card_label
+        .cmp(&b.sort_card_label)
+        .then_with(|| a.sort_card_id.cmp(&b.sort_card_id))
+        .then_with(|| {
+            a.sort_device
+                .unwrap_or(u32::MAX)
+                .cmp(&b.sort_device.unwrap_or(u32::MAX))
+        })
+        .then_with(|| a.device.name.cmp(&b.device.name))
+}
+
+fn parse_hw_endpoint(device_id: &str) -> Option<ParsedHwEndpoint> {
+    let rest = device_id.strip_prefix("hw:")?;
+    if let Some(card) = rest.strip_prefix("CARD=") {
+        let idx = card.rfind(",DEV=")?;
+        let (card_token, device_token) = card.split_at(idx);
+        let device = device_token.strip_prefix(",DEV=")?.parse().ok()?;
+        return Some(ParsedHwEndpoint {
+            card_token: card_token.trim().to_string(),
+            device,
+        });
+    }
+
+    let idx = rest.rfind(',')?;
+    let (card_token, device_token) = rest.split_at(idx);
+    let device = device_token.strip_prefix(',')?.parse().ok()?;
+    Some(ParsedHwEndpoint {
+        card_token: card_token.trim().to_string(),
+        device,
+    })
+}
+
+fn resolve_card_id(
+    card_token: &str,
+    native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
+) -> String {
+    if let Ok(index) = card_token.parse::<i32>() {
+        if let Some(meta) = native_lookup.and_then(|lookup| lookup.get(&index)) {
+            return meta.id.clone();
+        }
+    }
+
+    card_token.to_string()
+}
+
+fn resolve_hw_endpoint(
+    parsed: &ParsedHwEndpoint,
+    native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
+) -> HardwareEndpointKey {
+    HardwareEndpointKey {
+        card_id: resolve_card_id(&parsed.card_token, native_lookup),
+        device: parsed.device,
+    }
+}
+
+fn card_display_label(card_name: &str, card_longname: &str, card_id: &str) -> String {
+    let card_name = card_name.trim();
+    let card_longname = card_longname.trim();
+
+    if !card_name.is_empty() && card_name != card_id {
+        card_name.to_string()
+    } else if !card_longname.is_empty() {
+        card_longname.to_string()
+    } else {
+        card_id.to_string()
+    }
+}
+
+fn pcm_label(card_name: &str, card_longname: &str, pcm_name: &str, card_id: &str) -> String {
+    let card_label = card_display_label(card_name, card_longname, card_id);
+    let pcm_name = pcm_name.trim();
+
+    if !pcm_name.is_empty() && pcm_name != card_label {
+        format!("{card_label} / {pcm_name}")
+    } else {
+        card_label
+    }
+}
+
+fn native_entry(card: &NativeCardMeta, pcm_device: u32, pcm_name: &str) -> AudioDeviceEntry {
+    let id = build_hw_device_id(&card.id, pcm_device);
+    let card_label = card_display_label(&card.name, &card.longname, &card.id);
+    let label = pcm_label(&card.name, &card.longname, pcm_name, &card.id);
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id,
+            name: format_device_name(&label, &build_hw_device_id(&card.id, pcm_device)),
+        },
+        sort_label: label,
+        sort_card_label: card_label,
+        sort_card_id: card.id.clone(),
+        sort_device: Some(pcm_device),
+        card_index: Some(card.index),
+        hardware_key: Some(HardwareEndpointKey {
+            card_id: card.id.clone(),
+            device: pcm_device,
+        }),
+        source: AudioDeviceSource::Native,
+    }
+}
+
+fn gstreamer_entry(display_name: &str, hardware_key: HardwareEndpointKey) -> AudioDeviceEntry {
+    let id = build_hw_device_id(&hardware_key.card_id, hardware_key.device);
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id,
+            name: format_device_name(
+                display_name,
+                &build_hw_device_id(&hardware_key.card_id, hardware_key.device),
+            ),
+        },
+        sort_label: display_name.trim().to_string(),
+        sort_card_label: display_name.trim().to_string(),
+        sort_card_id: hardware_key.card_id.clone(),
+        sort_device: Some(hardware_key.device),
+        card_index: None,
+        hardware_key: Some(hardware_key),
+        source: AudioDeviceSource::GStreamer,
+    }
+}
+
+fn manual_entry(device_id: &str) -> AudioDeviceEntry {
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id: device_id.to_string(),
+            name: format_device_name("Manual ALSA device", device_id),
+        },
+        sort_label: "Manual ALSA device".to_string(),
+        sort_card_label: "Manual ALSA device".to_string(),
+        sort_card_id: device_id.to_string(),
+        sort_device: None,
+        card_index: None,
+        hardware_key: parse_hw_endpoint(device_id).map(|parsed| resolve_hw_endpoint(&parsed, None)),
+        source: AudioDeviceSource::Manual,
+    }
+}
+
+fn merge_audio_device_entries(entries: Vec<AudioDeviceEntry>) -> Vec<AudioDevice> {
+    let mut merged: HashMap<DeviceDedupKey, AudioDeviceEntry> = HashMap::new();
+
+    for entry in entries {
+        let key = entry.dedup_key();
+        merged
+            .entry(key)
+            .and_modify(|current| {
+                if better_audio_device_entry(&entry, current) {
+                    *current = entry.clone();
+                }
+            })
+            .or_insert(entry);
+    }
+
+    let mut merged: Vec<_> = merged.into_values().collect();
+    merged.sort_by(sort_audio_device_entries);
+    merged.into_iter().map(|entry| entry.device).collect()
+}
+
+fn native_card_lookup(entries: &[AudioDeviceEntry]) -> HashMap<i32, NativeCardMeta> {
+    let mut lookup = HashMap::new();
+    for entry in entries {
+        if let Some(index) = entry.card_index {
+            if let Some(key) = &entry.hardware_key {
+                lookup.entry(index).or_insert_with(|| NativeCardMeta {
+                    index,
+                    id: key.card_id.clone(),
+                    name: entry.sort_card_label.clone(),
+                    longname: entry.sort_card_label.clone(),
+                });
+            }
+        }
+    }
+    lookup
+}
+
+#[cfg(target_os = "linux")]
+fn list_native_alsa_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    let mut result = Vec::new();
+
+    for card_result in alsa::card::Iter::new() {
+        let card = match card_result {
+            Ok(card) => card,
+            Err(e) => {
+                log::warn!("[native-alsa] card iteration failed: {e}");
+                continue;
+            }
+        };
+
+        let ctl = match alsa::Ctl::from_card(&card, false) {
+            Ok(ctl) => ctl,
+            Err(e) => {
+                log::warn!(
+                    "[native-alsa] failed to open control for card {}: {e}",
+                    card.get_index()
+                );
+                continue;
+            }
+        };
+
+        let info = match ctl.card_info() {
+            Ok(info) => info,
+            Err(e) => {
+                log::warn!(
+                    "[native-alsa] failed to query card info for {}: {e}",
+                    card.get_index()
+                );
+                continue;
+            }
+        };
+
+        let meta = NativeCardMeta {
+            index: info.get_card().get_index(),
+            id: match info.get_id() {
+                Ok(id) => id.to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "[native-alsa] card id query failed for {}: {e}",
+                        card.get_index()
+                    );
+                    continue;
+                }
+            },
+            name: match info.get_name() {
+                Ok(name) => name.to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "[native-alsa] card name query failed for {}: {e}",
+                        card.get_index()
+                    );
+                    continue;
+                }
+            },
+            longname: match info.get_longname() {
+                Ok(longname) => longname.to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "[native-alsa] card longname query failed for {}: {e}",
+                        card.get_index()
+                    );
+                    continue;
+                }
+            },
+        };
+
+        log::debug!(
+            "[native-alsa] card index={} id={} name=\"{}\"",
+            meta.index,
+            meta.id,
+            meta.name
+        );
+
+        for device in alsa::ctl::DeviceIter::new(&ctl) {
+            let Ok(pcm_info) = ctl.pcm_info(device as u32, 0, alsa::Direction::Playback) else {
+                continue;
+            };
+
+            let pcm_name = pcm_info.get_name().unwrap_or("").to_string();
+            let pcm_device = pcm_info.get_device();
+            let entry = native_entry(&meta, pcm_device, &pcm_name);
+            log::debug!(
+                "[native-alsa] playback pcm card={} device={} id={} name=\"{}\"",
+                meta.id,
+                pcm_device,
+                entry.device.id,
+                pcm_name
+            );
+            result.push(entry);
+        }
+    }
+
+    Ok(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn list_native_alsa_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    Ok(Vec::new())
+}
+
+fn list_gstreamer_audio_devices(
+    native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
+) -> Result<Vec<AudioDeviceEntry>, String> {
     gst::init().map_err(|e| format!("GStreamer init failed: {e}"))?;
     let monitor = gst::DeviceMonitor::new();
     let caps = gst::Caps::new_empty_simple("audio/x-raw");
@@ -3347,8 +3708,6 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
         .start()
         .map_err(|e| format!("Failed to start device monitor: {e}"))?;
 
-    // GStreamer 1.28+ starts providers async, so devices() may initially be empty.
-    // On older versions start() blocks and devices are available immediately.
     let devices = {
         let mut devs = monitor.devices();
         let mut waited = 0u32;
@@ -3363,7 +3722,7 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
     monitor.stop();
 
     log::debug!(
-        "[list_alsa_devices] DeviceMonitor found {} devices",
+        "[list_gstreamer_audio_devices] DeviceMonitor found {} devices",
         devices.len()
     );
 
@@ -3378,39 +3737,92 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
             continue;
         }
 
-        let path = props.get::<String>("api.alsa.path").ok().or_else(|| {
-            let card = props.get::<String>("alsa.card").ok()?;
-            let dev_num = props.get::<String>("alsa.device").ok()?;
-            Some(format!("hw:{card},{dev_num}"))
-        });
+        let parsed = props
+            .get::<String>("api.alsa.path")
+            .ok()
+            .as_deref()
+            .and_then(parse_hw_endpoint);
 
-        if let Some(path) = path {
-            let name = dev.display_name().to_string();
-            log::debug!("[list_alsa_devices] found: '{}' -> {}", name, path);
-            result.push(AudioDevice { id: path, name });
-        }
+        let Some(parsed) = parsed else {
+            continue;
+        };
+
+        let hardware_key = resolve_hw_endpoint(&parsed, native_lookup);
+        let display_name = dev.display_name().to_string();
+        log::debug!(
+            "[list_gstreamer_audio_devices] found: '{}' -> {}",
+            display_name,
+            build_hw_device_id(&hardware_key.card_id, hardware_key.device)
+        );
+        result.push(gstreamer_entry(&display_name, hardware_key));
     }
 
-    log::debug!("[list_alsa_devices] returning {} devices", result.len());
+    log::debug!(
+        "[list_gstreamer_audio_devices] returning {} devices",
+        result.len()
+    );
     Ok(result)
 }
 
-pub(crate) fn merge_manual_alsa_device(
-    mut devices: Vec<AudioDevice>,
-    manual_device: Option<&str>,
-) -> Vec<AudioDevice> {
-    let Some(manual_device) = manual_device.map(str::trim).filter(|s| !s.is_empty()) else {
-        return devices;
+fn list_audio_device_entries(manual_device: Option<&str>) -> AudioDeviceDiscovery {
+    let native_entries = match list_native_alsa_playback_devices() {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("[native-alsa] enumeration failed: {e}");
+            Vec::new()
+        }
     };
+    let native_lookup = native_card_lookup(&native_entries);
 
-    if devices.iter().any(|device| device.id == manual_device) {
-        return devices;
+    let gstreamer_entries = match list_gstreamer_audio_devices(Some(&native_lookup)) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("[list_gstreamer_audio_devices] enumeration failed: {e}");
+            Vec::new()
+        }
+    };
+    let gstreamer_count = gstreamer_entries.len();
+    let native_count = native_entries.len();
+
+    let mut all_entries = Vec::new();
+    all_entries.extend(gstreamer_entries);
+    all_entries.extend(native_entries);
+
+    let manual_entries = manual_device
+        .map(str::trim)
+        .filter(|device| !device.is_empty())
+        .map(manual_entry);
+    let manual_count = manual_entries.as_ref().map(|_| 1).unwrap_or(0);
+    if let Some(entry) = manual_entries {
+        all_entries.push(entry);
     }
 
-    devices.push(AudioDevice {
-        id: manual_device.to_owned(),
-        name: format!("Manual ALSA device ({manual_device})"),
-    });
+    AudioDeviceDiscovery {
+        entries: all_entries,
+        gstreamer_count,
+        native_alsa_count: native_count,
+        manual_count,
+    }
+}
+
+/// Enumerate ALSA hardware devices. Does NOT use the audio pipeline,
+/// so it is safe to call from any thread.
+#[allow(dead_code)]
+pub fn list_alsa_devices() -> Vec<AudioDevice> {
+    list_alsa_devices_with_override(None)
+}
+
+pub fn list_alsa_devices_with_override(manual_device: Option<&str>) -> Vec<AudioDevice> {
+    let discovery = list_audio_device_entries(manual_device);
+    let devices = merge_audio_device_entries(discovery.entries);
+    log::debug!(
+        "[audio-devices] gstreamer={} native_alsa={} manual={} merged={}",
+        discovery.gstreamer_count,
+        discovery.native_alsa_count,
+        discovery.manual_count,
+        devices.len(),
+    );
+
     devices
 }
 
@@ -3425,43 +3837,255 @@ pub fn gapless_supported() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_manual_alsa_device, AudioDevice};
+    use super::{
+        build_hw_device_id, merge_audio_device_entries, parse_hw_endpoint, AudioDevice,
+        AudioDeviceEntry, AudioDeviceSource, HardwareEndpointKey,
+    };
 
-    #[test]
-    fn inserts_manual_device_when_missing() {
-        let devices = vec![AudioDevice {
-            id: "hw:CARD=Other,DEV=0".to_string(),
-            name: "Other".to_string(),
-        }];
+    fn native(
+        card_index: i32,
+        card_id: &str,
+        card_name: &str,
+        card_longname: &str,
+        device: u32,
+        pcm_name: &str,
+    ) -> AudioDeviceEntry {
+        let id = build_hw_device_id(card_id, device);
+        let card_label = super::card_display_label(card_name, card_longname, card_id);
+        let label = super::pcm_label(card_name, card_longname, pcm_name, card_id);
+        AudioDeviceEntry {
+            device: AudioDevice {
+                id: id.clone(),
+                name: format!("{label} — {id}"),
+            },
+            sort_label: label,
+            sort_card_label: card_label,
+            sort_card_id: card_id.to_string(),
+            sort_device: Some(device),
+            card_index: Some(card_index),
+            hardware_key: Some(HardwareEndpointKey {
+                card_id: card_id.to_string(),
+                device,
+            }),
+            source: AudioDeviceSource::Native,
+        }
+    }
 
-        let merged = merge_manual_alsa_device(devices, Some(" hw:CARD=Q1,DEV=0 "));
+    fn gstreamer(id: &str, card_id: &str, device: u32, label: &str) -> AudioDeviceEntry {
+        AudioDeviceEntry {
+            device: AudioDevice {
+                id: id.to_string(),
+                name: format!("{label} — {id}"),
+            },
+            sort_label: label.to_string(),
+            sort_card_label: label.to_string(),
+            sort_card_id: card_id.to_string(),
+            sort_device: Some(device),
+            card_index: None,
+            hardware_key: Some(HardwareEndpointKey {
+                card_id: card_id.to_string(),
+                device,
+            }),
+            source: AudioDeviceSource::GStreamer,
+        }
+    }
 
-        assert_eq!(merged.len(), 2);
-        assert_eq!(merged[1].id, "hw:CARD=Q1,DEV=0");
-        assert_eq!(merged[1].name, "Manual ALSA device (hw:CARD=Q1,DEV=0)");
+    fn manual(id: &str) -> AudioDeviceEntry {
+        AudioDeviceEntry {
+            device: AudioDevice {
+                id: id.to_string(),
+                name: format!("Manual ALSA device — {id}"),
+            },
+            sort_label: "Manual ALSA device".to_string(),
+            sort_card_label: "Manual ALSA device".to_string(),
+            sort_card_id: id.to_string(),
+            sort_device: None,
+            card_index: None,
+            hardware_key: parse_hw_endpoint(id).map(|parsed| HardwareEndpointKey {
+                card_id: parsed.card_token,
+                device: parsed.device,
+            }),
+            source: AudioDeviceSource::Manual,
+        }
     }
 
     #[test]
-    fn deduplicates_manual_device_by_id() {
-        let devices = vec![AudioDevice {
-            id: "hw:CARD=Q1,DEV=0".to_string(),
-            name: "Detected device".to_string(),
-        }];
+    fn merges_gstreamer_and_native_results() {
+        let merged = merge_audio_device_entries(vec![
+            gstreamer("hw:CARD=Q1,DEV=0", "Q1", 0, "Q1"),
+            native(3, "Q1", "FiiO Q1", "FiiO Q1", 0, "USB Audio"),
+        ]);
 
-        let merged = merge_manual_alsa_device(devices.clone(), Some("hw:CARD=Q1,DEV=0"));
-
-        assert_eq!(merged, devices);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "hw:CARD=Q1,DEV=0");
+        assert_eq!(merged[0].name, "FiiO Q1 / USB Audio — hw:CARD=Q1,DEV=0");
     }
 
     #[test]
-    fn ignores_empty_manual_device() {
-        let devices = vec![AudioDevice {
-            id: "hw:CARD=Other,DEV=0".to_string(),
-            name: "Other".to_string(),
-        }];
+    fn native_only_results_stay_visible() {
+        let merged = merge_audio_device_entries(vec![native(
+            1,
+            "PCH",
+            "HDA Intel PCH",
+            "HDA Intel PCH",
+            0,
+            "ALC1220 Analog",
+        )]);
 
-        let merged = merge_manual_alsa_device(devices.clone(), Some("   "));
+        assert_eq!(
+            merged,
+            vec![AudioDevice {
+                id: "hw:CARD=PCH,DEV=0".to_string(),
+                name: "HDA Intel PCH / ALC1220 Analog — hw:CARD=PCH,DEV=0".to_string(),
+            }]
+        );
+    }
 
-        assert_eq!(merged, devices);
+    #[test]
+    fn gstreamer_only_results_stay_visible() {
+        let merged = merge_audio_device_entries(vec![gstreamer(
+            "hw:CARD=CODEC,DEV=0",
+            "CODEC",
+            0,
+            "USB Audio CODEC / USB Audio",
+        )]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "hw:CARD=CODEC,DEV=0");
+    }
+
+    #[test]
+    fn preserves_multiple_cards_and_pcm_devices() {
+        let merged = merge_audio_device_entries(vec![
+            native(
+                0,
+                "PCH",
+                "HDA Intel PCH",
+                "HDA Intel PCH",
+                0,
+                "ALC1220 Analog",
+            ),
+            native(
+                1,
+                "CODEC",
+                "USB Audio CODEC",
+                "USB Audio CODEC",
+                0,
+                "USB Audio",
+            ),
+            native(
+                1,
+                "CODEC",
+                "USB Audio CODEC",
+                "USB Audio CODEC",
+                1,
+                "S/PDIF",
+            ),
+        ]);
+
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id, "hw:CARD=PCH,DEV=0");
+        assert_eq!(merged[1].id, "hw:CARD=CODEC,DEV=0");
+        assert_eq!(merged[2].id, "hw:CARD=CODEC,DEV=1");
+    }
+
+    #[test]
+    fn sorts_predictably_by_label_card_id_device_then_name() {
+        let merged = merge_audio_device_entries(vec![
+            native(2, "B", "Bravo", "Bravo", 1, "Beta"),
+            native(1, "A", "Alpha", "Alpha", 0, "Alpha"),
+            native(3, "A", "Alpha", "Alpha", 2, "Gamma"),
+        ]);
+
+        assert_eq!(
+            merged.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            vec!["hw:CARD=A,DEV=0", "hw:CARD=A,DEV=2", "hw:CARD=B,DEV=1"]
+        );
+    }
+
+    #[test]
+    fn deduplicates_semantic_hw_forms() {
+        let merged = merge_audio_device_entries(vec![
+            AudioDeviceEntry {
+                device: AudioDevice {
+                    id: "hw:3,0".to_string(),
+                    name: "Generic hw:3,0 — hw:3,0".to_string(),
+                },
+                sort_label: "Generic hw".to_string(),
+                sort_card_label: "Generic hw".to_string(),
+                sort_card_id: "Q1".to_string(),
+                sort_device: Some(0),
+                card_index: Some(3),
+                hardware_key: Some(HardwareEndpointKey {
+                    card_id: "Q1".to_string(),
+                    device: 0,
+                }),
+                source: AudioDeviceSource::GStreamer,
+            },
+            native(3, "Q1", "FiiO Q1", "FiiO Q1", 0, "USB Audio"),
+        ]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "hw:CARD=Q1,DEV=0");
+    }
+
+    #[test]
+    fn manual_override_is_inserted_when_missing() {
+        let merged = merge_audio_device_entries(vec![
+            native(1, "PCH", "HDA Intel PCH", "HDA Intel PCH", 0, "Analog"),
+            manual("hw:CARD=Q1,DEV=0"),
+        ]);
+
+        assert!(merged.iter().any(|d| d.id == "hw:CARD=Q1,DEV=0"));
+        assert!(merged
+            .iter()
+            .any(|d| d.name == "Manual ALSA device — hw:CARD=Q1,DEV=0"));
+    }
+
+    #[test]
+    fn manual_override_is_not_duplicated_when_present() {
+        let merged = merge_audio_device_entries(vec![
+            native(1, "Q1", "FiiO Q1", "FiiO Q1", 0, "USB Audio"),
+            manual("hw:CARD=Q1,DEV=0"),
+        ]);
+
+        assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
+    fn raw_hardware_id_parsing_accepts_card_and_device_forms() {
+        let parsed = parse_hw_endpoint("hw:CARD=Q1,DEV=0").expect("should parse");
+        assert_eq!(parsed.card_token, "Q1");
+        assert_eq!(parsed.device, 0);
+
+        let parsed = parse_hw_endpoint("hw:Q1,1").expect("should parse");
+        assert_eq!(parsed.card_token, "Q1");
+        assert_eq!(parsed.device, 1);
+    }
+
+    #[test]
+    fn raw_hardware_id_parsing_rejects_virtual_aliases() {
+        assert!(parse_hw_endpoint("default").is_none());
+        assert!(parse_hw_endpoint("plughw:CARD=Q1,DEV=0").is_none());
+        assert!(parse_hw_endpoint("dmix").is_none());
+    }
+
+    #[test]
+    fn supports_unusual_card_ids_and_punctuation() {
+        let merged = merge_audio_device_entries(vec![native(
+            4,
+            "USB-Audio.1",
+            "USB Audio",
+            "USB Audio",
+            0,
+            "USB Audio",
+        )]);
+
+        assert_eq!(merged[0].id, "hw:CARD=USB-Audio.1,DEV=0");
+    }
+
+    #[test]
+    fn build_hw_device_id_uses_stable_card_id_format() {
+        assert_eq!(build_hw_device_id("Q1", 0), "hw:CARD=Q1,DEV=0");
     }
 }
