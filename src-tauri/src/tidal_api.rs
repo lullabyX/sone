@@ -413,6 +413,7 @@ impl From<OpenApiPlaylistResponse> for TidalPlaylist {
             description: a.description,
             image: None,
             number_of_tracks: Some(0),
+            number_of_videos: Some(0),
             creator: None,
             playlist_type: a.playlist_type,
             duration: Some(0),
@@ -430,6 +431,7 @@ pub struct TidalPlaylist {
     pub description: Option<String>,
     pub image: Option<String>,
     pub number_of_tracks: Option<u32>,
+    pub number_of_videos: Option<u32>,
     pub creator: Option<TidalPlaylistCreator>,
     /// "USER" | "EDITORIAL" | "ARTIST"
     #[serde(default)]
@@ -451,6 +453,7 @@ impl From<TidalPlaylistRaw> for TidalPlaylist {
             // Prefer squareImage, fallback to image
             image: raw.square_image.or(raw.image),
             number_of_tracks: raw.number_of_tracks,
+            number_of_videos: raw.number_of_videos,
             creator: raw.creator,
             playlist_type: raw.playlist_type,
             duration: raw.duration,
@@ -1599,6 +1602,7 @@ impl TidalClient {
                 description: Some(description.to_string()),
                 image: None,
                 number_of_tracks: None,
+                number_of_videos: None,
                 creator: None,
                 playlist_type: Some("USER".to_string()),
                 duration: None,
@@ -1646,6 +1650,7 @@ impl TidalClient {
             .form(&[
                 ("trackIds", &track_id.to_string()),
                 ("onDupes", &"FAIL".to_string()),
+                ("onArtifactNotFound", &"FAIL".to_string()),
             ])
             .send()
             .await?;
@@ -2272,6 +2277,175 @@ impl TidalClient {
         Ok(())
     }
 
+    pub async fn add_favorite_video(&self, user_id: u64, video_id: u64) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let video_id_str = video_id.to_string();
+
+        let response = self
+            .client
+            .post(format!(
+                "{}/users/{}/favorites/videos",
+                TIDAL_API_URL, user_id
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[("countryCode", self.country_code.as_str())])
+            .form(&[
+                ("videoIds", video_id_str.as_str()),
+                ("onArtifactNotFound", "FAIL"),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_favorite_video(
+        &self,
+        user_id: u64,
+        video_id: u64,
+    ) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        let response = self
+            .client
+            .delete(format!(
+                "{}/users/{}/favorites/videos/{}",
+                TIDAL_API_URL, user_id, video_id
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[("countryCode", self.country_code.as_str())])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_favorite_video_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let response = self
+            .client
+            .get(format!(
+                "{}/users/{}/favorites/videos",
+                TIDAL_API_URL, user_id
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("countryCode", self.country_code.as_str()),
+                ("limit", "10000"),
+                ("offset", "0"),
+                ("order", "DATE"),
+                ("orderDirection", "DESC"),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        // Parse leniently: pull each item's id directly. Deserializing the full
+        // TidalVideo would fail the entire call if any one favorite is missing a
+        // field, leaving every video heart empty on startup.
+        let json: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        let ids = json
+            .get("items")
+            .and_then(|i| i.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|it| it.get("item")?.get("id")?.as_u64())
+                    .collect::<Vec<u64>>()
+            })
+            .unwrap_or_default();
+        Ok(ids)
+    }
+
+    pub async fn get_favorite_videos(
+        &self,
+        user_id: u64,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<TidalVideo>, SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        let response = self
+            .client
+            .get(format!(
+                "{}/users/{}/favorites/videos",
+                TIDAL_API_URL, user_id
+            ))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .query(&[
+                ("countryCode", self.country_code.as_str()),
+                ("limit", limit_str.as_str()),
+                ("offset", offset_str.as_str()),
+                ("order", "DATE"),
+                ("orderDirection", "DESC"),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        #[derive(Deserialize)]
+        struct FavItem {
+            #[serde(default)]
+            item: Option<serde_json::Value>,
+        }
+
+        #[derive(Deserialize)]
+        struct FavResponse {
+            #[serde(default)]
+            items: Vec<FavItem>,
+        }
+
+        let data = serde_json::from_str::<FavResponse>(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, body)))?;
+
+        Ok(data
+            .items
+            .into_iter()
+            .filter_map(|f| f.item)
+            .filter_map(|v| serde_json::from_value::<TidalVideo>(v).ok())
+            .collect())
+    }
+
     pub async fn is_album_favorited(&self, user_id: u64, album_id: u64) -> Result<bool, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let response = self
@@ -2845,6 +3019,57 @@ impl TidalClient {
         })
     }
 
+    /// Fetch ALL playlists across every folder via the flattened endpoint,
+    /// paginating with the response `cursor` until exhausted. Returns the raw
+    /// folder items (same shape `normalizeFolderItem` consumes).
+    pub async fn get_all_flattened_playlists(
+        &mut self,
+    ) -> Result<Vec<serde_json::Value>, SoneError> {
+        let url = format!(
+            "{}/my-collection/playlists/folders/flattened",
+            TIDAL_API_V2_URL
+        );
+        let cc = self.country_code.clone();
+        let mut accumulated: Vec<serde_json::Value> = Vec::new();
+        let mut cursor = String::new();
+        const MAX_PAGES: u32 = 40;
+
+        for _ in 0..MAX_PAGES {
+            let mut params: Vec<(&str, &str)> = vec![
+                ("offset", "0"),
+                ("limit", "50"),
+                ("order", "DATE"),
+                ("orderDirection", "DESC"),
+                ("countryCode", &cc),
+                ("locale", "en_US"),
+                ("deviceType", "BROWSER"),
+            ];
+            if !cursor.is_empty() {
+                params.push(("cursor", &cursor));
+            }
+
+            let body = self.api_get_body(&url, &params).await?;
+            let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+                SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)]))
+            })?;
+
+            if let Some(items) = value.get("items").and_then(|v| v.as_array()) {
+                accumulated.extend(items.iter().cloned());
+            }
+
+            match value.get("cursor").and_then(|c| c.as_str()) {
+                Some(next) if !next.is_empty() => cursor = next.to_string(),
+                _ => break,
+            }
+        }
+
+        log::debug!(
+            "[get_all_flattened_playlists]: accumulated {} items",
+            accumulated.len()
+        );
+        Ok(accumulated)
+    }
+
     pub async fn create_playlist_folder(
         &self,
         folder_id: &str,
@@ -3074,7 +3299,11 @@ impl TidalClient {
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
             .query(&[("countryCode", self.country_code.as_str())])
-            .form(&[("trackIds", ids_str.as_str()), ("onDupes", "SKIP")])
+            .form(&[
+                ("trackIds", ids_str.as_str()),
+                ("onDupes", "SKIP"),
+                ("onArtifactNotFound", "FAIL"),
+            ])
             .send()
             .await?;
 
@@ -3833,12 +4062,7 @@ impl TidalClient {
             Self::add_unique_sections(&mut all_sections, &mut seen_titles, sections);
         }
 
-        if let Ok(mut sections) = self.fetch_page_endpoint("pages/rising").await {
-            sections.retain(|s| {
-                s.section_type != "VIDEO_LIST"
-                    && s.title != "Video Playlists"
-                    && s.title != "New Videos"
-            });
+        if let Ok(sections) = self.fetch_page_endpoint("pages/rising").await {
             Self::add_unique_sections(&mut all_sections, &mut seen_titles, sections);
         }
 
@@ -4019,10 +4243,9 @@ impl TidalClient {
             .unwrap_or("")
             .to_string();
 
-        // Only skip truly non-content promotional types
-        if section_type == "FEATURED_PROMOTIONS"
-            || section_type == "MULTIPLE_TOP_PROMOTIONS"
-            || section_type == "TEXT_BLOCK"
+        // Only skip truly non-content promotional types. MULTIPLE_TOP_PROMOTIONS
+        // is content (a "Featured" row of playlist/video promos) — keep it.
+        if section_type == "TEXT_BLOCK"
             || section_type == "SOCIAL"
             || section_type == "ARTICLE_LIST"
         {
