@@ -13,7 +13,7 @@ import {
   PictureInPicture2,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
+import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import { formatTime } from "../lib/format";
 import { isNavigableSource } from "../lib/playbackSource";
@@ -32,7 +32,7 @@ import {
   videoPlayingAtom,
   videoFullscreenAtom,
 } from "../atoms/video";
-import { favoriteTrackIdsAtom } from "../atoms/favorites";
+import { favoriteTrackIdsAtom, favoriteVideoIdsAtom } from "../atoms/favorites";
 import { maximizedPlayerAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useVideoPlayback } from "../hooks/useVideoPlayback";
@@ -48,6 +48,17 @@ import SignalPathPanel from "./SignalPathPanel";
 import VolumeSlider from "./VolumeSlider";
 import TrackContextMenu from "./TrackContextMenu";
 
+/** Build a video-session input from a restored/queued video-typed track. */
+function videoInputFromTrack(t: Track) {
+  return {
+    id: t.id,
+    title: t.title,
+    imageId: t.imageId,
+    artist: t.artist?.name ?? t.artists?.[0]?.name,
+    duration: t.duration,
+  };
+}
+
 // ─── TrackInfoSection ──────────────────────────────────────────────────────
 
 const TrackInfoSection = memo(function TrackInfoSection() {
@@ -55,33 +66,41 @@ const TrackInfoSection = memo(function TrackInfoSection() {
   const currentVideo = useAtomValue(currentVideoAtom);
   const { toggleDrawer } = useDrawer();
   const { navigateToAlbum } = useNavigation();
-  const { expandVideo } = useVideoPlayback();
+  const { expandVideo, playVideo } = useVideoPlayback();
 
-  // Video takes precedence: while one is active the bar represents the video.
-  if (currentVideo) {
+  // Video takes precedence. `currentVideo` is a live session; a video-typed
+  // `currentTrack` with no session is a restored/queued video (the session
+  // atom isn't persisted) — show it as a video and (re)start it on click.
+  const videoItem =
+    currentVideo ??
+    (currentTrack?.itemType === "video" ? currentTrack : null);
+  if (videoItem) {
     const videoArtist =
-      currentVideo.artist?.name ||
-      currentVideo.artists?.map((a) => a.name).join(", ") ||
+      videoItem.artist?.name ||
+      videoItem.artists?.map((a) => a.name).join(", ") ||
       "";
+    const openVideo = currentVideo
+      ? expandVideo
+      : () => playVideo(videoInputFromTrack(currentTrack!));
     return (
       <>
         <div
-          onClick={expandVideo}
+          onClick={openVideo}
           className="w-16 h-16 rounded-md bg-th-surface-hover flex-shrink-0 overflow-hidden shadow-lg shadow-black/40 group cursor-pointer"
-          title="Expand video"
+          title={currentVideo ? "Expand video" : "Play video"}
         >
           <TidalImage
-            src={getTidalImageUrl(currentVideo.imageId, 160)}
-            alt={currentVideo.title}
+            src={getTidalImageUrl(videoItem.imageId, 160)}
+            alt={videoItem.title}
             className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500"
           />
         </div>
         <div className="flex flex-col justify-center min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-th-text-primary text-[13px] font-semibold truncate leading-tight">
-              {currentVideo.title}
+              {videoItem.title}
             </span>
-            {currentVideo.explicit && <ExplicitBadge />}
+            {videoItem.explicit && <ExplicitBadge />}
           </div>
           {videoArtist && (
             <span className="text-th-text-secondary text-[11px] truncate mt-0.5">
@@ -139,24 +158,44 @@ const TrackInfoSection = memo(function TrackInfoSection() {
 const FavoriteButton = memo(function FavoriteButton() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
-  const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
+  const favoriteVideoIds = useAtomValue(favoriteVideoIdsAtom);
+  const {
+    addFavoriteTrack,
+    removeFavoriteTrack,
+    addFavoriteVideo,
+    removeFavoriteVideo,
+  } = useFavorites();
 
-  const isLiked = currentTrack ? favoriteTrackIds.has(currentTrack.id) : false;
+  const isVideo = currentTrack?.itemType === "video";
+  const isLiked = currentTrack
+    ? (isVideo ? favoriteVideoIds : favoriteTrackIds).has(currentTrack.id)
+    : false;
 
   const toggleLike = useCallback(async () => {
     if (!currentTrack) return;
-    // Optimistic — addFavoriteTrack / removeFavoriteTrack update the atom
-    // synchronously before the await, so the UI reflects the change instantly.
+    // Optimistic — the add/remove helpers update the atom synchronously before
+    // the await, so the UI reflects the change instantly.
     try {
-      if (isLiked) {
+      if (isVideo) {
+        if (isLiked) await removeFavoriteVideo(currentTrack.id);
+        else await addFavoriteVideo(currentTrack.id);
+      } else if (isLiked) {
         await removeFavoriteTrack(currentTrack.id);
       } else {
         await addFavoriteTrack(currentTrack.id, currentTrack);
       }
     } catch (err) {
-      console.error("Failed to toggle track favorite:", err);
+      console.error("Failed to toggle favorite:", err);
     }
-  }, [currentTrack, isLiked, addFavoriteTrack, removeFavoriteTrack]);
+  }, [
+    currentTrack,
+    isVideo,
+    isLiked,
+    addFavoriteTrack,
+    removeFavoriteTrack,
+    addFavoriteVideo,
+    removeFavoriteVideo,
+  ]);
 
   if (!currentTrack) return null;
 
@@ -488,9 +527,11 @@ const ProgressScrubber = memo(function ProgressScrubber() {
 const TransportControls = memo(function TransportControls() {
   const isPlaying = useAtomValue(isPlayingAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
+  const currentTrack = useAtomValue(currentTrackAtom);
   const videoPlaying = useAtomValue(videoPlayingAtom);
   const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } =
     usePlaybackActions();
+  const { playVideo } = useVideoPlayback();
 
   const isShuffle = useAtomValue(shuffleAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
@@ -508,9 +549,11 @@ const TransportControls = memo(function TransportControls() {
     else v.pause();
   }, []);
 
-  const onPlayPause = videoMode
+  const onPlayPause = currentVideo
     ? toggleVideoPlay
-    : () => (isPlaying ? pauseTrack() : resumeTrack());
+    : currentTrack?.itemType === "video"
+      ? () => playVideo(videoInputFromTrack(currentTrack))
+      : () => (isPlaying ? pauseTrack() : resumeTrack());
 
   return (
     <div className="flex flex-col items-center w-[40%] max-w-[600px] gap-1">

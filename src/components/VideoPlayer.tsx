@@ -6,6 +6,12 @@ import {
   Minimize2,
   Settings,
   Loader2,
+  Heart,
+  SkipBack,
+  SkipForward,
+  Shuffle,
+  Repeat,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   useState,
@@ -15,7 +21,7 @@ import {
   memo,
   type RefObject,
 } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   currentVideoAtom,
@@ -26,11 +32,20 @@ import {
 } from "../atoms/video";
 import { useVideoPlayback, type VideoQuality } from "../hooks/useVideoPlayback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
-import { volumeAtom } from "../atoms/playback";
+import { useFavorites } from "../hooks/useFavorites";
+import {
+  volumeAtom,
+  shuffleAtom,
+  repeatAtom,
+  currentTrackAtom,
+} from "../atoms/playback";
+import { favoriteVideoIdsAtom } from "../atoms/favorites";
 import { getTidalImageUrl } from "../types";
 import { formatTime } from "../lib/format";
 import { videoElementRef } from "../lib/videoElement";
 import ExplicitBadge from "./ExplicitBadge";
+import VolumeSlider from "./VolumeSlider";
+import TrackContextMenu from "./TrackContextMenu";
 
 const QUALITIES: VideoQuality[] = ["HIGH", "MEDIUM", "LOW"];
 const QUALITY_LABEL: Record<VideoQuality, string> = {
@@ -225,8 +240,13 @@ export default function VideoPlayer() {
   const setFullscreen = useSetAtom(videoFullscreenAtom);
   const expanded = useAtomValue(videoExpandedAtom);
   const volume = useAtomValue(volumeAtom);
+  const favoriteVideoIds = useAtomValue(favoriteVideoIdsAtom);
+  const isShuffle = useAtomValue(shuffleAtom);
+  const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
+  const currentTrack = useAtomValue(currentTrackAtom);
   const { closeVideo, minimizeVideo, setVideoQuality } = useVideoPlayback();
-  const { playNext } = usePlaybackActions();
+  const { playNext, playPrevious, toggleShuffle } = usePlaybackActions();
+  const { addFavoriteVideo, removeFavoriteVideo } = useFavorites();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -234,6 +254,8 @@ export default function VideoPlayer() {
   const [failed, setFailed] = useState(false);
   const [quality, setQuality] = useState<VideoQuality>("HIGH");
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
   // Attach the HLS stream (native-first, hls.js fallback). Autoplay must wait until
   // the source is actually attached: attachHls's hls.js path is async (dynamic import),
@@ -403,6 +425,8 @@ export default function VideoPlayer() {
     video.artists?.map((a) => a.name).join(", ") ||
     "";
 
+  const isFavorite = favoriteVideoIds.has(video.id);
+
   return (
     <div
       role="dialog"
@@ -478,23 +502,114 @@ export default function VideoPlayer() {
           resetHideTimer={resetHideTimer}
           isDraggingRef={isDraggingRef}
         />
-        <div className="flex items-center justify-between mt-2">
-          <button
-            onClick={togglePlay}
-            className="w-10 h-10 bg-th-text-primary rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform duration-150"
-          >
-            {isPlaying ? (
-              <Pause size={19} fill="currentColor" className="text-th-base" />
-            ) : (
-              <Play
-                size={19}
-                fill="currentColor"
-                className="text-th-base ml-0.5"
+        <div className="relative flex items-center justify-between mt-4">
+          {/* Left: favorite + more options */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() =>
+                isFavorite
+                  ? removeFavoriteVideo(video.id)
+                  : addFavoriteVideo(video.id)
+              }
+              className={`transition-colors duration-150 ${
+                isFavorite
+                  ? "text-th-accent"
+                  : "text-th-text-faint hover:text-th-text-primary"
+              }`}
+              title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            >
+              <Heart
+                size={16}
+                strokeWidth={2}
+                fill={isFavorite ? "currentColor" : "none"}
               />
-            )}
-          </button>
+            </button>
 
+            {currentTrack && (
+              <>
+                <button
+                  ref={menuAnchorRef}
+                  onClick={() => setMenuOpen(true)}
+                  className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150 active:scale-90"
+                  title="More options"
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+                {menuOpen && (
+                  <TrackContextMenu
+                    track={currentTrack}
+                    index={0}
+                    anchorRef={menuAnchorRef}
+                    onClose={() => setMenuOpen(false)}
+                  />
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Center: transport */}
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-5">
+            <button
+              onClick={toggleShuffle}
+              className={`transition-colors duration-150 ${
+                isShuffle
+                  ? "text-th-accent"
+                  : "text-th-text-secondary hover:text-th-text-primary"
+              }`}
+              title="Shuffle"
+            >
+              <Shuffle size={15} strokeWidth={2} />
+            </button>
+            <button
+              onClick={playPrevious}
+              className="text-th-text-secondary hover:text-th-text-primary transition-colors duration-150 active:scale-90"
+              title="Previous"
+            >
+              <SkipBack size={18} fill="currentColor" />
+            </button>
+            <button
+              onClick={togglePlay}
+              className="w-9 h-9 bg-th-text-primary rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform duration-150"
+            >
+              {isPlaying ? (
+                <Pause size={17} fill="currentColor" className="text-th-base" />
+              ) : (
+                <Play
+                  size={17}
+                  fill="currentColor"
+                  className="text-th-base ml-0.5"
+                />
+              )}
+            </button>
+            <button
+              onClick={() => playNext({ explicit: true })}
+              className="text-th-text-secondary hover:text-th-text-primary transition-colors duration-150 active:scale-90"
+              title="Next"
+            >
+              <SkipForward size={18} fill="currentColor" />
+            </button>
+            <button
+              onClick={() => setRepeatMode((repeatMode + 1) % 3)}
+              className={`relative transition-colors duration-150 ${
+                repeatMode > 0
+                  ? "text-th-accent"
+                  : "text-th-text-secondary hover:text-th-text-primary"
+              }`}
+              title="Repeat"
+            >
+              <Repeat size={15} strokeWidth={2} />
+              {repeatMode === 2 && (
+                <span className="absolute -top-1 -right-1 text-[7px] font-bold bg-th-accent text-th-on-accent rounded-full w-3 h-3 flex items-center justify-center leading-none">
+                  1
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Right: volume + quality + fullscreen */}
           <div className="flex items-center gap-4">
+            <VolumeSlider widthClass="w-[100px]" />
+
             {/* Quality selector */}
             <div className="relative">
               <button
@@ -506,7 +621,7 @@ export default function VideoPlayer() {
                 }`}
                 title="Quality"
               >
-                <Settings size={18} strokeWidth={2} />
+                <Settings size={16} strokeWidth={2} />
                 <span className="tabular-nums">{QUALITY_LABEL[quality]}</span>
               </button>
               {qualityMenuOpen && (
@@ -534,9 +649,9 @@ export default function VideoPlayer() {
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
             >
               {fullscreen ? (
-                <Minimize2 size={18} strokeWidth={2} />
+                <Minimize2 size={16} strokeWidth={2} />
               ) : (
-                <Maximize2 size={18} strokeWidth={2} />
+                <Maximize2 size={16} strokeWidth={2} />
               )}
             </button>
           </div>
