@@ -102,6 +102,16 @@ export function getItemTitle(item: any): string {
   return "";
 }
 
+export function playlistCountLabel(numberOfTracks?: number, numberOfVideos?: number): string {
+  const t = numberOfTracks ?? 0;
+  const v = numberOfVideos ?? 0;
+  const parts: string[] = [];
+  if (v > 0) parts.push(`${v} Video${v === 1 ? "" : "s"}`);
+  if (t > 0) parts.push(`${t} Track${t === 1 ? "" : "s"}`);
+  if (parts.length === 0) parts.push("0 Tracks");
+  return parts.join(" · ");
+}
+
 export function getItemSubtitle(item: any, userId?: number): string {
   if (isMagazineItem(item)) {
     return item.data?.shortSubHeader ?? "";
@@ -124,8 +134,8 @@ export function getItemSubtitle(item: any, userId?: number): string {
             ? "By TIDAL"
             : undefined;
     const trackCount =
-      item.numberOfTracks != null
-        ? `${item.numberOfTracks} track${item.numberOfTracks !== 1 ? "s" : ""}`
+      item.numberOfTracks != null || item.numberOfVideos != null
+        ? playlistCountLabel(item.numberOfTracks, item.numberOfVideos)
         : undefined;
     const parts = [creatorLabel, trackCount].filter(Boolean);
     if (parts.length > 0) return parts.join(" · ");

@@ -22,6 +22,7 @@ import type {
   Profile,
   SearchResults,
   SuggestionsResponse,
+  TidalVideo,
   Track,
 } from "../types";
 
@@ -796,8 +797,17 @@ export async function fetchMediaTracks(item: MediaItemType): Promise<Track[]> {
       return await getArtistTopTracks(item.id);
     }
     case "video":
-      // Videos are not audio tracks — handled by the video player, not the queue.
-      return [];
+      // A music video carries its own id under trackIds when added to a
+      // playlist (the server classifies it), so yield a single video item.
+      return [
+        {
+          id: item.id,
+          title: item.title,
+          itemType: "video",
+          imageId: item.imageId,
+          duration: item.duration ?? 0,
+        },
+      ];
   }
 }
 
@@ -947,6 +957,18 @@ export async function getFavoriteMixes(
   );
 }
 
+export async function getFavoriteVideos(
+  userId: number,
+  offset: number = 0,
+  limit: number = 50,
+): Promise<TidalVideo[]> {
+  return invoke<TidalVideo[]>("get_favorite_videos", {
+    userId,
+    offset,
+    limit,
+  });
+}
+
 // ==================== Playlist Folders ====================
 
 export async function getPlaylistFolders(
@@ -967,6 +989,11 @@ export async function getPlaylistFolders(
     orderDirection,
     cursor: cursor ?? "",
   });
+}
+
+export async function getFlattenedPlaylists(): Promise<PlaylistOrFolder[]> {
+  const items = await invoke<any[]>("get_all_flattened_playlists");
+  return items.map(normalizeFolderItem).filter((i) => i.kind === "playlist");
 }
 
 export async function getAllPlaylists(
@@ -1017,6 +1044,7 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
       image: d.squareImage || d.image,
       squareImage: d.squareImage,
       numberOfTracks: d.numberOfTracks,
+      numberOfVideos: d.numberOfVideos,
       creator: { id: d.creator.id, name: d.creator.name ?? undefined },
       playlistType: d.type,
       duration: d.duration,

@@ -23,6 +23,15 @@ export function getTidalImageUrl(
   return `https://resources.tidal.com/images/${path}/${validSize}x${validSize}.jpg`;
 }
 
+// MULTIPLE_TOP_PROMOTIONS ("Featured") images are landscape promo banners served
+// only at 550x400 (11:8) — the square sizes 403. Use this for those items.
+export function getTidalPromoImageUrl(imageId: string | undefined): string {
+  if (!imageId) return "";
+  if (imageId.startsWith("http")) return imageId;
+  const path = imageId.replace(/-/g, "/");
+  return `https://resources.tidal.com/images/${path}/550x400.jpg`;
+}
+
 /**
  * Artist pictures use a different size set than album covers — valid squares are
  * 160 / 320 / 480 / 750 (there is no 640 or 1280, which 403). Snap accordingly.
@@ -216,6 +225,7 @@ export type AppView =
         description?: string;
         creatorName?: string;
         numberOfTracks?: number;
+        numberOfVideos?: number;
         isUserPlaylist?: boolean;
       };
     }
@@ -307,6 +317,7 @@ export interface Playlist {
   description?: string;
   image?: string;
   numberOfTracks?: number;
+  numberOfVideos?: number;
   creator?: { id: number; name?: string };
   /** "USER" | "EDITORIAL" | "ARTIST" */
   playlistType?: string;
