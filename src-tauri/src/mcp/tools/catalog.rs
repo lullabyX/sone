@@ -1,13 +1,15 @@
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
-use rmcp::{ErrorData, tool_router};
+use rmcp::{tool_router, ErrorData};
 use serde::Deserialize;
 use tauri::Manager;
 
-use crate::AppState;
-use crate::mcp::sanitizer::{SanitizedAlbum, SanitizedArtist, SanitizedPlaylist, backfill_and_sanitize_tracks};
+use crate::mcp::sanitizer::{
+    backfill_and_sanitize_tracks, SanitizedAlbum, SanitizedArtist, SanitizedPlaylist,
+};
 use crate::mcp::server::SoneMcpServer;
+use crate::AppState;
 
 #[derive(Deserialize, JsonSchema)]
 pub struct SearchTracksArgs {
@@ -66,9 +68,21 @@ impl SoneMcpServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let tracks = backfill_and_sanitize_tracks(results.tracks);
-        let albums: Vec<SanitizedAlbum> = results.albums.iter().map(SanitizedAlbum::from_tidal).collect();
-        let artists: Vec<SanitizedArtist> = results.artists.iter().map(SanitizedArtist::from_tidal).collect();
-        let playlists: Vec<SanitizedPlaylist> = results.playlists.iter().map(SanitizedPlaylist::from_tidal).collect();
+        let albums: Vec<SanitizedAlbum> = results
+            .albums
+            .iter()
+            .map(SanitizedAlbum::from_tidal)
+            .collect();
+        let artists: Vec<SanitizedArtist> = results
+            .artists
+            .iter()
+            .map(SanitizedArtist::from_tidal)
+            .collect();
+        let playlists: Vec<SanitizedPlaylist> = results
+            .playlists
+            .iter()
+            .map(SanitizedPlaylist::from_tidal)
+            .collect();
 
         let json = serde_json::json!({ "tracks": tracks, "albums": albums, "artists": artists, "playlists": playlists });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(

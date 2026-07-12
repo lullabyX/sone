@@ -44,7 +44,10 @@ impl ListenBrainzProvider {
     }
 
     /// Validate a ListenBrainz user token. Returns the username on success.
-    pub async fn validate_token(client: &reqwest::Client, token: &str) -> Result<String, SoneError> {
+    pub async fn validate_token(
+        client: &reqwest::Client,
+        token: &str,
+    ) -> Result<String, SoneError> {
         let resp = client
             .get(format!("{API_BASE}/1/validate-token"))
             .header("Authorization", format!("Token {token}"))

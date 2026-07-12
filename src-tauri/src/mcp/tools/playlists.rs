@@ -1,18 +1,18 @@
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
-use rmcp::{ErrorData, tool_router};
+use rmcp::{tool_router, ErrorData};
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
 
-use crate::AppState;
 use crate::mcp::events::{
-    EV_PLAYLIST_CREATED, EV_PLAYLIST_DELETED, EV_PLAYLIST_TRACKS_CHANGED, EV_PLAYLIST_UPDATED,
     PlaylistDeletedPayload, PlaylistTracksChangedPayload, PlaylistUpdatedPayload,
+    EV_PLAYLIST_CREATED, EV_PLAYLIST_DELETED, EV_PLAYLIST_TRACKS_CHANGED, EV_PLAYLIST_UPDATED,
 };
-use crate::mcp::sanitizer::{SanitizedPlaylist, backfill_and_sanitize_tracks};
+use crate::mcp::sanitizer::{backfill_and_sanitize_tracks, SanitizedPlaylist};
 use crate::mcp::server::SoneMcpServer;
 use crate::tidal_api::TidalClient;
+use crate::AppState;
 
 use super::util::{require_user_id, NoArgs};
 
@@ -76,10 +76,7 @@ async fn resolve_playlist_uuid(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            ErrorData::invalid_params(
-                "playlist_uuid or playlist_name required".to_string(),
-                None,
-            )
+            ErrorData::invalid_params("playlist_uuid or playlist_name required".to_string(), None)
         })?;
     let owned = client
         .get_user_playlists(user_id, 0, 200)
@@ -90,14 +87,13 @@ async fn resolve_playlist_uuid(
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     let lower = needle.to_lowercase();
-    owned.items
+    owned
+        .items
         .into_iter()
         .chain(favorited.items.into_iter())
         .find(|p| p.title.to_lowercase() == lower)
         .map(|p| p.uuid)
-        .ok_or_else(|| {
-            ErrorData::invalid_params(format!("Playlist not found: {needle}"), None)
-        })
+        .ok_or_else(|| ErrorData::invalid_params(format!("Playlist not found: {needle}"), None))
 }
 
 #[tool_router(router = playlists_tools, vis = "pub(crate)")]
@@ -128,7 +124,8 @@ impl SoneMcpServer {
                 combined.push(p);
             }
         }
-        let playlists: Vec<SanitizedPlaylist> = combined.iter().map(SanitizedPlaylist::from_tidal).collect();
+        let playlists: Vec<SanitizedPlaylist> =
+            combined.iter().map(SanitizedPlaylist::from_tidal).collect();
         let json = serde_json::json!({ "playlists": playlists });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
@@ -213,7 +210,8 @@ impl SoneMcpServer {
                 )
                 .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         }
-        let json = serde_json::json!({ "uuid": uuid, "name": playlist.title, "trackCount": track_count });
+        let json =
+            serde_json::json!({ "uuid": uuid, "name": playlist.title, "trackCount": track_count });
         Ok(CallToolResult::success(vec![rmcp::model::Content::text(
             json.to_string(),
         )]))
@@ -328,7 +326,10 @@ impl SoneMcpServer {
         Parameters(args): Parameters<AddToPlaylistArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         if args.track_ids.is_empty() {
-            return Err(ErrorData::invalid_params("track_ids must not be empty", None));
+            return Err(ErrorData::invalid_params(
+                "track_ids must not be empty",
+                None,
+            ));
         }
         let state = self.app_handle.state::<AppState>();
         let mut client = state.tidal_client.lock().await;

@@ -28,7 +28,10 @@ impl X11Inhibitor {
                 }
             })
             .ok()?;
-        Some(Self { stop: stop_tx, handle: Some(handle) })
+        Some(Self {
+            stop: stop_tx,
+            handle: Some(handle),
+        })
     }
 
     pub fn stop(&mut self) {

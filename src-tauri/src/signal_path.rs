@@ -222,7 +222,9 @@ impl SignalPathTracker {
     pub fn clear_resample(&self) {
         let snap = {
             let mut s = self.state.lock().unwrap();
-            if s.resampled_from.is_none() && s.resampled_to.is_none() { return; }
+            if s.resampled_from.is_none() && s.resampled_to.is_none() {
+                return;
+            }
             s.resampled_from = None;
             s.resampled_to = None;
             s.clone()
@@ -233,7 +235,9 @@ impl SignalPathTracker {
     pub fn clear_format_fallback(&self) {
         let snap = {
             let mut s = self.state.lock().unwrap();
-            if s.format_fallback_from.is_none() && s.format_fallback_to.is_none() { return; }
+            if s.format_fallback_from.is_none() && s.format_fallback_to.is_none() {
+                return;
+            }
             s.format_fallback_from = None;
             s.format_fallback_to = None;
             s.clone()

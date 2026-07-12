@@ -5,9 +5,7 @@ pub mod state_mirror;
 pub mod tools;
 
 pub use server::{start_server, McpHandle};
-pub use state_mirror::{
-    new_state, McpStateRef, NowPlayingSnapshot, QueueTrackSnapshot,
-};
+pub use state_mirror::{new_state, McpStateRef, NowPlayingSnapshot, QueueTrackSnapshot};
 
 /// Start the MCP server if it is enabled in settings and not already running.
 /// Holds the `mcp_handle` lock across the whole check→bind→store so that

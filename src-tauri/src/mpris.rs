@@ -210,8 +210,7 @@ impl MprisHandle {
                         if player_for_tick.playback_status() != PlaybackStatus::Playing {
                             continue;
                         }
-                        let Some(state) = app_handle_for_tick.try_state::<crate::AppState>()
-                        else {
+                        let Some(state) = app_handle_for_tick.try_state::<crate::AppState>() else {
                             continue;
                         };
                         if let Ok(secs) = state.audio_player.get_position() {
@@ -241,8 +240,7 @@ impl MprisHandle {
                             user_rating,
                         } => {
                             let mut metadata = Metadata::new();
-                            let track_path =
-                                format!("/org/mpris/MediaPlayer2/Track/{}", track_id);
+                            let track_path = format!("/org/mpris/MediaPlayer2/Track/{}", track_id);
                             if let Ok(tid) = TrackId::try_from(track_path.as_str()) {
                                 metadata.set_trackid(Some(tid));
                             }

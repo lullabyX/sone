@@ -15,8 +15,7 @@ fn main() {
         //
         // TODO: revisit when WebKitGTK resolves the NVIDIA DMA-BUF bug
         // (upstream #262607 is WONTFIX as of 2026).
-        let already_overridden =
-            std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
+        let already_overridden = std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
 
         if !already_overridden {
             let nvidia_loaded = std::fs::read_to_string("/proc/modules")

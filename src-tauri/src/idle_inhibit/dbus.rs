@@ -19,8 +19,13 @@ trait ScreenSaver {
 )]
 trait GnomeSessionManager {
     // flags: 8 = inhibit idle (screen blanking). xid 0 = no toplevel.
-    fn inhibit(&self, app_id: &str, toplevel_xid: u32, reason: &str, flags: u32)
-        -> zbus::Result<u32>;
+    fn inhibit(
+        &self,
+        app_id: &str,
+        toplevel_xid: u32,
+        reason: &str,
+        flags: u32,
+    ) -> zbus::Result<u32>;
     fn uninhibit(&self, cookie: u32) -> zbus::Result<()>;
 }
 
@@ -30,8 +35,13 @@ trait GnomeSessionManager {
     default_path = "/org/freedesktop/login1"
 )]
 trait Login1Manager {
-    fn inhibit(&self, what: &str, who: &str, why: &str, mode: &str)
-        -> zbus::Result<zbus::zvariant::OwnedFd>;
+    fn inhibit(
+        &self,
+        what: &str,
+        who: &str,
+        why: &str,
+        mode: &str,
+    ) -> zbus::Result<zbus::zvariant::OwnedFd>;
 }
 
 #[zbus::proxy(
@@ -62,7 +72,12 @@ pub struct DbusInhibitor {
 
 impl DbusInhibitor {
     pub fn new() -> Self {
-        Self { screensaver: None, gnome: None, sleep_fd: None, portal_conn: None }
+        Self {
+            screensaver: None,
+            gnome: None,
+            sleep_fd: None,
+            portal_conn: None,
+        }
     }
 
     /// Inhibit screen-off via the session bus. Returns true if at least one
@@ -81,7 +96,10 @@ impl DbusInhibitor {
                 }
             }
             if let Ok(proxy) = GnomeSessionManagerProxy::new(&conn).await {
-                match proxy.inhibit("org.sone.app", 0, "Fullscreen playback", 8).await {
+                match proxy
+                    .inhibit("org.sone.app", 0, "Fullscreen playback", 8)
+                    .await
+                {
                     Ok(cookie) => {
                         log::info!("GNOME SessionManager inhibited (cookie={cookie})");
                         self.gnome = Some((conn, cookie));
@@ -102,8 +120,13 @@ impl DbusInhibitor {
             log::warn!("system bus unavailable for sleep inhibit");
             return;
         };
-        let Ok(proxy) = Login1ManagerProxy::new(&conn).await else { return };
-        match proxy.inhibit("idle:sleep", "sone", "Fullscreen playback", "block").await {
+        let Ok(proxy) = Login1ManagerProxy::new(&conn).await else {
+            return;
+        };
+        match proxy
+            .inhibit("idle:sleep", "sone", "Fullscreen playback", "block")
+            .await
+        {
             Ok(fd) => {
                 log::info!("Sleep inhibited via logind");
                 self.sleep_fd = Some(fd.into());
@@ -115,8 +138,12 @@ impl DbusInhibitor {
     /// Last-resort fallback: XDG portal Inhibit (suspend|idle = 12).
     /// Inhibition lives as long as the connection.
     pub async fn inhibit_portal(&mut self) -> bool {
-        let Ok(conn) = zbus::Connection::session().await else { return false };
-        let Ok(proxy) = PortalInhibitProxy::new(&conn).await else { return false };
+        let Ok(conn) = zbus::Connection::session().await else {
+            return false;
+        };
+        let Ok(proxy) = PortalInhibitProxy::new(&conn).await else {
+            return false;
+        };
         let mut options = std::collections::HashMap::new();
         options.insert("reason", zbus::zvariant::Value::from("Fullscreen playback"));
         match proxy.inhibit("", 4 | 8, options).await {

@@ -1,12 +1,12 @@
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
-use rmcp::{ErrorData, tool_router};
+use rmcp::{tool_router, ErrorData};
 use serde::Deserialize;
 use tauri::Manager;
 
-use crate::AppState;
 use crate::mcp::server::SoneMcpServer;
+use crate::AppState;
 
 use super::util::NoArgs;
 

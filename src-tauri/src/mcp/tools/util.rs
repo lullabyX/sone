@@ -1,5 +1,5 @@
-use rmcp::ErrorData;
 use rmcp::schemars::JsonSchema;
+use rmcp::ErrorData;
 use serde::Deserialize;
 
 use crate::tidal_api::TidalClient;
