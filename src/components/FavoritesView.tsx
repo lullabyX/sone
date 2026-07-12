@@ -1,4 +1,4 @@
-import { Heart, Shuffle } from "lucide-react";
+import { Heart, Shuffle, Clapperboard } from "lucide-react";
 import {
   useState,
   useEffect,
@@ -10,11 +10,23 @@ import {
 import { useAtomValue, useAtom } from "jotai";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useAuth } from "../hooks/useAuth";
-import { getFavoriteTracks } from "../api/tidal";
+import { useFavorites } from "../hooks/useFavorites";
+import { useMediaPlay } from "../hooks/useMediaPlay";
+import { useViewTab } from "../hooks/useViewTab";
+import { useNavigation } from "../hooks/useNavigation";
+import {
+  getFavoriteTracks,
+  getFavoriteVideos,
+  getPageSection,
+} from "../api/tidal";
 import { safeErrorMessage } from "../lib/errorUtils";
+import { buildMediaItem, getItemTitle } from "../utils/itemHelpers";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
-import { type Track } from "../types";
+import { type Track, type TidalVideo, type MediaItemType } from "../types";
 import TrackList from "./TrackList";
+import MediaGrid from "./MediaGrid";
+import MediaCard from "./MediaCard";
+import MediaContextMenu from "./MediaContextMenu";
 import LovedTracksBanner from "./LovedTracksBanner";
 import DebouncedFilterInput from "./DebouncedFilterInput";
 import PageContainer from "./PageContainer";
@@ -26,6 +38,7 @@ interface FavoritesViewProps {
 }
 
 const PAGE_SIZE = 100;
+const VIDEO_PAGE_SIZE = 50;
 
 export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
@@ -38,6 +51,22 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     appendToQueue,
   } = usePlaybackActions();
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
+  const playMedia = useMediaPlay();
+  const { favoriteVideoIds, addFavoriteVideo, removeFavoriteVideo } =
+    useFavorites();
+
+  const [videos, setVideos] = useState<TidalVideo[]>([]);
+  const [loadingMoreVideos, setLoadingMoreVideos] = useState(false);
+  const [hasMoreVideos, setHasMoreVideos] = useState(false);
+  const [videoContextMenu, setVideoContextMenu] = useState<{
+    item: MediaItemType;
+    position: { x: number; y: number };
+  } | null>(null);
+  const videosOffsetRef = useRef(0);
+  const hasMoreVideosRef = useRef(true);
+  const bgFetchingVideosRef = useRef(false);
+  const videosSentinelRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useViewTab<"tracks" | "videos">("tracks");
 
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [totalTracks, setTotalTracks] = useState(0);
@@ -133,14 +162,112 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         console.error("Failed to load favorites:", err);
         setError(safeErrorMessage(err, "Failed to load favorites"));
       } finally {
-        if (generationRef.current !== gen) return;
-        setLoading(false);
-        setSortLoading(false);
+        if (generationRef.current === gen) {
+          setLoading(false);
+          setSortLoading(false);
+        }
       }
     };
 
     loadFavorites();
   }, [authTokens?.user_id, sortColumn, sortDirection]);
+
+  // Load favorite videos — first page only; more via infinite scroll (or all at
+  // once when the search bar is focused). Mirrors the tracks pagination.
+  useEffect(() => {
+    const userId = authTokens?.user_id;
+    if (userId == null) return;
+    let cancelled = false;
+    videosOffsetRef.current = 0;
+    hasMoreVideosRef.current = true;
+    bgFetchingVideosRef.current = false;
+    getFavoriteVideos(userId, 0, VIDEO_PAGE_SIZE)
+      .then((items) => {
+        if (cancelled) return;
+        setVideos(items);
+        videosOffsetRef.current = items.length;
+        hasMoreVideosRef.current = items.length === VIDEO_PAGE_SIZE;
+        setHasMoreVideos(hasMoreVideosRef.current);
+      })
+      .catch((err) => {
+        console.error("Failed to load favorite videos:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authTokens?.user_id]);
+
+  // `videos` is already the fetched favorites list. Only trim it by the live
+  // favorite set (for instant unfav removal) WHEN that set is populated — else
+  // an empty/late-hydrating favoriteVideoIds would hide every favorite on restart.
+  const displayedVideos = useMemo(
+    () =>
+      favoriteVideoIds.size > 0
+        ? videos.filter((v) => favoriteVideoIds.has(v.id))
+        : videos,
+    [videos, favoriteVideoIds],
+  );
+
+  // Load ALL remaining favorite-video pages (so local search covers everything).
+  const fetchRemainingVideos = useCallback(async () => {
+    if (bgFetchingVideosRef.current || !hasMoreVideosRef.current) return;
+    const userId = authTokens?.user_id;
+    if (userId == null) return;
+    bgFetchingVideosRef.current = true;
+    try {
+      while (hasMoreVideosRef.current) {
+        const page = await getFavoriteVideos(
+          userId,
+          videosOffsetRef.current,
+          VIDEO_PAGE_SIZE,
+        );
+        startTransition(() => {
+          setVideos((prev) => {
+            const seen = new Set(prev.map((v) => v.id));
+            return [...prev, ...page.filter((v) => !seen.has(v.id))];
+          });
+        });
+        videosOffsetRef.current += page.length;
+        hasMoreVideosRef.current = page.length === VIDEO_PAGE_SIZE;
+        setHasMoreVideos(hasMoreVideosRef.current);
+      }
+    } catch (err) {
+      console.error("Failed to background-fetch favorite videos:", err);
+    } finally {
+      bgFetchingVideosRef.current = false;
+    }
+  }, [authTokens?.user_id]);
+
+  // Infinite-scroll one more page of favorite videos.
+  const loadMoreVideos = useCallback(async () => {
+    if (
+      loadingMoreVideos ||
+      !hasMoreVideosRef.current ||
+      bgFetchingVideosRef.current
+    )
+      return;
+    const userId = authTokens?.user_id;
+    if (userId == null) return;
+    setLoadingMoreVideos(true);
+    try {
+      const page = await getFavoriteVideos(
+        userId,
+        videosOffsetRef.current,
+        VIDEO_PAGE_SIZE,
+      );
+      setVideos((prev) => {
+        const seen = new Set(prev.map((v) => v.id));
+        return [...prev, ...page.filter((v) => !seen.has(v.id))];
+      });
+      videosOffsetRef.current += page.length;
+      hasMoreVideosRef.current = page.length === VIDEO_PAGE_SIZE;
+      setHasMoreVideos(hasMoreVideosRef.current);
+    } catch (err) {
+      console.error("Failed to load more favorite videos:", err);
+    } finally {
+      setLoadingMoreVideos(false);
+    }
+  }, [loadingMoreVideos, authTokens?.user_id]);
 
   // Fetch all remaining pages in the background, appending to state as they arrive
   const fetchRemaining = useCallback(
@@ -249,18 +376,79 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     return { filteredTracks: filtered, displayNumbers: numbers };
   }, [tracks, searchQuery]);
 
+  // Local search also filters the Videos tab (title / artist).
+  const filteredVideos = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return displayedVideos;
+    return displayedVideos.filter((v) => {
+      const title = (v.title ?? "").toLowerCase();
+      const artist = (
+        v.artist?.name ??
+        v.artists?.map((a) => a.name).join(" ") ??
+        ""
+      ).toLowerCase();
+      return title.includes(q) || artist.includes(q);
+    });
+  }, [displayedVideos, searchQuery]);
+
+  // Infinite-scroll observer for the Videos tab (disabled while filtering —
+  // focusing the search bar loads everything up front instead).
+  useEffect(() => {
+    const el = videosSentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMoreVideos();
+      },
+      { rootMargin: "300px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [loadMoreVideos, hasMoreVideos, tab, isFiltering]);
+
   const handleSearchFocus = useCallback(() => {
     if (hasMoreRef.current && !bgFetchingRef.current) {
       setTimeout(() => fetchRemaining(), 0);
     }
-  }, [fetchRemaining]);
+    if (hasMoreVideosRef.current && !bgFetchingVideosRef.current) {
+      setTimeout(() => fetchRemainingVideos(), 0);
+    }
+  }, [fetchRemaining, fetchRemainingVideos]);
 
-  const favoritesSource = (allTracks: Track[]) => ({
-    type: "favorites" as const,
-    id: "favorites" as const,
-    name: "Loved Tracks",
-    allTracks,
-  });
+  const { navigateToExplore, navigateToExplorePage } = useNavigation();
+
+  // "Go to videos" CTA: reuse the Explore page's Videos link (its apiPath is
+  // runtime data), falling back to the Explore landing if not found.
+  const handleGoToVideos = useCallback(async () => {
+    try {
+      const { sections } = await getPageSection("pages/explore");
+      for (const s of sections) {
+        const item = (s.items as any[] | undefined)?.find(
+          (i) => i?.apiPath && getItemTitle(i) === "Videos",
+        );
+        if (item) {
+          navigateToExplorePage(item.apiPath, "Videos");
+          return;
+        }
+      }
+    } catch {
+      // fall through
+    }
+    navigateToExplore();
+  }, [navigateToExplore, navigateToExplorePage]);
+
+  // Stable identity so it doesn't destabilize handlePlayTrack (onPlay) and
+  // defeat TrackList's memo — otherwise every tab switch re-renders the whole
+  // virtualized list.
+  const favoritesSource = useCallback(
+    (allTracks: Track[]) => ({
+      type: "favorites" as const,
+      id: "favorites" as const,
+      name: "Loved Tracks",
+      allTracks,
+    }),
+    [],
+  );
 
   const handlePlayTrack = useCallback(
     async (track: Track, _index: number) => {
@@ -396,8 +584,25 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       </div>
 
       <PageContainer>
+        {/* Tracks | Videos tab bar (always shown) */}
+        <div className="px-8 pb-4 flex items-center gap-2">
+          {(["tracks", "videos"] as const).map((id) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`px-4 py-1.5 rounded-full text-[13px] font-medium transition-colors duration-150 ${
+                tab === id
+                  ? "bg-th-text-primary text-th-base"
+                  : "bg-th-hl-med text-th-text-secondary hover:bg-th-inset"
+              }`}
+            >
+              {id === "tracks" ? "Tracks" : "Videos"}
+            </button>
+          ))}
+        </div>
+
         {/* Track List */}
-        <div className="px-8 pb-8">
+        <div className={`px-8 pb-8 ${tab !== "tracks" ? "hidden" : ""}`}>
           <TrackList
             tracks={filteredTracks}
             onPlay={handlePlayTrack}
@@ -438,6 +643,88 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
             </div>
           )}
         </div>
+
+        {/* Videos */}
+        <div className={`px-8 pb-8 ${tab !== "videos" ? "hidden" : ""}`}>
+          {displayedVideos.length > 0 ? (
+            <>
+              <MediaGrid>
+              {filteredVideos.map((video) => {
+                const mediaItem = buildMediaItem(video, "VIDEO_LIST");
+                const isFavorited = favoriteVideoIds.has(video.id);
+                return (
+                  <MediaCard
+                    key={video.id}
+                    item={video}
+                    aspect="video"
+                    onClick={() => mediaItem && playMedia(mediaItem)}
+                    onContextMenu={
+                      mediaItem
+                        ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setVideoContextMenu({
+                              item: mediaItem,
+                              position: { x: e.clientX, y: e.clientY },
+                            });
+                          }
+                        : undefined
+                    }
+                    onPlay={
+                      mediaItem
+                        ? (e) => {
+                            e.stopPropagation();
+                            playMedia(mediaItem);
+                          }
+                        : undefined
+                    }
+                    isFavorited={isFavorited}
+                    onFavoriteToggle={(e) => {
+                      e.stopPropagation();
+                      if (isFavorited) removeFavoriteVideo(video.id);
+                      else addFavoriteVideo(video.id);
+                    }}
+                  />
+                );
+              })}
+              </MediaGrid>
+              {!isFiltering && hasMoreVideos && (
+                <div ref={videosSentinelRef} className="h-10" />
+              )}
+              {loadingMoreVideos && (
+                <div className="py-4 text-center text-[13px] text-th-text-disabled">
+                  Loading…
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="py-16 text-center">
+              <Clapperboard
+                size={48}
+                className="text-th-text-disabled mx-auto mb-4"
+              />
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                No favorite videos yet
+              </p>
+              <p className="text-th-text-muted text-sm mb-5">
+                Favorite a video and it'll show up here.
+              </p>
+              <button
+                onClick={handleGoToVideos}
+                className="px-5 py-2 rounded-full bg-th-text-primary text-th-base text-[13px] font-semibold hover:opacity-90 transition-opacity duration-150"
+              >
+                Go to videos
+              </button>
+            </div>
+          )}
+        </div>
+        {videoContextMenu && (
+          <MediaContextMenu
+            item={videoContextMenu.item}
+            cursorPosition={videoContextMenu.position}
+            onClose={() => setVideoContextMenu(null)}
+          />
+        )}
       </PageContainer>
     </div>
   );

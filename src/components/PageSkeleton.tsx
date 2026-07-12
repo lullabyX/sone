@@ -298,6 +298,14 @@ export function DetailPageSkeleton({
           </div>
         )}
 
+        {/* Tabs skeleton (Tracks | Videos — favorites only) */}
+        {type === "favorites" && (
+          <div className="px-8 pb-4 flex items-center gap-2">
+            <Pulse className="w-[72px] h-8 rounded-full!" />
+            <Pulse className="w-[72px] h-8 rounded-full!" />
+          </div>
+        )}
+
         {/* Track list skeleton */}
         <div className="px-8 pb-8">
           {/* Column header */}
