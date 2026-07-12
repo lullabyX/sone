@@ -289,7 +289,9 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
     }
 
     // First call: probe directly (not via audio thread) and cache
-    let devices = crate::audio::list_alsa_devices().map_err(SoneError::Audio)?;
+    let devices =
+        crate::audio::list_alsa_devices_with_override(state.alsa_device_override.as_deref())
+            .map_err(SoneError::Audio)?;
     *state.cached_audio_devices.lock().unwrap() = Some(devices.clone());
     Ok(devices)
 }
@@ -305,9 +307,7 @@ pub fn get_discord_rpc(state: State<'_, AppState>) -> bool {
 #[tauri::command]
 pub fn set_discord_rpc(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
     if enabled {
-        state
-            .discord
-            .send(crate::discord::DiscordCommand::Connect);
+        state.discord.send(crate::discord::DiscordCommand::Connect);
     } else {
         state
             .discord
@@ -341,10 +341,7 @@ pub fn set_discord_status_text(state: State<'_, AppState>, text: String) -> Resu
 
 #[tauri::command]
 pub fn get_proxy_settings(state: State<'_, AppState>) -> crate::ProxySettings {
-    state
-        .load_settings()
-        .map(|s| s.proxy)
-        .unwrap_or_default()
+    state.load_settings().map(|s| s.proxy).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -388,9 +385,7 @@ pub async fn uninhibit_idle(state: State<'_, AppState>) -> Result<(), SoneError>
 }
 
 #[tauri::command]
-pub async fn test_proxy_connection(
-    settings: crate::ProxySettings,
-) -> Result<String, String> {
+pub async fn test_proxy_connection(settings: crate::ProxySettings) -> Result<String, String> {
     let client = crate::tidal_api::build_http_client(&settings)
         .map_err(|e| format!("Failed to create client: {e}"))?;
 
