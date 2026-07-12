@@ -335,6 +335,57 @@ textarea {
   }
 }
 
+/* Wider cards for video rows (New Music Videos, Classics) — fewer per row. */
+.card-scroll-item-video {
+  flex: 0 0 calc((100% - (var(--cols) - 1) * 16px) / var(--cols));
+  scroll-snap-align: start;
+  min-width: 0;
+  --cols: 2;
+}
+@container (min-width: 9em) {
+  .card-scroll-item-video {
+    --cols: 3;
+  }
+}
+@container (min-width: 12em) {
+  .card-scroll-item-video {
+    --cols: 4;
+  }
+}
+@container (min-width: 15em) {
+  .card-scroll-item-video {
+    --cols: 5;
+  }
+}
+@container (min-width: 18em) {
+  .card-scroll-item-video {
+    --cols: 6;
+  }
+}
+
+/* Featured / promo cards — widest. */
+.card-scroll-item-promo {
+  flex: 0 0 calc((100% - (var(--cols) - 1) * 16px) / var(--cols));
+  scroll-snap-align: start;
+  min-width: 0;
+  --cols: 1;
+}
+@container (min-width: 8em) {
+  .card-scroll-item-promo {
+    --cols: 2;
+  }
+}
+@container (min-width: 14em) {
+  .card-scroll-item-promo {
+    --cols: 3;
+  }
+}
+@container (min-width: 20em) {
+  .card-scroll-item-promo {
+    --cols: 4;
+  }
+}
+
 /* Toast slide-in */
 @keyframes toastIn {
   from {
