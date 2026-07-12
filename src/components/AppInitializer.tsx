@@ -29,6 +29,7 @@ import {
 import { userPlaylistsAtom, deletedPlaylistIdsAtom } from "../atoms/playlists";
 import {
   favoriteTrackIdsAtom,
+  favoriteVideoIdsAtom,
   favoriteAlbumIdsAtom,
   favoritePlaylistUuidsAtom,
   followedArtistIdsAtom,
@@ -161,6 +162,7 @@ export function AppInitializer() {
   const setCurrentUserAvatar = useSetAtom(currentUserAvatarAtom);
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
   const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
+  const setFavoriteVideoIds = useSetAtom(favoriteVideoIdsAtom);
   const setFavoriteAlbumIds = useSetAtom(favoriteAlbumIdsAtom);
   const setFavoritePlaylistUuids = useSetAtom(favoritePlaylistUuidsAtom);
   const setFollowedArtistIds = useSetAtom(followedArtistIdsAtom);
@@ -436,6 +438,13 @@ export function AppInitializer() {
       .then((ids) => setFavoriteMixIds(new Set(ids)))
       .catch((error) =>
         console.error("Failed to load favorite mix IDs:", error),
+      );
+
+    // Video IDs separate (not in unified favorite-ids response)
+    invoke<number[]>("get_favorite_video_ids", { userId })
+      .then((ids) => setFavoriteVideoIds(new Set(ids)))
+      .catch((error) =>
+        console.error("Failed to load favorite video IDs:", error),
       );
 
     // Non-blocking background preload (2s delay to avoid startup congestion)
