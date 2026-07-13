@@ -2,6 +2,7 @@ import { memo } from "react";
 import { useAtomValue } from "jotai";
 import { Play, Pause } from "lucide-react";
 import { isPlayingAtom, playbackSourceAtom } from "../atoms/playback";
+import { currentVideoAtom, videoPlayingAtom } from "../atoms/video";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 
 interface SourcePlayButtonProps {
@@ -16,24 +17,27 @@ const SourcePlayButton = memo(function SourcePlayButton({
   onPlay,
 }: SourcePlayButtonProps) {
   const isPlaying = useAtomValue(isPlayingAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const videoPlaying = useAtomValue(videoPlayingAtom);
   const playbackSource = useAtomValue(playbackSourceAtom);
-  const { pauseTrack, resumeTrack } = usePlaybackActions();
+  const { togglePlayPause } = usePlaybackActions();
 
+  // A video source plays through the shared <video> element (videoPlayingAtom),
+  // not the audio pipeline (isPlayingAtom); reflect whichever is live so the
+  // pause/resume icon is correct for both. For audio sources currentVideo is null,
+  // so this is identical to the previous isPlaying-only behavior.
+  const effectivePlaying = currentVideo ? videoPlaying : isPlaying;
   const fromThisSource =
     playbackSource?.type === sourceType && playbackSource?.id === sourceId;
   const buttonState = fromThisSource
-    ? isPlaying
+    ? effectivePlaying
       ? "pause"
       : "resume"
     : "play";
 
   const handleClick = async () => {
     if (fromThisSource) {
-      if (isPlaying) {
-        await pauseTrack();
-      } else {
-        await resumeTrack();
-      }
+      await togglePlayPause();
       return;
     }
     onPlay();

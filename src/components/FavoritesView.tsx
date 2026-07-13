@@ -11,7 +11,6 @@ import { useAtomValue, useAtom } from "jotai";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useAuth } from "../hooks/useAuth";
 import { useFavorites } from "../hooks/useFavorites";
-import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useViewTab } from "../hooks/useViewTab";
 import { useNavigation } from "../hooks/useNavigation";
 import {
@@ -40,6 +39,21 @@ interface FavoritesViewProps {
 const PAGE_SIZE = 100;
 const VIDEO_PAGE_SIZE = 50;
 
+/** A favorite video as a queue-ready Track (itemType "video") so it flows through
+ *  playFromSource/playAllFromSource exactly like an audio track — giving the video
+ *  tab a full queue with working prev/next, like the tracks tab. */
+function videoToTrack(v: TidalVideo): Track {
+  return {
+    id: v.id,
+    title: v.title,
+    itemType: "video",
+    imageId: v.imageId,
+    duration: v.duration,
+    artist: v.artist ?? v.artists?.[0],
+    artists: v.artists,
+  } as Track;
+}
+
 export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const { authTokens } = useAuth();
@@ -51,7 +65,6 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     appendToQueue,
   } = usePlaybackActions();
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
-  const playMedia = useMediaPlay();
   const { favoriteVideoIds, addFavoriteVideo, removeFavoriteVideo } =
     useFavorites();
 
@@ -197,46 +210,61 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     };
   }, [authTokens?.user_id]);
 
-  // `videos` is already the fetched favorites list. Only trim it by the live
-  // favorite set (for instant unfav removal) WHEN that set is populated — else
-  // an empty/late-hydrating favoriteVideoIds would hide every favorite on restart.
+  // The `videos` list is the fetched favorites; trim it by the live favorite set so
+  // an unfav removes instantly. But do NOT trim before that set has hydrated on
+  // restart (it would hide everything). Latch once the set has been non-empty at
+  // least once — after that, an empty set means the user genuinely unfaved them all,
+  // so the grid must go empty (not fall back to the unfiltered fetch). Latch via a
+  // guarded render-phase update (React's supported pattern) instead of a
+  // setState-in-effect, which would trip react-hooks/set-state-in-effect.
+  const [favIdsHydrated, setFavIdsHydrated] = useState(false);
+  if (favoriteVideoIds.size > 0 && !favIdsHydrated) {
+    setFavIdsHydrated(true);
+  }
+
   const displayedVideos = useMemo(
     () =>
-      favoriteVideoIds.size > 0
+      favIdsHydrated || favoriteVideoIds.size > 0
         ? videos.filter((v) => favoriteVideoIds.has(v.id))
         : videos,
-    [videos, favoriteVideoIds],
+    [videos, favoriteVideoIds, favIdsHydrated],
   );
 
-  // Load ALL remaining favorite-video pages (so local search covers everything).
-  const fetchRemainingVideos = useCallback(async () => {
-    if (bgFetchingVideosRef.current || !hasMoreVideosRef.current) return;
-    const userId = authTokens?.user_id;
-    if (userId == null) return;
-    bgFetchingVideosRef.current = true;
-    try {
-      while (hasMoreVideosRef.current) {
-        const page = await getFavoriteVideos(
-          userId,
-          videosOffsetRef.current,
-          VIDEO_PAGE_SIZE,
-        );
-        startTransition(() => {
-          setVideos((prev) => {
-            const seen = new Set(prev.map((v) => v.id));
-            return [...prev, ...page.filter((v) => !seen.has(v.id))];
+  // Load ALL remaining favorite-video pages (so local search covers everything,
+  // and — when a queue is playing — so prev/next reach the whole library, matching
+  // the tracks tab). `onPageFetched` receives each fresh page as it arrives.
+  const fetchRemainingVideos = useCallback(
+    async (onPageFetched?: (videos: TidalVideo[]) => void) => {
+      if (bgFetchingVideosRef.current || !hasMoreVideosRef.current) return;
+      const userId = authTokens?.user_id;
+      if (userId == null) return;
+      bgFetchingVideosRef.current = true;
+      try {
+        while (hasMoreVideosRef.current) {
+          const page = await getFavoriteVideos(
+            userId,
+            videosOffsetRef.current,
+            VIDEO_PAGE_SIZE,
+          );
+          startTransition(() => {
+            setVideos((prev) => {
+              const seen = new Set(prev.map((v) => v.id));
+              return [...prev, ...page.filter((v) => !seen.has(v.id))];
+            });
           });
-        });
-        videosOffsetRef.current += page.length;
-        hasMoreVideosRef.current = page.length === VIDEO_PAGE_SIZE;
-        setHasMoreVideos(hasMoreVideosRef.current);
+          videosOffsetRef.current += page.length;
+          hasMoreVideosRef.current = page.length === VIDEO_PAGE_SIZE;
+          setHasMoreVideos(hasMoreVideosRef.current);
+          onPageFetched?.(page);
+        }
+      } catch (err) {
+        console.error("Failed to background-fetch favorite videos:", err);
+      } finally {
+        bgFetchingVideosRef.current = false;
       }
-    } catch (err) {
-      console.error("Failed to background-fetch favorite videos:", err);
-    } finally {
-      bgFetchingVideosRef.current = false;
-    }
-  }, [authTokens?.user_id]);
+    },
+    [authTokens?.user_id],
+  );
 
   // Infinite-scroll one more page of favorite videos.
   const loadMoreVideos = useCallback(async () => {
@@ -504,6 +532,69 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     }
   };
 
+  // Video-tab counterparts of favoritesSource/handlePlayAll/handleShuffle. A
+  // distinct source id ("favorites-videos") lets the header play button reflect
+  // the video queue independently of the tracks queue; type stays "favorites" so
+  // "Playing from" still navigates back to this page.
+  const videosSource = useCallback(
+    (list: Track[]) => ({
+      type: "favorites" as const,
+      id: "favorites-videos" as const,
+      name: "Loved Videos",
+      allTracks: list,
+    }),
+    [],
+  );
+
+  // Grow the queue to the full favorite-video library in the background, so
+  // prev/next reach beyond the currently-loaded pages (mirrors the tracks tab).
+  const appendRemainingVideosToQueue = useCallback(() => {
+    if (hasMoreVideosRef.current && !bgFetchingVideosRef.current) {
+      fetchRemainingVideos((vids) => appendToQueue(vids.map(videoToTrack)));
+    }
+  }, [fetchRemainingVideos, appendToQueue]);
+
+  const handlePlayVideo = useCallback(
+    async (video: TidalVideo) => {
+      const list = displayedVideos.map(videoToTrack);
+      try {
+        await playFromSource(videoToTrack(video), list, {
+          source: videosSource(list),
+        });
+        appendRemainingVideosToQueue();
+      } catch (err) {
+        console.error("Failed to play video:", err);
+      }
+    },
+    [displayedVideos, playFromSource, videosSource, appendRemainingVideosToQueue],
+  );
+
+  const handlePlayAllVideos = async () => {
+    const list = displayedVideos.map(videoToTrack);
+    if (list.length === 0) return;
+    try {
+      await playAllFromSource(list, { source: videosSource(list) });
+      appendRemainingVideosToQueue();
+    } catch (err) {
+      console.error("Failed to play loved videos:", err);
+    }
+  };
+
+  const handleShuffleVideos = async () => {
+    const pool = displayedVideos.map(videoToTrack);
+    if (pool.length === 0) return;
+    const firstIdx = Math.floor(Math.random() * pool.length);
+    const first = pool[firstIdx];
+    const rest = pool.filter((_, i) => i !== firstIdx);
+    try {
+      setShuffledQueue(rest, { source: videosSource(pool) });
+      await playTrack(first);
+      appendRemainingVideosToQueue();
+    } catch (err) {
+      console.error("Failed to shuffle loved videos:", err);
+    }
+  };
+
   if (loading) {
     return <DetailPageSkeleton type="favorites" />;
   }
@@ -560,11 +651,11 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
           <div className="px-8 py-5 flex items-center gap-3 relative z-10">
             <SourcePlayButton
               sourceType="favorites"
-              sourceId="favorites"
-              onPlay={handlePlayAll}
+              sourceId={tab === "videos" ? "favorites-videos" : "favorites"}
+              onPlay={tab === "videos" ? handlePlayAllVideos : handlePlayAll}
             />
             <button
-              onClick={handleShuffle}
+              onClick={tab === "videos" ? handleShuffleVideos : handleShuffle}
               className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
             >
               <Shuffle size={18} />
@@ -646,58 +737,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
         {/* Videos */}
         <div className={`px-8 pb-8 ${tab !== "videos" ? "hidden" : ""}`}>
-          {displayedVideos.length > 0 ? (
-            <>
-              <MediaGrid>
-              {filteredVideos.map((video) => {
-                const mediaItem = buildMediaItem(video, "VIDEO_LIST");
-                const isFavorited = favoriteVideoIds.has(video.id);
-                return (
-                  <MediaCard
-                    key={video.id}
-                    item={video}
-                    aspect="video"
-                    onClick={() => mediaItem && playMedia(mediaItem)}
-                    onContextMenu={
-                      mediaItem
-                        ? (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setVideoContextMenu({
-                              item: mediaItem,
-                              position: { x: e.clientX, y: e.clientY },
-                            });
-                          }
-                        : undefined
-                    }
-                    onPlay={
-                      mediaItem
-                        ? (e) => {
-                            e.stopPropagation();
-                            playMedia(mediaItem);
-                          }
-                        : undefined
-                    }
-                    isFavorited={isFavorited}
-                    onFavoriteToggle={(e) => {
-                      e.stopPropagation();
-                      if (isFavorited) removeFavoriteVideo(video.id);
-                      else addFavoriteVideo(video.id);
-                    }}
-                  />
-                );
-              })}
-              </MediaGrid>
-              {!isFiltering && hasMoreVideos && (
-                <div ref={videosSentinelRef} className="h-10" />
-              )}
-              {loadingMoreVideos && (
-                <div className="py-4 text-center text-[13px] text-th-text-disabled">
-                  Loading…
-                </div>
-              )}
-            </>
-          ) : (
+          {displayedVideos.length === 0 ? (
             <div className="py-16 text-center">
               <Clapperboard
                 size={48}
@@ -716,6 +756,62 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
                 Go to videos
               </button>
             </div>
+          ) : filteredVideos.length === 0 ? (
+            <div className="py-16 text-center">
+              <p className="text-th-text-primary font-semibold text-lg mb-2">
+                No results
+              </p>
+              <p className="text-th-text-muted text-sm">
+                No videos match “{searchQuery.trim()}”.
+              </p>
+            </div>
+          ) : (
+            <>
+              <MediaGrid>
+                {filteredVideos.map((video) => {
+                  const mediaItem = buildMediaItem(video, "VIDEO_LIST");
+                  const isFavorited = favoriteVideoIds.has(video.id);
+                  return (
+                    <MediaCard
+                      key={video.id}
+                      item={video}
+                      aspect="video"
+                      onClick={() => handlePlayVideo(video)}
+                      onContextMenu={
+                        mediaItem
+                          ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setVideoContextMenu({
+                                item: mediaItem,
+                                position: { x: e.clientX, y: e.clientY },
+                              });
+                            }
+                          : undefined
+                      }
+                      onPlay={(e) => {
+                        e.stopPropagation();
+                        handlePlayVideo(video);
+                      }}
+                      isFavorited={isFavorited}
+                      onFavoriteToggle={(e) => {
+                        e.stopPropagation();
+                        if (isFavorited) removeFavoriteVideo(video.id);
+                        else addFavoriteVideo(video.id);
+                      }}
+                    />
+                  );
+                })}
+              </MediaGrid>
+              {!isFiltering && hasMoreVideos && (
+                <div ref={videosSentinelRef} className="h-10" />
+              )}
+              {loadingMoreVideos && (
+                <div className="py-4 text-center text-[13px] text-th-text-disabled">
+                  Loading…
+                </div>
+              )}
+            </>
           )}
         </div>
         {videoContextMenu && (
