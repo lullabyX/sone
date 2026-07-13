@@ -326,6 +326,11 @@ export function usePlaybackActions() {
   );
 
   const pauseTrack = useCallback(async () => {
+    // Video is current → pause the shared <video>, never the audio pipeline.
+    if (store.get(currentVideoAtom)) {
+      videoElementRef.current?.pause();
+      return;
+    }
     store.set(userPausedAtom, true);
     try {
       await invoke("pause_track");
@@ -337,6 +342,29 @@ export function usePlaybackActions() {
 
   const resumeTrack = useCallback(async () => {
     store.set(userPausedAtom, false);
+    // Video is current → play the shared <video>.
+    if (store.get(currentVideoAtom)) {
+      videoElementRef.current?.play().catch(() => {});
+      return;
+    }
+    // Restored video (post-relaunch / after closeVideo): the current track is a
+    // video but there is no live session — start one instead of hitting the audio
+    // backend with a video id (which 404s).
+    const restored = store.get(currentTrackAtom);
+    if (restored?.itemType === "video") {
+      try {
+        await startVideoSession(store, {
+          id: restored.id,
+          title: restored.title,
+          imageId: restored.imageId,
+          artist: restored.artist?.name ?? restored.artists?.[0]?.name,
+          duration: restored.duration,
+        });
+      } catch (e) {
+        console.error("Failed to resume video:", e);
+      }
+      return;
+    }
     try {
       const track = store.get(currentTrackAtom);
       if (!track) return;
@@ -383,6 +411,21 @@ export function usePlaybackActions() {
       }
     }
   }, [store, showToast]);
+
+  const togglePlayPause = useCallback(async () => {
+    // For a LIVE video, decide from the element itself — videoPlayingAtom trails the
+    // <video> play/pause DOM events, so a rapid double-press off the atom could land
+    // on the wrong state. Fall back to the atom only when the element isn't mounted
+    // yet, then to the audio isPlaying state.
+    const el = store.get(currentVideoAtom) ? videoElementRef.current : null;
+    const playing = el
+      ? !el.paused
+      : store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
+    if (playing) await pauseTrack();
+    else await resumeTrack();
+  }, [store, pauseTrack, resumeTrack]);
 
   /** Peek the next track for gapless registration. Returns null unless the next track
    *  is the AVAILABLE head of manual/context queue AND its _source matches the current
@@ -1483,6 +1526,7 @@ export function usePlaybackActions() {
     playTrack,
     pauseTrack,
     resumeTrack,
+    togglePlayPause,
     setVolume,
     setVolumeNormalization,
     setBitPerfect,

@@ -36,7 +36,7 @@ import {
   favoriteMixIdsAtom,
 } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
-import { currentVideoAtom } from "../atoms/video";
+import { currentVideoAtom, videoPlayingAtom } from "../atoms/video";
 import {
   isPlayingAtom,
   currentTrackAtom,
@@ -184,6 +184,7 @@ export function AppInitializer() {
     playPrevious,
     pauseTrack,
     resumeTrack,
+    togglePlayPause,
     setVolume,
     setBitPerfect,
     toggleShuffle,
@@ -762,16 +763,25 @@ export function AppInitializer() {
   //  VOLUME SYNC to backend (one-time, reads volume from store)
   // ================================================================
   useEffect(() => {
-    if (!volumeSyncedRef.current) {
-      volumeSyncedRef.current = true;
-      // Never push a persisted volume into a bit-perfect pipeline — it must stay
-      // at unity. The stored value can be non-unity if the user adjusted volume
-      // during video playback (video audio is lossy and always controllable).
-      if (!store.get(bitPerfectAtom)) {
+    if (volumeSyncedRef.current) return;
+    volumeSyncedRef.current = true;
+    // Never push a persisted volume into a bit-perfect pipeline — it must stay at
+    // unity. bitPerfectAtom hydrates asynchronously (get_bit_perfect resolves AFTER
+    // this mount effect), so reading the atom here yields its default `false` and
+    // leaks a non-unity volume (e.g. one set during video) on cold start. Read the
+    // authoritative value from the backend instead.
+    (async () => {
+      let bitPerfect = store.get(bitPerfectAtom);
+      try {
+        bitPerfect = await invoke<boolean>("get_bit_perfect");
+      } catch {
+        // Fall back to the atom's current value on IPC failure.
+      }
+      if (!bitPerfect) {
         const vol = store.get(volumeAtom);
         invoke("set_volume", { level: vol }).catch(() => {});
       }
-    }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1014,11 +1024,7 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     const unlistenToggle = listen("tray:toggle-play", () => {
-      if (store.get(isPlayingAtom)) {
-        pauseTrack();
-      } else {
-        resumeTrack();
-      }
+      togglePlayPause();
     });
     const unlistenNext = listen("tray:next-track", () => {
       playNext({ explicit: true });
@@ -1027,14 +1033,16 @@ export function AppInitializer() {
       playPrevious();
     });
     const unlistenMprisPlay = listen("mpris:play", () => {
-      if (!store.get(isPlayingAtom)) {
-        resumeTrack();
-      }
+      const playing = store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
+      if (!playing) resumeTrack();
     });
     const unlistenMprisPause = listen("mpris:pause", () => {
-      if (store.get(isPlayingAtom)) {
-        pauseTrack();
-      }
+      const playing = store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
+      if (playing) pauseTrack();
     });
     const unlistenMprisStop = listen("mpris:stop", () => {
       invoke("stop_track").catch(() => {});
@@ -1048,7 +1056,7 @@ export function AppInitializer() {
       unlistenMprisPause.then((fn) => fn());
       unlistenMprisStop.then((fn) => fn());
     };
-  }, [store, playNext, playPrevious, pauseTrack, resumeTrack]);
+  }, [store, playNext, playPrevious, pauseTrack, resumeTrack, togglePlayPause]);
 
   // ================================================================
   //  TRAY TOOLTIP — update with current track info
@@ -1122,7 +1130,9 @@ export function AppInitializer() {
 
   useEffect(() => {
     const pushStatus = () => {
-      const playing = store.get(isPlayingAtom);
+      const playing = store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
       invoke("update_mpris_playback_status", {
         isPlaying: playing,
         positionSecs: getInterpolatedPosition(),
@@ -1130,8 +1140,14 @@ export function AppInitializer() {
     };
 
     pushStatus();
-    const unsub = store.sub(isPlayingAtom, pushStatus);
-    return unsub;
+    const unsubPlaying = store.sub(isPlayingAtom, pushStatus);
+    const unsubVideoPlaying = store.sub(videoPlayingAtom, pushStatus);
+    const unsubVideo = store.sub(currentVideoAtom, pushStatus);
+    return () => {
+      unsubPlaying();
+      unsubVideoPlaying();
+      unsubVideo();
+    };
   }, [store]);
 
   useEffect(() => {
@@ -1224,11 +1240,7 @@ export function AppInitializer() {
   // ================================================================
   useShortcuts({
     playPause: () => {
-      if (store.get(isPlayingAtom)) {
-        pauseTrack();
-      } else {
-        resumeTrack();
-      }
+      togglePlayPause();
     },
     nextTrack: () => playNext({ explicit: true }),
     prevTrack: () => playPrevious(),

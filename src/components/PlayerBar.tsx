@@ -668,20 +668,36 @@ const MaximizeButton = memo(function MaximizeButton() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
   const setVideoFullscreen = useSetAtom(videoFullscreenAtom);
-  const { expandVideo } = useVideoPlayback();
+  const { expandVideo, playVideo } = useVideoPlayback();
 
   if (!currentTrack && !currentVideo) return null;
 
-  // Video takes the video overlay fullscreen; audio opens the maximized player.
+  const goFullscreen = () => {
+    setVideoFullscreen(true);
+    getCurrentWindow()
+      .setFullscreen(true)
+      .catch(() => {});
+  };
+
+  // A restored/closed video (current track is a video, but no live session) must
+  // start the video overlay — NOT the audio maximized player, whose play button
+  // would fire play_tidal_track(videoId) and 404.
+  const isRestoredVideo = !currentVideo && currentTrack?.itemType === "video";
   const onClick = currentVideo
     ? () => {
         expandVideo();
-        setVideoFullscreen(true);
-        getCurrentWindow()
-          .setFullscreen(true)
-          .catch(() => {});
+        goFullscreen();
       }
-    : () => setMaximized(true);
+    : isRestoredVideo
+      ? async () => {
+          try {
+            await playVideo(videoInputFromTrack(currentTrack));
+            goFullscreen();
+          } catch {
+            /* startVideoSession already dismissed the overlay on failure */
+          }
+        }
+      : () => setMaximized(true);
 
   return (
     <button
