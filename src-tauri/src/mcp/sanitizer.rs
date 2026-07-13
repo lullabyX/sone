@@ -141,6 +141,8 @@ mod tests {
             audio_modes: None,
             media_metadata: None,
             mixes: None,
+            item_type: None,
+            image_id: None,
         }
     }
 

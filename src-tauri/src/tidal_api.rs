@@ -155,6 +155,21 @@ fn parse_playlist_items(items: Vec<Value>) -> Result<Vec<TidalTrack>, SoneError>
         let Some(inner) = entry.get("item") else {
             continue;
         };
+        // A playlist can interleave tracks and videos; a video item may carry a
+        // null or absent `duration`, which fails TidalTrack's required u32 and
+        // would abort the ENTIRE playlist. Default it to 0 so one such item can't
+        // blank the list — the video player reads the real length from the stream.
+        let mut inner = inner.clone();
+        // NOTE (verified): use `is_none_or`, NOT `map_or(true, …)` — clippy's
+        // `unnecessary_map_or` lint (warn-by-default on this repo's rustc 1.95)
+        // would fail `cargo clippy -- -D warnings`. `id`/`title` remain hard-required
+        // (the only other non-default TidalTrack fields); real video items always
+        // carry them, so defaulting `duration` alone resolves the observed abort.
+        if inner.get("duration").is_none_or(|d| d.is_null()) {
+            if let Some(obj) = inner.as_object_mut() {
+                obj.insert("duration".to_string(), Value::from(0u32));
+            }
+        }
         let mut track: TidalTrack = serde_json::from_value(inner.clone())
             .map_err(|e| SoneError::Parse(format!("{} - Item: {}", e, inner)))?;
         if track.image_id.is_none() {
@@ -4244,10 +4259,13 @@ impl TidalClient {
             .to_string();
 
         // Only skip truly non-content promotional types. MULTIPLE_TOP_PROMOTIONS
-        // is content (a "Featured" row of playlist/video promos) — keep it.
+        // is content (a "Featured" row of playlist/video promos handled by the
+        // frontend). FEATURED_PROMOTIONS is a distinct type the UI does not render —
+        // letting it through emits id-less cards, so skip it.
         if section_type == "TEXT_BLOCK"
             || section_type == "SOCIAL"
             || section_type == "ARTICLE_LIST"
+            || section_type == "FEATURED_PROMOTIONS"
         {
             return None;
         }
@@ -5894,6 +5912,41 @@ mod home_tab_tests {
     fn returns_empty_when_no_vibes() {
         let body = json!({ "items": [] });
         assert!(TidalClient::parse_home_tabs(&body).is_empty());
+    }
+
+    #[test]
+    fn parse_playlist_items_tolerates_null_or_missing_duration() {
+        let items = vec![
+            serde_json::json!({ "type": "track", "item": { "id": 1, "title": "A", "duration": 100 } }),
+            serde_json::json!({ "type": "video", "item": { "id": 2, "title": "V", "duration": null } }),
+            serde_json::json!({ "type": "video", "item": { "id": 3, "title": "V2" } }),
+        ];
+        let out = super::parse_playlist_items(items).expect("must not abort on null duration");
+        assert_eq!(out.len(), 3, "no item should be dropped");
+        assert_eq!(out[1].duration, 0);
+        assert_eq!(out[2].duration, 0);
+    }
+
+    #[test]
+    fn parse_v1_module_skips_featured_promotions() {
+        let module = serde_json::json!({
+            "type": "FEATURED_PROMOTIONS",
+            "pagedList": { "items": [ { "header": "X", "artifactId": "1", "type": "PLAYLIST" } ] }
+        });
+        assert!(
+            super::TidalClient::parse_v1_module(&module).is_none(),
+            "FEATURED_PROMOTIONS must be skipped, not rendered as cards"
+        );
+    }
+
+    #[test]
+    fn parse_v1_module_keeps_multiple_top_promotions() {
+        let module = serde_json::json!({
+            "type": "MULTIPLE_TOP_PROMOTIONS",
+            "title": "Featured",
+            "pagedList": { "items": [ { "header": "X", "artifactId": "1", "type": "PLAYLIST" } ] }
+        });
+        assert!(super::TidalClient::parse_v1_module(&module).is_some());
     }
 }
 
