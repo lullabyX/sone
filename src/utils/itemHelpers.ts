@@ -3,7 +3,26 @@ import {
   type MediaItemType,
   type StreamInfo,
   type Track,
+  type TidalVideo,
 } from "../types";
+
+/**
+ * A favorite/search video as a queue-ready Track (itemType "video"), so it flows
+ * through playFromSource/playAllFromSource exactly like an audio track — giving
+ * video grids a full queue with working prev/next.
+ */
+export function videoToTrack(v: TidalVideo): Track {
+  return {
+    id: v.id,
+    title: v.title,
+    itemType: "video",
+    imageId: v.imageId,
+    duration: v.duration,
+    explicit: v.explicit,
+    artist: v.artist ?? v.artists?.[0],
+    artists: v.artists,
+  } as Track;
+}
 
 /**
  * Shared helpers for extracting data from raw Tidal API JSON items.

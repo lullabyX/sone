@@ -19,7 +19,7 @@ import {
   getPageSection,
 } from "../api/tidal";
 import { safeErrorMessage } from "../lib/errorUtils";
-import { buildMediaItem, getItemTitle } from "../utils/itemHelpers";
+import { buildMediaItem, getItemTitle, videoToTrack } from "../utils/itemHelpers";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
 import { type Track, type TidalVideo, type MediaItemType } from "../types";
 import TrackList from "./TrackList";
@@ -42,18 +42,6 @@ const VIDEO_PAGE_SIZE = 50;
 /** A favorite video as a queue-ready Track (itemType "video") so it flows through
  *  playFromSource/playAllFromSource exactly like an audio track — giving the video
  *  tab a full queue with working prev/next, like the tracks tab. */
-function videoToTrack(v: TidalVideo): Track {
-  return {
-    id: v.id,
-    title: v.title,
-    itemType: "video",
-    imageId: v.imageId,
-    duration: v.duration,
-    artist: v.artist ?? v.artists?.[0],
-    artists: v.artists,
-  } as Track;
-}
-
 export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const { authTokens } = useAuth();

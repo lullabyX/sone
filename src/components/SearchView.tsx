@@ -11,11 +11,13 @@ import {
   type SearchResults,
   type SearchTab,
   type Track,
+  type TidalVideo,
   type AlbumDetail,
   type Playlist,
   type DirectHitItem,
   type MediaItemType,
 } from "../types";
+import { videoToTrack, buildMediaItem } from "../utils/itemHelpers";
 import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
@@ -28,6 +30,7 @@ const TABS: { id: SearchTab; label: string }[] = [
   { id: "all", label: "All Results" },
   { id: "tophits", label: "Top Hits" },
   { id: "tracks", label: "Tracks" },
+  { id: "videos", label: "Videos" },
   { id: "playlists", label: "Playlists" },
   { id: "albums", label: "Albums" },
   { id: "artists", label: "Artists" },
@@ -56,6 +59,9 @@ export default function SearchView({
     favoritePlaylistUuids,
     addFavoritePlaylist,
     removeFavoritePlaylist,
+    favoriteVideoIds,
+    addFavoriteVideo,
+    removeFavoriteVideo,
   } = useFavorites();
 
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -161,6 +167,52 @@ export default function SearchView({
     });
   };
 
+  // Videos play through the shared queue like tracks — playing one queues the
+  // rest of the search's videos so prev/next traverse them.
+  const handlePlayVideo = (video: TidalVideo) => {
+    const list = (results?.videos || []).map(videoToTrack);
+    playFromSource(videoToTrack(video), list, {
+      source: {
+        type: "search",
+        id: query,
+        name: `Search: ${query}`,
+        allTracks: list,
+      },
+    });
+  };
+
+  const renderVideoCard = (video: TidalVideo) => {
+    const isFav = favoriteVideoIds.has(video.id);
+    return (
+      <MediaCard
+        key={video.id}
+        item={video}
+        aspect="video"
+        onClick={() => handlePlayVideo(video)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const mediaItem = buildMediaItem(video, "VIDEO_LIST");
+          if (mediaItem)
+            setContextMenu({
+              item: mediaItem,
+              position: { x: e.clientX, y: e.clientY },
+            });
+        }}
+        onPlay={(e) => {
+          e.stopPropagation();
+          handlePlayVideo(video);
+        }}
+        isFavorited={isFav}
+        onFavoriteToggle={(e) => {
+          e.stopPropagation();
+          if (isFav) removeFavoriteVideo(video.id);
+          else addFavoriteVideo(video.id);
+        }}
+      />
+    );
+  };
+
   if (loading) {
     return <SearchPageSkeleton />;
   }
@@ -190,7 +242,8 @@ export default function SearchView({
     results.tracks.length === 0 &&
     results.albums.length === 0 &&
     results.artists.length === 0 &&
-    results.playlists.length === 0;
+    results.playlists.length === 0 &&
+    results.videos.length === 0;
 
   return (
     <div className="flex-1 bg-linear-to-b from-th-surface to-th-base min-h-full">
@@ -248,6 +301,24 @@ export default function SearchView({
                       showAlbum={true}
                       context="search"
                     />
+                  </section>
+                )}
+                {results.videos.length > 0 && (
+                  <section>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-[16px] font-bold text-th-text-primary">
+                        Videos
+                      </h2>
+                      <button
+                        onClick={() => setActiveTab("videos")}
+                        className="text-[13px] font-bold text-th-text-muted hover:text-th-text-primary uppercase tracking-wider transition-colors"
+                      >
+                        View all
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+                      {results.videos.slice(0, 4).map(renderVideoCard)}
+                    </div>
                   </section>
                 )}
                 {results.playlists.length > 0 && (
@@ -420,6 +491,20 @@ export default function SearchView({
                   setQueueTracks([]);
                   playTrack(trackObj);
                 }}
+                onPlayVideo={(hit) => {
+                  const videoTrack: Track = {
+                    id: hit.id || 0,
+                    title: hit.title || "",
+                    itemType: "video",
+                    imageId: hit.image,
+                    duration: hit.duration || 0,
+                    artist: hit.artistName
+                      ? { id: 0, name: hit.artistName }
+                      : undefined,
+                  };
+                  setQueueTracks([]);
+                  playTrack(videoTrack);
+                }}
                 onAlbumClick={(hit) => {
                   if (hit.id)
                     navigateToAlbum(hit.id, {
@@ -466,6 +551,13 @@ export default function SearchView({
                 showAlbum={true}
                 context="search"
               />
+            )}
+
+            {/* Videos tab */}
+            {activeTab === "videos" && results.videos.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+                {results.videos.map(renderVideoCard)}
+              </div>
             )}
 
             {/* Playlists tab */}
@@ -593,6 +685,7 @@ export default function SearchView({
 function TopHitsList({
   topHits,
   onPlayTrack,
+  onPlayVideo,
   onTrackAlbumClick,
   onAlbumClick,
   onArtistClick,
@@ -601,6 +694,7 @@ function TopHitsList({
 }: {
   topHits: DirectHitItem[];
   onPlayTrack: (hit: DirectHitItem) => void;
+  onPlayVideo: (hit: DirectHitItem) => void;
   onTrackAlbumClick: (hit: DirectHitItem) => void;
   onAlbumClick: (hit: DirectHitItem) => void;
   onArtistClick: (hit: DirectHitItem) => void;
@@ -716,6 +810,64 @@ function TopHitsList({
                   onClose={() => setCtxTrack(null)}
                 />
               )}
+            </div>
+          );
+        }
+        if (hit.hitType === "VIDEOS") {
+          const videoMedia: MediaItemType = {
+            type: "video",
+            id: hit.id || 0,
+            title: hit.title || "",
+            imageId: hit.image,
+            artist: hit.artistName,
+            duration: hit.duration,
+          };
+          return (
+            <div
+              key={`th-${idx}`}
+              className="flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group/item cursor-pointer"
+              onClick={() => onPlayVideo(hit)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onMediaContextMenu(videoMedia, { x: e.clientX, y: e.clientY });
+              }}
+            >
+              <button
+                className="w-12 h-12 rounded bg-th-surface-hover overflow-hidden shrink-0 relative"
+                title="Play"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPlayVideo(hit);
+                }}
+              >
+                <TidalImage
+                  src={getTidalImageUrl(hit.image, 80)}
+                  alt={hit.title || ""}
+                  className="w-full h-full"
+                />
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity">
+                  <Play size={16} fill="white" className="text-white ml-0.5" />
+                </div>
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] text-th-text-primary truncate">
+                  {hit.title}
+                </p>
+                <p className="text-[12px] text-th-text-faint truncate">
+                  Video &middot; {hit.artistName || "Unknown Artist"}
+                </p>
+              </div>
+              <button
+                className="p-1 rounded-full text-th-text-faint hover:text-th-text-primary opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0"
+                title="More options"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMediaContextMenu(videoMedia, { x: e.clientX, y: e.clientY });
+                }}
+              >
+                <MoreHorizontal size={16} />
+              </button>
             </div>
           );
         }

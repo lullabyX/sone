@@ -729,6 +729,8 @@ pub struct TidalSearchResults {
     pub tracks: Vec<TidalTrack>,
     pub playlists: Vec<TidalPlaylist>,
     #[serde(default)]
+    pub videos: Vec<TidalVideo>,
+    #[serde(default)]
     pub top_hit_type: Option<String>,
     /// Ordered top hits from the v2 search API (mixed entity types, ranked by relevance)
     #[serde(default)]
@@ -868,6 +870,41 @@ impl DirectHitItem {
                     album_cover: album
                         .and_then(|a| a.get("cover").and_then(|v| v.as_str()))
                         .map(String::from),
+                    duration: val
+                        .get("duration")
+                        .and_then(|v| v.as_u64())
+                        .map(|d| d as u32),
+                    number_of_tracks: None,
+                })
+            }
+            "VIDEOS" => {
+                let artist_name = val
+                    .get("artists")
+                    .and_then(|a| a.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|a| a.get("name").and_then(|v| v.as_str()))
+                    .or_else(|| {
+                        val.get("artist")
+                            .and_then(|a| a.get("name").and_then(|v| v.as_str()))
+                    })
+                    .map(String::from);
+                Some(DirectHitItem {
+                    hit_type,
+                    id: val.get("id").and_then(|v| v.as_u64()),
+                    uuid: None,
+                    name: None,
+                    title: val.get("title").and_then(|v| v.as_str()).map(String::from),
+                    picture: None,
+                    cover: None,
+                    // Videos carry a thumbnail UUID under `imageId`, not album cover.
+                    image: val
+                        .get("imageId")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    artist_name,
+                    album_id: None,
+                    album_title: None,
+                    album_cover: None,
                     duration: val
                         .get("duration")
                         .and_then(|v| v.as_u64())
@@ -3633,7 +3670,7 @@ impl TidalClient {
                     ("query", query),
                     ("countryCode", &cc),
                     ("limit", &limit_str),
-                    ("types", "ARTISTS,ALBUMS,TRACKS,PLAYLISTS"),
+                    ("types", "ARTISTS,ALBUMS,TRACKS,PLAYLISTS,VIDEOS"),
                     ("includeContributors", "true"),
                     ("includeUserPlaylists", "true"),
                     ("includeDidYouMean", "true"),
@@ -3643,7 +3680,7 @@ impl TidalClient {
                 ],
             )
             .await?;
-        self.parse_search_response(&body, query, "v2")
+        Self::parse_search_response(&body, query, "v2")
     }
 
     async fn search_v1(
@@ -3661,18 +3698,17 @@ impl TidalClient {
                     ("countryCode", &cc),
                     ("limit", &limit_str),
                     ("offset", "0"),
-                    ("types", "ARTISTS,ALBUMS,TRACKS,PLAYLISTS"),
+                    ("types", "ARTISTS,ALBUMS,TRACKS,PLAYLISTS,VIDEOS"),
                     ("includeContributors", "true"),
                     ("includeUserPlaylists", "true"),
                     ("supportsUserData", "true"),
                 ],
             )
             .await?;
-        self.parse_search_response(&body, query, "v1")
+        Self::parse_search_response(&body, query, "v1")
     }
 
     fn parse_search_response(
-        &self,
         body: &str,
         query: &str,
         tag: &str,
@@ -3694,6 +3730,8 @@ impl TidalClient {
             tracks: Option<Sec<TidalTrack>>,
             #[serde(default)]
             playlists: Option<Sec<TidalPlaylistRaw>>,
+            #[serde(default)]
+            videos: Option<Sec<TidalVideo>>,
         }
 
         let data: SR = serde_json::from_str(body)
@@ -3710,13 +3748,19 @@ impl TidalClient {
             .unwrap_or_default();
 
         log::debug!(
-            "search [{}]: t={} al={} ar={} pl={} th={} for '{}'",
+            "search [{}]: t={} al={} ar={} pl={} v={} th={} [{}] for '{}'",
             tag,
             data.tracks.as_ref().map(|s| s.items.len()).unwrap_or(0),
             data.albums.as_ref().map(|s| s.items.len()).unwrap_or(0),
             data.artists.as_ref().map(|s| s.items.len()).unwrap_or(0),
             data.playlists.as_ref().map(|s| s.items.len()).unwrap_or(0),
+            data.videos.as_ref().map(|s| s.items.len()).unwrap_or(0),
             top_hits.len(),
+            top_hits
+                .iter()
+                .map(|h| h.hit_type.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
             query
         );
 
@@ -3738,6 +3782,7 @@ impl TidalClient {
                 .playlists
                 .map(|s| s.items.into_iter().map(|p| p.into()).collect())
                 .unwrap_or_default(),
+            videos: data.videos.map(|s| s.items).unwrap_or_default(),
             top_hit_type: None,
             top_hits,
         })
@@ -5890,6 +5935,47 @@ fn parse_public_playlists(body: &str) -> Result<Vec<ProfilePlaylist>, SoneError>
 mod home_tab_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn search_parses_video_section() {
+        let body = json!({
+            "tracks": { "items": [] },
+            "videos": { "items": [
+                { "id": 111, "title": "A Music Video", "duration": 215,
+                  "imageId": "abc", "artists": [{ "id": 5, "name": "Some Artist" }] },
+                { "id": 222, "title": "Another" }
+            ]}
+        })
+        .to_string();
+        let res = TidalClient::parse_search_response(&body, "q", "test").expect("parses");
+        assert_eq!(res.videos.len(), 2);
+        assert_eq!(res.videos[0].id, 111);
+        assert_eq!(res.videos[0].title, "A Music Video");
+        // A missing videos section yields an empty vec, never an error.
+        let none = TidalClient::parse_search_response(
+            &json!({ "tracks": { "items": [] } }).to_string(),
+            "q",
+            "test",
+        )
+        .expect("parses");
+        assert!(none.videos.is_empty());
+    }
+
+    #[test]
+    fn direct_hit_parses_video_type() {
+        let item = json!({
+            "type": "VIDEOS",
+            "value": { "id": 999, "title": "Top Video", "duration": 180,
+                       "imageId": "img-uuid", "artists": [{ "id": 1, "name": "Star" }] }
+        });
+        let hit = DirectHitItem::from_typed_value(&item).expect("video hit parses");
+        assert_eq!(hit.hit_type, "VIDEOS");
+        assert_eq!(hit.id, Some(999));
+        assert_eq!(hit.title.as_deref(), Some("Top Video"));
+        assert_eq!(hit.image.as_deref(), Some("img-uuid"));
+        assert_eq!(hit.artist_name.as_deref(), Some("Star"));
+        assert_eq!(hit.duration, Some(180));
+    }
 
     #[test]
     fn parses_tabs_from_vibes() {

@@ -205,6 +205,7 @@ export type SearchTab =
   | "all"
   | "tophits"
   | "tracks"
+  | "videos"
   | "playlists"
   | "albums"
   | "artists";
@@ -280,6 +281,7 @@ export interface SearchResults {
   albums: AlbumDetail[];
   tracks: Track[];
   playlists: Playlist[];
+  videos: TidalVideo[];
   topHitType?: string;
   topHits?: DirectHitItem[];
 }
