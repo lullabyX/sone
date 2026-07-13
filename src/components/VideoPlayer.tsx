@@ -21,7 +21,7 @@ import {
   memo,
   type RefObject,
 } from "react";
-import { useAtomValue, useSetAtom, useAtom } from "jotai";
+import { useAtomValue, useSetAtom, useAtom, useStore } from "jotai";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   currentVideoAtom,
@@ -78,8 +78,22 @@ function attachHls(
           onFatal();
           return;
         }
-        const hls = new Hls({ enableWorker: true });
+        const hls = new Hls({
+          enableWorker: true,
+          // Cold-start optimistically so the auto start-level selection lands on the
+          // top rendition instead of the conservative 500 kbps default.
+          abrEwmaDefaultEstimate: 10_000_000,
+        });
         hlsInstance = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
+          // Begin at the top rendition of the requested quality ladder (TIDAL caps
+          // the ladder by the videoquality we ask for), so playback starts at the
+          // SELECTED quality rather than ramping up. ABR stays enabled, so it still
+          // adapts DOWN when real bandwidth can't sustain it.
+          if (data.levels && data.levels.length > 0) {
+            hls.startLevel = data.levels.length - 1;
+          }
+        });
         hls.on(Hls.Events.ERROR, (_e, data) => {
           if (data.fatal) onFatal();
         });
@@ -233,6 +247,7 @@ const VideoScrubber = memo(function VideoScrubber({
 // ─── VideoPlayer ─────────────────────────────────────────────────────────────
 
 export default function VideoPlayer() {
+  const store = useStore();
   const video = useAtomValue(currentVideoAtom);
   const stream = useAtomValue(videoStreamAtom);
   const setVideoPlaying = useSetAtom(videoPlayingAtom);
@@ -254,6 +269,17 @@ export default function VideoPlayer() {
   const [failed, setFailed] = useState(false);
   const [quality, setQuality] = useState<VideoQuality>("HIGH");
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  // VideoPlayer persists across videos (it never unmounts), but every new video
+  // starts at HIGH (startVideoSession's default). Reset the quality label when the
+  // video changes so it never shows the previous video's selection (which also made
+  // re-selecting that quality a no-op via the `q === quality` guard). Use React's
+  // render-phase "adjust state on change" pattern (guarded by a tracked id) rather
+  // than a setState-in-effect, which would trip react-hooks/set-state-in-effect.
+  const [qualityForVideoId, setQualityForVideoId] = useState(video?.id);
+  if (video?.id !== qualityForVideoId) {
+    setQualityForVideoId(video?.id);
+    setQuality("HIGH");
+  }
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
@@ -277,8 +303,23 @@ export default function VideoPlayer() {
       }
     };
     v.addEventListener("canplay", onCanPlay);
+    // WebKitGTK's MSE video sink can leave the first frame frozen when playback
+    // begins on a stable rendition (audio + clock advance, but nothing repaints
+    // until a seek). Do a one-shot micro-seek the moment playback starts near the
+    // top — the same flush a manual seek performs — to force the sink to paint.
+    // Skipped once we're past the start (e.g. a quality switch restoring position),
+    // where the restore seek already flushes the sink.
+    let nudged = false;
+    const onPlayingNudge = () => {
+      if (nudged) return;
+      nudged = true;
+      v.removeEventListener("playing", onPlayingNudge);
+      if (v.currentTime < 0.05) v.currentTime = 0.05;
+    };
+    v.addEventListener("playing", onPlayingNudge);
     return () => {
       v.removeEventListener("canplay", onCanPlay);
+      v.removeEventListener("playing", onPlayingNudge);
       detach();
     };
   }, [stream?.url, video?.id]);
@@ -312,8 +353,26 @@ export default function VideoPlayer() {
     const onPlaying = () => setLoading(false);
     const onWaiting = () => setLoading(true);
     const onError = () => setFailed(true);
-    const onEnded = () => {
-      playNext();
+    const onEnded = async () => {
+      const endedId = store.get(currentVideoAtom)?.id;
+      const endedStream = store.get(videoStreamAtom);
+      await playNext();
+      // 'ended' fires no 'pause', so videoPlaying stays true; if playNext found
+      // nothing to advance to (empty queue, no repeat/autoplay), the same video is
+      // still current and the element is parked at its end. Clear the overlay so it
+      // doesn't sit frozen on the last frame under a stuck Pause icon. Guard against
+      // a same-id RESTART (e.g. repeat-all looping a lone video), which re-seeds a
+      // fresh stream via startVideoSession — the stream reference changing means
+      // playback advanced, so leave the overlay up. (Repeat-one rewinds in place and
+      // clears `ended` synchronously, so `el.ended` already excludes it.)
+      const el = videoRef.current;
+      if (
+        el?.ended &&
+        store.get(currentVideoAtom)?.id === endedId &&
+        store.get(videoStreamAtom) === endedStream
+      ) {
+        closeVideo();
+      }
     };
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
@@ -329,7 +388,7 @@ export default function VideoPlayer() {
       v.removeEventListener("error", onError);
       v.removeEventListener("ended", onEnded);
     };
-  }, [setVideoPlaying, playNext]);
+  }, [setVideoPlaying, playNext, closeVideo, store]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -401,10 +460,13 @@ export default function VideoPlayer() {
     return () => clearTimeout(hideTimerRef.current);
   }, [resetHideTimer]);
 
-  // ESC closes (exits fullscreen first if active).
+  // ESC closes (exits fullscreen first if active) — but only when the overlay is
+  // actually on screen. A minimized/background video must survive an ESC meant for
+  // dismissing a menu, search box, or other UI.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (!expanded) return;
       if (fullscreen) {
         setFullscreen(false);
         getCurrentWindow()
@@ -416,7 +478,7 @@ export default function VideoPlayer() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [fullscreen, setFullscreen, closeVideo]);
+  }, [expanded, fullscreen, setFullscreen, closeVideo]);
 
   if (!video) return null;
 
