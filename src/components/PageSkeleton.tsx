@@ -222,7 +222,6 @@ export function DetailPageSkeleton({
 }: {
   type?: "album" | "playlist" | "mix" | "radio" | "favorites";
 }) {
-  const showControls = type !== "favorites";
   const showFilter = type === "playlist" || type === "favorites";
 
   return (
@@ -269,27 +268,25 @@ export function DetailPageSkeleton({
         </div>
 
         {/* Controls skeleton — Play + Shuffle left, action cluster right */}
-        {showControls && (
-          <div className="px-8 py-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Pulse className="w-24 h-10 rounded-full!" />
-              <Pulse className="w-28 h-10 rounded-full!" />
-            </div>
-            {(type === "album" ||
-              type === "playlist" ||
-              type === "mix" ||
-              type === "radio") && (
-              <div className="flex items-end gap-6">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="flex flex-col items-center gap-1.5">
-                    <Pulse className="w-[22px] h-[22px] rounded" />
-                    <Pulse className="w-9 h-2.5 rounded-full" />
-                  </div>
-                ))}
-              </div>
-            )}
+        <div className="px-8 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Pulse className="w-24 h-10 rounded-full!" />
+            <Pulse className="w-28 h-10 rounded-full!" />
           </div>
-        )}
+          {(type === "album" ||
+            type === "playlist" ||
+            type === "mix" ||
+            type === "radio") && (
+            <div className="flex items-end gap-6">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-1.5">
+                  <Pulse className="w-[22px] h-[22px] rounded" />
+                  <Pulse className="w-9 h-2.5 rounded-full" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Filter bar skeleton */}
         {showFilter && (
