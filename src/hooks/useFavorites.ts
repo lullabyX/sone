@@ -3,6 +3,7 @@ import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import {
   favoriteTrackIdsAtom,
+  favoriteVideoIdsAtom,
   favoriteAlbumIdsAtom,
   favoritePlaylistUuidsAtom,
   followedArtistIdsAtom,
@@ -34,6 +35,7 @@ import type {
 
 export function useFavorites() {
   const [favoriteTrackIds, setFavoriteTrackIds] = useAtom(favoriteTrackIdsAtom);
+  const [favoriteVideoIds, setFavoriteVideoIds] = useAtom(favoriteVideoIdsAtom);
   const [favoriteAlbumIds, setFavoriteAlbumIds] = useAtom(favoriteAlbumIdsAtom);
   const [favoritePlaylistUuids, setFavoritePlaylistUuids] = useAtom(
     favoritePlaylistUuidsAtom,
@@ -96,6 +98,52 @@ export function useFavorites() {
       }
     },
     [authTokens?.user_id, setFavoriteTrackIds],
+  );
+
+  // ==================== Videos ====================
+
+  const addFavoriteVideo = useCallback(
+    async (videoId: number): Promise<void> => {
+      if (!authTokens?.user_id) throw new Error("Not authenticated");
+      setFavoriteVideoIds((prev: Set<number>) => new Set([...prev, videoId]));
+      try {
+        await invoke("add_favorite_video", {
+          userId: authTokens.user_id,
+          videoId,
+        });
+      } catch (error: any) {
+        setFavoriteVideoIds((prev: Set<number>) => {
+          const next = new Set(prev);
+          next.delete(videoId);
+          return next;
+        });
+        console.error("Failed to favorite video:", error);
+        throw error;
+      }
+    },
+    [authTokens?.user_id, setFavoriteVideoIds],
+  );
+
+  const removeFavoriteVideo = useCallback(
+    async (videoId: number): Promise<void> => {
+      if (!authTokens?.user_id) throw new Error("Not authenticated");
+      setFavoriteVideoIds((prev: Set<number>) => {
+        const next = new Set(prev);
+        next.delete(videoId);
+        return next;
+      });
+      try {
+        await invoke("remove_favorite_video", {
+          userId: authTokens.user_id,
+          videoId,
+        });
+      } catch (error: any) {
+        setFavoriteVideoIds((prev: Set<number>) => new Set([...prev, videoId]));
+        console.error("Failed to remove favorite video:", error);
+        throw error;
+      }
+    },
+    [authTokens?.user_id, setFavoriteVideoIds],
   );
 
   // ==================== Albums ====================
@@ -341,6 +389,9 @@ export function useFavorites() {
     favoriteTrackIds,
     addFavoriteTrack,
     removeFavoriteTrack,
+    favoriteVideoIds,
+    addFavoriteVideo,
+    removeFavoriteVideo,
     favoriteAlbumIds,
     addFavoriteAlbum,
     removeFavoriteAlbum,

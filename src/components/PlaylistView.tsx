@@ -32,7 +32,7 @@ import {
   getPlaylistDetails,
 } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
-import { getShareUrl, formatTotalDuration } from "../utils/itemHelpers";
+import { getShareUrl, formatTotalDuration, playlistCountLabel } from "../utils/itemHelpers";
 import NotFoundPage from "./NotFoundPage";
 import { getTidalImageUrl, type Track, type MediaItemType } from "../types";
 import TidalImage from "./TidalImage";
@@ -53,6 +53,7 @@ interface PlaylistViewProps {
     description?: string;
     creatorName?: string;
     numberOfTracks?: number;
+    numberOfVideos?: number;
     isUserPlaylist?: boolean;
   };
   onBack: () => void;
@@ -116,6 +117,7 @@ export default function PlaylistView({
           description: p.description,
           creatorName: p.creator?.name,
           numberOfTracks: p.numberOfTracks,
+          numberOfVideos: p.numberOfVideos,
           isUserPlaylist: userId != null ? p.creator?.id === userId : undefined,
         });
         setResolvedAccessType(p.accessType);
@@ -451,11 +453,13 @@ export default function PlaylistView({
   const handlePlayTrack = useCallback(
     async (track: Track, _index: number) => {
       try {
-        await playFromSource(track, tracks, { source: playlistSource(tracks) });
+        await playFromSource(track, tracks, {
+          source: playlistSource(tracks),
+        });
 
         // Fire-and-forget: append remaining pages to queue as they arrive
         if (hasMoreRef.current && !bgFetchingRef.current) {
-          fetchRemaining(appendToQueue);
+          fetchRemaining((items) => appendToQueue(items));
         }
       } catch (err) {
         console.error("Failed to play playlist track:", err);
@@ -492,10 +496,12 @@ export default function PlaylistView({
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
     try {
-      await playAllFromSource(tracks, { source: playlistSource(tracks) });
+      await playAllFromSource(tracks, {
+        source: playlistSource(tracks),
+      });
 
       if (hasMoreRef.current && !bgFetchingRef.current) {
-        fetchRemaining(appendToQueue);
+        fetchRemaining((items) => appendToQueue(items));
       }
     } catch (err) {
       console.error("Failed to play playlist:", err);
@@ -511,6 +517,7 @@ export default function PlaylistView({
     }
 
     const all = allTracksRef.current.length > 0 ? allTracksRef.current : tracks;
+    if (all.length === 0) return;
     const firstIdx = Math.floor(Math.random() * all.length);
     const first = all[firstIdx];
     const rest = all.filter((_, i) => i !== firstIdx);
@@ -579,8 +586,13 @@ export default function PlaylistView({
       ? userName
       : "You"
     : effectiveInfo?.creatorName || undefined;
+  // totalTracks is the total item count from /items (tracks + videos); subtract
+  // videos so the "Tracks" figure counts audio only.
+  const videoCount = effectiveInfo?.numberOfVideos ?? 0;
   const displayTrackCount =
-    totalTracks > 0 ? totalTracks : (effectiveInfo?.numberOfTracks ?? 0);
+    totalTracks > 0
+      ? Math.max(0, totalTracks - videoCount)
+      : (effectiveInfo?.numberOfTracks ?? 0);
 
   // Show "Read more" if description is long enough to be truncated
   const descriptionIsLong = (displayDescription?.length ?? 0) > 120;
@@ -677,7 +689,10 @@ export default function PlaylistView({
               )}
               <div className="text-[12px] text-th-text-muted uppercase tracking-wide mt-2">
                 <span>
-                  {displayTrackCount} TRACK{displayTrackCount !== 1 ? "S" : ""}
+                  {playlistCountLabel(
+                    displayTrackCount,
+                    effectiveInfo?.numberOfVideos,
+                  ).toUpperCase()}
                 </span>
                 {metaDuration != null && metaDuration > 0 && (
                   <span> ({formatTotalDuration(metaDuration)})</span>

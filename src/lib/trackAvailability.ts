@@ -8,6 +8,7 @@ import { getApiStatus } from "./errorUtils";
  */
 export function isTrackUnavailable(track: Track | null | undefined): boolean {
   if (!track) return false;
+  if (track.itemType === "video") return false; // videos aren't audio-stream-gated
   if (track.streamReady === false) return true;
   if (track.allowStreaming === false) return true;
   if (track.streamStartDate) {

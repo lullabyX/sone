@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
 import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
+import { currentVideoAtom } from "../atoms/video";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 
 interface VolumeSliderProps {
@@ -20,17 +21,21 @@ const VolumeSlider = memo(function VolumeSlider({
 }: VolumeSliderProps) {
   const volume = useAtomValue(volumeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
   const { setVolume } = usePlaybackActions();
 
-  const displayVolume = bitPerfect ? 1 : volume;
+  // Bit-perfect locks the slider at unity — but only for audio. Video audio is
+  // lossy and plays through the <video> element, so it stays controllable.
+  const locked = bitPerfect && !currentVideo;
+  const displayVolume = locked ? 1 : volume;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef(volume);
-  const bitPerfectRef = useRef(bitPerfect);
+  const lockedRef = useRef(locked);
 
   useEffect(() => {
     volumeRef.current = volume;
-    bitPerfectRef.current = bitPerfect;
+    lockedRef.current = locked;
   });
 
   useEffect(() => {
@@ -38,7 +43,7 @@ const VolumeSlider = memo(function VolumeSlider({
     if (!el) return;
     const WHEEL_STEP = 0.05;
     const handleWheel = (e: WheelEvent) => {
-      if (bitPerfectRef.current) return;
+      if (lockedRef.current) return;
       e.preventDefault();
       const delta = e.deltaY < 0 ? WHEEL_STEP : -WHEEL_STEP;
       const next = Math.min(1, Math.max(0, volumeRef.current + delta));
@@ -50,7 +55,7 @@ const VolumeSlider = memo(function VolumeSlider({
   }, [setVolume]);
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (bitPerfect) return;
+    if (locked) return;
     setVolume(parseFloat(e.target.value));
   };
 
@@ -60,24 +65,24 @@ const VolumeSlider = memo(function VolumeSlider({
   return (
     <div
       ref={containerRef}
-      className={`flex items-center gap-2 group/vol ${widthClass} ${bitPerfect ? "opacity-40 cursor-not-allowed" : ""}`}
+      className={`flex items-center gap-2 group/vol ${widthClass} ${locked ? "opacity-40 cursor-not-allowed" : ""}`}
     >
       <button
         onClick={() => {
-          if (bitPerfect) return;
+          if (locked) return;
           setVolume(volume > 0 ? 0 : 1);
         }}
         className={`flex-shrink-0 transition-colors duration-150 ${
-          bitPerfect
+          locked
             ? "text-th-text-faint cursor-not-allowed"
             : "text-th-text-secondary hover:text-th-text-primary"
         }`}
-        disabled={bitPerfect}
+        disabled={locked}
       >
         <VolumeIcon size={16} strokeWidth={2} />
       </button>
       <div
-        className={`flex-1 relative rounded-full ${bitPerfect ? "cursor-not-allowed" : "cursor-pointer"}`}
+        className={`flex-1 relative rounded-full ${locked ? "cursor-not-allowed" : "cursor-pointer"}`}
       >
         <input
           type="range"
@@ -99,8 +104,8 @@ const VolumeSlider = memo(function VolumeSlider({
                 }
               : undefined
           }
-          disabled={bitPerfect}
-          className={`absolute inset-0 w-full h-full opacity-0 z-10 ${bitPerfect ? "cursor-not-allowed" : "cursor-pointer"}`}
+          disabled={locked}
+          className={`absolute inset-0 w-full h-full opacity-0 z-10 ${locked ? "cursor-not-allowed" : "cursor-pointer"}`}
         />
         <div className="relative h-[3px] group-hover/vol:h-[4px] transition-[height] duration-100 rounded-full">
           <div className="absolute inset-0 bg-th-slider-track rounded-full" />

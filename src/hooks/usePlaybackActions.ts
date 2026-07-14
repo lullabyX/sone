@@ -33,6 +33,12 @@ import {
   consecutiveFailCountAtom,
   userPausedAtom,
 } from "../atoms/playback";
+import {
+  currentVideoAtom,
+  videoStreamAtom,
+  videoPlayingAtom,
+  videoExpandedAtom,
+} from "../atoms/video";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
@@ -46,6 +52,8 @@ import {
   isUnplayableError,
 } from "../lib/trackAvailability";
 import { pickGaplessNext } from "../lib/gaplessPredict";
+import { startVideoSession } from "../lib/videoSession";
+import { videoElementRef } from "../lib/videoElement";
 import type {
   Track,
   StreamInfo,
@@ -191,6 +199,46 @@ export function usePlaybackActions() {
         return { ok: false, reason: "transient" };
       }
       lastPlayInvokeRef.current = now;
+      // VIDEO queue item → render in the <video> player; keep it in the queue so
+      // prev/next/history work uniformly. Do NOT touch the audio pipeline beyond stop.
+      if (track.itemType === "video") {
+        store.set(userPausedAtom, false);
+        const v = ensureQid(normalizeTrack(track));
+        const previousTrack = store.get(currentTrackAtom);
+        if (previousTrack && !opts?.skipHistoryPush) {
+          const h = [...store.get(historyAtom), previousTrack];
+          store.set(
+            historyAtom,
+            h.length > MAX_HISTORY_TRACKS
+              ? h.slice(h.length - MAX_HISTORY_TRACKS)
+              : h,
+          );
+        }
+        (v as any)._playingFrom = store.get(playbackSourceAtom);
+        (v as any)._contextFrom = store.get(contextSourceAtom);
+        store.set(currentTrackAtom, v);
+        try {
+          await startVideoSession(store, {
+            id: v.id,
+            title: v.title,
+            imageId: v.imageId,
+            artist: v.artist?.name ?? v.artists?.[0]?.name,
+            duration: v.duration,
+          });
+          return { ok: true };
+        } catch (e) {
+          console.error("Failed to play video:", e);
+          return { ok: false, reason: "transient" };
+        }
+      }
+      // Mutual exclusion: starting AUDIO stops any background video
+      // (mirrors useVideoPlayback.closeVideo's atom clears).
+      if (store.get(currentVideoAtom)) {
+        store.set(videoPlayingAtom, false);
+        store.set(videoStreamAtom, null);
+        store.set(currentVideoAtom, null);
+        store.set(videoExpandedAtom, false);
+      }
       store.set(userPausedAtom, false);
       const generation = ++playGenerationRef.current;
       const stamped = ensureQid(normalizeTrack(track));
@@ -278,6 +326,11 @@ export function usePlaybackActions() {
   );
 
   const pauseTrack = useCallback(async () => {
+    // Video is current → pause the shared <video>, never the audio pipeline.
+    if (store.get(currentVideoAtom)) {
+      videoElementRef.current?.pause();
+      return;
+    }
     store.set(userPausedAtom, true);
     try {
       await invoke("pause_track");
@@ -289,6 +342,29 @@ export function usePlaybackActions() {
 
   const resumeTrack = useCallback(async () => {
     store.set(userPausedAtom, false);
+    // Video is current → play the shared <video>.
+    if (store.get(currentVideoAtom)) {
+      videoElementRef.current?.play().catch(() => {});
+      return;
+    }
+    // Restored video (post-relaunch / after closeVideo): the current track is a
+    // video but there is no live session — start one instead of hitting the audio
+    // backend with a video id (which 404s).
+    const restored = store.get(currentTrackAtom);
+    if (restored?.itemType === "video") {
+      try {
+        await startVideoSession(store, {
+          id: restored.id,
+          title: restored.title,
+          imageId: restored.imageId,
+          artist: restored.artist?.name ?? restored.artists?.[0]?.name,
+          duration: restored.duration,
+        });
+      } catch (e) {
+        console.error("Failed to resume video:", e);
+      }
+      return;
+    }
     try {
       const track = store.get(currentTrackAtom);
       if (!track) return;
@@ -335,6 +411,21 @@ export function usePlaybackActions() {
       }
     }
   }, [store, showToast]);
+
+  const togglePlayPause = useCallback(async () => {
+    // For a LIVE video, decide from the element itself — videoPlayingAtom trails the
+    // <video> play/pause DOM events, so a rapid double-press off the atom could land
+    // on the wrong state. Fall back to the atom only when the element isn't mounted
+    // yet, then to the audio isPlaying state.
+    const el = store.get(currentVideoAtom) ? videoElementRef.current : null;
+    const playing = el
+      ? !el.paused
+      : store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
+    if (playing) await pauseTrack();
+    else await resumeTrack();
+  }, [store, pauseTrack, resumeTrack]);
 
   /** Peek the next track for gapless registration. Returns null unless the next track
    *  is the AVAILABLE head of manual/context queue AND its _source matches the current
@@ -393,8 +484,15 @@ export function usePlaybackActions() {
 
   const setVolume = useCallback(
     async (level: number) => {
-      if (store.get(bitPerfectAtom)) return;
-      store.set(volumeAtom, level);
+      const bitPerfect = store.get(bitPerfectAtom);
+      const isVideo = !!store.get(currentVideoAtom);
+      // Bit-perfect audio stays locked at unity; video audio is lossy, so the
+      // slider must still work for it.
+      if (bitPerfect && !isVideo) return;
+      store.set(volumeAtom, level); // the <video> element reads this atom
+      // Never push a non-unity level to the GStreamer pipeline while bit-perfect
+      // is on — that would attenuate (and un-bit-perfect) audio playback.
+      if (bitPerfect) return;
       try {
         await invoke("set_volume", { level });
       } catch (error) {
@@ -654,6 +752,28 @@ export function usePlaybackActions() {
         if (repeatMode === 2 && !options?.explicit) {
           const current = store.get(currentTrackAtom);
           if (current) {
+            if (current.itemType === "video") {
+              // In-place loop: the element already holds the stream, so just
+              // rewind — the autoplay guard would otherwise block a re-attach.
+              const v = videoElementRef.current;
+              if (v) {
+                v.currentTime = 0;
+                v.play().catch(() => {});
+              } else {
+                try {
+                  await startVideoSession(store, {
+                    id: current.id,
+                    title: current.title,
+                    imageId: current.imageId,
+                    artist: current.artist?.name ?? current.artists?.[0]?.name,
+                    duration: current.duration,
+                  });
+                } catch (e) {
+                  console.error("Failed to repeat video:", e);
+                }
+              }
+              return;
+            }
             // In-place replay: currentTrackAtom is unchanged, so no track-change
             // reset fires. Gate interpolation so the bar doesn't keep climbing
             // past the old track's end during the reload.
@@ -952,6 +1072,15 @@ export function usePlaybackActions() {
       // Stop old pipeline to prevent stale track-finished events
       await invoke("stop_track").catch(() => {});
 
+      // Mutual exclusion: clear any background video. If the resolved previous
+      // item is itself a video, startVideoSession (below) re-establishes these.
+      if (store.get(currentVideoAtom)) {
+        store.set(videoPlayingAtom, false);
+        store.set(videoStreamAtom, null);
+        store.set(currentVideoAtom, null);
+        store.set(videoExpandedAtom, false);
+      }
+
       const history = store.get(historyAtom);
       if (history.length > 0) {
         const newHistory = [...history];
@@ -1001,6 +1130,22 @@ export function usePlaybackActions() {
         // from 0 before the previous track's first sample is heard.
         markPlaybackLoading(true);
         store.set(currentTrackAtom, prevTrack);
+
+        if (prevTrack.itemType === "video") {
+          markPlaybackLoading(false);
+          try {
+            await startVideoSession(store, {
+              id: prevTrack.id,
+              title: prevTrack.title,
+              imageId: prevTrack.imageId,
+              artist: prevTrack.artist?.name ?? prevTrack.artists?.[0]?.name,
+              duration: prevTrack.duration,
+            });
+          } catch (e) {
+            console.error("Failed to play previous video:", e);
+          }
+          return;
+        }
 
         try {
           preloadImage(getTidalImageUrl(prevTrack.album?.cover, 640));
@@ -1108,6 +1253,23 @@ export function usePlaybackActions() {
             // Eagerly update UI
             markPlaybackLoading(true);
             store.set(currentTrackAtom, prevTrack);
+
+            if (prevTrack.itemType === "video") {
+              markPlaybackLoading(false);
+              try {
+                await startVideoSession(store, {
+                  id: prevTrack.id,
+                  title: prevTrack.title,
+                  imageId: prevTrack.imageId,
+                  artist:
+                    prevTrack.artist?.name ?? prevTrack.artists?.[0]?.name,
+                  duration: prevTrack.duration,
+                });
+              } catch (e) {
+                console.error("Failed to play previous video:", e);
+              }
+              return;
+            }
 
             try {
               const info = await invokePlayWithRetry(
@@ -1364,6 +1526,7 @@ export function usePlaybackActions() {
     playTrack,
     pauseTrack,
     resumeTrack,
+    togglePlayPause,
     setVolume,
     setVolumeNormalization,
     setBitPerfect,

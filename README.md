@@ -34,7 +34,7 @@ The Linux desktop app TIDAL never built.
 
 SONE finally gives Linux users a first-class streaming client. It delivers the complete, fully-featured experience you expect with seamless library management and a sleek, familiar workflow—and then supercharges it.
 
-We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizable-adaptive floating miniplayer, custom themes, Discord Rich Presence, and multi-service scrobbling (Last.fm, Libre.fm, ListenBrainz)—all wrapped in a fast, native Linux app.
+We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizable-adaptive floating miniplayer, music video playback, custom themes, Discord Rich Presence, and multi-service scrobbling (Last.fm, Libre.fm, ListenBrainz)—all wrapped in a fast, native Linux app.
 
 <details>
 <summary>Table of Contents</summary>
@@ -64,6 +64,12 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Volume normalization** (ReplayGain) with automatic context switching between album and track gain
 - **Autoplay** — discovers and plays similar tracks when your queue ends
 - **Gapless playback** — seamless, silence-free transitions between tracks in normal output mode. On by default; requires GStreamer 1.24+ and falls back automatically when unavailable
+
+### Video
+
+- **Music video playback** — a dedicated player (fullscreen or minimized to the bar) with adaptive HLS that starts at your selected quality; videos and tracks share one queue (shuffle, repeat, autoplay, history) controllable from the tray, MPRIS media keys, miniplayer, and shortcuts
+- **Favorite & browse** — love videos separately from tracks, with dedicated Tracks/Videos tabs on your loved page — a paginated, searchable grid with tab-aware Play/Shuffle
+- **Find videos** — add them to playlists (mixed playlists show accurate "N Videos · M Tracks"), and discover them across Explore and search — a Videos section, a dedicated Videos tab, and rows in Top Hits
 
 ### Interface
 
@@ -447,6 +453,13 @@ No. SONE is a streaming client only — it streams directly from TIDAL and does 
 </details>
 
 <details>
+<summary>Can I watch music videos?</summary>
+
+Yes. SONE plays TIDAL music videos in a dedicated player — fullscreen or minimized to the player bar — and videos share the same queue, shuffle, repeat, autoplay, favorites, and history as your audio tracks. You can browse and search videos, love them, and add them to playlists. Video audio is streamed and does not use the bit-perfect lossless signal path that music tracks use.
+
+</details>
+
+<details>
 <summary>I'm getting a "Device busy" error in exclusive or bit-perfect mode</summary>
 
 Your system's sound server (PulseAudio or PipeWire) or another application is already using the ALSA device. Exclusive and bit-perfect modes need direct hardware access — only one application can hold the device at a time.
@@ -493,4 +506,4 @@ All trademarks belong to their respective owners.
 
 ---
 
-**TL;DR** — SONE is an open-source, native Linux desktop client for TIDAL built with Tauri 2 and Rust. It streams lossless FLAC and Hi-Res audio up to 24-bit/192kHz, with exclusive ALSA output that bypasses PulseAudio and PipeWire entirely for bit-perfect playback directly to your DAC. Lightweight, encrypted at rest, and fully offline — no telemetry, no tracking.
+**TL;DR** — SONE is an open-source, native Linux desktop client for TIDAL built with Tauri 2 and Rust. It streams lossless FLAC and Hi-Res audio up to 24-bit/192kHz, with exclusive ALSA output that bypasses PulseAudio and PipeWire entirely for bit-perfect playback directly to your DAC. It also plays TIDAL music videos in a dedicated player — fullscreen or minimized to the bar — that shares a single queue (shuffle, repeat, autoplay, favorites, and history) with your audio tracks. Lightweight, encrypted at rest, and fully offline — no telemetry, no tracking.

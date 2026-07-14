@@ -20,6 +20,7 @@ import {
 import { useStore } from "jotai";
 import { isPlayingAtom, currentTrackAtom } from "../atoms/playback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useToast } from "../contexts/ToastContext";
@@ -100,6 +101,7 @@ export default function ArtistPage({
     playFromSource,
     playAllFromSource,
   } = usePlaybackActions();
+  const playMedia = useMediaPlay();
   const {
     followedArtistIds,
     followArtist,
@@ -439,7 +441,18 @@ export default function ArtistPage({
 
   const handleCardClick = useCallback(
     (item: any, sectionType: string) => {
-      if (sectionType === "ALBUM_LIST") {
+      if (sectionType === "VIDEO_LIST") {
+        if (item.id != null) {
+          playMedia({
+            type: "video",
+            id: Number(item.id),
+            title: item.title || getItemTitle(item),
+            imageId: item.imageId,
+            artist: item.artist?.name || item.artists?.[0]?.name,
+            duration: item.duration,
+          }).catch(() => {});
+        }
+      } else if (sectionType === "ALBUM_LIST") {
         navigateToAlbum(item.id, {
           title: item.title,
           cover: item.cover,
@@ -469,7 +482,13 @@ export default function ArtistPage({
         }
       }
     },
-    [navigateToAlbum, navigateToArtist, navigateToPlaylist, navigateToMix],
+    [
+      navigateToAlbum,
+      navigateToArtist,
+      navigateToPlaylist,
+      navigateToMix,
+      playMedia,
+    ],
   );
 
   const artistPlaying = (() => {
@@ -718,9 +737,13 @@ export default function ArtistPage({
           }
 
           if (
-            ["ALBUM_LIST", "ARTIST_LIST", "PLAYLIST_LIST", "MIX_LIST"].includes(
-              section.type,
-            )
+            [
+              "ALBUM_LIST",
+              "ARTIST_LIST",
+              "PLAYLIST_LIST",
+              "MIX_LIST",
+              "VIDEO_LIST",
+            ].includes(section.type)
           ) {
             return (
               <CardScrollSection

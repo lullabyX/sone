@@ -31,7 +31,11 @@ import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
 import FolderContextMenu from "./FolderContextMenu";
 import { CreatePlaylistModal } from "./AddToPlaylistMenu";
-import { getTrackArtistDisplay, folderSubtitle } from "../utils/itemHelpers";
+import {
+  getTrackArtistDisplay,
+  folderSubtitle,
+  playlistCountLabel,
+} from "../utils/itemHelpers";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAtomValue, useAtom, useSetAtom } from "jotai";
 import {
@@ -408,6 +412,7 @@ export default function Sidebar() {
       description: playlist.description,
       creatorName: own ? undefined : getCreatorName(playlist),
       numberOfTracks: playlist.numberOfTracks,
+      numberOfVideos: playlist.numberOfVideos,
       isUserPlaylist: own,
     });
   };
@@ -630,15 +635,17 @@ export default function Sidebar() {
                   const own = isOwnPlaylist(playlist);
                   const trackCount = playlist.numberOfTracks;
                   const creatorLabel = own ? "You" : getCreatorName(playlist);
-                  let subtitle = "";
-                  if (creatorLabel) {
-                    subtitle = creatorLabel;
-                    if (trackCount != null) {
-                      subtitle += ` \u00B7 ${trackCount} track${trackCount !== 1 ? "s" : ""}`;
-                    }
-                  } else if (trackCount != null) {
-                    subtitle = `${trackCount} track${trackCount !== 1 ? "s" : ""}`;
-                  } else {
+                  const countLabel =
+                    trackCount != null
+                      ? playlistCountLabel(
+                          playlist.numberOfTracks,
+                          playlist.numberOfVideos,
+                        )
+                      : "";
+                  let subtitle = [creatorLabel, countLabel]
+                    .filter(Boolean)
+                    .join(" \u00B7 ");
+                  if (!subtitle) {
                     subtitle = "Playlist";
                   }
 

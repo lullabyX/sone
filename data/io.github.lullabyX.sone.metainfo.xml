@@ -34,6 +34,12 @@
       <li>Gapless, silence-free playback</li>
       <li>Volume normalization (ReplayGain) with automatic album/track switching</li>
     </ul>
+    <p>Video</p>
+    <ul>
+      <li>Music video playback in a dedicated player — full-screen or minimized to the player bar, with HLS streaming that starts at your selected quality and adapts to your bandwidth (video audio is streamed, not the bit-perfect path)</li>
+      <li>Videos and tracks share one queue, with shuffle, repeat, autoplay, and history across both</li>
+      <li>Favorite videos, browse them in Loved Tracks/Videos tabs, add them to playlists, and find them in Explore and search</li>
+    </ul>
     <p>Interface and customization</p>
     <ul>
       <li>Modern, fully customizable light and dark themes</li>
@@ -104,6 +110,9 @@
     <keyword>dark mode</keyword>
     <keyword>proxy</keyword>
     <keyword>mcp</keyword>
+    <keyword>music video</keyword>
+    <keyword>music videos</keyword>
+    <keyword>video</keyword>
   </keywords>
 
   <launchable type="desktop-id">io.github.lullabyX.sone.desktop</launchable>
@@ -149,6 +158,36 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.21.0" date="2026-07-14">
+      <description>
+        <p>Music Videos</p>
+        <ul>
+          <li>Watch music videos in a dedicated video player — go full-screen or minimize it to the player bar and keep browsing</li>
+          <li>HLS streaming that starts at your selected quality and adapts down smoothly when your bandwidth drops</li>
+          <li>Videos and tracks share one queue — previous, next, shuffle, repeat, autoplay, and history all work across both</li>
+        </ul>
+        <p>Video Player</p>
+        <ul>
+          <li>Full transport, favorite, quality, volume, full-screen, and minimize controls</li>
+          <li>The playing video is restored when you relaunch SONE</li>
+          <li>Control video from the tray, MPRIS media keys, the miniplayer, and in-app keyboard shortcuts, just like audio</li>
+        </ul>
+        <p>Favorites</p>
+        <ul>
+          <li>Favorite videos, kept separate from your loved tracks and reflected everywhere you see them</li>
+          <li>Loved page now has Tracks and Videos tabs — a paginated, searchable video grid with tab-aware Play and Shuffle, and starting one queues the rest</li>
+        </ul>
+        <p>Playlists</p>
+        <ul>
+          <li>Add videos to your playlists; mixed playlists show an accurate "N Videos · M Tracks" count</li>
+        </ul>
+        <p>Explore &amp; Search</p>
+        <ul>
+          <li>New video sections while you explore — Featured playlist promos and wide 16:9 video cards</li>
+          <li>Videos in search — a Videos section in All Results, a dedicated Videos tab, and video rows in Top Hits</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.20.0" date="2026-06-21">
       <description>
         <p>Profiles</p>

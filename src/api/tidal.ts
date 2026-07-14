@@ -22,6 +22,7 @@ import type {
   Profile,
   SearchResults,
   SuggestionsResponse,
+  TidalVideo,
   Track,
 } from "../types";
 
@@ -503,6 +504,7 @@ const V2_TYPE_TO_SECTION: Record<string, string> = {
   ARTIST: "ARTIST_LIST",
   PLAYLIST: "PLAYLIST_LIST",
   MIX: "MIX_LIST",
+  VIDEO: "VIDEO_LIST",
 };
 
 function parseArtistPageV2(json: any): ArtistPageData {
@@ -527,10 +529,14 @@ function parseArtistPageV2(json: any): ArtistPageData {
     if (rawItems.length === 0) continue;
 
     const firstType = rawItems[0]?.type as string;
-    if (firstType === "VIDEO" || firstType === "TRACK_CREDITS") continue;
+    if (firstType === "TRACK_CREDITS") continue;
 
     const sectionType = V2_TYPE_TO_SECTION[firstType] || firstType;
-    const items = rawItems.map((i: any) => i.data || i);
+    const items = rawItems.map((i: any) =>
+      firstType === "VIDEO"
+        ? { ...(i.data || i), _itemType: "VIDEO" }
+        : i.data || i,
+    );
 
     if (sectionType === "TRACK_LIST" && result.topTracks.length === 0) {
       result.topTracks = items;
@@ -790,6 +796,18 @@ export async function fetchMediaTracks(item: MediaItemType): Promise<Track[]> {
     case "artist": {
       return await getArtistTopTracks(item.id);
     }
+    case "video":
+      // A music video carries its own id under trackIds when added to a
+      // playlist (the server classifies it), so yield a single video item.
+      return [
+        {
+          id: item.id,
+          title: item.title,
+          itemType: "video",
+          imageId: item.imageId,
+          duration: item.duration ?? 0,
+        },
+      ];
   }
 }
 
@@ -939,6 +957,18 @@ export async function getFavoriteMixes(
   );
 }
 
+export async function getFavoriteVideos(
+  userId: number,
+  offset: number = 0,
+  limit: number = 50,
+): Promise<TidalVideo[]> {
+  return invoke<TidalVideo[]>("get_favorite_videos", {
+    userId,
+    offset,
+    limit,
+  });
+}
+
 // ==================== Playlist Folders ====================
 
 export async function getPlaylistFolders(
@@ -959,6 +989,11 @@ export async function getPlaylistFolders(
     orderDirection,
     cursor: cursor ?? "",
   });
+}
+
+export async function getFlattenedPlaylists(): Promise<PlaylistOrFolder[]> {
+  const items = await invoke<any[]>("get_all_flattened_playlists");
+  return items.map(normalizeFolderItem).filter((i) => i.kind === "playlist");
 }
 
 export async function getAllPlaylists(
@@ -1009,6 +1044,7 @@ function normalizeFolderItem(item: PlaylistFolderItem): PlaylistOrFolder {
       image: d.squareImage || d.image,
       squareImage: d.squareImage,
       numberOfTracks: d.numberOfTracks,
+      numberOfVideos: d.numberOfVideos,
       creator: { id: d.creator.id, name: d.creator.name ?? undefined },
       playlistType: d.type,
       duration: d.duration,

@@ -1,4 +1,5 @@
 import { Play, User, Music, Heart, MoreHorizontal } from "lucide-react";
+import { getTidalImageUrl } from "../types";
 import {
   getItemImage,
   getItemTitle,
@@ -14,6 +15,8 @@ interface MediaCardProps {
   isFavorited?: boolean;
   onFavoriteToggle?: (e: React.MouseEvent) => void;
   isArtist?: boolean;
+  /** Thumbnail aspect — "square" (default), "video" (16:9), or "promo" (a bit taller, for Featured cards). */
+  aspect?: "square" | "video" | "promo";
   showPlayButton?: boolean;
   /** Card width class — defaults to full-width (grid-controlled). Use "card-scroll-item" for horizontal scroll rows. */
   widthClass?: string;
@@ -21,6 +24,10 @@ interface MediaCardProps {
   userId?: number;
   /** Override the displayed title */
   titleOverride?: string;
+  /** Override the displayed subtitle */
+  subtitleOverride?: string;
+  /** Small accent-colored label above the title (e.g. Featured "MIRA"). */
+  eyebrow?: string;
   /** Custom image element to render instead of the default img/fallback */
   imageOverride?: React.ReactNode;
 }
@@ -34,15 +41,25 @@ export default function MediaCard({
   isFavorited,
   onFavoriteToggle,
   isArtist = false,
+  aspect = "square",
   showPlayButton = true,
   widthClass,
   userId,
   titleOverride,
+  subtitleOverride,
+  eyebrow,
   imageOverride,
 }: MediaCardProps) {
-  const image = getItemImage(item);
+  const isVideo = aspect === "video";
+  const aspectClass =
+    aspect === "video"
+      ? "aspect-video"
+      : aspect === "promo"
+        ? "aspect-[11/8]"
+        : "aspect-square";
+  const image = isVideo ? getTidalImageUrl(item.imageId, 640) : getItemImage(item);
   const title = titleOverride || getItemTitle(item);
-  const subtitle = getItemSubtitle(item, userId);
+  const subtitle = subtitleOverride ?? getItemSubtitle(item, userId);
 
   return (
     <div
@@ -54,7 +71,7 @@ export default function MediaCard({
     >
       {/* Image */}
       <div
-        className={`w-full aspect-square mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover ${
+        className={`w-full ${aspectClass} mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover ${
           isArtist ? "rounded-full" : "rounded-md"
         }`}
       >
@@ -153,6 +170,12 @@ export default function MediaCard({
           </>
         )}
       </div>
+      {/* Eyebrow (e.g. Featured "MIRA") */}
+      {eyebrow && (
+        <p className="text-[11px] font-bold text-th-accent uppercase tracking-wide truncate mb-0.5">
+          {eyebrow}
+        </p>
+      )}
       {/* Title */}
       <h4
         className={`font-bold text-[14px] text-th-text-primary truncate mb-1 ${
