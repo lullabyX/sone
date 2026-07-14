@@ -395,6 +395,11 @@ export function getTrackShareUrl(trackId: number): string {
   return `${TIDAL_SHARE_BASE}/track/${trackId}/u`;
 }
 
+/** Build a Tidal share URL for a music video. */
+export function getVideoShareUrl(videoId: number): string {
+  return `${TIDAL_SHARE_BASE}/video/${videoId}`;
+}
+
 /** Build a Tidal share URL for a media item (album/playlist/mix/artist). */
 export function getShareUrl(item: MediaItemType): string {
   switch (item.type) {

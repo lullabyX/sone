@@ -15,7 +15,7 @@ import { useNavigation } from "../hooks/useNavigation";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
-import { getTrackShareUrl } from "../utils/itemHelpers";
+import { getTrackShareUrl, getVideoShareUrl } from "../utils/itemHelpers";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
@@ -175,13 +175,17 @@ export default function TrackContextMenu({
 
   const handleShare = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(getTrackShareUrl(track.id));
+      const url =
+        track.itemType === "video"
+          ? getVideoShareUrl(track.id)
+          : getTrackShareUrl(track.id);
+      await navigator.clipboard.writeText(url);
       showToast("Copied share link to clipboard");
     } catch {
       showToast("Failed to copy link", "error");
     }
     onClose();
-  }, [track.id, showToast, onClose]);
+  }, [track.id, track.itemType, showToast, onClose]);
 
   const menuItemClass =
     "w-full flex items-center gap-3 px-4 py-2.5 hover:bg-th-hl-faint transition-colors text-left text-[14px] text-th-text-secondary hover:text-th-text-primary";
