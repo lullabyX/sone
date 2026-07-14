@@ -18,6 +18,7 @@ mod pipeline_probe;
 mod tray;
 mod tidal_api;
 pub mod mcp;
+pub mod overlay;
 
 pub use error::SoneError;
 pub use signal_path::{SignalPath, SignalPathTracker};
@@ -42,6 +43,9 @@ mod defaults {
     pub fn volume() -> f32 { 1.0 }
     pub fn mcp_enabled() -> bool { false }
     pub fn mcp_port() -> u16 { 5577 }
+    pub fn overlay_enabled() -> bool { false }
+    pub fn overlay_port() -> u16 { 5578 }
+    pub fn overlay_host() -> String { "127.0.0.1".to_string() }
     pub fn max_quality() -> String { "HI_RES_LOSSLESS".to_string() }
 }
 
@@ -165,6 +169,12 @@ pub struct Settings {
     /// "not yet generated" — bootstrap will populate and save on first run.
     #[serde(default)]
     pub mcp_token: String,
+    #[serde(default = "defaults::overlay_enabled")]
+    pub overlay_enabled: bool,
+    #[serde(default = "defaults::overlay_port")]
+    pub overlay_port: u16,
+    #[serde(default = "defaults::overlay_host")]
+    pub overlay_host: String,
 }
 
 impl Default for Settings {
@@ -193,6 +203,9 @@ impl Default for Settings {
             mcp_enabled: false,
             mcp_port: 5577,
             mcp_token: String::new(),
+            overlay_enabled: false,
+            overlay_port: 5578,
+            overlay_host: "127.0.0.1".to_string(),
         }
     }
 }
@@ -227,6 +240,8 @@ pub struct AppState {
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
     pub mcp_state: crate::mcp::McpStateRef,
     pub mcp_handle: Mutex<Option<crate::mcp::McpHandle>>,
+    pub overlay_state: crate::overlay::OverlayStateRef,
+    pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
     pub signal_path: Arc<SignalPathTracker>,
 }
 
@@ -388,6 +403,11 @@ impl AppState {
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
             mcp_state: crate::mcp::new_state(),
             mcp_handle: Mutex::new(None),
+            overlay_state: {
+                let (s, _rx, _theme_rx) = crate::overlay::new_state();
+                s
+            },
+            overlay_handle: Mutex::new(None),
             signal_path,
         }
     }
@@ -496,6 +516,14 @@ pub fn run() {
                 let handle_for_mcp = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     crate::mcp::ensure_mcp_started(&handle_for_mcp).await;
+                });
+            }
+
+            // Start Overlay server in background (if enabled).
+            {
+                let handle_for_overlay = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::overlay::ensure_overlay_started(&handle_for_overlay).await;
                 });
             }
 
@@ -949,6 +977,13 @@ pub fn run() {
             commands::mcp::mcp_publish_state,
             commands::mcp::mcp_set_enabled,
             commands::mcp::mcp_regenerate_token,
+            // overlay
+            commands::overlay::overlay_get_connection_info,
+            commands::overlay::overlay_publish_state,
+            commands::overlay::overlay_set_enabled,
+            commands::overlay::overlay_set_port,
+            commands::overlay::overlay_set_host,
+            commands::overlay::overlay_publish_theme,
             commands::utility::get_signal_path,
             commands::utility::refresh_signal_path,
             // updates

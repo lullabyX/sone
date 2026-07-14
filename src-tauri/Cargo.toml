@@ -55,6 +55,8 @@ rmcp = { version = "1.7.0", features = ["server", "transport-streamable-http-ser
 schemars = "1"
 axum = "0.7"
 tokio-util = { version = "0.7", features = ["rt"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
