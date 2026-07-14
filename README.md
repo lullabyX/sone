@@ -87,6 +87,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 ### Integrations
 
 - **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) server on port 5577 lets external AI agents (Claude Code, etc.) search your library, control playback, and manage playlists/favorites. Off by default; enable in Settings with one-click token generation
+- **OBS overlay** — built-in browser source widget (port 5578) displays the currently playing track — album art, title, artist, audio quality badge, and a live progress bar — in any streaming software. Off by default; Enable in Settings, add the URL as a Browser Source in OBS at 400×120px. Inherits your active SONE theme automatically
 - **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
 - **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 
