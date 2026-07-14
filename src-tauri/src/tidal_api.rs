@@ -2394,48 +2394,67 @@ impl TidalClient {
 
     pub async fn get_favorite_video_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
-            .client
-            .get(format!(
-                "{}/users/{}/favorites/videos",
-                TIDAL_API_URL, user_id
-            ))
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[
-                ("countryCode", self.country_code.as_str()),
-                ("limit", "10000"),
-                ("offset", "0"),
-                ("order", "DATE"),
-                ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
 
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        // The favorites/videos content endpoint caps page size (a single
+        // limit=10000 request is rejected — which left every video heart empty on
+        // startup). Page through it at the known-good size and accumulate the ids.
+        const PAGE: u32 = 50;
+        let mut ids: Vec<u64> = Vec::new();
+        let mut offset: u32 = 0;
+        loop {
+            let limit_str = PAGE.to_string();
+            let offset_str = offset.to_string();
+            let response = self
+                .client
+                .get(format!(
+                    "{}/users/{}/favorites/videos",
+                    TIDAL_API_URL, user_id
+                ))
+                .header("Authorization", format!("Bearer {}", tokens.access_token))
+                .query(&[
+                    ("countryCode", self.country_code.as_str()),
+                    ("limit", limit_str.as_str()),
+                    ("offset", offset_str.as_str()),
+                    ("order", "DATE"),
+                    ("orderDirection", "DESC"),
+                ])
+                .send()
+                .await?;
 
-        if !status.is_success() {
-            return Err(SoneError::Api {
-                status: status.as_u16(),
-                body,
-            });
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if !status.is_success() {
+                return Err(SoneError::Api {
+                    status: status.as_u16(),
+                    body,
+                });
+            }
+
+            // Parse leniently: pull each item's id directly. Deserializing the full
+            // TidalVideo would fail the whole page if any one favorite is missing a
+            // required field.
+            let json: serde_json::Value =
+                serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+            let items = json.get("items").and_then(|i| i.as_array());
+            let count = items.map(|a| a.len()).unwrap_or(0);
+            if let Some(items) = items {
+                ids.extend(
+                    items
+                        .iter()
+                        .filter_map(|it| it.get("item")?.get("id")?.as_u64()),
+                );
+            }
+
+            if count < PAGE as usize {
+                break;
+            }
+            offset += PAGE;
+            if offset >= 10_000 {
+                break; // safety cap — never loop unbounded
+            }
         }
 
-        // Parse leniently: pull each item's id directly. Deserializing the full
-        // TidalVideo would fail the entire call if any one favorite is missing a
-        // field, leaving every video heart empty on startup.
-        let json: serde_json::Value =
-            serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
-        let ids = json
-            .get("items")
-            .and_then(|i| i.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|it| it.get("item")?.get("id")?.as_u64())
-                    .collect::<Vec<u64>>()
-            })
-            .unwrap_or_default();
+        log::debug!("[get_favorite_video_ids] collected {} ids", ids.len());
         Ok(ids)
     }
 
