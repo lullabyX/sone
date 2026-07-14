@@ -32,6 +32,7 @@ import {
   bitPerfectPreviousStateAtom,
   consecutiveFailCountAtom,
   userPausedAtom,
+  playbackTargetAtom,
 } from "../atoms/playback";
 import {
   currentVideoAtom,
@@ -39,6 +40,7 @@ import {
   videoPlayingAtom,
   videoExpandedAtom,
 } from "../atoms/video";
+import { sonosPendingResumeSeekAtom, sonosVolumeAtom } from "../atoms/sonos";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
@@ -171,6 +173,73 @@ async function invokePlayWithRetry(
   throw new Error("device_busy"); // unreachable
 }
 
+/** Queue-entry display metadata for the Sonos native queue. */
+function buildSonosMeta(track: Track) {
+  return {
+    title: track.title ?? "",
+    artist: getTrackArtistDisplay(track),
+    album: track.album?.title ?? "",
+  };
+}
+
+type JotaiStore = ReturnType<typeof useStore>;
+
+/** The single play chokepoint, target-aware. Every play path (playTrack,
+ *  repeat-one, resume-replay, playPrevious) flows through here.
+ *  - local  → play_tidal_track with device-busy retry, returns StreamInfo
+ *  - sonos  → sonos_play_track (the SPEAKER resolves and streams the audio
+ *             from TIDAL itself), returns null — there is no local stream. */
+async function invokePlayForTarget(
+  store: JotaiStore,
+  track: Track,
+  useTrackGain: boolean,
+  onFirstRetry: () => void,
+): Promise<StreamInfo | null> {
+  if (isRemoteTarget(store)) {
+    store.set(sonosPendingResumeSeekAtom, null); // new track voids any deferred seek
+    await invoke("sonos_play_track", {
+      trackId: track.id,
+      meta: buildSonosMeta(track),
+      start: true,
+    });
+    return null;
+  }
+  return invokePlayWithRetry(track.id, useTrackGain, onFirstRetry);
+}
+
+function isRemoteTarget(store: JotaiStore): boolean {
+  return store.get(playbackTargetAtom).type === "sonos";
+}
+
+// Slider drags fire per pixel; each remote set is a SOAP round-trip to the
+// speaker. Leading + trailing throttle: instant response, latest value
+// always lands, ≤ ~7 calls/second. Module-level — one speaker, one gate.
+const SONOS_VOLUME_THROTTLE_MS = 150;
+let sonosVolumeTimer: ReturnType<typeof setTimeout> | null = null;
+let sonosVolumePending: number | null = null;
+let sonosVolumeSentAt = 0;
+
+function sendSonosVolumeThrottled(volume: number) {
+  sonosVolumePending = volume;
+  const flush = () => {
+    sonosVolumeTimer = null;
+    if (sonosVolumePending === null) return;
+    const value = sonosVolumePending;
+    sonosVolumePending = null;
+    sonosVolumeSentAt = Date.now();
+    invoke("sonos_set_volume", { volume: value }).catch((error) => {
+      console.error("Failed to set Sonos volume:", error);
+    });
+  };
+  if (sonosVolumeTimer) return; // trailing flush already scheduled
+  const elapsed = Date.now() - sonosVolumeSentAt;
+  if (elapsed >= SONOS_VOLUME_THROTTLE_MS) {
+    flush();
+  } else {
+    sonosVolumeTimer = setTimeout(flush, SONOS_VOLUME_THROTTLE_MS - elapsed);
+  }
+}
+
 export function usePlaybackActions() {
   const store = useStore();
   const { showToast } = useToast();
@@ -189,6 +258,10 @@ export function usePlaybackActions() {
         /** When true, the catch block does NOT toast for unplayable errors —
          *  the caller (the skip-loop in playNext) handles user feedback itself. */
         suppressUnplayableToast?: boolean;
+        /** Continuation of an already-scrobbling listen (Sonos↔local
+         *  handoff): don't restart the scrobble clock with a new
+         *  notify_track_started. */
+        skipScrobbleStart?: boolean;
       },
     ): Promise<PlayResult> => {
       // Swallow rapid re-entry (e.g. user double-clicks a track row).
@@ -268,8 +341,9 @@ export function usePlaybackActions() {
       store.set(currentTrackAtom, stamped);
 
       try {
-        const info = await invokePlayWithRetry(
-          stamped.id,
+        const info = await invokePlayForTarget(
+          store,
+          stamped,
           store.get(useTrackGainAtom),
           () => {
             store.set(isPlayingAtom, false);
@@ -287,12 +361,14 @@ export function usePlaybackActions() {
         markPlaybackLoading(false);
 
         // Notify backend for scrobbling
-        invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(
-            stamped,
-            opts?.chosenByUser ?? true,
-          ),
-        }).catch(() => {});
+        if (!opts?.skipScrobbleStart) {
+          invoke("notify_track_started", {
+            payload: buildTrackStartedPayload(
+              stamped,
+              opts?.chosenByUser ?? true,
+            ),
+          }).catch(() => {});
+        }
         return { ok: true };
       } catch (error: any) {
         if (generation !== playGenerationRef.current) {
@@ -333,7 +409,7 @@ export function usePlaybackActions() {
     }
     store.set(userPausedAtom, true);
     try {
-      await invoke("pause_track");
+      await invoke(isRemoteTarget(store) ? "sonos_pause" : "pause_track");
       store.set(isPlayingAtom, false);
     } catch (error) {
       console.error("Failed to pause track:", error);
@@ -368,6 +444,39 @@ export function usePlaybackActions() {
     try {
       const track = store.get(currentTrackAtom);
       if (!track) return;
+
+      if (isRemoteTarget(store)) {
+        // Cast-while-paused left a deferred seek: the entry was enqueued
+        // with the transport STOPPED (unseekable) — start, then jump.
+        const pendingSeek = store.get(sonosPendingResumeSeekAtom);
+        if (pendingSeek != null) {
+          store.set(sonosPendingResumeSeekAtom, null);
+          await invoke("sonos_resume");
+          store.set(isPlayingAtom, true);
+          await invoke("sonos_seek", { positionSecs: pendingSeek }).catch(
+            () => {},
+          );
+          notifySeek(pendingSeek);
+          return;
+        }
+        // The speaker keeps its own transport state — no finished-check
+        // against the (stopped) local pipeline. A resume from STOPPED
+        // replays the queue entry from the top, which is a fresh listen.
+        const finishedRemotely = await invoke<{ state: string }>(
+          "sonos_get_now_playing",
+        )
+          .then((now) => now.state === "STOPPED")
+          .catch(() => false);
+        await invoke("sonos_resume");
+        store.set(isPlayingAtom, true);
+        if (finishedRemotely) {
+          notifySeek(0);
+          invoke("notify_track_started", {
+            payload: buildTrackStartedPayload(track, true),
+          }).catch(() => {});
+        }
+        return;
+      }
 
       const isFinished = await invoke<boolean>("is_track_finished");
       if (isFinished) {
@@ -446,7 +555,7 @@ export function usePlaybackActions() {
    *  context, sets current/streamInfo, preserves user-pause intent, and fires the
    *  scrobble notify. */
   const advanceToTrack = useCallback(
-    (track: Track, info: StreamInfo) => {
+    (track: Track, info: StreamInfo | null) => {
       ++playGenerationRef.current; // abort any in-flight playTrack writes
       const stamped = ensureQid(normalizeTrack(track));
       preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
@@ -482,8 +591,101 @@ export function usePlaybackActions() {
     [store],
   );
 
+  /** Reconcile SONE's queue model to a track the SPEAKER is already playing
+   *  (mirrored self-advance, or an external Next/Previous/queue-jump from
+   *  the Sonos app). Pure atom surgery — never invokes playback. Returns
+   *  false when the track maps to nothing we know (possible takeover). */
+  const adoptRemoteTrack = useCallback(
+    (trackId: number, qid?: string): boolean => {
+      const current = store.get(currentTrackAtom);
+      if (current && current.id === trackId && (!qid || current._qid === qid)) {
+        return true; // echo of our own state
+      }
+      const matches = (t: Track) => (qid ? t._qid === qid : t.id === trackId);
+      const pushHistory = (tracks: Track[]) => {
+        if (tracks.length === 0) return;
+        const h = [...store.get(historyAtom), ...tracks];
+        store.set(
+          historyAtom,
+          h.length > MAX_HISTORY_TRACKS
+            ? h.slice(h.length - MAX_HISTORY_TRACKS)
+            : h,
+        );
+      };
+
+      // Forward: the target sits in the up-next queues. Everything before it
+      // (in play order) was skipped over — same bookkeeping as N × Next.
+      const manual = store.get(manualQueueAtom);
+      const mIdx = manual.findIndex(matches);
+      if (mIdx >= 0) {
+        const target = manual[mIdx];
+        pushHistory(manual.slice(0, mIdx));
+        store.set(manualQueueAtom, manual.slice(mIdx + 1));
+        advanceToTrack(target, null);
+        return true;
+      }
+      const queue = store.get(queueAtom);
+      const qIdx = queue.findIndex(matches);
+      if (qIdx >= 0) {
+        const target = queue[qIdx];
+        const skipped = [...manual, ...queue.slice(0, qIdx)];
+        pushHistory(skipped);
+        store.set(manualQueueAtom, []);
+        store.set(queueAtom, queue.slice(qIdx + 1));
+        const orig = store.get(originalQueueAtom);
+        if (orig) {
+          const dropQids = new Set([
+            target._qid,
+            ...skipped.map((t) => t._qid),
+          ]);
+          store.set(
+            originalQueueAtom,
+            orig.filter((t) => !dropQids.has(t._qid)),
+          );
+        }
+        advanceToTrack(target, null);
+        return true;
+      }
+
+      // Backward: the target is in history (external Previous / jump back).
+      const history = store.get(historyAtom);
+      const hIdx = qid
+        ? history.map((t) => t._qid).lastIndexOf(qid)
+        : history.map((t) => t.id).lastIndexOf(trackId);
+      if (hIdx >= 0) {
+        const target = history[hIdx];
+        store.set(
+          historyAtom,
+          history.filter((_, i) => i !== hIdx),
+        );
+        if (current) {
+          store.set(manualQueueAtom, [current, ...store.get(manualQueueAtom)]);
+        }
+        ++playGenerationRef.current; // abort in-flight playTrack writes
+        store.set(currentTrackAtom, target);
+        store.set(streamInfoAtom, null);
+        store.set(isPlayingAtom, !store.get(userPausedAtom));
+        markPlaybackLoading(false);
+        invoke("notify_track_started", {
+          payload: buildTrackStartedPayload(target, true),
+        }).catch(() => {});
+        return true;
+      }
+      return false;
+    },
+    [store, advanceToTrack],
+  );
+
   const setVolume = useCallback(
     async (level: number) => {
+      if (isRemoteTarget(store)) {
+        // Sonos group volume (0–100). The local volumeAtom is untouched so
+        // it restores exactly on handoff; bit-perfect only gates local gain.
+        const volume = Math.round(Math.max(0, Math.min(1, level)) * 100);
+        store.set(sonosVolumeAtom, volume);
+        sendSonosVolumeThrottled(volume);
+        return;
+      }
       const bitPerfect = store.get(bitPerfectAtom);
       const isVideo = !!store.get(currentVideoAtom);
       // Bit-perfect audio stays locked at unity; video audio is lossy, so the
@@ -586,14 +788,28 @@ export function usePlaybackActions() {
     [store, rampVolume],
   );
 
-  const seekTo = useCallback(async (positionSecs: number) => {
-    try {
-      await invoke("seek_track", { positionSecs });
-      notifySeek(positionSecs);
-    } catch (error) {
-      console.error("Failed to seek:", error);
-    }
-  }, []);
+  const seekTo = useCallback(
+    async (positionSecs: number) => {
+      try {
+        if (isRemoteTarget(store)) {
+          // Cast-while-paused: the transport is STOPPED and unseekable —
+          // scrubs just move the deferred resume position.
+          if (store.get(sonosPendingResumeSeekAtom) != null) {
+            store.set(sonosPendingResumeSeekAtom, positionSecs);
+            notifySeek(positionSecs);
+            return;
+          }
+          await invoke("sonos_seek", { positionSecs });
+        } else {
+          await invoke("seek_track", { positionSecs });
+        }
+        notifySeek(positionSecs);
+      } catch (error) {
+        console.error("Failed to seek:", error);
+      }
+    },
+    [store],
+  );
 
   const addToQueue = useCallback(
     (track: Track, source?: ManualTrackSource) => {
@@ -779,8 +995,9 @@ export function usePlaybackActions() {
             // past the old track's end during the reload.
             markPlaybackLoading(true);
             try {
-              const info = await invokePlayWithRetry(
-                current.id,
+              const info = await invokePlayForTarget(
+                store,
+                current,
                 store.get(useTrackGainAtom),
                 () => {
                   store.set(isPlayingAtom, false);
@@ -808,8 +1025,12 @@ export function usePlaybackActions() {
           }
         }
 
-        // Stop old pipeline to prevent stale track-finished events
-        await invoke("stop_track").catch(() => {});
+        // Stop old pipeline to prevent stale track-finished events. Remote:
+        // no local pipeline is rolling, and sonos_play_track replaces the
+        // speaker queue atomically — nothing to stop.
+        if (!isRemoteTarget(store)) {
+          await invoke("stop_track").catch(() => {});
+        }
 
         // Skip-loop helpers (issue #71). Counter resets on explicit user skip
         // so mashing Next across removed tracks never trips the cap.
@@ -1069,8 +1290,10 @@ export function usePlaybackActions() {
       // Explicit user action — clear the skip-loop counter.
       store.set(consecutiveFailCountAtom, 0);
 
-      // Stop old pipeline to prevent stale track-finished events
-      await invoke("stop_track").catch(() => {});
+      // Stop old pipeline to prevent stale track-finished events (local only).
+      if (!isRemoteTarget(store)) {
+        await invoke("stop_track").catch(() => {});
+      }
 
       // Mutual exclusion: clear any background video. If the resolved previous
       // item is itself a video, startVideoSession (below) re-establishes these.
@@ -1150,8 +1373,9 @@ export function usePlaybackActions() {
         try {
           preloadImage(getTidalImageUrl(prevTrack.album?.cover, 640));
           preloadImage(getTidalImageUrl(prevTrack.album?.cover, 1280));
-          const info = await invokePlayWithRetry(
-            prevTrack.id,
+          const info = await invokePlayForTarget(
+            store,
+            prevTrack,
             store.get(useTrackGainAtom),
             () => {
               store.set(isPlayingAtom, false);
@@ -1272,8 +1496,9 @@ export function usePlaybackActions() {
             }
 
             try {
-              const info = await invokePlayWithRetry(
-                prevTrack.id,
+              const info = await invokePlayForTarget(
+                store,
+                prevTrack,
                 store.get(useTrackGainAtom),
                 () => {
                   store.set(isPlayingAtom, false);
@@ -1546,6 +1771,7 @@ export function usePlaybackActions() {
     playAllFromSource,
     predictNextTrack,
     advanceToTrack,
+    adoptRemoteTrack,
     playNextLockRef,
     playGenerationRef,
     autoplayIdsRef,

@@ -268,6 +268,15 @@ pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     stop_playback(state.inner()).await
 }
 
+/// Stop the local pipeline WITHOUT the stop side effects (MPRIS/Discord
+/// clear, scrobble stop). Used when handing playback off to Sonos: the
+/// track keeps playing — remotely — so the in-flight listen must survive.
+#[tauri::command]
+pub async fn stop_track_silent(state: State<'_, AppState>) -> Result<(), SoneError> {
+    log::debug!("[stop_track_silent]");
+    state.audio_player.stop().map_err(SoneError::Audio)
+}
+
 #[tauri::command]
 pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
     state

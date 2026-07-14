@@ -8,5 +8,6 @@ pub mod playback;
 pub mod profile;
 pub mod scrobble;
 pub mod search;
+pub mod sonos;
 pub mod updates;
 pub mod utility;

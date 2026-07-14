@@ -5160,6 +5160,7 @@ dependencies = [
  "log",
  "md5",
  "mpris-server",
+ "quick-xml 0.39.4",
  "rand 0.10.1",
  "reqwest 0.11.27",
  "rmcp",

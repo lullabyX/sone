@@ -107,3 +107,18 @@ export const consecutiveFailCountAtom = atom(0);
  *  playTrack/playNext path (instance-independent, unlike a per-hook ref) so that
  *  gapless advanceToTrack can never resume audio the user paused. */
 export const userPausedAtom = atom(false);
+
+/** Where playback renders: the local GStreamer pipeline or a Sonos group.
+ *  Checked at the invoke boundary in usePlaybackActions — the queue/shuffle/
+ *  repeat state machines are target-agnostic. Never persisted: the app always
+ *  starts targeting local output. */
+type PlaybackTarget =
+  | { type: "local" }
+  | {
+      type: "sonos";
+      coordinatorUuid: string;
+      coordinatorIp: string;
+      roomName: string;
+    };
+
+export const playbackTargetAtom = atom<PlaybackTarget>({ type: "local" });
