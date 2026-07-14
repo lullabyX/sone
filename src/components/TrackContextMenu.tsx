@@ -243,22 +243,23 @@ export default function TrackContextMenu({
           </span>
         </button>
 
-        {/* Go to track radio (hidden if mixes is populated but TRACK_MIX is absent) */}
-        {(!track.mixes || !!track.mixes?.TRACK_MIX) && (
-          <>
-            <div className="my-1 border-t border-th-inset" />
-            <button
-              className={`${menuItemClass} ${radioLoading ? "opacity-60 pointer-events-none" : ""}`}
-              onClick={handleGoToTrackRadio}
-              disabled={radioLoading}
-            >
-              <Radio size={18} className="shrink-0 text-th-text-muted" />
-              <span>
-                {radioLoading ? "Loading radio…" : "Go to track radio"}
-              </span>
-            </button>
-          </>
-        )}
+        {/* Go to track radio (not for videos; hidden if mixes is populated but TRACK_MIX is absent) */}
+        {track.itemType !== "video" &&
+          (!track.mixes || !!track.mixes?.TRACK_MIX) && (
+            <>
+              <div className="my-1 border-t border-th-inset" />
+              <button
+                className={`${menuItemClass} ${radioLoading ? "opacity-60 pointer-events-none" : ""}`}
+                onClick={handleGoToTrackRadio}
+                disabled={radioLoading}
+              >
+                <Radio size={18} className="shrink-0 text-th-text-muted" />
+                <span>
+                  {radioLoading ? "Loading radio…" : "Go to track radio"}
+                </span>
+              </button>
+            </>
+          )}
 
         {/* Share */}
         <div className="my-1 border-t border-th-inset" />
