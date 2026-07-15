@@ -1,10 +1,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 use tokio_util::sync::CancellationToken;
 use axum::{
     Router,
     extract::State,
+    http::StatusCode,
     response::{Html, Response, Sse},
     routing::get,
 };
@@ -16,6 +17,8 @@ use tokio_stream::StreamExt;
 use crate::error::SoneError;
 use super::state::OverlayStateRef;
 
+const MAX_SSE_CONNECTIONS: usize = 16;
+
 pub struct OverlayHandle {
     pub port: u16,
     pub host: String,
@@ -25,7 +28,14 @@ pub struct OverlayHandle {
 
 impl OverlayHandle {
     pub fn url(&self) -> String {
-        format!("http://{}:{}/overlay", self.host, self.port)
+        // 0.0.0.0 is a bind-all wildcard, not a connectable address — show
+        // loopback in the URL users copy into OBS.
+        let display_host = if self.host == "0.0.0.0" {
+            "127.0.0.1"
+        } else {
+            self.host.as_str()
+        };
+        format!("http://{}:{}/overlay", display_host, self.port)
     }
 
     /// Stop the server and wait until the listener is released and all
@@ -421,6 +431,7 @@ struct AppCtx {
     state: OverlayStateRef,
     tx: Arc<broadcast::Sender<String>>,
     cancel: CancellationToken,
+    sse_permits: Arc<Semaphore>,
 }
 
 async fn serve_html() -> Html<&'static str> {
@@ -433,7 +444,6 @@ async fn serve_state(State(ctx): State<AppCtx>) -> Response {
     let json = serde_json::to_string(&track).unwrap_or_else(|_| "{}".to_string());
     axum::response::Response::builder()
         .header("Content-Type", "application/json")
-        .header("Access-Control-Allow-Origin", "*")
         .body(axum::body::Body::from(json))
         .unwrap()
 }
@@ -448,14 +458,21 @@ async fn serve_theme_css(State(ctx): State<AppCtx>) -> Response {
     axum::response::Response::builder()
         .header("Content-Type", "text/css; charset=utf-8")
         .header("Cache-Control", "no-store")
-        .header("Access-Control-Allow-Origin", "*")
         .body(axum::body::Body::from(css))
         .unwrap()
 }
 
 async fn serve_sse(
     State(ctx): State<AppCtx>,
-) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, StatusCode> {
+    // Each connection holds a task and two broadcast subscriptions for its
+    // whole lifetime — cap them.
+    let permit = ctx
+        .sse_permits
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
     // Merge both broadcast channels into a single SSE stream.
     // State events carry JSON; theme events just carry a "reload" signal.
     let state_rx = ctx.tx.subscribe();
@@ -473,10 +490,14 @@ async fn serve_sse(
 
     let merged = tokio_stream::StreamExt::merge(state_stream, theme_stream);
     // SSE bodies never end on their own — end them on shutdown so graceful
-    // shutdown can drain the connection instead of hanging forever.
+    // shutdown can drain the connection instead of hanging forever. The
+    // permit rides in the closure so it is released when the stream drops.
     let merged =
         futures_util::StreamExt::take_until(merged, ctx.cancel.clone().cancelled_owned());
-    Sse::new(merged).keep_alive(KeepAlive::default())
+    let merged = futures_util::StreamExt::inspect(merged, move |_| {
+        let _ = &permit;
+    });
+    Ok(Sse::new(merged).keep_alive(KeepAlive::default()))
 }
 
 pub async fn start_server(
@@ -491,6 +512,7 @@ pub async fn start_server(
         state,
         tx: Arc::new(tx),
         cancel: cancel.clone(),
+        sse_permits: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
     };
 
     let app = Router::new()
@@ -600,6 +622,61 @@ mod tests {
                 .await
                 .unwrap_or_else(|e| panic!("rebind {i} failed: {e:?}"));
         }
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn sse_connections_capped_with_503() {
+        let (handle, _state) = start_on_ephemeral().await;
+        let mut held = Vec::new();
+        for _ in 0..MAX_SSE_CONNECTIONS {
+            held.push(open_sse(handle.port).await);
+        }
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", handle.port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = [0u8; 256];
+        let n = stream.read(&mut buf).await.unwrap();
+        let head = String::from_utf8_lossy(&buf[..n]);
+        assert!(head.contains("503"), "expected 503 over cap, got: {head}");
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn state_endpoint_has_no_cors_header() {
+        let (handle, _state) = start_on_ephemeral().await;
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", handle.port))
+            .await
+            .unwrap();
+        stream
+            .write_all(
+                b"GET /overlay/state HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        let mut body = String::new();
+        stream.read_to_string(&mut body).await.unwrap();
+        assert!(
+            !body.to_ascii_lowercase().contains("access-control-allow-origin"),
+            "CORS header must be gone"
+        );
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn url_shows_loopback_for_wildcard_host() {
+        let (state, _rx, _theme_rx) = crate::overlay::new_state();
+        let tx = state.read().await.tx.clone();
+        let handle = start_server(state.clone(), tx, "0.0.0.0", 0).await.unwrap();
+        assert!(
+            handle.url().starts_with("http://127.0.0.1:"),
+            "got: {}",
+            handle.url()
+        );
         handle.shutdown().await;
     }
 }
