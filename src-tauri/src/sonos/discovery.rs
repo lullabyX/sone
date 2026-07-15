@@ -16,8 +16,7 @@ const SSDP_ADDR: (Ipv4Addr, u16) = (Ipv4Addr::new(239, 255, 255, 250), 1900);
 const SSDP_ST: &str = "urn:schemas-upnp-org:device:ZonePlayer:1";
 
 /// A single Sonos player (one box; grouping lives in `topology`).
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct SonosDevice {
     pub ip: String,
     /// Player UUID, e.g. `RINCON_949F3EC2E15801400` (no `uuid:` prefix).
@@ -87,10 +86,9 @@ fn primary_ipv4() -> Option<Ipv4Addr> {
     }
 }
 
-/// Multicast-free fallback: sweep the local /24 for hosts with the Sonos
-/// control port open. Firewalls commonly filter multicast responses (SSDP
-/// and mDNS alike) while plain unicast TCP works fine — observed in the
-/// wild on desktop Linux. ~1s wall clock (64-way parallel, 300ms timeout).
+/// Multicast-free fallback: sweep the local /24 for open control ports.
+/// Desktop firewalls often filter multicast (SSDP and mDNS) while unicast
+/// TCP works. ~1s wall clock (64-way parallel, 300ms timeout).
 pub async fn subnet_sweep() -> Vec<String> {
     let Some(local) = primary_ipv4() else {
         return Vec::new();
@@ -137,16 +135,17 @@ pub async fn probe_ip(client: &reqwest::Client, ip: &str) -> Result<SonosDevice,
         .await
         .map_err(|e| SoneError::SonosUnreachable(format!("{ip}: {e}")))?;
 
-    let udn = first_text(&xml, "UDN")?
+    parse_device_description(ip, &xml)
+}
+
+fn parse_device_description(ip: &str, xml: &str) -> Result<SonosDevice, SoneError> {
+    let udn = first_text(xml, "UDN")?
         .ok_or_else(|| SoneError::SonosProtocol(format!("{ip}: no UDN in description")))?;
-    let uuid = udn.trim().trim_start_matches("uuid:").to_string();
-    let room_name = first_text(&xml, "roomName")?.unwrap_or_default();
-    let model_name = first_text(&xml, "modelName")?.unwrap_or_default();
     Ok(SonosDevice {
         ip: ip.to_string(),
-        uuid,
-        room_name,
-        model_name,
+        uuid: udn.trim().trim_start_matches("uuid:").to_string(),
+        room_name: first_text(xml, "roomName")?.unwrap_or_default(),
+        model_name: first_text(xml, "modelName")?.unwrap_or_default(),
     })
 }
 
@@ -167,13 +166,12 @@ mod tests {
             <roomName>Living Room</roomName>
           </device>
         </root>"#;
-        assert_eq!(
-            first_text(xml, "UDN")
-                .unwrap()
-                .unwrap()
-                .trim_start_matches("uuid:"),
-            "RINCON_949F3EC2E15801400"
-        );
-        assert_eq!(first_text(xml, "roomName").unwrap().unwrap(), "Living Room");
+        let device = parse_device_description("192.168.1.23", xml).unwrap();
+        assert_eq!(device.uuid, "RINCON_949F3EC2E15801400");
+        assert_eq!(device.room_name, "Living Room");
+        assert_eq!(device.model_name, "Sonos Era 100");
+
+        // A non-Sonos device answering the port sweep has no UDN.
+        assert!(parse_device_description("192.168.1.69", "<html>printer</html>").is_err());
     }
 }

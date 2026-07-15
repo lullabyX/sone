@@ -1,11 +1,7 @@
-//! Cast session: a background task that watches the group coordinator and
-//! mirrors speaker-side truth back to the frontend as Tauri events. While a
-//! session is active, transport state is speaker-authoritative — the
-//! frontend reconciles from these events instead of assuming its commands
-//! succeeded.
-//!
-//! Phase 1 uses 1s polling (works on every network the SOAP calls work on);
-//! GENA push eventing slots in behind the same event contract later.
+//! Cast session: a background task that polls the group coordinator (1s)
+//! and mirrors speaker-side truth back as Tauri events. Transport state is
+//! speaker-authoritative while casting — the frontend reconciles from these
+//! events. GENA push could slot in behind the same event contract later.
 
 use std::time::Duration;
 
@@ -22,7 +18,7 @@ use crate::sonos::rendering;
 pub const EVENT_TRANSPORT_CHANGED: &str = "sonos-transport-changed";
 pub const EVENT_TRACK_FINISHED: &str = "sonos-track-finished";
 pub const EVENT_TRACK_CHANGED: &str = "sonos-track-changed";
-/// The speaker self-advanced into a queue entry WE mirrored (native
+/// The speaker self-advanced into a mirrored queue entry (native
 /// gapless). Carries the entry's qid so the frontend reconciles the exact
 /// queue instance.
 pub const EVENT_TRACK_ADVANCED: &str = "sonos-track-advanced";
@@ -75,7 +71,6 @@ struct TransportPayload {
 #[serde(rename_all = "camelCase")]
 struct TrackChangedPayload {
     track_id: Option<u64>,
-    track_uri: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -136,11 +131,9 @@ async fn watch(
     // 1-based queue position of the current track, for self-advance
     // detection against the mirrored tail.
     let mut last_track_nr: Option<u32> = None;
-    // The session is "armed" once the coordinator's transport is OUR queue
-    // (first SetAVTransportURI landed). Before that the speaker's state is
-    // whatever it was doing before the cast — TV input, radio, another
-    // controller's queue — and must be neither mirrored into SONE's UI nor
-    // mistaken for a takeover.
+    // "Armed" = the coordinator's transport is SONE's queue. Before that, the
+    // speaker's leftover state (TV input, radio, another queue) must be
+    // neither mirrored into SONE nor mistaken for a takeover.
     let mut armed = false;
 
     loop {
@@ -157,7 +150,10 @@ async fn watch(
         // delayed past the first cast), then every Mth tick as the takeover
         // check.
         if !armed || tick.is_multiple_of(MEDIA_URI_EVERY) {
-            match avtransport::get_media_uri(&client, ip).await {
+            match avtransport::get_media_info(&client, ip)
+                .await
+                .map(|m| m.current_uri)
+            {
                 Ok(uri) if uri == our_queue_uri => {
                     armed = true;
                 }
@@ -203,13 +199,13 @@ async fn watch(
         let position = avtransport::get_position_info(&client, ip).await.ok();
 
         // A cancelled watcher must not emit events that would be attributed
-        // to a successor session (the swap happens between our awaits).
+        // to a successor session (the swap happens between awaits).
         if cancel.is_cancelled() {
             return;
         }
 
         // Self-advance through the mirrored tail: the queue position moved
-        // forward and the entries it moved through are ones WE enqueued.
+        // forward and the entries it moved through are SONE-enqueued.
         // Consume them and tell the frontend which instances (qids) played.
         let mut advanced = false;
         if let Some(pos) = &position {
@@ -246,7 +242,7 @@ async fn watch(
                             }
                         }
                     } else if pos.track_nr < prev {
-                        // Backward jump (external Previous / queue jump): our
+                        // Backward jump (external Previous / queue jump): the
                         // positional bookkeeping is void — drop it and let the
                         // next sync_tail rewrite from the new position.
                         mirror.lock().await.entries.clear();
@@ -256,7 +252,7 @@ async fn watch(
             }
         }
 
-        // Track identity change we did NOT cause by a mirrored self-advance:
+        // Track identity change NOT caused by a mirrored self-advance:
         // external skip/previous/jump, or another controller's track.
         if let Some(pos) = &position {
             if !pos.track_uri.is_empty()
@@ -267,7 +263,6 @@ async fn watch(
                         EVENT_TRACK_CHANGED,
                         TrackChangedPayload {
                             track_id: didl::parse_track_uri(&pos.track_uri),
-                            track_uri: pos.track_uri.clone(),
                         },
                     );
                 }
@@ -280,10 +275,9 @@ async fn watch(
         // silently so the first armed transition diffs correctly.
         if state != TransportState::Transitioning && last_state != Some(state) {
             if armed {
-                // End-of-track threshold: normally "within 5s of the end".
-                // When the position sample is stale (polls failed during the
-                // final seconds), relax to half the track — a stall here
-                // would silently stop queue advancement.
+                // End-of-track = within 5s of the end; relaxed to half the
+                // track when the position sample is stale, because a
+                // misclassification here silently stalls the queue.
                 let finished_naturally = state == TransportState::Stopped
                     && last_state == Some(TransportState::Playing)
                     && matches!(

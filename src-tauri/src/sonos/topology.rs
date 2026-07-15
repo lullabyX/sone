@@ -17,7 +17,6 @@ pub struct ZoneMember {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoneGroup {
-    pub id: String,
     pub coordinator_uuid: String,
     pub coordinator_ip: String,
     /// Coordinator's room name (display name for the group).
@@ -48,7 +47,6 @@ pub fn parse_zone_group_state(xml: &str) -> Result<Vec<ZoneGroup>, SoneError> {
             .next()
             .unwrap_or_default();
         let coordinator_uuid = group_attrs.get("Coordinator").cloned().unwrap_or_default();
-        let id = group_attrs.get("ID").cloned().unwrap_or_default();
 
         let mut members = Vec::new();
         let mut coordinator_ip = String::new();
@@ -85,7 +83,6 @@ pub fn parse_zone_group_state(xml: &str) -> Result<Vec<ZoneGroup>, SoneError> {
             .map(|m| m.name.clone())
             .unwrap_or_else(|| members[0].name.clone());
         groups.push(ZoneGroup {
-            id,
             coordinator_uuid,
             coordinator_ip,
             name,
@@ -111,7 +108,7 @@ fn split_groups(xml: &str) -> Vec<String> {
     out
 }
 
-/// Ask any player in the household for the full group topology.
+/// Ask any player in the system for the full group topology.
 pub async fn get_zone_groups(
     client: &reqwest::Client,
     ip: &str,

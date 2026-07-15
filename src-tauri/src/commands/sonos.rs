@@ -121,7 +121,7 @@ pub async fn sonos_connect(
         room_name: group.group.name.clone(),
     };
 
-    // Reachability check before we commit the UI to this target.
+    // Reachability check before the UI commits to this target.
     avtransport::get_transport_state(&state.sonos.client, &info.coordinator_ip).await?;
 
     let mut session_slot = state.sonos.session.lock().await;
@@ -254,11 +254,9 @@ pub struct TailTrack {
     pub meta: didl::TrackMeta,
 }
 
-/// Make the speaker's queue tail (everything after the current track) match
-/// the frontend's up-next list. Appends when the new tail extends the
-/// mirrored one; otherwise wipes the tail and re-adds. The speaker then
-/// self-advances through these entries gaplessly — and keeps playing them
-/// even if SONE exits.
+/// Make the speaker's queue tail match the frontend's up-next list
+/// (append when extended, otherwise wipe-and-re-add). The speaker then
+/// self-advances gaplessly — and keeps playing even if SONE exits.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn sonos_sync_queue_tail(
     state: State<'_, AppState>,
@@ -278,7 +276,7 @@ pub async fn sonos_sync_queue_tail(
 
     let mut mirror = state.sonos.mirror.lock().await;
     if !mirror.seeded {
-        // The speaker queue doesn't hold our current track yet (cast
+        // The speaker queue doesn't hold SONE's current track yet (cast
         // handshake in progress) — play_track emits sonos-queue-reset when
         // it's time to mirror.
         log::debug!("[sonos_sync_queue_tail] skipped: queue not seeded");
@@ -330,7 +328,7 @@ pub async fn sonos_pause(state: State<'_, AppState>) -> Result<(), SoneError> {
     let info = session_info(state.inner()).await?;
     let result = avtransport::pause(&state.sonos.client, &info.coordinator_ip).await;
     // Only pause the scrobble clock if the speaker actually paused —
-    // otherwise the listen keeps running remotely while we count nothing.
+    // otherwise the listen keeps running remotely while nothing is counted.
     if result.is_ok() {
         state.scrobble_manager.on_pause().await;
     }
@@ -346,13 +344,6 @@ pub async fn sonos_resume(state: State<'_, AppState>) -> Result<(), SoneError> {
         state.scrobble_manager.on_resume().await;
     }
     result
-}
-
-#[tauri::command(rename_all = "camelCase")]
-pub async fn sonos_stop(state: State<'_, AppState>) -> Result<(), SoneError> {
-    log::debug!("[sonos_stop]");
-    let info = session_info(state.inner()).await?;
-    avtransport::stop(&state.sonos.client, &info.coordinator_ip).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -405,15 +396,13 @@ pub struct ReattachInfo {
     pub session: session::SessionInfo,
     pub track_id: u64,
     pub position_secs: f64,
-    pub duration_secs: Option<f64>,
     pub volume: u8,
     pub muted: bool,
 }
 
-/// Best-effort reattach to the last cast group if it is STILL playing OUR
-/// queue (the payoff of queue mirroring: the speaker kept going while SONE
-/// was closed). Every failure path returns Ok(None) — reattach is never an
-/// error, just absent.
+/// Best-effort reattach to the last cast group if it is still playing SONE's
+/// queue (it kept going while SONE was closed). Every failure path returns
+/// Ok(None) — reattach is never an error, just absent.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn sonos_try_reattach(
     app: tauri::AppHandle,
@@ -434,7 +423,7 @@ pub async fn sonos_try_reattach(
     let client = &state.sonos.client;
     let ip = group.group.coordinator_ip.clone();
 
-    // Reattach only when the speaker is actively playing OUR queue.
+    // Reattach only when the speaker is actively playing SONE's queue.
     let Ok(media) = avtransport::get_media_info(client, &ip).await else {
         return Ok(None);
     };
@@ -484,7 +473,7 @@ pub async fn sonos_try_reattach(
     {
         let mut mirror = state.sonos.mirror.lock().await;
         mirror.entries.clear();
-        // Verified above: the speaker is playing OUR queue (trimmed to just
+        // Verified above: the speaker is playing SONE's queue (trimmed to just
         // the current track) — tail mirroring may resume immediately.
         mirror.seeded = true;
     }
@@ -501,7 +490,6 @@ pub async fn sonos_try_reattach(
         session: info,
         track_id,
         position_secs: pos.position_secs.unwrap_or(0.0),
-        duration_secs: pos.duration_secs,
         volume,
         muted,
     }))
@@ -511,8 +499,6 @@ pub async fn sonos_try_reattach(
 #[serde(rename_all = "camelCase")]
 pub struct SonosNowPlaying {
     pub track_id: Option<u64>,
-    pub position_secs: f64,
-    pub duration_secs: Option<f64>,
     pub state: avtransport::TransportState,
     pub volume: u8,
     pub muted: bool,
@@ -533,8 +519,6 @@ pub async fn sonos_get_now_playing(
     let muted = rendering::get_group_mute(client, ip).await.unwrap_or(false);
     Ok(SonosNowPlaying {
         track_id: didl::parse_track_uri(&position.track_uri),
-        position_secs: position.position_secs.unwrap_or(0.0),
-        duration_secs: position.duration_secs,
         state: transport,
         volume,
         muted,

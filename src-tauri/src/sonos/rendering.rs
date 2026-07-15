@@ -3,11 +3,7 @@
 //! Target the group coordinator.
 
 use crate::error::SoneError;
-use crate::sonos::soap::{soap_action, GROUP_RENDERING_CONTROL};
-
-fn instance_arg() -> (&'static str, String) {
-    ("InstanceID", "0".to_string())
-}
+use crate::sonos::soap::{instance_arg, soap_action, GROUP_RENDERING_CONTROL};
 
 /// 0–100.
 pub async fn set_group_volume(

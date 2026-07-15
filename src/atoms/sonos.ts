@@ -3,13 +3,10 @@ import { atomWithStorage } from "jotai/utils";
 
 /** One Sonos zone group as returned by the `sonos_discover` command. */
 export interface SonosZoneMember {
-  uuid: string;
-  ip: string;
   name: string;
 }
 
 export interface SonosGroupInfo {
-  id: string;
   coordinatorUuid: string;
   coordinatorIp: string;
   /** Coordinator's room name (display name for the group). */
@@ -17,17 +14,24 @@ export interface SonosGroupInfo {
   members: SonosZoneMember[];
   /** null = unknown (modern firmware hides the account list). */
   tidalLinked: boolean | null;
-  tidalSerial: string | null;
 }
 
-type SonosCastState = "idle" | "connecting" | "casting" | "error";
+/** Snapshot returned by the `sonos_get_now_playing` command. */
+export interface SonosNowPlaying {
+  trackId: number | null;
+  state: string;
+  volume: number;
+  muted: boolean;
+}
 
 /** Show the Sonos output picker at all (Settings → Sonos). */
 export const sonosEnabledAtom = atomWithStorage("sone.sonosEnabled.v1", true);
 
 export const sonosGroupsAtom = atom<SonosGroupInfo[]>([]);
 export const sonosDiscoveringAtom = atom(false);
-export const sonosCastStateAtom = atom<SonosCastState>("idle");
+/** True while a cast handshake is in flight (picker shows a spinner).
+ *  "Casting" itself is derived from playbackTargetAtom. */
+export const sonosConnectingAtom = atom(false);
 
 /** Sonos group volume, 0–100. Deliberately separate from the local
  *  `volumeAtom` (persisted 0–1 pipeline gain) so casting never clobbers the
@@ -35,8 +39,6 @@ export const sonosCastStateAtom = atom<SonosCastState>("idle");
 export const sonosVolumeAtom = atom(0);
 export const sonosMutedAtom = atom(false);
 
-/** Position to apply on the first remote resume. Set when casting while
- *  paused: the track is enqueued but the transport is STOPPED, and Sonos
- *  cannot reliably seek a stopped transport — so the seek is deferred to
- *  right after Play. */
+/** Deferred seek applied on the first remote resume — set when casting
+ *  while paused, because Sonos can't reliably seek a STOPPED transport. */
 export const sonosPendingResumeSeekAtom = atom<number | null>(null);

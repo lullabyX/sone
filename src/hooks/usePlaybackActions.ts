@@ -40,7 +40,12 @@ import {
   videoPlayingAtom,
   videoExpandedAtom,
 } from "../atoms/video";
-import { sonosPendingResumeSeekAtom, sonosVolumeAtom } from "../atoms/sonos";
+import {
+  sonosPendingResumeSeekAtom,
+  sonosVolumeAtom,
+  type SonosNowPlaying,
+} from "../atoms/sonos";
+import { buildSonosMeta } from "../lib/sonosMeta";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
@@ -173,22 +178,12 @@ async function invokePlayWithRetry(
   throw new Error("device_busy"); // unreachable
 }
 
-/** Queue-entry display metadata for the Sonos native queue. */
-function buildSonosMeta(track: Track) {
-  return {
-    title: track.title ?? "",
-    artist: getTrackArtistDisplay(track),
-    album: track.album?.title ?? "",
-  };
-}
-
 type JotaiStore = ReturnType<typeof useStore>;
 
-/** The single play chokepoint, target-aware. Every play path (playTrack,
- *  repeat-one, resume-replay, playPrevious) flows through here.
- *  - local  → play_tidal_track with device-busy retry, returns StreamInfo
- *  - sonos  → sonos_play_track (the SPEAKER resolves and streams the audio
- *             from TIDAL itself), returns null — there is no local stream. */
+/** The single play chokepoint — every play path flows through here.
+ *  local → play_tidal_track (device-busy retry, returns StreamInfo);
+ *  sonos → sonos_play_track (the speaker streams TIDAL itself, returns
+ *  null — there is no local stream). */
 async function invokePlayForTarget(
   store: JotaiStore,
   track: Track,
@@ -462,7 +457,7 @@ export function usePlaybackActions() {
         // The speaker keeps its own transport state — no finished-check
         // against the (stopped) local pipeline. A resume from STOPPED
         // replays the queue entry from the top, which is a fresh listen.
-        const finishedRemotely = await invoke<{ state: string }>(
+        const finishedRemotely = await invoke<SonosNowPlaying>(
           "sonos_get_now_playing",
         )
           .then((now) => now.state === "STOPPED")
@@ -591,10 +586,9 @@ export function usePlaybackActions() {
     [store],
   );
 
-  /** Reconcile SONE's queue model to a track the SPEAKER is already playing
-   *  (mirrored self-advance, or an external Next/Previous/queue-jump from
-   *  the Sonos app). Pure atom surgery — never invokes playback. Returns
-   *  false when the track maps to nothing we know (possible takeover). */
+  /** Reconcile the queue model to a track the SPEAKER is already playing
+   *  (self-advance or external Next/Previous/jump). Pure atom surgery —
+   *  never invokes playback. False = track unknown (possible takeover). */
   const adoptRemoteTrack = useCallback(
     (trackId: number, qid?: string): boolean => {
       const current = store.get(currentTrackAtom);

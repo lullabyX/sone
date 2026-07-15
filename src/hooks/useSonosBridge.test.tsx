@@ -42,7 +42,6 @@ const track = (id: number): Track =>
 const SONOS_TARGET = {
   type: "sonos" as const,
   coordinatorUuid: "RINCON_TEST01400",
-  coordinatorIp: "192.168.1.10",
   roomName: "Living Room",
 };
 
@@ -112,6 +111,8 @@ describe("useSonosBridge maps speaker events into playback atoms", () => {
     const call = invokeMock.mock.calls.find((c) => c[0] === "sonos_play_track");
     expect(call?.[1]).toMatchObject({ trackId: 2 });
     expect(store.get(currentTrackAtom)?.id).toBe(2);
+    // No local pipeline involvement while remote.
+    expect(invokeMock.mock.calls.map((c) => c[0])).not.toContain("stop_track");
   });
 
   it("a foreign track on the speaker detaches to local (after re-verification), queue preserved", async () => {
@@ -128,16 +129,13 @@ describe("useSonosBridge maps speaker events into playback atoms", () => {
         ),
       );
 
-      await fire("sonos-track-changed", {
-        trackId: 999,
-        trackUri: "x-sonos-http:track%2f999.flac",
-      });
+      await fire("sonos-track-changed", { trackId: 999 });
       // Not detached yet — the mismatch must survive the verification delay
       // (a rapid double-skip produces a benign one-tick mismatch).
       expect(store.get(playbackTargetAtom).type).toBe("sonos");
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1600);
+        await vi.advanceTimersByTimeAsync(10_000);
       });
 
       expect(store.get(playbackTargetAtom).type).toBe("local");
@@ -155,16 +153,13 @@ describe("useSonosBridge maps speaker events into playback atoms", () => {
       const { store } = setup();
       store.set(currentTrackAtom, track(3));
       // Stale poll of the intermediate track arrives...
-      await fire("sonos-track-changed", {
-        trackId: 2,
-        trackUri: "x-sonos-http:track%2f2.flac",
-      });
+      await fire("sonos-track-changed", { trackId: 2 });
       // ...but by verification time the speaker reports our current track.
       invokeMock.mockImplementation((cmd: string) =>
         Promise.resolve(cmd === "sonos_get_now_playing" ? { trackId: 3 } : {}),
       );
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1600);
+        await vi.advanceTimersByTimeAsync(10_000);
       });
       expect(store.get(playbackTargetAtom).type).toBe("sonos");
     } finally {
@@ -180,8 +175,9 @@ describe("useSonosBridge maps speaker events into playback atoms", () => {
 
     await fire("sonos-track-advanced", { trackId: 2, qid: "q2" });
 
+    // Delegation-level assertions only — adoptRemoteTrack's queue/history
+    // bookkeeping is pinned by its own suite.
     expect(store.get(currentTrackAtom)?.id).toBe(2);
-    expect(store.get(manualQueueAtom).map((t) => t.id)).toEqual([3]);
     expect(store.get(playbackTargetAtom).type).toBe("sonos");
     // No play command — the speaker is already playing it.
     expect(invokeMock.mock.calls.map((c) => c[0])).not.toContain(
@@ -192,10 +188,7 @@ describe("useSonosBridge maps speaker events into playback atoms", () => {
   it("our own track change (id matches current) is not a takeover", async () => {
     const { store } = setup();
     store.set(currentTrackAtom, track(7));
-    await fire("sonos-track-changed", {
-      trackId: 7,
-      trackUri: "x-sonos-http:track%2f7.flac",
-    });
+    await fire("sonos-track-changed", { trackId: 7 });
     expect(store.get(playbackTargetAtom).type).toBe("sonos");
   });
 

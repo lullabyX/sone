@@ -1,12 +1,8 @@
 /**
- * useSonosQueueMirror — keeps the speaker's native queue tail in sync with
- * SONE's up-next list while casting (debounced one-way mirror, sibling of
- * useGaplessPrefetch's subscription shape). The speaker then self-advances
- * through the tail gaplessly, and keeps playing it even if SONE exits.
- *
- * Dedup lives on the Rust side (`plan_sync` no-ops on an unchanged tail), so
- * this hook can fire liberally — including on the "sonos-queue-reset" event
- * the backend emits after any queue rebuild (connect / play_track).
+ * useSonosQueueMirror — debounced one-way mirror of SONE's up-next list onto
+ * the speaker's native queue, enabling gapless self-advance that survives
+ * SONE exiting. Fires liberally (including on "sonos-queue-reset" after any
+ * backend queue rebuild); the Rust side no-ops when the tail is unchanged.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -21,7 +17,7 @@ import {
   repeatAtom,
 } from "../atoms/playback";
 import { isTrackUnavailable } from "../lib/trackAvailability";
-import { getTrackArtistDisplay } from "../utils/itemHelpers";
+import { buildSonosMeta } from "../lib/sonosMeta";
 import type { Track } from "../types";
 
 /** Rolling window size. As the speaker advances and the frontend queue
@@ -32,22 +28,16 @@ function toTailTrack(track: Track) {
   return {
     trackId: track.id,
     qid: track._qid ?? String(track.id),
-    meta: {
-      title: track.title ?? "",
-      artist: getTrackArtistDisplay(track),
-      album: track.album?.title ?? "",
-    },
+    meta: buildSonosMeta(track),
   };
 }
 
 export function useSonosQueueMirror() {
   const store = useStore();
-  const generationRef = useRef(0);
 
   const sync = useCallback(async () => {
-    const generation = ++generationRef.current;
     if (store.get(playbackTargetAtom).type !== "sonos") return;
-    // No current track → we haven't seeded the speaker queue; mirroring a
+    // No current track → the speaker queue isn't seeded; mirroring a
     // tail now would append onto whatever stale queue the speaker holds.
     if (!store.get(currentTrackAtom)) return;
     // Repeat-one: the speaker must never self-advance — SONE replays the
@@ -58,7 +48,6 @@ export function useSonosQueueMirror() {
         : [...store.get(manualQueueAtom), ...store.get(queueAtom)]
             .filter((t) => !isTrackUnavailable(t))
             .slice(0, TAIL_CAP);
-    if (generation !== generationRef.current) return;
     try {
       await invoke("sonos_sync_queue_tail", {
         tracks: tail.map(toTailTrack),

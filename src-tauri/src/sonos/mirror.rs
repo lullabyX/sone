@@ -1,16 +1,14 @@
-//! Queue-mirror bookkeeping: SONE's frontend queue atoms are the desired
-//! state; the speaker's native queue holds `[history…, current, tail…]` and
-//! this module tracks the tail entries WE enqueued after the current track.
-//! The watcher consumes entries from the front as the speaker self-advances
-//! (native gapless); `sonos_sync_queue_tail` diffs a new desired tail
-//! against what is mirrored and applies the cheapest correct operation.
+//! Queue-mirror bookkeeping. SONE's queue atoms are the desired state; this
+//! tracks the tail entries SONE enqueued after the current track. The watcher
+//! consumes from the front as the speaker self-advances (native gapless);
+//! `sonos_sync_queue_tail` diffs desired vs mirrored and applies the
+//! cheapest correct operation.
 
 use std::collections::VecDeque;
 
-/// One queue entry we enqueued after the current track. `qid` is the
+/// One SONE-enqueued queue entry after the current track. `qid` is the
 /// frontend's queue-instance id (dup-safe — the same track can appear twice).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MirrorEntry {
     pub track_id: u64,
     pub qid: String,
@@ -20,10 +18,9 @@ pub struct MirrorEntry {
 pub struct MirrorState {
     /// Tail entries after the currently-playing track, in play order.
     pub entries: VecDeque<MirrorEntry>,
-    /// True once the speaker queue holds OUR current track (play_track ran,
-    /// or a reattach verified it). Until then the queue is the speaker's old
-    /// content and tail syncs must not touch it — they'd append onto a queue
-    /// that play_track is about to wipe anyway.
+    /// True once the speaker queue holds SONE's current track (play_track ran,
+    /// or reattach verified it). Until then tail syncs must not touch the
+    /// speaker's leftover queue.
     pub seeded: bool,
 }
 

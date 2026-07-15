@@ -1,10 +1,7 @@
 /**
  * useSonosActions — discovery and cast-session lifecycle (zero-subscription,
- * store.get/set only, like usePlaybackActions).
- *
- * Casting model: the speaker streams natively from TIDAL via the household's
- * linked account; SONE only sends control commands and track IDs. Handoffs
- * preserve position in both directions and never auto-blast audio.
+ * like usePlaybackActions). Handoffs preserve position in both directions
+ * and never auto-start audio the user didn't ask for.
  */
 
 import { useCallback } from "react";
@@ -18,7 +15,7 @@ import {
   userPausedAtom,
 } from "../atoms/playback";
 import {
-  sonosCastStateAtom,
+  sonosConnectingAtom,
   sonosDiscoveringAtom,
   sonosEnabledAtom,
   sonosGroupsAtom,
@@ -26,6 +23,7 @@ import {
   sonosPendingResumeSeekAtom,
   sonosVolumeAtom,
   type SonosGroupInfo,
+  type SonosNowPlaying,
 } from "../atoms/sonos";
 import {
   getInterpolatedPosition,
@@ -35,30 +33,11 @@ import {
 } from "../lib/playbackPosition";
 import { usePlaybackActions } from "./usePlaybackActions";
 import { useToast } from "../contexts/ToastContext";
-import { getTrackArtistDisplay } from "../utils/itemHelpers";
-import type { Track } from "../types";
+import { buildSonosMeta } from "../lib/sonosMeta";
 
 interface SessionInfo {
-  coordinatorIp: string;
   coordinatorUuid: string;
   roomName: string;
-}
-
-interface SonosNowPlaying {
-  trackId: number | null;
-  positionSecs: number;
-  durationSecs: number | null;
-  state: string;
-  volume: number;
-  muted: boolean;
-}
-
-function sonosMeta(track: Track) {
-  return {
-    title: track.title ?? "",
-    artist: getTrackArtistDisplay(track),
-    album: track.album?.title ?? "",
-  };
 }
 
 // Module-level so every hook instance shares the same guard: overlapping
@@ -68,7 +47,6 @@ let transferInFlight = false;
 interface ReattachInfo extends SessionInfo {
   trackId: number;
   positionSecs: number;
-  durationSecs: number | null;
   volume: number;
   muted: boolean;
 }
@@ -131,7 +109,7 @@ export function useSonosActions() {
       store.set(sonosPendingResumeSeekAtom, null);
       store.set(playbackTargetAtom, { type: "local" });
       setPositionSource("local");
-      store.set(sonosCastStateAtom, "idle");
+      store.set(sonosConnectingAtom, false);
       store.set(isPlayingAtom, false);
       store.set(userPausedAtom, true);
       markPlaybackLoading(false);
@@ -155,7 +133,7 @@ export function useSonosActions() {
         return;
       }
       transferInFlight = true;
-      store.set(sonosCastStateAtom, "connecting");
+      store.set(sonosConnectingAtom, true);
 
       try {
         const info = await invoke<SessionInfo>("sonos_connect", {
@@ -169,7 +147,7 @@ export function useSonosActions() {
         const position = getInterpolatedPosition();
 
         // Freeze the position display for the whole handoff; the poll source
-        // only flips to the speaker once the speaker has our track.
+        // only flips to the speaker once the speaker has the track.
         markPlaybackLoading(true);
 
         // Connected — silence the local pipeline (no scrobble/MPRIS stop
@@ -178,7 +156,6 @@ export function useSonosActions() {
         store.set(playbackTargetAtom, {
           type: "sonos",
           coordinatorUuid: info.coordinatorUuid,
-          coordinatorIp: info.coordinatorIp,
           roomName: info.roomName,
         });
         store.set(streamInfoAtom, null);
@@ -195,7 +172,7 @@ export function useSonosActions() {
         if (current) {
           await invoke("sonos_play_track", {
             trackId: current.id,
-            meta: sonosMeta(current),
+            meta: buildSonosMeta(current),
             start: wasPlaying,
           });
           // Don't seek into (or past) the final seconds of the track.
@@ -224,21 +201,14 @@ export function useSonosActions() {
           setPositionSource("remote");
           markPlaybackLoading(false);
         }
-        store.set(sonosCastStateAtom, "casting");
       } catch (error) {
         console.error("Failed to cast to Sonos:", error);
-        // Local audio may already be stopped — leave the app cleanly paused
-        // rather than claiming playback that isn't happening anywhere.
-        store.set(playbackTargetAtom, { type: "local" });
-        setPositionSource("local");
-        store.set(isPlayingAtom, false);
-        store.set(userPausedAtom, true);
-        markPlaybackLoading(false);
-        store.set(sonosCastStateAtom, "error");
-        // Kill the session watcher spawned by a successful sonos_connect.
-        invoke("sonos_disconnect", { pauseRemote: false }).catch(() => {});
+        // Local audio may already be stopped — leave the app cleanly
+        // paused. detachToLocal also kills any spawned session watcher.
+        detachToLocal();
         showToast(`Couldn't play on ${group.name}`, "error");
       } finally {
+        store.set(sonosConnectingAtom, false);
         transferInFlight = false;
       }
     },
@@ -257,7 +227,6 @@ export function useSonosActions() {
       store.set(sonosPendingResumeSeekAtom, null);
       store.set(playbackTargetAtom, { type: "local" });
       setPositionSource("local");
-      store.set(sonosCastStateAtom, "idle");
       await invoke("sonos_disconnect", { pauseRemote: true }).catch(() => {});
 
       const current = store.get(currentTrackAtom);
@@ -279,10 +248,9 @@ export function useSonosActions() {
     }
   }, [store, playTrack, seekTo]);
 
-  /** Silent startup reattach: if the last cast group is still playing OUR
-   *  queue (the payoff of mirroring — the speaker kept going while SONE was
-   *  closed), re-adopt the session instead of starting local-idle. Runs
-   *  once after the queue snapshot is restored; every miss is a no-op. */
+  /** Silent startup reattach: if the last cast group is still playing SONE's
+   *  queue, re-adopt the session instead of starting local-idle. Runs once
+   *  after the queue snapshot restores; every miss is a no-op. */
   const tryReattach = useCallback(async () => {
     if (!store.get(sonosEnabledAtom)) return;
     if (store.get(playbackTargetAtom).type !== "local") return;
@@ -307,7 +275,6 @@ export function useSonosActions() {
       store.set(playbackTargetAtom, {
         type: "sonos",
         coordinatorUuid: result.coordinatorUuid,
-        coordinatorIp: result.coordinatorIp,
         roomName: result.roomName,
       });
       setPositionSource("remote");
@@ -317,7 +284,6 @@ export function useSonosActions() {
       store.set(userPausedAtom, false);
       store.set(isPlayingAtom, true);
       notifySeek(result.positionSecs);
-      store.set(sonosCastStateAtom, "casting");
       console.info(`Reattached to live Sonos session on ${result.roomName}`);
     } catch {
       /* reattach is best-effort */

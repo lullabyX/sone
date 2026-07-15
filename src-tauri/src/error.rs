@@ -44,10 +44,6 @@ pub enum SoneError {
     #[error("MCP error: {0}")]
     Mcp(String),
 
-    /// The Sonos household has no linked TIDAL account.
-    #[error("No TIDAL account is linked to the Sonos system")]
-    SonosNoTidalAccount,
-
     /// Sonos device did not respond on the LAN (timeout, refused, no route).
     #[error("Sonos device unreachable: {0}")]
     SonosUnreachable(String),

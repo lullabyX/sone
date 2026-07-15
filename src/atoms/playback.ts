@@ -114,11 +114,6 @@ export const userPausedAtom = atom(false);
  *  starts targeting local output. */
 type PlaybackTarget =
   | { type: "local" }
-  | {
-      type: "sonos";
-      coordinatorUuid: string;
-      coordinatorIp: string;
-      roomName: string;
-    };
+  | { type: "sonos"; coordinatorUuid: string; roomName: string };
 
 export const playbackTargetAtom = atom<PlaybackTarget>({ type: "local" });

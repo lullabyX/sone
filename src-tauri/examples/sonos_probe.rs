@@ -256,7 +256,7 @@ async fn main() {
             pos.track_uri
         );
         if let Some(parsed) = didl::parse_track_uri(&pos.track_uri) {
-            assert_eq!(parsed, track_id, "TrackURI should round-trip our track id");
+            assert_eq!(parsed, track_id, "TrackURI should round-trip the track id");
         }
     }
 

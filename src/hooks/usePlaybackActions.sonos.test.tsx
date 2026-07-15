@@ -1,3 +1,9 @@
+/**
+ * Sonos-target behavior of usePlaybackActions: routing of the invoke
+ * boundary while casting, and adoptRemoteTrack's reconciliation of
+ * speaker-side track changes.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
@@ -6,9 +12,14 @@ import { usePlaybackActions } from "./usePlaybackActions";
 import { ToastProvider } from "../contexts/ToastContext";
 import {
   currentTrackAtom,
+  historyAtom,
   isPlayingAtom,
+  manualQueueAtom,
+  originalQueueAtom,
   playbackTargetAtom,
+  queueAtom,
   streamInfoAtom,
+  userPausedAtom,
   volumeAtom,
   bitPerfectAtom,
 } from "../atoms/playback";
@@ -20,20 +31,20 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
 }));
 
-const track = (over: Partial<Track> = {}): Track =>
+const track = (id = 42, over: Partial<Track> = {}): Track =>
   ({
-    id: 42,
-    title: "Song",
+    id,
+    title: `Song ${id}`,
     duration: 200,
     album: { title: "Album" },
     artist: { name: "Artist" },
+    _qid: `q${id}`,
     ...over,
   }) as unknown as Track;
 
 const SONOS_TARGET = {
   type: "sonos" as const,
   coordinatorUuid: "RINCON_TEST01400",
-  coordinatorIp: "192.168.1.10",
   roomName: "Living Room",
 };
 
@@ -53,13 +64,13 @@ function setup(target: "local" | "sonos") {
 
 const invokedCommands = () => invokeMock.mock.calls.map((c) => c[0]);
 
-describe("playback actions route by playbackTargetAtom", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    invokeMock.mockReset();
-    invokeMock.mockResolvedValue({});
-  });
+beforeEach(() => {
+  localStorage.clear();
+  invokeMock.mockReset();
+  invokeMock.mockResolvedValue({});
+});
 
+describe("playback actions route by playbackTargetAtom", () => {
   it("playTrack targets Sonos: sonos_play_track, no local engine, null streamInfo, scrobble intact", async () => {
     const { store, result } = setup("sonos");
     await act(async () => {
@@ -72,7 +83,7 @@ describe("playback actions route by playbackTargetAtom", () => {
     expect(call?.[1]).toMatchObject({
       trackId: 42,
       start: true,
-      meta: { title: "Song", album: "Album" },
+      meta: { title: "Song 42", album: "Album" },
     });
     expect(store.get(streamInfoAtom)).toBeNull();
     expect(store.get(isPlayingAtom)).toBe(true);
@@ -130,7 +141,7 @@ describe("playback actions route by playbackTargetAtom", () => {
       await act(async () => {
         await result.current.setVolume(0.35);
         // The remote IPC is throttled (leading+trailing) — let it flush.
-        await vi.advanceTimersByTimeAsync(200);
+        await vi.advanceTimersByTimeAsync(1000);
       });
       const call = invokeMock.mock.calls.find(
         (c) => c[0] === "sonos_set_volume",
@@ -151,7 +162,7 @@ describe("playback actions route by playbackTargetAtom", () => {
       store.set(bitPerfectAtom, true);
       await act(async () => {
         await result.current.setVolume(0.5);
-        await vi.advanceTimersByTimeAsync(200);
+        await vi.advanceTimersByTimeAsync(1000);
       });
       expect(invokedCommands()).toContain("sonos_set_volume");
       expect(store.get(sonosVolumeAtom)).toBe(50);
@@ -168,7 +179,7 @@ describe("playback actions route by playbackTargetAtom", () => {
         for (let step = 20; step <= 40; step += 2) {
           void result.current.setVolume(step / 100);
         }
-        await vi.advanceTimersByTimeAsync(400);
+        await vi.advanceTimersByTimeAsync(1000);
       });
       const calls = invokeMock.mock.calls.filter(
         (c) => c[0] === "sonos_set_volume",
@@ -210,13 +221,78 @@ describe("playback actions route by playbackTargetAtom", () => {
     expect(store.get(sonosPendingResumeSeekAtom)).toBe(250);
     expect(invokedCommands()).not.toContain("sonos_seek");
   });
+});
 
-  it("playNext skips the local stop_track while remote", async () => {
+describe("adoptRemoteTrack reconciles speaker-side track changes", () => {
+  it("echo of the current track is a no-op success", () => {
     const { store, result } = setup("sonos");
-    store.set(currentTrackAtom, track());
-    await act(async () => {
-      await result.current.playNext({ explicit: true });
+    store.set(currentTrackAtom, track(1));
+    let adopted = false;
+    act(() => {
+      adopted = result.current.adoptRemoteTrack(1, "q1");
     });
-    expect(invokedCommands()).not.toContain("stop_track");
+    expect(adopted).toBe(true);
+    expect(store.get(currentTrackAtom)?.id).toBe(1);
+  });
+
+  it("mirrored self-advance: consumes the manual-queue head by qid", () => {
+    const { store, result } = setup("sonos");
+    store.set(currentTrackAtom, track(1));
+    store.set(manualQueueAtom, [track(2), track(3)]);
+    act(() => {
+      expect(result.current.adoptRemoteTrack(2, "q2")).toBe(true);
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(2);
+    expect(store.get(manualQueueAtom).map((t) => t.id)).toEqual([3]);
+    // Old current pushed to history (via advanceToTrack)
+    expect(store.get(historyAtom).map((t) => t.id)).toEqual([1]);
+    // A self-advance is a new listen
+    expect(invokedCommands()).toContain("notify_track_started");
+  });
+
+  it("external forward jump: skipped entries land in history, originalQueue pruned", () => {
+    const { store, result } = setup("sonos");
+    store.set(currentTrackAtom, track(1));
+    store.set(manualQueueAtom, [track(2)]);
+    store.set(queueAtom, [track(3), track(4), track(5)]);
+    store.set(originalQueueAtom, [track(3), track(4), track(5)]);
+    act(() => {
+      // Sonos app jumped straight to track 4: 2 (manual) and 3 were skipped.
+      expect(result.current.adoptRemoteTrack(4)).toBe(true);
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(4);
+    expect(store.get(manualQueueAtom)).toEqual([]);
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([5]);
+    // history: skipped [2, 3] then old current 1 (advanceToTrack pushes it)
+    expect(store.get(historyAtom).map((t) => t.id)).toEqual([2, 3, 1]);
+    expect(store.get(originalQueueAtom)?.map((t) => t.id)).toEqual([5]);
+  });
+
+  it("external Previous: adopts from history, displaced current goes to manual front", () => {
+    const { store, result } = setup("sonos");
+    store.set(historyAtom, [track(1), track(2)]);
+    store.set(currentTrackAtom, track(3));
+    store.set(manualQueueAtom, [track(4)]);
+    store.set(userPausedAtom, false);
+    act(() => {
+      expect(result.current.adoptRemoteTrack(2)).toBe(true);
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(2);
+    expect(store.get(historyAtom).map((t) => t.id)).toEqual([1]);
+    expect(store.get(manualQueueAtom).map((t) => t.id)).toEqual([3, 4]);
+    expect(store.get(isPlayingAtom)).toBe(true);
+  });
+
+  it("unknown track returns false and mutates nothing", () => {
+    const { store, result } = setup("sonos");
+    store.set(currentTrackAtom, track(1));
+    store.set(queueAtom, [track(2)]);
+    let adopted = true;
+    act(() => {
+      adopted = result.current.adoptRemoteTrack(999);
+    });
+    expect(adopted).toBe(false);
+    expect(store.get(currentTrackAtom)?.id).toBe(1);
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([2]);
   });
 });

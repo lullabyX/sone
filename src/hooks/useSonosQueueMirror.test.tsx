@@ -36,7 +36,6 @@ function setup(remote = true) {
     store.set(playbackTargetAtom, {
       type: "sonos",
       coordinatorUuid: "RINCON_TEST",
-      coordinatorIp: "192.168.1.10",
       roomName: "Office",
     });
   }
@@ -66,7 +65,7 @@ describe("useSonosQueueMirror", () => {
     await act(async () => {
       store.set(manualQueueAtom, [track(2)]);
       store.set(queueAtom, [track(3), track(4)]);
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(2000);
     });
     const calls = syncCalls();
     const last = calls[calls.length - 1];
@@ -84,7 +83,7 @@ describe("useSonosQueueMirror", () => {
     await act(async () => {
       store.set(queueAtom, [track(3)]);
       store.set(repeatAtom, 2);
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(2000);
     });
     const calls = syncCalls();
     const last = calls[calls.length - 1];
@@ -95,7 +94,7 @@ describe("useSonosQueueMirror", () => {
     const { store } = setup(false);
     await act(async () => {
       store.set(queueAtom, [track(3)]);
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(2000);
     });
     expect(syncCalls()).toHaveLength(0);
   });

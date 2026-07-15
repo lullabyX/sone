@@ -1028,7 +1028,6 @@ pub fn run() {
             commands::sonos::sonos_play_track,
             commands::sonos::sonos_pause,
             commands::sonos::sonos_resume,
-            commands::sonos::sonos_stop,
             commands::sonos::sonos_seek,
             commands::sonos::sonos_get_position,
             commands::sonos::sonos_set_volume,

@@ -1,8 +1,6 @@
-//! Minimal UPnP SOAP client for Sonos speakers (port 1400).
-//!
-//! Sonos exposes a fixed, well-known set of SOAP actions; we build the
-//! envelopes by hand rather than pulling in a generic UPnP stack.
-//! Reference: <https://sonos.svrooij.io/> (community-documented API).
+//! Minimal UPnP SOAP client for Sonos speakers (port 1400). The action set
+//! is small and fixed, so envelopes are built by hand instead of pulling in
+//! a UPnP stack. Reference: <https://sonos.svrooij.io/>.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -13,14 +11,11 @@ use crate::sonos::xmlutil::{child_texts, first_text, xml_escape};
 pub const SONOS_PORT: u16 = 1400;
 
 /// One of the UPnP services a Sonos player exposes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Service {
     /// Service name inside the URN, e.g. `AVTransport`.
     pub name: &'static str,
     /// HTTP control endpoint path.
     pub control_path: &'static str,
-    /// GENA event endpoint path (used by the Phase 2 subscriber).
-    pub event_path: &'static str,
 }
 
 impl Service {
@@ -32,26 +27,23 @@ impl Service {
 pub const AV_TRANSPORT: Service = Service {
     name: "AVTransport",
     control_path: "/MediaRenderer/AVTransport/Control",
-    event_path: "/MediaRenderer/AVTransport/Event",
-};
-
-pub const RENDERING_CONTROL: Service = Service {
-    name: "RenderingControl",
-    control_path: "/MediaRenderer/RenderingControl/Control",
-    event_path: "/MediaRenderer/RenderingControl/Event",
 };
 
 pub const GROUP_RENDERING_CONTROL: Service = Service {
     name: "GroupRenderingControl",
     control_path: "/MediaRenderer/GroupRenderingControl/Control",
-    event_path: "/MediaRenderer/GroupRenderingControl/Event",
 };
 
 pub const ZONE_GROUP_TOPOLOGY: Service = Service {
     name: "ZoneGroupTopology",
     control_path: "/ZoneGroupTopology/Control",
-    event_path: "/ZoneGroupTopology/Event",
 };
+
+/// `InstanceID=0` — the only transport instance Sonos exposes; every
+/// AVTransport/GroupRenderingControl action takes it.
+pub(crate) fn instance_arg() -> (&'static str, String) {
+    ("InstanceID", "0".to_string())
+}
 
 /// Dedicated HTTP client for Sonos LAN traffic. Deliberately NOT the app's
 /// central client: that one routes through the user's configured proxy,

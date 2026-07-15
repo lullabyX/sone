@@ -1,9 +1,7 @@
-//! TIDAL → Sonos URI and DIDL-Lite metadata construction.
-//!
-//! Formats follow SoCo's `ShareLinkPlugin` (attested to work for TIDAL on
-//! S2 firmware) with janbar/noson's `x-sonos-http` form as a fallback.
-//! The speaker resolves the actual media URL itself via SMAPI `getMediaURI`
-//! using the household's linked TIDAL account — we only pass IDs.
+//! TIDAL → Sonos URI and DIDL-Lite construction, following SoCo's
+//! `ShareLinkPlugin` (hardware-validated) with noson's `x-sonos-http` form
+//! as fallback. Only track IDs are sent; the speaker resolves the media URL
+//! itself via SMAPI `getMediaURI` and the Sonos system's linked account.
 
 use crate::sonos::xmlutil::xml_escape;
 
@@ -21,7 +19,7 @@ pub const TIDAL_TRACK_FLAGS: u32 = 24616;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrackUriStyle {
     /// SoCo sharelink form: the bare encoded item id (`track%2f<id>`).
-    /// Works when the household resolves its (single) linked TIDAL account
+    /// Works when the Sonos system resolves its (single) linked TIDAL account
     /// from the `<desc>` token alone. Default.
     Bare,
     /// noson / Sonos-app form with explicit service + account serial:
@@ -89,7 +87,7 @@ pub fn queue_uri(coordinator_uuid: &str) -> String {
 }
 
 /// Parse a TIDAL track id back out of a Sonos queue/transport URI, in either
-/// of the two forms we enqueue (`track%2f<id>` bare or `x-sonos-http:...`).
+/// of the two enqueued forms (`track%2f<id>` bare or `x-sonos-http:...`).
 /// Returns `None` for foreign URIs (radio, other services, line-in, ...).
 pub fn parse_track_uri(uri: &str) -> Option<u64> {
     let lower = uri.to_ascii_lowercase();

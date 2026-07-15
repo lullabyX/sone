@@ -1,8 +1,6 @@
-//! Sonos control: lets SONE act as a controller for Sonos speakers, with the
-//! speaker streaming natively (and bit-perfectly) from TIDAL via the
-//! household's linked account. See the SMAPI notes in `didl.rs` — SONE only
-//! ever sends control commands and TIDAL track IDs; audio and TIDAL
-//! credentials never pass through this machine.
+//! Sonos control: SONE is the controller; the speaker streams natively from
+//! TIDAL via the Sonos system's linked account (see `didl.rs`). Only control
+//! commands and track IDs leave this machine — never audio or credentials.
 
 pub mod accounts;
 pub mod avtransport;
@@ -15,9 +13,7 @@ pub mod soap;
 pub mod topology;
 mod xmlutil;
 
-pub use accounts::{get_tidal_account, TidalAccount, TidalLinkStatus};
-pub use avtransport::{PositionInfo, TransportState};
-pub use discovery::SonosDevice;
+pub use accounts::{get_tidal_account, TidalLinkStatus};
 pub use soap::lan_client;
 pub use topology::{get_zone_groups, ZoneGroup};
 
@@ -35,10 +31,9 @@ pub struct SonosState {
     /// Active cast session, if any. The tokio Mutex is held across
     /// connect/disconnect to serialize session swaps (mcp_handle pattern).
     pub session: tokio::sync::Mutex<Option<session::SessionHandle>>,
-    /// Mirrored queue tail. The lock ALSO serializes every queue-mutating
-    /// SOAP sequence (play_track's clear+enqueue, sync_tail's diff+apply) so
-    /// concurrent edits can never interleave on the speaker. Shared with the
-    /// session watcher, which consumes entries as the speaker advances.
+    /// Mirrored queue tail. The lock also serializes every queue-mutating
+    /// SOAP sequence so concurrent edits can't interleave on the speaker;
+    /// the session watcher consumes entries as the speaker advances.
     pub mirror: std::sync::Arc<tokio::sync::Mutex<mirror::MirrorState>>,
 }
 
@@ -59,7 +54,7 @@ impl Default for SonosState {
     }
 }
 
-/// A zone group annotated with the household's TIDAL link status — the shape
+/// A zone group annotated with the system-wide TIDAL link status — the shape
 /// the output picker renders.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +68,7 @@ pub struct SonosGroupInfo {
 }
 
 /// Full discovery sweep: SSDP (plus any manual IPs) → topology → TIDAL
-/// account check. Any single reachable player yields the whole household's
+/// account check. Any single reachable player yields the whole system's
 /// topology, so manual IPs rescue multicast-hostile networks entirely.
 pub async fn discover_groups(
     client: &reqwest::Client,
@@ -90,7 +85,7 @@ pub async fn discover_groups(
         }
     }
     // Multicast responses are firewalled on many desktops; sweep the local
-    // /24 for the control port before declaring the household unreachable.
+    // /24 for the control port before declaring the speakers unreachable.
     if candidate_ips.is_empty() {
         candidate_ips = discovery::subnet_sweep().await;
         if !candidate_ips.is_empty() {
@@ -98,7 +93,7 @@ pub async fn discover_groups(
         }
     }
 
-    // First responsive player gives us the household topology + accounts.
+    // The first responsive player yields the whole system's topology + accounts.
     for ip in &candidate_ips {
         // Sweep candidates are just "port 1400 open" — anything from a
         // printer to a NAS can qualify. Only a real Sonos serves the device

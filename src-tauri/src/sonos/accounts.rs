@@ -1,22 +1,21 @@
 //! Linked music-service account discovery via `GET /status/accounts`.
-//! We only care whether the household has a TIDAL account and its serial.
+//! Reads whether the Sonos system has a linked TIDAL account, and its
+//! serial.
 
 use crate::error::SoneError;
 use crate::sonos::didl::TIDAL_SERVICE_TYPE;
 use crate::sonos::soap::SONOS_PORT;
 use crate::sonos::xmlutil::elements_attrs;
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct TidalAccount {
     /// Account `SerialNum` — the `sn=` value for `x-sonos-http` URIs.
     pub serial: String,
 }
 
-/// Whether the household has a linked TIDAL account, as far as the legacy
+/// Whether the Sonos system has a linked TIDAL account, as far as the legacy
 /// `/status/accounts` endpoint can tell.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub enum TidalLinkStatus {
     Linked(TidalAccount),
     NotLinked,
@@ -46,7 +45,8 @@ pub fn parse_accounts(xml: &str) -> Result<TidalLinkStatus, SoneError> {
     Ok(TidalLinkStatus::NotLinked)
 }
 
-/// Query any player in the household for its linked TIDAL account.
+/// Query any player in the system for its linked TIDAL account (the link
+/// is system-wide, not per speaker).
 pub async fn get_tidal_account(
     client: &reqwest::Client,
     ip: &str,

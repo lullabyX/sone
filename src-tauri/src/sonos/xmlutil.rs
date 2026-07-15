@@ -16,23 +16,17 @@ fn protocol_err(e: impl std::fmt::Display) -> SoneError {
 /// instead of resolving them inside `Text`. Resolve the predefined XML
 /// entities plus numeric character references.
 fn resolve_entity(name: &str) -> String {
-    match name {
-        "amp" => "&".to_string(),
-        "lt" => "<".to_string(),
-        "gt" => ">".to_string(),
-        "quot" => "\"".to_string(),
-        "apos" => "'".to_string(),
-        _ => {
-            let code = name
-                .strip_prefix("#x")
-                .or_else(|| name.strip_prefix("#X"))
-                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-                .or_else(|| name.strip_prefix('#').and_then(|dec| dec.parse().ok()));
-            match code.and_then(char::from_u32) {
-                Some(c) => c.to_string(),
-                None => format!("&{name};"), // unknown entity: keep verbatim
-            }
-        }
+    if let Some(predefined) = quick_xml::escape::resolve_predefined_entity(name) {
+        return predefined.to_string();
+    }
+    let code = name
+        .strip_prefix("#x")
+        .or_else(|| name.strip_prefix("#X"))
+        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+        .or_else(|| name.strip_prefix('#').and_then(|dec| dec.parse().ok()));
+    match code.and_then(char::from_u32) {
+        Some(c) => c.to_string(),
+        None => format!("&{name};"), // unknown entity: keep verbatim
     }
 }
 
@@ -176,19 +170,8 @@ pub fn child_texts(xml: &str, parent: &str) -> Result<BTreeMap<String, String>, 
 }
 
 /// Escape a string for embedding as XML text or attribute content.
-pub fn xml_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(c),
-        }
-    }
-    out
+pub fn xml_escape(s: &str) -> std::borrow::Cow<'_, str> {
+    quick_xml::escape::escape(s)
 }
 
 #[cfg(test)]
@@ -237,13 +220,5 @@ mod tests {
         assert_eq!(args["Track"], "3");
         assert_eq!(args["RelTime"], "0:01:07");
         assert_eq!(args["TrackMetaData"], "<DIDL-Lite></DIDL-Lite>");
-    }
-
-    #[test]
-    fn xml_escape_all_specials() {
-        assert_eq!(
-            xml_escape(r#"a&b<c>d"e'f"#),
-            "a&amp;b&lt;c&gt;d&quot;e&apos;f"
-        );
     }
 }

@@ -1,10 +1,7 @@
 /**
- * useSonosBridge — maps speaker-side truth (Tauri events emitted by the Rust
- * cast-session watcher) back into the playback atoms. Single writer for
- * remote state; every write is guarded on the target actually being Sonos so
- * stale events can never disturb local playback.
- *
- * Mounted once from AppInitializer, alongside the other backend listeners.
+ * useSonosBridge — maps the cast-session watcher's Tauri events into the
+ * playback atoms. Every write is guarded on the target being Sonos, so stale
+ * events can never disturb local playback. Mounted once from AppInitializer.
  */
 
 import { useEffect } from "react";
@@ -18,7 +15,11 @@ import {
   streamInfoAtom,
   userPausedAtom,
 } from "../atoms/playback";
-import { sonosMutedAtom, sonosVolumeAtom } from "../atoms/sonos";
+import {
+  sonosMutedAtom,
+  sonosVolumeAtom,
+  type SonosNowPlaying,
+} from "../atoms/sonos";
 import { usePlaybackActions } from "./usePlaybackActions";
 import { useSonosActions } from "./useSonosActions";
 import { useToast } from "../contexts/ToastContext";
@@ -40,16 +41,14 @@ export function useSonosBridge() {
       setTimeout(async () => {
         if (!remote()) return;
         try {
-          const now = await invoke<{ trackId: number | null }>(
-            "sonos_get_now_playing",
-          );
+          const now = await invoke<SonosNowPlaying>("sonos_get_now_playing");
           const freshCurrent = store.get(currentTrackAtom);
           if (
             now.trackId != null &&
             freshCurrent &&
             now.trackId === freshCurrent.id
           ) {
-            return; // caught up — it was our own in-flight change
+            return; // caught up — it was SONE's own in-flight change
           }
           // Last chance: an external jump that landed after the event.
           if (now.trackId != null && adoptRemoteTrack(now.trackId)) {
@@ -65,10 +64,9 @@ export function useSonosBridge() {
     };
 
     const unlistenPromises = [
-      // External play/pause/stop (Sonos app, physical buttons). Our own
-      // commands update the atoms optimistically, so an echo arrives with
-      // the atom already in the right state and no-ops — only genuinely
-      // external transitions pass the change check and notify the scrobbler.
+      // External play/pause/stop (Sonos app, physical buttons). Echoes of
+      // SONE's own commands find the atom already updated and no-op; only
+      // genuinely external transitions notify the scrobbler.
       listen<{ state: string }>("sonos-transport-changed", (event) => {
         if (!remote()) return;
         const { state } = event.payload;
@@ -95,7 +93,7 @@ export function useSonosBridge() {
         void playNext();
       }),
 
-      // The speaker self-advanced into a queue entry we mirrored (native
+      // The speaker self-advanced into a mirrored queue entry (native
       // gapless): reconcile the exact instance by qid — history push, queue
       // drain, current-track adoption, scrobble start.
       listen<{ trackId: number; qid: string }>(
@@ -104,7 +102,7 @@ export function useSonosBridge() {
           if (!remote()) return;
           const { trackId, qid } = event.payload;
           if (!adoptRemoteTrack(trackId, qid) && !adoptRemoteTrack(trackId)) {
-            // The mirrored entry no longer maps to our queue (edit raced the
+            // The mirrored entry no longer maps to the queue atoms (edit raced the
             // boundary). The speaker IS playing it though — treat like an
             // external change below.
             scheduleTakeoverCheck();
@@ -112,23 +110,19 @@ export function useSonosBridge() {
         },
       ),
 
-      // The speaker switched to a track we didn't cause via the mirror.
-      // First try to map it onto our own queue/history (Sonos-app Next,
-      // Previous, or queue jump — all legitimate). Only an unmappable track
-      // suggests another controller took over; even then re-verify after a
-      // grace period, because a rapid double-skip leaves the poller
-      // reporting an intermediate track while our play command is in flight.
-      listen<{ trackId: number | null; trackUri: string }>(
-        "sonos-track-changed",
-        (event) => {
-          if (!remote()) return;
-          const current = store.get(currentTrackAtom);
-          const { trackId } = event.payload;
-          if (trackId != null && current && trackId === current.id) return;
-          if (trackId != null && adoptRemoteTrack(trackId)) return;
-          scheduleTakeoverCheck();
-        },
-      ),
+      // The speaker switched to a track the mirror didn't predict. First
+      // try to map it onto the queue/history atoms (Sonos-app Next/Previous/jump
+      // are legitimate); only an unmappable track suggests takeover — and
+      // even then re-verify, since a rapid double-skip briefly shows an
+      // intermediate track while a play command is in flight.
+      listen<{ trackId: number | null }>("sonos-track-changed", (event) => {
+        if (!remote()) return;
+        const current = store.get(currentTrackAtom);
+        const { trackId } = event.payload;
+        if (trackId != null && current && trackId === current.id) return;
+        if (trackId != null && adoptRemoteTrack(trackId)) return;
+        scheduleTakeoverCheck();
+      }),
 
       listen<{ volume: number; muted: boolean }>(
         "sonos-volume-changed",

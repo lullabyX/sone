@@ -1,10 +1,10 @@
-//! Typed wrappers over the AVTransport actions we use. All calls must
+//! Typed wrappers over the AVTransport actions in use. All calls must
 //! target the group coordinator's IP (see `topology`).
 
 use std::collections::BTreeMap;
 
 use crate::error::SoneError;
-use crate::sonos::soap::{format_hms, parse_hms, soap_action, AV_TRANSPORT};
+use crate::sonos::soap::{format_hms, instance_arg, parse_hms, soap_action, AV_TRANSPORT};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -28,8 +28,7 @@ impl TransportState {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct PositionInfo {
     /// 1-based queue position; 0 when nothing is loaded.
     pub track_nr: u32,
@@ -38,18 +37,11 @@ pub struct PositionInfo {
     pub track_uri: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct AddToQueueResult {
     pub first_track_nr: u32,
     pub num_added: u32,
     pub queue_length: u32,
-}
-
-const INSTANCE: (&str, &str) = ("InstanceID", "0");
-
-fn instance_arg() -> (&'static str, String) {
-    (INSTANCE.0, INSTANCE.1.to_string())
 }
 
 async fn simple(client: &reqwest::Client, ip: &str, action: &str) -> Result<(), SoneError> {
@@ -160,16 +152,10 @@ pub async fn pause(client: &reqwest::Client, ip: &str) -> Result<(), SoneError> 
     simple(client, ip, "Pause").await
 }
 
-pub async fn stop(client: &reqwest::Client, ip: &str) -> Result<(), SoneError> {
-    simple(client, ip, "Stop").await
-}
-
+// Used by the hardware probe (`examples/sonos_probe.rs`) to validate queue
+// self-advance; the app itself never sends Next — it re-seeds the queue.
 pub async fn next(client: &reqwest::Client, ip: &str) -> Result<(), SoneError> {
     simple(client, ip, "Next").await
-}
-
-pub async fn previous(client: &reqwest::Client, ip: &str) -> Result<(), SoneError> {
-    simple(client, ip, "Previous").await
 }
 
 pub async fn seek_rel_time(
@@ -192,28 +178,8 @@ pub async fn seek_rel_time(
     Ok(())
 }
 
-pub async fn seek_track_nr(
-    client: &reqwest::Client,
-    ip: &str,
-    track_nr: u32,
-) -> Result<(), SoneError> {
-    soap_action(
-        client,
-        ip,
-        &AV_TRANSPORT,
-        "Seek",
-        &[
-            instance_arg(),
-            ("Unit", "TRACK_NR".to_string()),
-            ("Target", track_nr.to_string()),
-        ],
-    )
-    .await?;
-    Ok(())
-}
-
 /// `NORMAL`, `REPEAT_ALL`, `REPEAT_ONE`, `SHUFFLE`, `SHUFFLE_NOREPEAT`, ...
-/// SONE always sets `NORMAL`: play order is pre-materialized on our side.
+/// SONE always sets `NORMAL`: play order is pre-materialized frontend-side.
 pub async fn set_play_mode(
     client: &reqwest::Client,
     ip: &str,
@@ -296,10 +262,6 @@ pub async fn get_media_info(client: &reqwest::Client, ip: &str) -> Result<MediaI
             .and_then(|v| v.trim().parse().ok())
             .unwrap_or(0),
     })
-}
-
-pub async fn get_media_uri(client: &reqwest::Client, ip: &str) -> Result<String, SoneError> {
-    Ok(get_media_info(client, ip).await?.current_uri)
 }
 
 /// Remove `count` queue entries starting at 1-based `starting_index`.

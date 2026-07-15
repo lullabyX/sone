@@ -1,8 +1,7 @@
 /**
- * OutputPicker — Spotify Connect-style output selector in the player bar.
- * Lists "This computer" plus discovered Sonos groups; selecting a room hands
- * playback to the speaker (which streams natively from TIDAL). While casting
- * the button shows an accent room-name chip.
+ * OutputPicker — Spotify Connect-style output selector in the player bar:
+ * "This computer" plus discovered Sonos groups. While casting, the button
+ * shows an accent room-name chip.
  */
 
 import { memo, useEffect, useRef, useState } from "react";
@@ -17,7 +16,7 @@ import {
 } from "lucide-react";
 import { playbackTargetAtom } from "../atoms/playback";
 import {
-  sonosCastStateAtom,
+  sonosConnectingAtom,
   sonosDiscoveringAtom,
   sonosEnabledAtom,
   sonosGroupsAtom,
@@ -33,7 +32,7 @@ const OutputPicker = memo(function OutputPicker() {
   const target = useAtomValue(playbackTargetAtom);
   const groups = useAtomValue(sonosGroupsAtom);
   const discovering = useAtomValue(sonosDiscoveringAtom);
-  const castState = useAtomValue(sonosCastStateAtom);
+  const connecting = useAtomValue(sonosConnectingAtom);
   const { discover, castToGroup, switchToLocal, addManualIp } =
     useSonosActions();
 
@@ -70,7 +69,6 @@ const OutputPicker = memo(function OutputPicker() {
   if (!enabled) return null;
 
   const casting = target.type === "sonos";
-  const connecting = castState === "connecting";
 
   const selectGroup = async (group: SonosGroupInfo) => {
     setOpen(false);
