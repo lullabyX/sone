@@ -20,11 +20,19 @@ pub struct OverlayHandle {
     pub port: u16,
     pub host: String,
     pub cancel: CancellationToken,
+    pub task: tokio::task::JoinHandle<()>,
 }
 
 impl OverlayHandle {
     pub fn url(&self) -> String {
         format!("http://{}:{}/overlay", self.host, self.port)
+    }
+
+    /// Stop the server and wait until the listener is released and all
+    /// connections are closed. Must complete before rebinding the same addr.
+    pub async fn shutdown(self) {
+        self.cancel.cancel();
+        let _ = self.task.await;
     }
 }
 
@@ -412,6 +420,7 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
 struct AppCtx {
     state: OverlayStateRef,
     tx: Arc<broadcast::Sender<String>>,
+    cancel: CancellationToken,
 }
 
 async fn serve_html() -> Html<&'static str> {
@@ -463,6 +472,10 @@ async fn serve_sse(
     });
 
     let merged = tokio_stream::StreamExt::merge(state_stream, theme_stream);
+    // SSE bodies never end on their own — end them on shutdown so graceful
+    // shutdown can drain the connection instead of hanging forever.
+    let merged =
+        futures_util::StreamExt::take_until(merged, ctx.cancel.clone().cancelled_owned());
     Sse::new(merged).keep_alive(KeepAlive::default())
 }
 
@@ -477,6 +490,7 @@ pub async fn start_server(
     let ctx = AppCtx {
         state,
         tx: Arc::new(tx),
+        cancel: cancel.clone(),
     };
 
     let app = Router::new()
@@ -506,23 +520,86 @@ pub async fn start_server(
         bound_port
     );
 
-    let cancel_clone = cancel.clone();
-    tokio::spawn(async move {
-        tokio::select! {
-            result = axum::serve(listener, app) => {
-                if let Err(e) = result {
-                    log::error!("Overlay server exited with error: {e}");
-                }
-            }
-            _ = cancel_clone.cancelled() => {
-                log::info!("Overlay server shutting down");
-            }
-        }
-    });
+    let task = crate::http_util::spawn_with_shutdown(listener, app, cancel.clone(), "Overlay");
 
     Ok(OverlayHandle {
         port: bound_port,
         host: host_owned,
         cancel,
+        task,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn start_on_ephemeral() -> (OverlayHandle, crate::overlay::OverlayStateRef) {
+        let (state, _rx, _theme_rx) = crate::overlay::new_state();
+        let tx = state.read().await.tx.clone();
+        let handle = start_server(state.clone(), tx, "127.0.0.1", 0)
+            .await
+            .unwrap();
+        (handle, state)
+    }
+
+    async fn open_sse(port: u16) -> tokio::net::TcpStream {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(
+                b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        let mut buf = [0u8; 1024];
+        let n = stream.read(&mut buf).await.unwrap();
+        assert!(n > 0, "no SSE response headers");
+        stream
+    }
+
+    #[tokio::test]
+    async fn shutdown_disconnects_sse_clients() {
+        let (handle, _state) = start_on_ephemeral().await;
+        let mut stream = open_sse(handle.port).await;
+
+        tokio::time::timeout(Duration::from_secs(5), handle.shutdown())
+            .await
+            .expect("shutdown timed out with a live SSE client");
+
+        let mut buf = [0u8; 1024];
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match stream.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
+            }
+        })
+        .await
+        .expect("connection not closed after shutdown");
+    }
+
+    #[tokio::test]
+    async fn restart_rebinds_same_port_immediately() {
+        let (mut handle, state) = start_on_ephemeral().await;
+        let port = handle.port;
+        for i in 0..20 {
+            let _stream = if i % 2 == 0 {
+                Some(open_sse(port).await)
+            } else {
+                None
+            };
+            handle.shutdown().await;
+            let tx = state.read().await.tx.clone();
+            handle = start_server(state.clone(), tx, "127.0.0.1", port)
+                .await
+                .unwrap_or_else(|e| panic!("rebind {i} failed: {e:?}"));
+        }
+        handle.shutdown().await;
+    }
 }

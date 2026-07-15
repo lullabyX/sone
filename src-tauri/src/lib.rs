@@ -19,6 +19,7 @@ mod tray;
 mod tidal_api;
 pub mod mcp;
 pub mod overlay;
+mod http_util;
 
 pub use error::SoneError;
 pub use signal_path::{SignalPath, SignalPathTracker};

@@ -67,7 +67,7 @@ async fn restart_if_running(state: &AppState) -> Result<(), SoneError> {
         return Ok(());
     }
     if let Some(handle) = guard.take() {
-        handle.cancel.cancel();
+        handle.shutdown().await;
     }
     let settings = state.load_settings().unwrap_or_default();
     let tx = {
@@ -98,7 +98,7 @@ pub async fn overlay_set_enabled(
     {
         let mut guard = state.overlay_handle.lock().await;
         if let Some(handle) = guard.take() {
-            handle.cancel.cancel();
+            handle.shutdown().await;
         }
         if enabled {
             let tx = {
