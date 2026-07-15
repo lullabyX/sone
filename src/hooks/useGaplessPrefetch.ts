@@ -12,6 +12,7 @@ import {
   bitPerfectAtom,
   gaplessAtom,
   useTrackGainAtom,
+  playbackTargetAtom,
 } from "../atoms/playback";
 import { currentVideoAtom } from "../atoms/video";
 import type { Track, StreamInfo } from "../types";
@@ -54,6 +55,9 @@ export function useGaplessPrefetch(
       !store.get(exclusiveModeAtom) &&
       !store.get(bitPerfectAtom) &&
       !store.get(currentVideoAtom) && // a video is the current item → not audio-gapless
+      // Remote target: the local concat slot is meaningless while the
+      // speaker plays — an armed slot would fire local audio at "EOS".
+      store.get(playbackTargetAtom).type === "local" &&
       !!store.get(currentTrackAtom);
     if (!enabled) {
       await clearSlot();
@@ -122,6 +126,7 @@ export function useGaplessPrefetch(
       store.sub(exclusiveModeAtom, refreshImmediate),
       store.sub(bitPerfectAtom, refreshImmediate),
       store.sub(gaplessAtom, refreshImmediate),
+      store.sub(playbackTargetAtom, refreshImmediate),
     ];
     void refresh();
     return () => {

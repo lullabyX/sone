@@ -22,6 +22,10 @@ let trackResetTime = 0;
 // position doesn't climb from 0 during the load gap, or past the old track's
 // end during an in-place replay. Gapless advances never set this.
 let loadingTrack = false;
+// Which engine the position poll asks: the local GStreamer pipeline or the
+// Sonos group coordinator. Everything else (interpolation, seek anchoring,
+// settle window, consumers) is source-agnostic.
+let positionSource: "local" | "remote" = "local";
 // How long after a track change to apply the guard.
 const SETTLE_WINDOW_MS = 3000;
 // A poll exceeding the expected position by more than this is treated as the
@@ -33,7 +37,11 @@ const SETTLE_AHEAD_TOLERANCE_SECS = 2;
 async function fetchAndAnchor() {
   const gen = trackGeneration;
   try {
-    const pos = await invoke<number>("get_playback_position");
+    const pos = await invoke<number>(
+      positionSource === "remote"
+        ? "sonos_get_position"
+        : "get_playback_position",
+    );
     // Discard stale response if track changed while awaiting
     if (gen !== trackGeneration) return;
 
@@ -118,6 +126,16 @@ export function notifySeek(targetSecs: number) {
     seekCorrectionTimer = null;
     fetchAndAnchor();
   }, 300);
+}
+
+/**
+ * Switch the poll source when casting starts/stops. Re-anchors immediately
+ * so the displayed position snaps to the new engine's truth.
+ */
+export function setPositionSource(source: "local" | "remote") {
+  if (positionSource === source) return;
+  positionSource = source;
+  if (playing) startSyncLoop();
 }
 
 /**

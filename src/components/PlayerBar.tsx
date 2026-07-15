@@ -26,6 +26,7 @@ import {
   repeatAtom,
   shuffleAtom,
   playbackSourceAtom,
+  playbackTargetAtom,
 } from "../atoms/playback";
 import {
   currentVideoAtom,
@@ -44,6 +45,7 @@ import { useNavigation } from "../hooks/useNavigation";
 import { useMiniplayerWindow } from "../hooks/useMiniplayerWindow";
 import { TrackArtists } from "./TrackArtists";
 import QualityBadge from "./QualityBadge";
+import OutputPicker from "./OutputPicker";
 import SignalPathPanel from "./SignalPathPanel";
 import VolumeSlider from "./VolumeSlider";
 import TrackContextMenu from "./TrackContextMenu";
@@ -736,6 +738,7 @@ const MiniPlayerButton = memo(function MiniPlayerButton() {
 
 export default function PlayerBar() {
   const maximized = useAtomValue(maximizedPlayerAtom);
+  const playbackTarget = useAtomValue(playbackTargetAtom);
   const [signalPathOpen, setSignalPathOpen] = useState(false);
 
   return (
@@ -754,7 +757,12 @@ export default function PlayerBar() {
 
       {/* Right: Volume & Extras */}
       <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
-        <QualityBadge onClick={() => setSignalPathOpen(true)} />
+        {/* QualityBadge/signal-path describe the LOCAL pipeline — while
+            casting, the OutputPicker's room chip takes their place. */}
+        {playbackTarget.type === "local" && (
+          <QualityBadge onClick={() => setSignalPathOpen(true)} />
+        )}
+        <OutputPicker />
         <DrawerButtons />
         <MiniPlayerButton />
         <MaximizeButton />

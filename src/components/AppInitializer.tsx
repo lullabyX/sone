@@ -59,6 +59,7 @@ import {
   streamInfoAtom,
   signalPathAtom,
   useTrackGainAtom,
+  playbackTargetAtom,
   type SignalPath,
 } from "../atoms/playback";
 import {
@@ -78,6 +79,10 @@ import { useFavorites } from "../hooks/useFavorites";
 import { useShortcuts } from "../hooks/useShortcuts";
 import { useMcpBridge } from "../hooks/useMcpBridge";
 import { useOverlayBridge } from "../hooks/useOverlayBridge";
+import { useSonosBridge } from "../hooks/useSonosBridge";
+import { useSonosQueueMirror } from "../hooks/useSonosQueueMirror";
+import { useSonosActions } from "../hooks/useSonosActions";
+import { sonosVolumeAtom } from "../atoms/sonos";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -114,7 +119,6 @@ import { ensureQid, advanceCounterPast } from "../lib/qid";
 import {
   initPositionInterpolator,
   destroyPositionInterpolator,
-  notifySeek,
   getInterpolatedPosition,
 } from "../lib/playbackPosition";
 
@@ -196,6 +200,11 @@ export function AppInitializer() {
   } = usePlaybackActions();
   const pendingNextRef = useRef<PendingNext | null>(null);
   useGaplessPrefetch(predictNextTrack, pendingNextRef);
+  useSonosBridge();
+  useSonosQueueMirror();
+  const { tryReattach } = useSonosActions();
+  const tryReattachRef = useRef(tryReattach);
+  tryReattachRef.current = tryReattach;
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
   useMcpBridge();
@@ -739,7 +748,12 @@ export function AppInitializer() {
     };
 
     restore().finally(() => {
-      if (!cancelled) setupPersistence();
+      if (!cancelled) {
+        setupPersistence();
+        // With the queue restored, silently re-adopt a cast session the
+        // speaker kept playing while SONE was closed (best-effort).
+        void tryReattachRef.current();
+      }
     });
 
     return () => {
@@ -879,6 +893,10 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     const unlisten = listen("track-finished", () => {
+      // While casting, the local pipeline is stopped — a stale local EOS
+      // must not advance the queue under the speaker. Remote advancement
+      // comes from "sonos-track-finished" via useSonosBridge.
+      if (store.get(playbackTargetAtom).type !== "local") return;
       store.set(streamInfoAtom, null);
       playNext();
     });
@@ -1047,6 +1065,12 @@ export function AppInitializer() {
       if (playing) pauseTrack();
     });
     const unlistenMprisStop = listen("mpris:stop", () => {
+      if (store.get(playbackTargetAtom).type === "sonos") {
+        // Closest safe semantic while casting: pause the speaker (keeps the
+        // queue, the session, and the in-flight scrobble listen intact).
+        pauseTrack();
+        return;
+      }
       invoke("stop_track").catch(() => {});
       store.set(isPlayingAtom, false);
     });
@@ -1175,10 +1199,10 @@ export function AppInitializer() {
   useEffect(() => {
     const unlistenSeek = listen<number>("mpris:seek", async (event) => {
       try {
-        const current = await invoke<number>("get_playback_position");
-        const newPos = Math.max(0, current + event.payload);
-        await invoke("seek_track", { positionSecs: newPos });
-        notifySeek(newPos);
+        // Interpolated position + branched seekTo: correct for both the
+        // local pipeline and a Sonos cast target.
+        const newPos = Math.max(0, getInterpolatedPosition() + event.payload);
+        await seekTo(newPos);
       } catch {}
     });
     const unlistenVolume = listen<number>("mpris:set-volume", (event) => {
@@ -1240,16 +1264,23 @@ export function AppInitializer() {
   //  Configurable via shortcutsAtom (see src/lib/shortcuts.ts).
   //  Action callbacks are stable; store.get() reads at call-time.
   // ================================================================
+  // The active volume surface: Sonos group volume (0-100 → 0-1) while
+  // casting, the local pipeline volume otherwise. setVolume routes the same
+  // way, so shortcut steps stay relative to what the user actually hears.
+  const activeVolume = () =>
+    store.get(playbackTargetAtom).type === "sonos"
+      ? store.get(sonosVolumeAtom) / 100
+      : store.get(volumeAtom);
   useShortcuts({
     playPause: () => {
       togglePlayPause();
     },
     nextTrack: () => playNext({ explicit: true }),
     prevTrack: () => playPrevious(),
-    volumeUp: () => setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1)),
-    volumeDown: () => setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1)),
+    volumeUp: () => setVolume(Math.min(1.0, activeVolume() + 0.1)),
+    volumeDown: () => setVolume(Math.max(0.0, activeVolume() - 0.1)),
     muteToggle: () => {
-      const vol = store.get(volumeAtom);
+      const vol = activeVolume();
       if (vol > 0) {
         store.set(preMuteVolumeAtom, vol);
         setVolume(0);

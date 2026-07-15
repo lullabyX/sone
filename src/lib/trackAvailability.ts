@@ -31,7 +31,16 @@ export function isTrackUnavailable(track: Track | null | undefined): boolean {
 export function isUnplayableError(error: unknown): boolean {
   const parsed = typeof error === "string" ? safeJsonParse(error) : error;
   const status = getApiStatus(parsed);
-  return status === 404 || status === 410 || status === 451;
+  if (status === 404 || status === 410 || status === 451) return true;
+  // Sonos UPnP faults meaning "this item can't be played from the linked
+  // service": 714/716 unplayable resource, 800 service/account rejection.
+  // Same skip-loop semantics as the local 404/410/451 set.
+  const sonos = parsed as { kind?: string; message?: { code?: number } };
+  if (sonos?.kind === "SonosUpnp") {
+    const code = sonos.message?.code;
+    return code === 714 || code === 716 || code === 800;
+  }
+  return false;
 }
 
 function safeJsonParse(s: string): unknown {

@@ -1,8 +1,14 @@
 import { memo, useEffect, useRef } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { invoke } from "@tauri-apps/api/core";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
-import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
+import {
+  volumeAtom,
+  bitPerfectAtom,
+  playbackTargetAtom,
+} from "../atoms/playback";
 import { currentVideoAtom } from "../atoms/video";
+import { sonosMutedAtom, sonosVolumeAtom } from "../atoms/sonos";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 
 interface VolumeSliderProps {
@@ -22,19 +28,26 @@ const VolumeSlider = memo(function VolumeSlider({
   const volume = useAtomValue(volumeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
+  const playbackTarget = useAtomValue(playbackTargetAtom);
+  const sonosVolume = useAtomValue(sonosVolumeAtom);
+  const sonosMuted = useAtomValue(sonosMutedAtom);
+  const setSonosMuted = useSetAtom(sonosMutedAtom);
   const { setVolume } = usePlaybackActions();
 
-  // Bit-perfect locks the slider at unity — but only for audio. Video audio is
-  // lossy and plays through the <video> element, so it stays controllable.
-  const locked = bitPerfect && !currentVideo;
-  const displayVolume = locked ? 1 : volume;
+  // Bit-perfect locks the slider at unity — but only for LOCAL AUDIO. Video
+  // audio is lossy and plays through the <video> element; while casting the
+  // slider surfaces the Sonos GROUP volume (0-100 mapped onto the 0-1
+  // slider) and setVolume routes by target.
+  const casting = playbackTarget.type === "sonos";
+  const locked = bitPerfect && !currentVideo && !casting;
+  const displayVolume = casting ? sonosVolume / 100 : locked ? 1 : volume;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const volumeRef = useRef(volume);
+  const volumeRef = useRef(displayVolume);
   const lockedRef = useRef(locked);
 
   useEffect(() => {
-    volumeRef.current = volume;
+    volumeRef.current = displayVolume;
     lockedRef.current = locked;
   });
 
@@ -59,8 +72,9 @@ const VolumeSlider = memo(function VolumeSlider({
     setVolume(parseFloat(e.target.value));
   };
 
+  const iconVolume = casting && sonosMuted ? 0 : displayVolume;
   const VolumeIcon =
-    displayVolume === 0 ? VolumeX : displayVolume < 0.5 ? Volume1 : Volume2;
+    iconVolume === 0 ? VolumeX : iconVolume < 0.5 ? Volume1 : Volume2;
 
   return (
     <div
@@ -70,6 +84,12 @@ const VolumeSlider = memo(function VolumeSlider({
       <button
         onClick={() => {
           if (locked) return;
+          if (casting) {
+            const next = !sonosMuted;
+            setSonosMuted(next);
+            invoke("sonos_set_mute", { muted: next }).catch(() => {});
+            return;
+          }
           setVolume(volume > 0 ? 0 : 1);
         }}
         className={`flex-shrink-0 transition-colors duration-150 ${

@@ -10,6 +10,7 @@ import {
   FileText,
   Cpu,
   Tv2,
+  Speaker,
   type LucideIcon,
 } from "lucide-react";
 import PlaybackTab from "./PlaybackTab";
@@ -21,6 +22,7 @@ import NetworkTab from "./NetworkTab";
 import UtilitiesTab from "./UtilitiesTab";
 import McpTab from "./McpTab";
 import OverlayTab from "./OverlayTab";
+import SonosTab from "./SonosTab";
 
 type TabId =
   | "playback"
@@ -31,7 +33,8 @@ type TabId =
   | "network"
   | "utilities"
   | "mcp"
-  | "overlay";
+  | "overlay"
+  | "sonos";
 
 const GROUPS: {
   label: string;
@@ -51,6 +54,7 @@ const GROUPS: {
       { id: "discord", label: "Discord", icon: MessageSquare },
       { id: "mcp", label: "MCP", icon: Cpu },
       { id: "overlay", label: "OBS Overlay", icon: Tv2 },
+      { id: "sonos", label: "Sonos", icon: Speaker },
     ],
   },
   {
@@ -176,6 +180,7 @@ export default function SettingsSheet({
               {active === "utilities" && <UtilitiesTab />}
               {active === "mcp" && <McpTab />}
               {active === "overlay" && <OverlayTab />}
+              {active === "sonos" && <SonosTab />}
             </div>
           </div>
         </div>

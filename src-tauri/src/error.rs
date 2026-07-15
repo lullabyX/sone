@@ -43,6 +43,19 @@ pub enum SoneError {
 
     #[error("MCP error: {0}")]
     Mcp(String),
+
+    /// Sonos device did not respond on the LAN (timeout, refused, no route).
+    #[error("Sonos device unreachable: {0}")]
+    SonosUnreachable(String),
+
+    /// Sonos returned a UPnP SOAP fault (e.g. 701 transition unavailable,
+    /// 714/716 unplayable resource, 800 access denied).
+    #[error("Sonos UPnP error {code} during {context}")]
+    SonosUpnp { code: u32, context: String },
+
+    /// Malformed or unexpected Sonos response.
+    #[error("Sonos protocol error: {0}")]
+    SonosProtocol(String),
 }
 
 impl SoneError {

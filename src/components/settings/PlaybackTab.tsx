@@ -16,7 +16,9 @@ import {
   historyAtom,
   playbackSourceAtom,
   contextSourceAtom,
+  playbackTargetAtom,
 } from "../../atoms/playback";
+import { useSonosActions } from "../../hooks/useSonosActions";
 import { videoCoversAtom } from "../../atoms/ui";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
@@ -24,6 +26,7 @@ import QualityPicker from "./QualityPicker";
 
 export default function PlaybackTab() {
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
+  const { detachToLocal } = useSonosActions();
   const [videoCovers, setVideoCovers] = useAtom(videoCoversAtom);
   const [volumeNormalization, setVolumeNormalization] = useAtom(
     volumeNormalizationAtom,
@@ -146,6 +149,11 @@ export default function PlaybackTab() {
           <button
             onClick={() => {
               setAllowExplicit(!allowExplicit);
+              // While casting: pause the speaker and end the session, or it
+              // would keep playing a track the app no longer knows about.
+              if (store.get(playbackTargetAtom).type === "sonos") {
+                detachToLocal({ pauseRemote: true });
+              }
               invoke("stop_track").catch(() => {});
               store.set(currentTrackAtom, null);
               store.set(isPlayingAtom, false);

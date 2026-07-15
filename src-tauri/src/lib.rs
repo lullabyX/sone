@@ -14,6 +14,8 @@ mod mpris;
 mod scrobble;
 mod signal_path;
 mod pipeline_probe;
+// Public so `examples/sonos_probe.rs` can drive the protocol layer directly.
+pub mod sonos;
 #[cfg(target_os = "linux")]
 mod tray;
 mod tidal_api;
@@ -176,6 +178,13 @@ pub struct Settings {
     pub overlay_port: u16,
     #[serde(default = "defaults::overlay_host")]
     pub overlay_host: String,
+    /// User-pinned player IPs for networks where discovery can't see the
+    /// speakers (multicast filtering, VLANs, sandboxes).
+    #[serde(default)]
+    pub sonos_manual_ips: Vec<String>,
+    /// Coordinator UUID of the last group we cast to (startup reattach).
+    #[serde(default)]
+    pub sonos_last_group_uuid: Option<String>,
 }
 
 impl Default for Settings {
@@ -207,6 +216,8 @@ impl Default for Settings {
             overlay_enabled: false,
             overlay_port: 5578,
             overlay_host: "127.0.0.1".to_string(),
+            sonos_manual_ips: Vec::new(),
+            sonos_last_group_uuid: None,
         }
     }
 }
@@ -243,6 +254,7 @@ pub struct AppState {
     pub mcp_handle: Mutex<Option<crate::mcp::McpHandle>>,
     pub overlay_state: crate::overlay::OverlayStateRef,
     pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
+    pub sonos: sonos::SonosState,
     pub signal_path: Arc<SignalPathTracker>,
 }
 
@@ -409,6 +421,7 @@ impl AppState {
                 s
             },
             overlay_handle: Mutex::new(None),
+            sonos: sonos::SonosState::new(),
             signal_path,
         }
     }
@@ -641,6 +654,19 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 app.listen("track-finished", move |_| {
+                    let handle = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = handle.state::<AppState>();
+                        state.scrobble_manager.try_scrobble_finished().await;
+                    });
+                });
+            }
+
+            // Same for a track finishing on a Sonos cast session — the
+            // speaker's EOS is SONE's EOS while casting.
+            {
+                let handle = app.handle().clone();
+                app.listen(sonos::session::EVENT_TRACK_FINISHED, move |_| {
                     let handle = handle.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<AppState>();
@@ -921,6 +947,7 @@ pub fn run() {
             commands::playback::pause_track,
             commands::playback::resume_track,
             commands::playback::stop_track,
+            commands::playback::stop_track_silent,
             commands::playback::set_volume,
             commands::playback::get_playback_position,
             commands::playback::seek_track,
@@ -992,6 +1019,23 @@ pub fn run() {
             commands::overlay::overlay_set_port,
             commands::overlay::overlay_set_host,
             commands::overlay::overlay_publish_theme,
+            // Sonos casting
+            commands::sonos::sonos_discover,
+            commands::sonos::sonos_add_manual_ip,
+            commands::sonos::sonos_remove_manual_ip,
+            commands::sonos::sonos_get_manual_ips,
+            commands::sonos::sonos_connect,
+            commands::sonos::sonos_disconnect,
+            commands::sonos::sonos_play_track,
+            commands::sonos::sonos_pause,
+            commands::sonos::sonos_resume,
+            commands::sonos::sonos_seek,
+            commands::sonos::sonos_get_position,
+            commands::sonos::sonos_set_volume,
+            commands::sonos::sonos_set_mute,
+            commands::sonos::sonos_get_now_playing,
+            commands::sonos::sonos_sync_queue_tail,
+            commands::sonos::sonos_try_reattach,
             commands::utility::get_signal_path,
             commands::utility::refresh_signal_path,
             // updates
