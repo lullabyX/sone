@@ -91,6 +91,7 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     gap: 14px;
+    background: var(--th-bg-base);
     background: color-mix(in srgb, var(--th-bg-base) 80%, transparent);
     backdrop-filter: blur(18px) saturate(1.6);
     -webkit-backdrop-filter: blur(18px) saturate(1.6);
@@ -190,7 +191,9 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     align-items: center;
     padding: 1px 5px;
     border-radius: 4px;
+    background: var(--th-bg-inset);
     background: color-mix(in srgb, var(--th-accent) 14%, transparent);
+    border: 1px solid var(--th-accent);
     border: 1px solid color-mix(in srgb, var(--th-accent) 30%, transparent);
     font-size: 9px;
     font-weight: 700;
@@ -315,6 +318,11 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
   const timeElapsed  = document.getElementById('time-elapsed');
   const timeTotal    = document.getElementById('time-total');
 
+  coverImg.onerror = () => {
+    coverImg.style.display = 'none';
+    coverPlaceholder.style.display = 'flex';
+  };
+
   // Local interpolation state
   let positionSec  = 0;
   let durationSec  = 0;
@@ -417,11 +425,13 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
 
   evtSource.onerror = () => {};
 
-  // ---- Initial fetch ----
-  fetch('/overlay/state')
-    .then(r => r.json())
-    .then(applyState)
-    .catch(() => {});
+  // ---- State sync on every (re)connect, incl. after server restarts ----
+  evtSource.onopen = () => {
+    fetch('/overlay/state')
+      .then(r => r.json())
+      .then(applyState)
+      .catch(() => {});
+  };
 </script>
 </body>
 </html>"#;
