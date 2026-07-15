@@ -9,6 +9,7 @@ import {
   Globe,
   FileText,
   Cpu,
+  Tv2,
   type LucideIcon,
 } from "lucide-react";
 import PlaybackTab from "./PlaybackTab";
@@ -19,6 +20,7 @@ import GeneralTab from "./GeneralTab";
 import NetworkTab from "./NetworkTab";
 import UtilitiesTab from "./UtilitiesTab";
 import McpTab from "./McpTab";
+import OverlayTab from "./OverlayTab";
 
 type TabId =
   | "playback"
@@ -28,7 +30,8 @@ type TabId =
   | "general"
   | "network"
   | "utilities"
-  | "mcp";
+  | "mcp"
+  | "overlay";
 
 const GROUPS: {
   label: string;
@@ -47,6 +50,7 @@ const GROUPS: {
       { id: "scrobble", label: "Scrobbling", icon: Radio },
       { id: "discord", label: "Discord", icon: MessageSquare },
       { id: "mcp", label: "MCP", icon: Cpu },
+      { id: "overlay", label: "OBS Overlay", icon: Tv2 },
     ],
   },
   {
@@ -171,6 +175,7 @@ export default function SettingsSheet({
               {active === "network" && <NetworkTab />}
               {active === "utilities" && <UtilitiesTab />}
               {active === "mcp" && <McpTab />}
+              {active === "overlay" && <OverlayTab />}
             </div>
           </div>
         </div>

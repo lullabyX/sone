@@ -33,6 +33,7 @@ import {
   getFavoriteAlbums,
   getFavoriteArtists,
   getFavoriteMixes,
+  getFlattenedPlaylists,
 } from "../api/tidal";
 import MediaGrid, { MediaGridSkeleton, MediaGridEmpty } from "./MediaGrid";
 import MediaCard from "./MediaCard";
@@ -372,12 +373,44 @@ export default function LibraryViewAll({
   const [searchQuery, setSearchQuery] = useState("");
   const isFiltering = searchQuery.trim().length > 0;
 
+  // Flattened playlists (across all folders) — lazy-loaded for playlist search
+  const [flattenedPlaylists, setFlattenedPlaylists] = useState<
+    PlaylistOrFolder[]
+  >([]);
+  const flattenedLoadedRef = useRef(false);
+
+  const loadFlattenedPlaylists = useCallback(() => {
+    if (libraryType !== "playlists" || flattenedLoadedRef.current) return;
+    flattenedLoadedRef.current = true;
+    getFlattenedPlaylists()
+      .then(setFlattenedPlaylists)
+      .catch(() => {
+        flattenedLoadedRef.current = false;
+      });
+  }, [libraryType]);
+
+  useEffect(() => {
+    if (isFiltering) loadFlattenedPlaylists();
+  }, [isFiltering, loadFlattenedPlaylists]);
+
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return displayItems;
     if (libraryType === "playlists") {
-      const entries = displayItems as PlaylistOrFolder[];
-      return entries.filter((entry) => {
+      const rootEntries = displayItems as PlaylistOrFolder[];
+      const rootUuids = new Set(
+        rootEntries.flatMap((e) =>
+          e.kind === "playlist" ? [e.data.uuid] : [],
+        ),
+      );
+      // Union: root folders + root playlists + nested playlists (deduped by uuid)
+      const searchSet: PlaylistOrFolder[] = [
+        ...rootEntries,
+        ...flattenedPlaylists.filter(
+          (p) => p.kind === "playlist" && !rootUuids.has(p.data.uuid),
+        ),
+      ];
+      return searchSet.filter((entry) => {
         if (entry.kind === "folder") {
           const name = renamedFolders.get(entry.data.id) ?? entry.data.name;
           return name.toLowerCase().includes(q);
@@ -405,13 +438,20 @@ export default function LibraryViewAll({
           );
       }
     });
-  }, [displayItems, searchQuery, libraryType, renamedFolders]);
+  }, [
+    displayItems,
+    searchQuery,
+    libraryType,
+    renamedFolders,
+    flattenedPlaylists,
+  ]);
 
   const handleSearchFocus = useCallback(() => {
+    loadFlattenedPlaylists();
     if (hasMoreRef.current && !bgFetchingRef.current) {
       setTimeout(() => fetchRemaining(), 0);
     }
-  }, [fetchRemaining]);
+  }, [fetchRemaining, loadFlattenedPlaylists]);
 
   // ==================== Context Menu ====================
 
@@ -459,6 +499,7 @@ export default function LibraryViewAll({
                 entry.data.creator?.name ||
                 (entry.data.creator?.id === 0 ? "TIDAL" : undefined),
               numberOfTracks: entry.data.numberOfTracks,
+              numberOfVideos: entry.data.numberOfVideos,
               isUserPlaylist:
                 userId != null && entry.data.creator?.id === userId,
             });

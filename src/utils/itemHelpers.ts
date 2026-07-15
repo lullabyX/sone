@@ -1,4 +1,28 @@
-import { getTidalImageUrl, type MediaItemType, type StreamInfo } from "../types";
+import {
+  getTidalImageUrl,
+  type MediaItemType,
+  type StreamInfo,
+  type Track,
+  type TidalVideo,
+} from "../types";
+
+/**
+ * A favorite/search video as a queue-ready Track (itemType "video"), so it flows
+ * through playFromSource/playAllFromSource exactly like an audio track — giving
+ * video grids a full queue with working prev/next.
+ */
+export function videoToTrack(v: TidalVideo): Track {
+  return {
+    id: v.id,
+    title: v.title,
+    itemType: "video",
+    imageId: v.imageId,
+    duration: v.duration,
+    explicit: v.explicit,
+    artist: v.artist ?? v.artists?.[0],
+    artists: v.artists,
+  } as Track;
+}
 
 /**
  * Shared helpers for extracting data from raw Tidal API JSON items.
@@ -97,6 +121,16 @@ export function getItemTitle(item: any): string {
   return "";
 }
 
+export function playlistCountLabel(numberOfTracks?: number, numberOfVideos?: number): string {
+  const t = numberOfTracks ?? 0;
+  const v = numberOfVideos ?? 0;
+  const parts: string[] = [];
+  if (v > 0) parts.push(`${v} Video${v === 1 ? "" : "s"}`);
+  if (t > 0) parts.push(`${t} Track${t === 1 ? "" : "s"}`);
+  if (parts.length === 0) parts.push("0 Tracks");
+  return parts.join(" · ");
+}
+
 export function getItemSubtitle(item: any, userId?: number): string {
   if (isMagazineItem(item)) {
     return item.data?.shortSubHeader ?? "";
@@ -119,8 +153,8 @@ export function getItemSubtitle(item: any, userId?: number): string {
             ? "By TIDAL"
             : undefined;
     const trackCount =
-      item.numberOfTracks != null
-        ? `${item.numberOfTracks} track${item.numberOfTracks !== 1 ? "s" : ""}`
+      item.numberOfTracks != null || item.numberOfVideos != null
+        ? playlistCountLabel(item.numberOfTracks, item.numberOfVideos)
         : undefined;
     const parts = [creatorLabel, trackCount].filter(Boolean);
     if (parts.length > 0) return parts.join(" · ");
@@ -189,6 +223,12 @@ export function isDeepLinkItem(item: any): boolean {
   return item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK";
 }
 
+export function isVideoItem(item: any, sectionType?: string): boolean {
+  const t = getItemType(item);
+  // v2 typed lists use "VIDEO"; the v1 catalog object uses "Music Video".
+  return sectionType === "VIDEO_LIST" || t === "VIDEO" || t === "Music Video";
+}
+
 /** Detect the special "My Tracks" shortcut from Tidal's v2 feed. */
 export function isMyTracksItem(item: any): boolean {
   if (
@@ -223,6 +263,19 @@ export function buildMediaItem(
         uuid: d.artifactId,
         title: d.shortHeader ?? "",
         image: d.imageURL,
+      };
+    }
+    return null;
+  }
+  if (isVideoItem(item, sectionType)) {
+    if (item.id != null) {
+      return {
+        type: "video",
+        id: Number(item.id),
+        title: item.title || getItemTitle(item),
+        imageId: item.imageId,
+        artist: item.artist?.name || item.artists?.[0]?.name,
+        duration: item.duration,
       };
     }
     return null;
@@ -266,6 +319,11 @@ export function buildMediaItem(
     };
   }
   return null;
+}
+
+/** Cover image UUID for a track — videos carry `imageId`, not `album.cover`. */
+export function trackCoverId(track: Track): string | undefined {
+  return track.itemType === "video" ? track.imageId : track.album?.cover;
 }
 
 /** Return comma-separated artist names for a track (plain text, no links). */
@@ -337,6 +395,11 @@ export function getTrackShareUrl(trackId: number): string {
   return `${TIDAL_SHARE_BASE}/track/${trackId}/u`;
 }
 
+/** Build a Tidal share URL for a music video. */
+export function getVideoShareUrl(videoId: number): string {
+  return `${TIDAL_SHARE_BASE}/video/${videoId}`;
+}
+
 /** Build a Tidal share URL for a media item (album/playlist/mix/artist). */
 export function getShareUrl(item: MediaItemType): string {
   switch (item.type) {
@@ -348,6 +411,8 @@ export function getShareUrl(item: MediaItemType): string {
       return `${TIDAL_SHARE_BASE}/mix/${item.mixId}`;
     case "artist":
       return `${TIDAL_SHARE_BASE}/artist/${item.id}`;
+    case "video":
+      return `${TIDAL_SHARE_BASE}/video/${item.id}`;
   }
 }
 

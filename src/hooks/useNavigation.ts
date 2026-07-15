@@ -46,6 +46,7 @@ export function useNavigation() {
         description?: string;
         creatorName?: string;
         numberOfTracks?: number;
+        numberOfVideos?: number;
         isUserPlaylist?: boolean;
       },
     ) => {

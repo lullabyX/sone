@@ -13,6 +13,7 @@ import {
   gaplessAtom,
   useTrackGainAtom,
 } from "../atoms/playback";
+import { currentVideoAtom } from "../atoms/video";
 import type { Track, StreamInfo } from "../types";
 
 export type PendingNext = {
@@ -52,6 +53,7 @@ export function useGaplessPrefetch(
       store.get(gaplessAtom) &&
       !store.get(exclusiveModeAtom) &&
       !store.get(bitPerfectAtom) &&
+      !store.get(currentVideoAtom) && // a video is the current item → not audio-gapless
       !!store.get(currentTrackAtom);
     if (!enabled) {
       await clearSlot();

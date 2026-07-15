@@ -23,6 +23,7 @@ export function pickGaplessNext(args: {
   if (repeat === 2) return null; // repeat-one → EOS→playNext path
   const head = manualHead ?? contextHead ?? null;
   if (!head || isTrackUnavailable(head)) return null; // unavailable head → playNext drains it
+  if (head.itemType === "video") return null; // video → EOS→playNext path, no gapless
   const headSource = (head as QueuedTrack)._source;
   if (headSource && headSource.id !== currentSourceId) return null; // source switch → not gapless in v1
   return head;

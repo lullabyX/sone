@@ -3,6 +3,7 @@ use tauri::{Manager, State};
 use crate::cache::{CacheResult, CacheTier};
 use crate::tidal_api::{
     AllFavoriteIds, PaginatedTracks, TidalAlbumDetail, TidalArtistDetail, TidalPlaylist, TidalTrack,
+    TidalVideo,
 };
 use crate::AppState;
 use crate::SoneError;
@@ -855,6 +856,63 @@ pub async fn remove_favorite_track(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn get_favorite_video_ids(
+    state: State<'_, AppState>,
+    user_id: u64,
+) -> Result<Vec<u64>, SoneError> {
+    log::debug!("[get_favorite_video_ids]");
+    let client = state.tidal_client.lock().await;
+    client.get_favorite_video_ids(user_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_favorite_videos(
+    state: State<'_, AppState>,
+    user_id: u64,
+    offset: u32,
+    limit: u32,
+) -> Result<Vec<TidalVideo>, SoneError> {
+    log::debug!(
+        "[get_favorite_videos]: user_id={}, offset={}, limit={}",
+        user_id,
+        offset,
+        limit
+    );
+    let client = state.tidal_client.lock().await;
+    client.get_favorite_videos(user_id, offset, limit).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn add_favorite_video(
+    state: State<'_, AppState>,
+    user_id: u64,
+    video_id: u64,
+) -> Result<(), SoneError> {
+    log::debug!(
+        "[add_favorite_video]: user_id={}, video_id={}",
+        user_id,
+        video_id
+    );
+    let client = state.tidal_client.lock().await;
+    client.add_favorite_video(user_id, video_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn remove_favorite_video(
+    state: State<'_, AppState>,
+    user_id: u64,
+    video_id: u64,
+) -> Result<(), SoneError> {
+    log::debug!(
+        "[remove_favorite_video]: user_id={}, video_id={}",
+        user_id,
+        video_id
+    );
+    let client = state.tidal_client.lock().await;
+    client.remove_favorite_video(user_id, video_id).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn get_favorite_album_ids(
     state: State<'_, AppState>,
     user_id: u64,
@@ -1385,6 +1443,14 @@ pub async fn get_playlist_folders(
     }
 
     Ok(data)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_all_flattened_playlists(
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, SoneError> {
+    let mut client = state.tidal_client.lock().await;
+    client.get_all_flattened_playlists().await
 }
 
 #[tauri::command(rename_all = "camelCase")]

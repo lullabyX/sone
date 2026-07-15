@@ -49,6 +49,9 @@ export default function ViewAllPage({
     navigateToMix,
   } = useNavigation();
   const {
+    favoriteVideoIds,
+    addFavoriteVideo,
+    removeFavoriteVideo,
     favoriteAlbumIds,
     addFavoriteAlbum,
     removeFavoriteAlbum,
@@ -155,6 +158,11 @@ export default function ViewAllPage({
   }, [artistId, hasMore, handleLoadMore]);
 
   const handleItemClick = (item: any) => {
+    const mediaItem = buildMediaItem(item);
+    if (mediaItem?.type === "video") {
+      playMedia(mediaItem);
+      return;
+    }
     if (isTrackItem(item)) {
       const allTrackItems = items.filter((t) => isTrackItem(t));
       playFromSource(item, allTrackItems, {
@@ -202,6 +210,16 @@ export default function ViewAllPage({
   const hasMixes = items.length > 0 && items.every((item) => isMixItem(item));
 
   const getFavoriteProps = (item: any) => {
+    if (buildMediaItem(item)?.type === "video" && item.id) {
+      return {
+        isFavorited: favoriteVideoIds.has(item.id),
+        onFavoriteToggle: (e: React.MouseEvent) => {
+          e.stopPropagation();
+          if (favoriteVideoIds.has(item.id)) removeFavoriteVideo(item.id);
+          else addFavoriteVideo(item.id);
+        },
+      };
+    }
     if (isArtistItem(item) && item.id) {
       return {
         isFavorited: followedArtistIds.has(item.id),

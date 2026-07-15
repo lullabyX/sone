@@ -62,7 +62,7 @@ import TidalVideoCover from "./TidalVideoCover";
 import { TiltCover } from "./TiltCover";
 import TrackContextMenu from "./TrackContextMenu";
 import { TrackArtists, type ArtistInfo } from "./TrackArtists";
-import { getTrackArtistDisplay } from "../utils/itemHelpers";
+import { getTrackArtistDisplay, trackCoverId } from "../utils/itemHelpers";
 
 type TabId = "queue" | "suggested" | "lyrics" | "credits";
 
@@ -644,7 +644,7 @@ function SuggestedTrackRow({
           onClick={handlePlayClick}
         >
           <TidalImage
-            src={getTidalImageUrl(track.album?.cover, 80)}
+            src={getTidalImageUrl(trackCoverId(track), 80)}
             alt={track.title}
             className="w-full h-full"
           />
@@ -1401,7 +1401,7 @@ function TrackRow({
       >
         <div className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative">
           <TidalImage
-            src={getTidalImageUrl(track.album?.cover, 80)}
+            src={getTidalImageUrl(trackCoverId(track), 80)}
             alt={track.title}
             className="w-full h-full"
           />
@@ -1633,7 +1633,7 @@ export default function NowPlayingDrawer() {
           ) : (
             <TiltCover className="w-full max-w-[640px] aspect-square rounded-lg">
               <TidalImage
-                src={getTidalImageUrl(currentTrack.album?.cover, 640)}
+                src={getTidalImageUrl(trackCoverId(currentTrack), 640)}
                 alt={currentTrack.album?.title || currentTrack.title}
                 className="w-full h-full"
               />

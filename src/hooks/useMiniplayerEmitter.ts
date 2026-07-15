@@ -185,6 +185,7 @@ export function useMiniplayerEmitter() {
   const {
     pauseTrack,
     resumeTrack,
+    togglePlayPause,
     playNext,
     playPrevious,
     toggleShuffle,
@@ -219,9 +220,7 @@ export function useMiniplayerEmitter() {
         const { action, value } = event.payload;
         switch (action) {
           case "toggle-play": {
-            const playing = store.get(isPlayingAtom);
-            if (playing) await pauseTrack();
-            else await resumeTrack();
+            await togglePlayPause();
             break;
           }
           case "play-next":
@@ -360,6 +359,7 @@ export function useMiniplayerEmitter() {
     store,
     pauseTrack,
     resumeTrack,
+    togglePlayPause,
     playNext,
     playPrevious,
     toggleShuffle,

@@ -29,12 +29,14 @@ import {
 import { userPlaylistsAtom, deletedPlaylistIdsAtom } from "../atoms/playlists";
 import {
   favoriteTrackIdsAtom,
+  favoriteVideoIdsAtom,
   favoriteAlbumIdsAtom,
   favoritePlaylistUuidsAtom,
   followedArtistIdsAtom,
   favoriteMixIdsAtom,
 } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
+import { currentVideoAtom, videoPlayingAtom } from "../atoms/video";
 import {
   isPlayingAtom,
   currentTrackAtom,
@@ -75,6 +77,7 @@ import {
 import { useFavorites } from "../hooks/useFavorites";
 import { useShortcuts } from "../hooks/useShortcuts";
 import { useMcpBridge } from "../hooks/useMcpBridge";
+import { useOverlayBridge } from "../hooks/useOverlayBridge";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -160,6 +163,7 @@ export function AppInitializer() {
   const setCurrentUserAvatar = useSetAtom(currentUserAvatarAtom);
   const setUserPlaylists = useSetAtom(userPlaylistsAtom);
   const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
+  const setFavoriteVideoIds = useSetAtom(favoriteVideoIdsAtom);
   const setFavoriteAlbumIds = useSetAtom(favoriteAlbumIdsAtom);
   const setFavoritePlaylistUuids = useSetAtom(favoritePlaylistUuidsAtom);
   const setFollowedArtistIds = useSetAtom(followedArtistIdsAtom);
@@ -181,6 +185,7 @@ export function AppInitializer() {
     playPrevious,
     pauseTrack,
     resumeTrack,
+    togglePlayPause,
     setVolume,
     setBitPerfect,
     toggleShuffle,
@@ -194,6 +199,7 @@ export function AppInitializer() {
   const { addFavoriteTrack, removeFavoriteTrack, favoriteTrackIds } =
     useFavorites();
   useMcpBridge();
+  useOverlayBridge();
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const setDecorations = useSetAtom(decorationsAtom);
@@ -435,6 +441,13 @@ export function AppInitializer() {
       .then((ids) => setFavoriteMixIds(new Set(ids)))
       .catch((error) =>
         console.error("Failed to load favorite mix IDs:", error),
+      );
+
+    // Video IDs separate (not in unified favorite-ids response)
+    invoke<number[]>("get_favorite_video_ids", { userId })
+      .then((ids) => setFavoriteVideoIds(new Set(ids)))
+      .catch((error) =>
+        console.error("Failed to load favorite video IDs:", error),
       );
 
     // Non-blocking background preload (2s delay to avoid startup congestion)
@@ -752,11 +765,25 @@ export function AppInitializer() {
   //  VOLUME SYNC to backend (one-time, reads volume from store)
   // ================================================================
   useEffect(() => {
-    if (!volumeSyncedRef.current) {
-      volumeSyncedRef.current = true;
-      const vol = store.get(volumeAtom);
-      invoke("set_volume", { level: vol }).catch(() => {});
-    }
+    if (volumeSyncedRef.current) return;
+    volumeSyncedRef.current = true;
+    // Never push a persisted volume into a bit-perfect pipeline — it must stay at
+    // unity. bitPerfectAtom hydrates asynchronously (get_bit_perfect resolves AFTER
+    // this mount effect), so reading the atom here yields its default `false` and
+    // leaks a non-unity volume (e.g. one set during video) on cold start. Read the
+    // authoritative value from the backend instead.
+    (async () => {
+      let bitPerfect = store.get(bitPerfectAtom);
+      try {
+        bitPerfect = await invoke<boolean>("get_bit_perfect");
+      } catch {
+        // Fall back to the atom's current value on IPC failure.
+      }
+      if (!bitPerfect) {
+        const vol = store.get(volumeAtom);
+        invoke("set_volume", { level: vol }).catch(() => {});
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -999,11 +1026,7 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     const unlistenToggle = listen("tray:toggle-play", () => {
-      if (store.get(isPlayingAtom)) {
-        pauseTrack();
-      } else {
-        resumeTrack();
-      }
+      togglePlayPause();
     });
     const unlistenNext = listen("tray:next-track", () => {
       playNext({ explicit: true });
@@ -1012,14 +1035,16 @@ export function AppInitializer() {
       playPrevious();
     });
     const unlistenMprisPlay = listen("mpris:play", () => {
-      if (!store.get(isPlayingAtom)) {
-        resumeTrack();
-      }
+      const playing = store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
+      if (!playing) resumeTrack();
     });
     const unlistenMprisPause = listen("mpris:pause", () => {
-      if (store.get(isPlayingAtom)) {
-        pauseTrack();
-      }
+      const playing = store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
+      if (playing) pauseTrack();
     });
     const unlistenMprisStop = listen("mpris:stop", () => {
       invoke("stop_track").catch(() => {});
@@ -1033,7 +1058,7 @@ export function AppInitializer() {
       unlistenMprisPause.then((fn) => fn());
       unlistenMprisStop.then((fn) => fn());
     };
-  }, [store, playNext, playPrevious, pauseTrack, resumeTrack]);
+  }, [store, playNext, playPrevious, pauseTrack, resumeTrack, togglePlayPause]);
 
   // ================================================================
   //  TRAY TOOLTIP — update with current track info
@@ -1063,6 +1088,7 @@ export function AppInitializer() {
     const pushMetadata = () => {
       const track = store.get(currentTrackAtom);
       if (!track) return;
+      if (store.get(currentVideoAtom)) return; // video is current → don't overwrite MPRIS with audio metadata
       const streamInfo = store.get(streamInfoAtom);
       const favoriteIds = store.get(favoriteTrackIdsAtom);
       // Track.album has no artist field; fall back to track's own artist.
@@ -1106,7 +1132,9 @@ export function AppInitializer() {
 
   useEffect(() => {
     const pushStatus = () => {
-      const playing = store.get(isPlayingAtom);
+      const playing = store.get(currentVideoAtom)
+        ? store.get(videoPlayingAtom)
+        : store.get(isPlayingAtom);
       invoke("update_mpris_playback_status", {
         isPlaying: playing,
         positionSecs: getInterpolatedPosition(),
@@ -1114,8 +1142,14 @@ export function AppInitializer() {
     };
 
     pushStatus();
-    const unsub = store.sub(isPlayingAtom, pushStatus);
-    return unsub;
+    const unsubPlaying = store.sub(isPlayingAtom, pushStatus);
+    const unsubVideoPlaying = store.sub(videoPlayingAtom, pushStatus);
+    const unsubVideo = store.sub(currentVideoAtom, pushStatus);
+    return () => {
+      unsubPlaying();
+      unsubVideoPlaying();
+      unsubVideo();
+    };
   }, [store]);
 
   useEffect(() => {
@@ -1208,11 +1242,7 @@ export function AppInitializer() {
   // ================================================================
   useShortcuts({
     playPause: () => {
-      if (store.get(isPlayingAtom)) {
-        pauseTrack();
-      } else {
-        resumeTrack();
-      }
+      togglePlayPause();
     },
     nextTrack: () => playNext({ explicit: true }),
     prevTrack: () => playPrevious(),

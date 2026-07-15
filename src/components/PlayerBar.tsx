@@ -12,12 +12,13 @@ import {
   MoreHorizontal,
   PictureInPicture2,
 } from "lucide-react";
-import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import { formatTime } from "../lib/format";
 import { isNavigableSource } from "../lib/playbackSource";
 import TidalImage from "./TidalImage";
-import { useCallback, useRef, useState, memo } from "react";
+import { useCallback, useRef, useState, useEffect, memo } from "react";
 import { useAtomValue, useAtom, useSetAtom } from "jotai";
 import {
   currentTrackAtom,
@@ -26,10 +27,17 @@ import {
   shuffleAtom,
   playbackSourceAtom,
 } from "../atoms/playback";
-import { favoriteTrackIdsAtom } from "../atoms/favorites";
+import {
+  currentVideoAtom,
+  videoPlayingAtom,
+  videoFullscreenAtom,
+} from "../atoms/video";
+import { favoriteTrackIdsAtom, favoriteVideoIdsAtom } from "../atoms/favorites";
 import { maximizedPlayerAtom } from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useVideoPlayback } from "../hooks/useVideoPlayback";
 import { useProgressScrub } from "../hooks/useProgressScrub";
+import { videoElementRef } from "../lib/videoElement";
 import { useFavorites } from "../hooks/useFavorites";
 import { useDrawer } from "../hooks/useDrawer";
 import { useNavigation } from "../hooks/useNavigation";
@@ -40,12 +48,69 @@ import SignalPathPanel from "./SignalPathPanel";
 import VolumeSlider from "./VolumeSlider";
 import TrackContextMenu from "./TrackContextMenu";
 
+/** Build a video-session input from a restored/queued video-typed track. */
+function videoInputFromTrack(t: Track) {
+  return {
+    id: t.id,
+    title: t.title,
+    imageId: t.imageId,
+    artist: t.artist?.name ?? t.artists?.[0]?.name,
+    duration: t.duration,
+  };
+}
+
 // ─── TrackInfoSection ──────────────────────────────────────────────────────
 
 const TrackInfoSection = memo(function TrackInfoSection() {
   const currentTrack = useAtomValue(currentTrackAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
   const { toggleDrawer } = useDrawer();
   const { navigateToAlbum } = useNavigation();
+  const { expandVideo, playVideo } = useVideoPlayback();
+
+  // Video takes precedence. `currentVideo` is a live session; a video-typed
+  // `currentTrack` with no session is a restored/queued video (the session
+  // atom isn't persisted) — show it as a video and (re)start it on click.
+  const videoItem =
+    currentVideo ??
+    (currentTrack?.itemType === "video" ? currentTrack : null);
+  if (videoItem) {
+    const videoArtist =
+      videoItem.artist?.name ||
+      videoItem.artists?.map((a) => a.name).join(", ") ||
+      "";
+    const openVideo = currentVideo
+      ? expandVideo
+      : () => playVideo(videoInputFromTrack(currentTrack!));
+    return (
+      <>
+        <div
+          onClick={openVideo}
+          className="w-16 h-16 rounded-md bg-th-surface-hover flex-shrink-0 overflow-hidden shadow-lg shadow-black/40 group cursor-pointer"
+          title={currentVideo ? "Expand video" : "Play video"}
+        >
+          <TidalImage
+            src={getTidalImageUrl(videoItem.imageId, 160)}
+            alt={videoItem.title}
+            className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500"
+          />
+        </div>
+        <div className="flex flex-col justify-center min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-th-text-primary text-[13px] font-semibold truncate leading-tight">
+              {videoItem.title}
+            </span>
+            {videoItem.explicit && <ExplicitBadge />}
+          </div>
+          {videoArtist && (
+            <span className="text-th-text-secondary text-[11px] truncate mt-0.5">
+              {videoArtist}
+            </span>
+          )}
+        </div>
+      </>
+    );
+  }
 
   if (!currentTrack) {
     return <div className="text-th-text-faint text-sm">No track playing</div>;
@@ -93,24 +158,44 @@ const TrackInfoSection = memo(function TrackInfoSection() {
 const FavoriteButton = memo(function FavoriteButton() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
-  const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
+  const favoriteVideoIds = useAtomValue(favoriteVideoIdsAtom);
+  const {
+    addFavoriteTrack,
+    removeFavoriteTrack,
+    addFavoriteVideo,
+    removeFavoriteVideo,
+  } = useFavorites();
 
-  const isLiked = currentTrack ? favoriteTrackIds.has(currentTrack.id) : false;
+  const isVideo = currentTrack?.itemType === "video";
+  const isLiked = currentTrack
+    ? (isVideo ? favoriteVideoIds : favoriteTrackIds).has(currentTrack.id)
+    : false;
 
   const toggleLike = useCallback(async () => {
     if (!currentTrack) return;
-    // Optimistic — addFavoriteTrack / removeFavoriteTrack update the atom
-    // synchronously before the await, so the UI reflects the change instantly.
+    // Optimistic — the add/remove helpers update the atom synchronously before
+    // the await, so the UI reflects the change instantly.
     try {
-      if (isLiked) {
+      if (isVideo) {
+        if (isLiked) await removeFavoriteVideo(currentTrack.id);
+        else await addFavoriteVideo(currentTrack.id);
+      } else if (isLiked) {
         await removeFavoriteTrack(currentTrack.id);
       } else {
         await addFavoriteTrack(currentTrack.id, currentTrack);
       }
     } catch (err) {
-      console.error("Failed to toggle track favorite:", err);
+      console.error("Failed to toggle favorite:", err);
     }
-  }, [currentTrack, isLiked, addFavoriteTrack, removeFavoriteTrack]);
+  }, [
+    currentTrack,
+    isVideo,
+    isLiked,
+    addFavoriteTrack,
+    removeFavoriteTrack,
+    addFavoriteVideo,
+    removeFavoriteVideo,
+  ]);
 
   if (!currentTrack) return null;
 
@@ -250,6 +335,123 @@ export const PlayingFromLabel = memo(function PlayingFromLabel() {
   );
 });
 
+// ─── VideoProgressScrubber ─────────────────────────────────────────────────
+// Bound to the shared <video> element (not playbackPosition.ts). Polls via rAF
+// but throttles the React state update to ~150 ms — same rationale as the
+// overlay scrubber: a progress bar has no need for 60 Hz repaints.
+
+const VideoProgressScrubber = memo(function VideoProgressScrubber() {
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const [showTimeLeft, setShowTimeLeft] = useState(false);
+  const isDraggingRef = useRef(false);
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let raf: number;
+    let last = 0;
+    const tick = (now: number) => {
+      const v = videoElementRef.current;
+      if (v && !isDraggingRef.current && now - last >= 150) {
+        last = now;
+        setPosition(v.currentTime);
+        if (v.duration && !Number.isNaN(v.duration)) setDuration(v.duration);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const seekToClientX = useCallback(
+    (clientX: number) => {
+      const track = trackRef.current;
+      const v = videoElementRef.current;
+      if (!track || !v || !duration) return;
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const target = ratio * duration;
+      setPosition(target);
+      v.currentTime = target;
+    },
+    [duration],
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setDragging(true);
+      isDraggingRef.current = true;
+      seekToClientX(e.clientX);
+
+      const onMove = (me: MouseEvent) => seekToClientX(me.clientX);
+      const onUp = () => {
+        setDragging(false);
+        isDraggingRef.current = false;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [seekToClientX],
+  );
+
+  const progress = duration > 0 ? (position / duration) * 100 : 0;
+  const clampedProgress = Math.min(100, Math.max(0, progress));
+
+  return (
+    <div className="w-full flex items-center gap-2 text-th-text-muted">
+      <span className="min-w-[40px] text-right text-[11px] tabular-nums select-none">
+        {formatTime(position)}
+      </span>
+      <div
+        ref={trackRef}
+        onMouseDown={handleMouseDown}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => {
+          if (!dragging) setHovering(false);
+        }}
+        className="scrubber flex-1 relative cursor-pointer h-[17px] flex items-center"
+      >
+        <div className="relative w-full h-[5px] rounded-full">
+          <div className="absolute inset-0 bg-th-slider-track rounded-full" />
+          <div
+            className={`absolute left-0 rounded-full transition-[height,top,background-color] duration-100 ${
+              hovering || dragging
+                ? "h-full top-0 bg-th-accent"
+                : "h-[3px] top-[1px] bg-th-slider-fill"
+            }`}
+            style={{ width: `${clampedProgress}%` }}
+          />
+          {!(hovering || dragging) && (
+            <div className="absolute inset-0 rounded-full">
+              <div className="absolute left-0 right-0 top-0 h-[1px] bg-th-elevated" />
+              <div className="absolute left-0 right-0 bottom-0 h-[1px] bg-th-elevated" />
+            </div>
+          )}
+        </div>
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-th-text-primary rounded-full shadow-md shadow-black/50 pointer-events-none transition-opacity duration-100 ${
+            hovering || dragging ? "opacity-100" : "opacity-0"
+          }`}
+          style={{ left: `calc(${clampedProgress}% - 6px)` }}
+        />
+      </div>
+      <span
+        className="min-w-[40px] text-[11px] tabular-nums select-none cursor-pointer"
+        onClick={() => setShowTimeLeft((v) => !v)}
+      >
+        {showTimeLeft
+          ? `-${formatTime(Math.max(0, duration - position))}`
+          : formatTime(duration)}
+      </span>
+    </div>
+  );
+});
+
 // ─── ProgressScrubber ──────────────────────────────────────────────────────
 
 const ProgressScrubber = memo(function ProgressScrubber() {
@@ -324,11 +526,34 @@ const ProgressScrubber = memo(function ProgressScrubber() {
 
 const TransportControls = memo(function TransportControls() {
   const isPlaying = useAtomValue(isPlayingAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const currentTrack = useAtomValue(currentTrackAtom);
+  const videoPlaying = useAtomValue(videoPlayingAtom);
   const { pauseTrack, resumeTrack, playNext, playPrevious, toggleShuffle } =
     usePlaybackActions();
+  const { playVideo } = useVideoPlayback();
 
   const isShuffle = useAtomValue(shuffleAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatAtom);
+
+  // Videos are queue items, so prev/next/shuffle/repeat operate the shared
+  // queue exactly as for audio. Only play/pause + the scrubber target the
+  // shared <video> element in video mode.
+  const videoMode = !!currentVideo;
+  const showPlaying = videoMode ? videoPlaying : isPlaying;
+
+  const toggleVideoPlay = useCallback(() => {
+    const v = videoElementRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {});
+    else v.pause();
+  }, []);
+
+  const onPlayPause = currentVideo
+    ? toggleVideoPlay
+    : currentTrack?.itemType === "video"
+      ? () => playVideo(videoInputFromTrack(currentTrack))
+      : () => (isPlaying ? pauseTrack() : resumeTrack());
 
   return (
     <div className="flex flex-col items-center w-[40%] max-w-[600px] gap-1">
@@ -354,10 +579,10 @@ const TransportControls = memo(function TransportControls() {
           <SkipBack size={18} fill="currentColor" />
         </button>
         <button
-          onClick={() => (isPlaying ? pauseTrack() : resumeTrack())}
+          onClick={onPlayPause}
           className="w-9 h-9 bg-th-text-primary rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform duration-150"
         >
-          {isPlaying ? (
+          {showPlaying ? (
             <Pause size={17} fill="currentColor" className="text-th-base" />
           ) : (
             <Play
@@ -394,7 +619,7 @@ const TransportControls = memo(function TransportControls() {
       </div>
 
       {/* Progress bar */}
-      <ProgressScrubber />
+      {videoMode ? <VideoProgressScrubber /> : <ProgressScrubber />}
     </div>
   );
 });
@@ -441,12 +666,42 @@ const DrawerButtons = memo(function DrawerButtons() {
 const MaximizeButton = memo(function MaximizeButton() {
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const currentTrack = useAtomValue(currentTrackAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const setVideoFullscreen = useSetAtom(videoFullscreenAtom);
+  const { expandVideo, playVideo } = useVideoPlayback();
 
-  if (!currentTrack) return null;
+  if (!currentTrack && !currentVideo) return null;
+
+  const goFullscreen = () => {
+    setVideoFullscreen(true);
+    getCurrentWindow()
+      .setFullscreen(true)
+      .catch(() => {});
+  };
+
+  // A restored/closed video (current track is a video, but no live session) must
+  // start the video overlay — NOT the audio maximized player, whose play button
+  // would fire play_tidal_track(videoId) and 404.
+  const isRestoredVideo = !currentVideo && currentTrack?.itemType === "video";
+  const onClick = currentVideo
+    ? () => {
+        expandVideo();
+        goFullscreen();
+      }
+    : isRestoredVideo
+      ? async () => {
+          try {
+            await playVideo(videoInputFromTrack(currentTrack));
+            goFullscreen();
+          } catch {
+            /* startVideoSession already dismissed the overlay on failure */
+          }
+        }
+      : () => setMaximized(true);
 
   return (
     <button
-      onClick={() => setMaximized(true)}
+      onClick={onClick}
       className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150"
       title="Fullscreen player"
     >

@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::sync::atomic::Ordering;
 use tauri::State;
 
-use crate::tidal_api::StreamInfo;
+use crate::tidal_api::{StreamInfo, TidalVideo, VideoStreamInfo};
 use crate::AppState;
 use crate::SoneError;
 
@@ -215,6 +215,28 @@ pub async fn get_stream_info(
     let (info, _uri, _gain, _rg, _peak, _is_dash) =
         resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
     Ok(info)
+}
+
+/// Resolve a music video's HLS master playlist URL. Pure resolver — video
+/// plays in the WebView, so this never touches the audio pipeline.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_video_stream_info(
+    state: State<'_, AppState>,
+    video_id: u64,
+    video_quality: Option<String>,
+) -> Result<VideoStreamInfo, SoneError> {
+    let quality = video_quality.unwrap_or_else(|| "HIGH".to_string());
+    let mut client = state.tidal_client.lock().await;
+    client.get_video_stream_url(video_id, &quality).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_video_metadata(
+    state: State<'_, AppState>,
+    video_id: u64,
+) -> Result<TidalVideo, SoneError> {
+    let mut client = state.tidal_client.lock().await;
+    client.get_video(video_id).await
 }
 
 #[tauri::command]

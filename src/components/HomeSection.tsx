@@ -31,6 +31,8 @@ import {
   isMagazineItem,
   buildMediaItem,
 } from "../utils/itemHelpers";
+import { getTidalPromoImageUrl } from "../types";
+import TidalImage from "./TidalImage";
 
 interface HomeSectionProps {
   section: HomeSectionType;
@@ -48,6 +50,9 @@ export default function HomeSection({ section }: HomeSectionProps) {
     navigateToFavorites,
   } = useNavigation();
   const {
+    favoriteVideoIds,
+    addFavoriteVideo,
+    removeFavoriteVideo,
     favoriteAlbumIds,
     addFavoriteAlbum,
     removeFavoriteAlbum,
@@ -121,6 +126,38 @@ export default function HomeSection({ section }: HomeSectionProps) {
       }
       return;
     }
+    // MULTIPLE_TOP_PROMOTIONS ("Featured") items reference their content by
+    // `artifactId` + `type` (no id/uuid), so route them explicitly.
+    if (item?.artifactId && item?.type) {
+      const title = item.shortHeader || item.header || "";
+      switch (item.type) {
+        case "PLAYLIST":
+          navigateToPlaylist(item.artifactId, { title, image: item.imageId });
+          return;
+        case "VIDEO":
+          playMedia({
+            type: "video",
+            id: Number(item.artifactId),
+            title,
+            imageId: item.imageId,
+          });
+          return;
+        case "ALBUM":
+          navigateToAlbum(Number(item.artifactId), {
+            title,
+            cover: item.imageId,
+          });
+          return;
+        case "ARTIST":
+          navigateToArtist(Number(item.artifactId), { name: title });
+          return;
+      }
+    }
+    const asMedia = buildMediaItem(item, section.sectionType);
+    if (asMedia?.type === "video") {
+      playMedia(asMedia);
+      return;
+    }
     if (isTrackItem(item, section.sectionType)) {
       const allTrackItems = items.filter((t: any) =>
         isTrackItem(t, section.sectionType),
@@ -178,6 +215,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
   const isCompactGrid =
     section.sectionType === "COMPACT_GRID_CARD" ||
     section.title === "Recently played";
+  const isMultiPromo = section.sectionType === "MULTIPLE_TOP_PROMOTIONS";
 
   if (isTrackSection) {
     return <TrackListSection section={section} items={items} />;
@@ -243,17 +281,58 @@ export default function HomeSection({ section }: HomeSectionProps) {
           className="card-scroll-track pb-2"
         >
           {items.map((item: any) => {
+            if (isMultiPromo) {
+              const promoTitle = item.shortHeader || item.header || "";
+              const promoEyebrow = item.shortHeader ? item.header : undefined;
+              return (
+                <MediaCard
+                  key={item.artifactId ?? promoTitle}
+                  item={item}
+                  aspect="promo"
+                  eyebrow={promoEyebrow}
+                  titleOverride={promoTitle}
+                  subtitleOverride={item.shortSubHeader}
+                  imageOverride={
+                    <TidalImage
+                      src={getTidalPromoImageUrl(item.imageId)}
+                      alt={promoTitle}
+                      className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
+                    />
+                  }
+                  showPlayButton={false}
+                  onClick={() => handleItemClick(item)}
+                  widthClass="card-scroll-item-promo"
+                />
+              );
+            }
+            const isVideo =
+              buildMediaItem(item, section.sectionType)?.type === "video";
             const isArtist = isArtistItem(item, section.sectionType);
             const isMix = isMixItem(item, section.sectionType);
             const isTrack = isTrackItem(item, section.sectionType);
             const isPlaylist = !isArtist && !isMix && !isTrack && !!item.uuid;
             const isAlbum =
-              !isArtist && !isMix && !isTrack && !item.uuid && item.id;
+              !isVideo &&
+              !isArtist &&
+              !isMix &&
+              !isTrack &&
+              !item.uuid &&
+              item.id;
 
             let isFavorited: boolean | undefined;
             let onFavoriteToggle: ((e: React.MouseEvent) => void) | undefined;
 
-            if (isAlbum) {
+            if (isVideo && item.id) {
+              isFavorited = favoriteVideoIds.has(item.id);
+              onFavoriteToggle = (e) => {
+                e.stopPropagation();
+                if (favoriteVideoIds.has(item.id)) {
+                  removeFavoriteVideo(item.id);
+                } else {
+                  addFavoriteVideo(item.id);
+                }
+              };
+            } else if (isAlbum) {
               isFavorited = favoriteAlbumIds.has(item.id);
               onFavoriteToggle = (e) => {
                 e.stopPropagation();
@@ -318,6 +397,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
               <MediaCard
                 key={getItemId(item)}
                 item={item}
+                aspect={isVideo ? "video" : "square"}
                 onClick={() => handleItemClick(item)}
                 onContextMenu={
                   myTracks ? undefined : (e) => handleContextMenu(e, item)
@@ -333,7 +413,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
                 isArtist={isArtist}
                 isFavorited={isFavorited}
                 onFavoriteToggle={onFavoriteToggle}
-                widthClass="card-scroll-item"
+                widthClass={isVideo ? "card-scroll-item-video" : "card-scroll-item"}
                 {...(myTracks && {
                   titleOverride: "Loved Tracks",
                   imageOverride: (

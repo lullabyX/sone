@@ -13,6 +13,8 @@ import {
   maximizedPlayerAtom,
 } from "../atoms/ui";
 import MaximizedPlayer from "./MaximizedPlayer";
+import VideoPlayer from "./VideoPlayer";
+import { currentVideoAtom, videoExpandedAtom } from "../atoms/video";
 import { useMiniplayerEmitter } from "../hooks/useMiniplayerEmitter";
 
 interface LayoutProps {
@@ -23,6 +25,11 @@ export default function Layout({ children }: LayoutProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentView = useAtomValue(currentViewAtom);
   const maximized = useAtomValue(maximizedPlayerAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const videoExpanded = useAtomValue(videoExpandedAtom);
+  // Hide the audio chrome only while the overlay is actually showing; when the
+  // video is minimized the normal view + player bar return (video keeps playing).
+  const overlayShowing = currentVideo && videoExpanded;
   // `false` = custom titlebar shown; `true` = native OS chrome (escape hatch)
   const nativeChrome = useAtomValue(decorationsAtom);
   const hideTitleBar = useAtomValue(hideTitleBarAtom);
@@ -91,7 +98,15 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="relative flex flex-col h-full w-full bg-th-overlay text-th-text-primary overflow-hidden">
       {!nativeChrome && !hideTitleBar && <TitleBar />}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Hide the audio chrome (sidebar + heavy library grids + player bar) while a
+          fullscreen video overlay is open. An opaque overlay does NOT stop WebKit from
+          compositing the layer tree beneath it every video frame — at 4K that throttles
+          the compositor ~3x and makes the video stutter. display:none removes those
+          layers from compositing entirely. `contents` keeps the wrapper layout-neutral
+          for the fixed-positioned chrome when no video is playing. */}
+      <div
+        className={`flex flex-1 overflow-hidden ${overlayShowing ? "hidden" : ""}`}
+      >
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0 bg-th-base">
           <Header />
@@ -104,9 +119,12 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </div>
-      <NowPlayingDrawer />
-      {maximized && <MaximizedPlayer />}
-      <PlayerBar />
+      <div className={overlayShowing ? "hidden" : "contents"}>
+        <NowPlayingDrawer />
+        {maximized && <MaximizedPlayer />}
+        <PlayerBar />
+      </div>
+      {currentVideo && <VideoPlayer />}
       {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={4} />}
     </div>
   );

@@ -5135,7 +5135,7 @@ dependencies = [
 
 [[package]]
 name = "sone"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "aes-gcm",
  "alsa",
@@ -5146,6 +5146,7 @@ dependencies = [
  "dirs 5.0.1",
  "discord-rich-presence",
  "flexi_logger",
+ "futures-util",
  "gdk",
  "gdkwayland-sys",
  "gstreamer",
@@ -5178,6 +5179,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "uuid 1.20.0",
  "walkdir",
@@ -6000,6 +6002,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

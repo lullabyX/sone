@@ -6,6 +6,7 @@ import {
   ListPlus,
   ChevronUp,
   ChevronDown,
+  Video,
 } from "lucide-react";
 import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
@@ -27,7 +28,7 @@ import {
   isPlayingAtom,
   allowExplicitAtom,
 } from "../atoms/playback";
-import { favoriteTrackIdsAtom } from "../atoms/favorites";
+import { favoriteTrackIdsAtom, favoriteVideoIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
 import { useToast } from "../contexts/ToastContext";
@@ -133,9 +134,17 @@ const TrackRow = memo(function TrackRow({
   onAddToCurrentPlaylist,
 }: TrackRowProps) {
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
+  const favoriteVideoIds = useAtomValue(favoriteVideoIdsAtom);
   const { navigateToAlbum } = useNavigation();
-  const { addFavoriteTrack, removeFavoriteTrack } = useFavorites();
+  const {
+    addFavoriteTrack,
+    removeFavoriteTrack,
+    addFavoriteVideo,
+    removeFavoriteVideo,
+  } = useFavorites();
   const { showToast } = useToast();
+
+  const isVideo = track.itemType === "video";
 
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -166,16 +175,25 @@ const TrackRow = memo(function TrackRow({
   const playing = useAtomValue(isPlayingHereAtom);
 
   // Don't grey out the actively-playing row even if its metadata has been
-  // refreshed to streamReady:false — audio is the source of truth.
-  const isUnavailable = isTrackUnavailable(track) && !isActive;
+  // refreshed to streamReady:false — audio is the source of truth. Videos are
+  // never gated on audio stream flags.
+  const isUnavailable = !isVideo && isTrackUnavailable(track) && !isActive;
   const isInactive = isBlocked || isUnavailable;
 
-  const isFav = favoriteTrackIds.has(track.id);
+  const isFav = isVideo
+    ? favoriteVideoIds.has(track.id)
+    : favoriteTrackIds.has(track.id);
 
   const toggleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      if (isFav) {
+      if (isVideo) {
+        if (isFav) {
+          await removeFavoriteVideo(track.id);
+        } else {
+          await addFavoriteVideo(track.id);
+        }
+      } else if (isFav) {
         await removeFavoriteTrack(track.id);
       } else {
         await addFavoriteTrack(track.id, track);
@@ -265,10 +283,18 @@ const TrackRow = memo(function TrackRow({
         {showCover && (
           <div className="relative w-10 h-10 shrink-0 rounded bg-th-surface-hover overflow-hidden">
             <TidalImage
-              src={getTidalImageUrl(track.album?.cover, 160)}
+              src={getTidalImageUrl(
+                isVideo ? track.imageId : track.album?.cover,
+                160,
+              )}
               alt={track.album?.title || track.title}
               className="w-full h-full object-cover"
             />
+            {isVideo && (
+              <div className="absolute bottom-0.5 right-0.5 flex items-center justify-center w-4 h-4 rounded bg-black/70">
+                <Video size={10} className="text-white" />
+              </div>
+            )}
           </div>
         )}
         <div className="flex flex-col justify-center min-w-0">
@@ -280,6 +306,11 @@ const TrackRow = memo(function TrackRow({
             >
               {getTrackDisplayTitle(track)}
             </span>
+            {isVideo && (
+              <span className="shrink-0 inline-flex items-center justify-center px-1 h-[15px] rounded-[3px] bg-th-text-faint/15 text-th-text-muted text-[9px] font-bold leading-none tracking-wide">
+                VIDEO
+              </span>
+            )}
             {track.explicit && <ExplicitBadge />}
           </div>
           {!showArtist && (

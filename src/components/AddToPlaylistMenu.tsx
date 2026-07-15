@@ -8,6 +8,7 @@ import { authTokensAtom } from "../atoms/auth";
 import { getAllPlaylists } from "../api/tidal";
 import { useContextMenu } from "../hooks/useContextMenu";
 import { type Playlist, getTidalImageUrl } from "../types";
+import { playlistCountLabel } from "../utils/itemHelpers";
 import TidalImage from "./TidalImage";
 import MenuPortal from "./MenuPortal";
 import Toggle from "./Toggle";
@@ -573,8 +574,11 @@ export default function AddToPlaylistMenu({
             {playlist.title}
           </span>
           <span className="text-[12px] text-th-text-faint leading-snug">
-            {playlist.numberOfTracks != null
-              ? `${playlist.numberOfTracks} track${playlist.numberOfTracks !== 1 ? "s" : ""}`
+            {playlist.numberOfTracks != null || playlist.numberOfVideos != null
+              ? playlistCountLabel(
+                  playlist.numberOfTracks,
+                  playlist.numberOfVideos,
+                )
               : "Playlist"}
           </span>
         </div>
