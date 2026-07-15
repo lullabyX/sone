@@ -31,8 +31,8 @@ impl ServerHandler for SoneMcpServer {
 pub struct McpHandle {
     pub(crate) port: u16,
     pub(crate) token: String,
-    pub(crate) cancel: CancellationToken,
-    pub(crate) task: tokio::task::JoinHandle<()>,
+    cancel: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl McpHandle {
@@ -43,8 +43,7 @@ impl McpHandle {
     /// Stop the server and wait until the port is fully released. Must
     /// complete before rebinding the same port (regenerate/enable paths).
     pub async fn shutdown(self) {
-        self.cancel.cancel();
-        let _ = self.task.await;
+        crate::http_util::shutdown_bounded(self.cancel, self.task, "MCP").await;
     }
 }
 

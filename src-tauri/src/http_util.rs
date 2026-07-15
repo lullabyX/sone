@@ -1,3 +1,4 @@
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -21,4 +22,22 @@ pub fn spawn_with_shutdown(
         }
         log::info!("{name} server shut down");
     })
+}
+
+/// Cancel the server and wait for it to drain, bounded. A client dribbling
+/// bytes can hold graceful drain open forever — after the timeout, abort:
+/// the listener was already dropped at the shutdown signal, so the port is
+/// free for rebind either way.
+pub async fn shutdown_bounded(cancel: CancellationToken, task: JoinHandle<()>, name: &'static str) {
+    cancel.cancel();
+    let mut task = task;
+    match tokio::time::timeout(Duration::from_secs(3), &mut task).await {
+        Ok(Err(e)) => log::error!("{name} server task failed: {e}"),
+        Ok(Ok(())) => {}
+        Err(_) => {
+            log::warn!("{name} server drain timed out; aborting");
+            task.abort();
+            let _ = (&mut task).await;
+        }
+    }
 }

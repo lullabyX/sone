@@ -22,8 +22,8 @@ const MAX_SSE_CONNECTIONS: usize = 16;
 pub struct OverlayHandle {
     pub port: u16,
     pub host: String,
-    pub cancel: CancellationToken,
-    pub task: tokio::task::JoinHandle<()>,
+    cancel: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl OverlayHandle {
@@ -41,8 +41,7 @@ impl OverlayHandle {
     /// Stop the server and wait until the listener is released and all
     /// connections are closed. Must complete before rebinding the same addr.
     pub async fn shutdown(self) {
-        self.cancel.cancel();
-        let _ = self.task.await;
+        crate::http_util::shutdown_bounded(self.cancel, self.task, "Overlay").await;
     }
 }
 
@@ -688,5 +687,21 @@ mod tests {
             handle.url()
         );
         handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_bounded_despite_stalled_client() {
+        let (handle, _state) = start_on_ephemeral().await;
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", handle.port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\n")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), handle.shutdown())
+            .await
+            .expect("shutdown not bounded with a stalled client");
+        drop(stream);
     }
 }
