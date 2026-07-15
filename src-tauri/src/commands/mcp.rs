@@ -69,7 +69,7 @@ pub async fn mcp_set_enabled(
         // startup spawn (or a concurrent regenerate) into a double bind.
         let mut guard = state.mcp_handle.lock().await;
         if let Some(handle) = guard.take() {
-            handle.cancel.cancel();
+            handle.shutdown().await;
         }
         if enabled {
             let h = crate::mcp::start_server(
@@ -97,7 +97,7 @@ pub async fn mcp_regenerate_token(
     {
         let mut guard = state.mcp_handle.lock().await;
         if let Some(handle) = guard.take() {
-            handle.cancel.cancel();
+            handle.shutdown().await;
         }
         if settings.mcp_enabled {
             let h = crate::mcp::start_server(

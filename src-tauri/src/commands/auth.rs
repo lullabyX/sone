@@ -436,7 +436,7 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
 
     // Stop the MCP server (cancel its task, drop the listener).
     if let Some(handle) = state.mcp_handle.lock().await.take() {
-        handle.cancel.cancel();
+        handle.shutdown().await;
     }
 
     // Release the idle inhibitor if a track had held it.
