@@ -15,6 +15,7 @@ export default function OverlayTab() {
   const [busy, setBusy] = useState(false);
   const [portError, setPortError] = useState("");
   const [hostError, setHostError] = useState("");
+  const [toggleError, setToggleError] = useState("");
 
   useEffect(() => {
     invoke<OverlayConnectionInfo>("overlay_get_connection_info")
@@ -46,6 +47,7 @@ export default function OverlayTab() {
   const toggle = async (next: boolean) => {
     setBusy(true);
     setEnabled(next);
+    setToggleError("");
     try {
       const i = await invoke<OverlayConnectionInfo>("overlay_set_enabled", {
         enabled: next,
@@ -55,6 +57,8 @@ export default function OverlayTab() {
     } catch (e) {
       console.error("overlay_set_enabled failed:", e);
       setEnabled(!next);
+      setToggleError(safeErrorMessage(e, "Failed to update overlay server"));
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -167,6 +171,10 @@ export default function OverlayTab() {
             </div>
           );
         })()}
+
+        {toggleError && (
+          <p className="text-[11px] text-[#ff6666] mb-4">{toggleError}</p>
+        )}
 
         {enabled && info.url ? (
           <>

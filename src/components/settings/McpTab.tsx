@@ -15,6 +15,7 @@ export default function McpTab() {
   const [snippetCopied, setSnippetCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [regenError, setRegenError] = useState("");
+  const [toggleError, setToggleError] = useState("");
 
   useEffect(() => {
     invoke<McpConnectionInfo>("mcp_get_connection_info")
@@ -38,6 +39,7 @@ export default function McpTab() {
     setBusy(true);
     setEnabled(next);
     setRevealed(false);
+    setToggleError("");
     try {
       const i = await invoke<McpConnectionInfo>("mcp_set_enabled", {
         enabled: next,
@@ -47,6 +49,14 @@ export default function McpTab() {
     } catch (e) {
       console.error("mcp_set_enabled failed:", e);
       setEnabled(!next);
+      setToggleError(safeErrorMessage(e, "Failed to update MCP server"));
+      try {
+        const i = await invoke<McpConnectionInfo>("mcp_get_connection_info");
+        setInfo(i);
+        setEnabled(i.enabled);
+      } catch {
+        // keep last known state
+      }
     } finally {
       setBusy(false);
     }
@@ -145,6 +155,10 @@ export default function McpTab() {
             </div>
           );
         })()}
+
+        {toggleError && (
+          <p className="text-[11px] text-[#ff6666] mb-4">{toggleError}</p>
+        )}
 
         {enabled && info.url ? (
           (() => {
