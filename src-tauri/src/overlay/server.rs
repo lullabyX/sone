@@ -95,8 +95,8 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     backdrop-filter: blur(18px) saturate(1.6);
     -webkit-backdrop-filter: blur(18px) saturate(1.6);
     border: 1px solid var(--th-border-subtle);
-    border-radius: 16px;
-    padding: 12px 18px 12px 12px;
+    border-radius: 20px;
+    padding: 14px;
 
     opacity: 0;
     transform: translateY(18px);
@@ -112,9 +112,9 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
   #cover-wrap {
     position: relative;
     flex-shrink: 0;
-    width: 72px;
-    height: 72px;
-    border-radius: 10px;
+    width: 92px;
+    height: 92px;
+    border-radius: 8px;
     overflow: hidden;
     background: var(--th-bg-inset);
   }
@@ -123,7 +123,7 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 10px;
+    border-radius: 8px;
     display: block;
   }
 
@@ -145,7 +145,7 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
   }
 
   .text-top {
@@ -188,8 +188,8 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     display: none;
     flex-shrink: 0;
     align-items: center;
-    padding: 1px 5px;
-    border-radius: 4px;
+    padding: 2px 6px;
+    border-radius: 5px;
     background: var(--th-bg-inset);
     background: color-mix(in srgb, var(--th-accent) 14%, transparent);
     border: 1px solid var(--th-accent);
@@ -212,7 +212,7 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     gap: 7px;
-    margin-top: 2px;
+    margin-top: 4px;
   }
 
   .progress-track {
@@ -277,7 +277,7 @@ const OVERLAY_HTML: &str = r#"<!DOCTYPE html>
   <div id="cover-wrap">
     <img id="cover-img" src="" alt="" style="display:none">
     <div id="cover-placeholder">
-      <svg width="24" height="24" viewBox="0 0 24 24">
+      <svg width="28" height="28" viewBox="0 0 24 24">
         <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/>
       </svg>
     </div>
