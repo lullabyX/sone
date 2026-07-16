@@ -86,6 +86,30 @@ pub async fn resolve_play_uri(
         stream_info.codec, stream_info.manifest.is_some()
     );
 
+    // Capture the actual served attributes for TIDAL play-reporting.
+    state
+        .tidal_reporter
+        .note_stream_resolved(
+            track_id,
+            crate::tidal_report::StreamMeta {
+                actual_product_id: stream_info.track_id,
+                quality: stream_info
+                    .audio_quality
+                    .clone()
+                    .unwrap_or_else(|| "LOSSLESS".into()),
+                audio_mode: stream_info
+                    .audio_mode
+                    .clone()
+                    .unwrap_or_else(|| "STEREO".into()),
+                presentation: stream_info
+                    .asset_presentation
+                    .clone()
+                    .unwrap_or_else(|| "FULL".into()),
+                at_ms: (crate::now_secs() as i64) * 1000,
+            },
+        )
+        .await;
+
     let is_dash = stream_info.manifest.is_some();
     let uri = if let Some(ref mpd) = stream_info.manifest {
         // DASH: pass MPD manifest as a data URI for GStreamer's dashdemux.
@@ -238,6 +262,7 @@ pub async fn get_video_metadata(
 pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[pause_track]");
     let result = state.audio_player.pause().map_err(SoneError::Audio);
+    state.tidal_reporter.on_pause().await;
     state.scrobble_manager.on_pause().await;
     result
 }
@@ -246,6 +271,7 @@ pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 pub async fn resume_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[resume_track]");
     let result = state.audio_player.resume().map_err(SoneError::Audio);
+    state.tidal_reporter.on_resume().await;
     state.scrobble_manager.on_resume().await;
     result
 }
@@ -258,6 +284,7 @@ pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::Stop);
     state.discord.send(crate::discord::DiscordCommand::Stop);
+    state.tidal_reporter.on_track_stopped().await;
     state.scrobble_manager.on_track_stopped().await;
     result
 }
@@ -308,6 +335,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
     state.discord.send(crate::discord::DiscordCommand::Seeked {
         position_secs: position_secs as f64,
     });
+    state.tidal_reporter.on_seek().await;
     state.scrobble_manager.on_seek().await;
     result
 }

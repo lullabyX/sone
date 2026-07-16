@@ -17,6 +17,7 @@ mod pipeline_probe;
 #[cfg(target_os = "linux")]
 mod tray;
 mod tidal_api;
+mod tidal_report;
 pub mod mcp;
 pub mod overlay;
 
@@ -175,6 +176,9 @@ pub struct Settings {
     pub overlay_port: u16,
     #[serde(default = "defaults::overlay_host")]
     pub overlay_host: String,
+    /// Report plays to TIDAL (Recently Played). Opt-in, off by default.
+    #[serde(default)]
+    pub report_plays: bool,
 }
 
 impl Default for Settings {
@@ -206,6 +210,7 @@ impl Default for Settings {
             overlay_enabled: false,
             overlay_port: 5578,
             overlay_host: "127.0.0.1".to_string(),
+            report_plays: false,
         }
     }
 }
@@ -236,6 +241,7 @@ pub struct AppState {
     #[cfg(target_os = "linux")]
     pub mpris: mpris::MprisHandle,
     pub scrobble_manager: scrobble::ScrobbleManager,
+    pub tidal_reporter: tidal_report::TidalReporter,
     pub discord: discord::DiscordHandle,
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
     pub mcp_state: crate::mcp::McpStateRef,
@@ -348,7 +354,16 @@ impl AppState {
             app_handle.clone(),
             crypto.clone(),
             &config_dir,
+            scrobble_http_client.clone(),
+        );
+
+        let report_plays = saved.as_ref().map(|s| s.report_plays).unwrap_or(false);
+        let tidal_reporter = tidal_report::TidalReporter::new(
+            app_handle.clone(),
+            crypto.clone(),
+            &config_dir,
             scrobble_http_client,
+            report_plays,
         );
 
         let discord_rpc_enabled = saved.as_ref().map(|s| s.discord_rpc).unwrap_or(true);
@@ -399,6 +414,7 @@ impl AppState {
             #[cfg(target_os = "linux")]
             mpris: mpris::MprisHandle::new(app_handle),
             scrobble_manager,
+            tidal_reporter,
             discord: discord_handle,
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
             mcp_state: crate::mcp::new_state(),
@@ -631,8 +647,9 @@ pub fn run() {
                         }
                     }
 
-                    // Drain retry queue in background
+                    // Drain retry queues in background
                     state.scrobble_manager.drain_queue().await;
+                    state.tidal_reporter.drain_queue().await;
                 });
             }
 
@@ -644,6 +661,7 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<AppState>();
                         state.scrobble_manager.try_scrobble_finished().await;
+                        state.tidal_reporter.try_finish().await;
                     });
                 });
             }
@@ -677,11 +695,9 @@ pub fn run() {
 
                     let handle = handle.clone();
                     tauri::async_runtime::spawn(async move {
-                        handle
-                            .state::<AppState>()
-                            .scrobble_manager
-                            .try_scrobble_finished()
-                            .await;
+                        let state = handle.state::<AppState>();
+                        state.scrobble_manager.try_scrobble_finished().await;
+                        state.tidal_reporter.try_finish().await;
                     });
                 });
             }
@@ -972,6 +988,8 @@ pub fn run() {
             commands::utility::list_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
+            commands::utility::get_report_plays,
+            commands::utility::set_report_plays,
             commands::utility::get_discord_status_text,
             commands::utility::set_discord_status_text,
             commands::utility::get_proxy_settings,
@@ -1005,6 +1023,7 @@ pub fn run() {
                 tauri::async_runtime::block_on(async {
                     state.idle_inhibitor.lock().await.uninhibit().await;
                     state.scrobble_manager.flush().await;
+                    state.tidal_reporter.flush().await;
                 });
             }
         });

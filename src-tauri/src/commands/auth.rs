@@ -423,6 +423,7 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
     // Purge scrobbling: in-memory providers + now-playing + retry queue.
     // Done before stopping playback so the interrupted track is not scrobbled.
     state.scrobble_manager.disconnect_all().await;
+    state.tidal_reporter.clear().await;
 
     // Stop playback: tear down the pipeline + clear MPRIS/Discord now-playing.
     crate::commands::playback::stop_playback(state.inner())
