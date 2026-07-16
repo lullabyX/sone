@@ -19,6 +19,7 @@ mod tidal_api;
 #[cfg(target_os = "linux")]
 mod tray;
 pub mod overlay;
+mod http_util;
 
 pub use error::SoneError;
 pub use signal_path::{SignalPath, SignalPathTracker};

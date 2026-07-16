@@ -31,12 +31,19 @@ impl ServerHandler for SoneMcpServer {
 pub struct McpHandle {
     pub(crate) port: u16,
     pub(crate) token: String,
-    pub(crate) cancel: CancellationToken,
+    cancel: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl McpHandle {
     pub fn url(&self) -> String {
         format!("http://127.0.0.1:{}/{}/mcp", self.port, self.token)
+    }
+
+    /// Stop the server and wait until the port is fully released. Must
+    /// complete before rebinding the same port (regenerate/enable paths).
+    pub async fn shutdown(self) {
+        crate::http_util::shutdown_bounded(self.cancel, self.task, "MCP").await;
     }
 }
 
@@ -78,23 +85,12 @@ pub async fn start_server(
         token
     );
 
-    let cancel_clone = cancel.clone();
-    tokio::spawn(async move {
-        tokio::select! {
-            result = axum::serve(listener, app) => {
-                if let Err(e) = result {
-                    log::error!("MCP server exited with error: {e}");
-                }
-            }
-            _ = cancel_clone.cancelled() => {
-                log::info!("MCP server shutting down (abrupt)");
-            }
-        }
-    });
+    let task = crate::http_util::spawn_with_shutdown(listener, app, cancel.clone(), "MCP");
 
     Ok(McpHandle {
         port: bound_port,
         token,
         cancel,
+        task,
     })
 }
