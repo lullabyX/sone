@@ -23,9 +23,9 @@ import TooltipLayer from "./components/TooltipLayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
 import { useShortcuts } from "./hooks/useShortcuts";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { currentViewAtom } from "./atoms/navigation";
-import { isAuthCheckingAtom, localOnlyAtom } from "./atoms/auth";
+import { isAuthCheckingAtom, localOnlyAtom, userNameAtom } from "./atoms/auth";
 import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
@@ -90,8 +90,17 @@ function AppContent() {
   const { isAuthenticated } = useAuth();
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
   const localOnly = useAtomValue(localOnlyAtom);
-  const { navigateHome, navigateToExplore } = useNavigation();
+  const { navigateHome, navigateToExplore, navigateToLocalMusic } = useNavigation();
   const currentView = useAtomValue(currentViewAtom);
+
+  // When entering local-only mode, show Local Music by default
+  const setUserName = useSetAtom(userNameAtom);
+  useEffect(() => {
+    if (localOnly && !isAuthenticated) {
+      setUserName("Local Music");
+      navigateToLocalMusic();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isAuthChecking) {
     return (

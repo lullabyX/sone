@@ -1,6 +1,7 @@
 import { Play, Heart } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigation } from "../hooks/useNavigation";
+import TidalSignInBanner from "./TidalSignInBanner";
 import {
   getHomePage,
   refreshHomePage,
@@ -435,6 +436,7 @@ export default function Home() {
 
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+      <TidalSignInBanner />
       <PageContainer className="px-6 py-8">
         {renderTabBar(shortcutSection ? "mb-10" : "mb-8")}
         {/* Keyed on the active tab so switching tabs remounts the content and

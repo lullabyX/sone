@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useStore } from "jotai";
-import { authTokensAtom, currentUserAvatarAtom } from "../atoms/auth";
+import { authTokensAtom, currentUserAvatarAtom, localOnlyAtom } from "../atoms/auth";
 import { useNavigation } from "../hooks/useNavigation";
 import { useToast } from "../contexts/ToastContext";
 import { getProfile, deleteProfilePicture } from "../api/tidal";
@@ -99,7 +99,7 @@ function PlaylistsSection({
   playlists: ProfilePlaylist[];
   subtitle: string;
 }) {
-  const { navigateToPlaylist, navigateToProfilePlaylists } = useNavigation();
+  const { navigateToPlaylist, navigateToProfilePlaylists } = useNavigation();  // PlaylistRow sub-component
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -202,7 +202,7 @@ interface ProfilePageProps {
 
 export default function ProfilePage({ onBack }: ProfilePageProps) {
   const store = useStore();
-  const { navigateToArtist } = useNavigation();
+  const { navigateToArtist, navigateHome } = useNavigation();
   const { showToast } = useToast();
 
   const userId = store.get(authTokensAtom)?.user_id ?? null;
@@ -279,6 +279,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
   }, [heroHref]);
 
   if (userId == null) {
+    const localOnly = store.get(localOnlyAtom);
     return (
       <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
@@ -287,8 +288,21 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
             Not signed in
           </p>
           <p className="text-th-text-muted text-sm max-w-md">
-            Sign in to view your profile.
+            {localOnly
+              ? "Sign in to TIDAL to access your streaming library, playlists, and profile."
+              : "Sign in to view your profile."}
           </p>
+          {localOnly && (
+            <button
+              onClick={() => {
+                store.set(localOnlyAtom, false);
+                navigateHome();
+              }}
+              className="mt-2 rounded-full bg-th-accent px-5 py-2 text-sm font-semibold text-th-accent-text transition hover:brightness-110"
+            >
+              Sign in to TIDAL
+            </button>
+          )}
         </div>
       </div>
     );

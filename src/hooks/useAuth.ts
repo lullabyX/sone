@@ -6,6 +6,7 @@ import {
   authTokensAtom,
   userNameAtom,
   currentUserAvatarAtom,
+  localOnlyAtom,
 } from "../atoms/auth";
 import {
   userPlaylistsAtom,
@@ -70,6 +71,7 @@ export function useAuth() {
   const setHistory = useSetAtom(historyAtom);
   const setStreamInfo = useSetAtom(streamInfoAtom);
   const setUserPaused = useSetAtom(userPausedAtom);
+  const setLocalOnly = useSetAtom(localOnlyAtom);
   const setFavoriteTrackIds = useSetAtom(favoriteTrackIdsAtom);
   const setFavoriteAlbumIds = useSetAtom(favoriteAlbumIdsAtom);
   const setFavoritePlaylistUuids = useSetAtom(favoritePlaylistUuidsAtom);
@@ -247,6 +249,7 @@ export function useAuth() {
       clearCache();
       setAuthTokens(null);
       setIsAuthenticated(false);
+      setLocalOnly(false);
       setUserName("TIDAL User");
       setCurrentUserAvatar(null);
       // Playback

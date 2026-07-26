@@ -18,6 +18,7 @@ import { getItemTitle, getItemId } from "../utils/itemHelpers";
 import type { HomeSection } from "../types";
 import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
 import PageContainer from "./PageContainer";
+import TidalSignInBanner from "./TidalSignInBanner";
 
 /** Check if items in a section have icons (bottom shortcut items like New, Top, Videos). */
 function hasIcons(section: HomeSection): boolean {
@@ -101,6 +102,7 @@ export default function ExplorePage() {
 
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+      <TidalSignInBanner />
       <PageContainer className="px-8 py-10">
         {/* Header */}
         <h1 className="text-[32px] font-bold text-th-text-primary tracking-tight mb-10">

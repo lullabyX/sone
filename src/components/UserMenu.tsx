@@ -1,5 +1,6 @@
 import {
   LogOut,
+  LogIn,
   Keyboard,
   X,
   Headphones,
@@ -10,7 +11,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "../hooks/useNavigation";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
@@ -19,7 +20,7 @@ import {
   bitPerfectAtom,
   exclusiveDeviceAtom,
 } from "../atoms/playback";
-import { currentUserAvatarAtom } from "../atoms/auth";
+import { currentUserAvatarAtom, isAuthenticatedAtom, localOnlyAtom } from "../atoms/auth";
 import { useToast } from "../contexts/ToastContext";
 import {
   ACTION_REGISTRY,
@@ -39,8 +40,12 @@ import TidalImage from "./TidalImage";
 
 export default function UserMenu() {
   const { userName, logout } = useAuth();
-  const { navigateToProfile } = useNavigation();
+  const { navigateToProfile, navigateHome } = useNavigation();
   const avatarUrl = useAtomValue(currentUserAvatarAtom);
+  const localOnly = useAtomValue(localOnlyAtom);
+  const isAuthenticated = useAtomValue(isAuthenticatedAtom);
+  const setLocalOnly = useSetAtom(localOnlyAtom);
+  const setIsAuthenticated = useSetAtom(isAuthenticatedAtom);
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -324,18 +329,33 @@ export default function UserMenu() {
             About
           </button>
 
-          {/* ── Logout ── */}
+          {/* ── Logout / Sign in ── */}
           <div className="border-t border-th-border-subtle my-1" />
-          <button
-            onClick={() => {
-              setOpen(false);
-              logout();
-            }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-red-400 hover:bg-th-border-subtle transition-colors"
-          >
-            <LogOut size={16} />
-            Log out
-          </button>
+          {!isAuthenticated && localOnly ? (
+            <button
+              onClick={() => {
+                setOpen(false);
+                setLocalOnly(false);
+                setIsAuthenticated(false);
+                navigateHome();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-accent hover:bg-th-border-subtle transition-colors"
+            >
+              <LogIn size={16} />
+              Sign in to TIDAL
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setOpen(false);
+                logout();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-red-400 hover:bg-th-border-subtle transition-colors"
+            >
+              <LogOut size={16} />
+              Log out
+            </button>
+          )}
         </div>
       )}
 

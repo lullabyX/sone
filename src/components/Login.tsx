@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
-import { isAuthenticatedAtom, authTokensAtom, localOnlyAtom } from "../atoms/auth";
+import { isAuthenticatedAtom, authTokensAtom, localOnlyAtom, userNameAtom } from "../atoms/auth";
 import {
   getSavedCredentials,
   getDefaultCredentials,
@@ -28,6 +28,8 @@ import {
   ArrowLeft,
   AlertTriangle,
   ChevronRight,
+  FolderOpen,
+  Headphones,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -83,6 +85,8 @@ export default function Login() {
   const [, setAuthTokens] = useAtom(authTokensAtom);
   const [, setIsAuthenticated] = useAtom(isAuthenticatedAtom);
   const [, setLocalOnly] = useAtom(localOnlyAtom);
+  const [, setUserName] = useAtom(userNameAtom);
+  const [loginMode, setLoginMode] = useState<"choose" | "tidal" | null>(null);
 
   const [view, setView] = useState<View>("simple");
   const [simpleTab, setSimpleTab] = useState<SimpleTab>("pkce");
@@ -587,8 +591,71 @@ export default function Login() {
           </h1>
         </div>
 
+        {/* ==================== Mode Chooser ==================== */}
+        {loginMode === null && (
+          <div className="mb-6">
+            <p className="text-th-text-muted mb-5 text-sm">
+              Choose how to experience SONE:
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              {/* TIDAL Streaming card */}
+              <button
+                onClick={() => setLoginMode("tidal")}
+                className="flex flex-col items-center gap-3 rounded-xl border border-th-border-subtle bg-th-surface/50 p-5 transition hover:border-th-accent/50 hover:bg-th-surface"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-th-accent/10">
+                  <Headphones size={24} className="text-th-accent" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-th-text-primary">
+                    TIDAL Streaming
+                  </p>
+                  <p className="mt-1 text-xs text-th-text-muted leading-relaxed">
+                    Stream lossless &amp; hi-res music
+                  </p>
+                </div>
+              </button>
+
+              {/* Local Music card */}
+              <button
+                onClick={() => {
+                  setUserName("Local Music");
+                  setLocalOnly(true);
+                }}
+                className="flex flex-col items-center gap-3 rounded-xl border border-th-border-subtle bg-th-surface/50 p-5 transition hover:border-th-accent/50 hover:bg-th-surface"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-th-accent/10">
+                  <FolderOpen size={24} className="text-th-accent" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-th-text-primary">
+                    Local Music
+                  </p>
+                  <p className="mt-1 text-xs text-th-text-muted leading-relaxed">
+                    Play FLAC &amp; MP3 from your drive
+                  </p>
+                </div>
+              </button>
+            </div>
+            <p className="mt-4 text-xs text-th-text-disabled text-center">
+              Both features are always available — you can switch anytime later
+            </p>
+          </div>
+        )}
+
+        {/* ==================== TIDAL Auth Forms ==================== */}
+        {loginMode === "tidal" && (
+          <button
+            onClick={() => setLoginMode(null)}
+            className="mb-4 flex items-center gap-1.5 text-xs text-th-text-muted hover:text-th-text-primary transition-colors"
+          >
+            <ArrowLeft size={14} />
+            Back
+          </button>
+        )}
+
         {/* ==================== Simple View — Idle ==================== */}
-        {view === "simple" && step === "idle" && (
+        {(view === "simple" && step === "idle" && loginMode === "tidal") && (
           <>
             <p className="text-th-text-muted mb-6 text-lg">
               Connect your TIDAL account
@@ -1275,29 +1342,6 @@ export default function Login() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* Local music only — bypass TIDAL auth */}
-      <div className="mt-6 border-t border-th-border pt-6 text-center">
-        <button
-          onClick={() => {
-            setAuthTokens({
-              access_token: "",
-              refresh_token: "",
-              expires_in: 0,
-              token_type: "Bearer",
-              user_id: 0,
-            });
-            setLocalOnly(true);
-            setIsAuthenticated(true);
-          }}
-          className="text-sm text-th-text-faint hover:text-th-text-primary transition-colors underline underline-offset-4"
-        >
-          Continue with Local Music
-        </button>
-        <p className="mt-1 text-xs text-th-text-disabled">
-          Import and play music from your hard drive without a TIDAL account
-        </p>
       </div>
 
       {/* ==================== Help Modal ==================== */}
