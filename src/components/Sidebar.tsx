@@ -73,6 +73,7 @@ export default function Sidebar() {
     navigateToExplore,
     navigateToLibraryViewAll,
     navigateToPlaylistFolder,
+    navigateToLocalMusic,
   } = useNavigation();
   const currentView = useAtomValue(currentViewAtom);
   const { authTokens } = useAuth();
@@ -452,6 +453,24 @@ export default function Sidebar() {
           )}
         </button>
       </nav>
+
+      {/* Local Music nav item */}
+      <div className="px-2 pb-1">
+        <button
+          onClick={navigateToLocalMusic}
+          className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-md transition-colors duration-150 group ${
+            currentView.type === "localMusic"
+              ? "text-th-text-primary bg-th-hl-med"
+              : "text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle"
+          } ${isCollapsed ? "justify-center px-0" : ""}`}
+          title="Local Music"
+        >
+          <FolderOpen size={20} strokeWidth={2} />
+          {!isCollapsed && (
+            <span className="font-semibold text-sm">Local Music</span>
+          )}
+        </button>
+      </div>
 
       {/* Library Header */}
       <div className="flex-1 flex flex-col min-h-0">

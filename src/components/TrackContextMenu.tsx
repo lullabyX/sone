@@ -60,6 +60,7 @@ export default function TrackContextMenu({
   const isFav = favoriteTrackIds.has(track.id);
   const canRemoveFromPlaylist = !!playlistId && !!isUserPlaylist;
   const unavailable = isTrackUnavailable(track);
+  const isLocal = track.source === "local";
 
   const { menuRef, style } = useContextMenu({
     cursorPosition,
@@ -221,30 +222,34 @@ export default function TrackContextMenu({
         {/* Divider */}
         <div className="my-1 border-t border-th-inset" />
 
-        {/* Add to playlist */}
-        <button
-          ref={playlistBtnRef}
-          className={menuItemClass}
-          onClick={() => setShowPlaylistSubmenu(true)}
-        >
-          <ListMusic size={18} className="shrink-0 text-th-text-muted" />
-          <span>Add to playlist</span>
-        </button>
+        {/* Add to playlist — TIDAL only */}
+        {!isLocal && (
+          <button
+            ref={playlistBtnRef}
+            className={menuItemClass}
+            onClick={() => setShowPlaylistSubmenu(true)}
+          >
+            <ListMusic size={18} className="shrink-0 text-th-text-muted" />
+            <span>Add to playlist</span>
+          </button>
+        )}
 
-        {/* Add to / Remove from Loved tracks */}
-        <button className={menuItemClass} onClick={handleToggleFavorite}>
-          <Heart
-            size={18}
-            className={`shrink-0 ${isFav ? "text-th-accent" : "text-th-text-muted"}`}
-            fill={isFav ? "currentColor" : "none"}
-          />
-          <span>
-            {isFav ? "Remove from Loved tracks" : "Add to Loved tracks"}
-          </span>
-        </button>
+        {/* Add to / Remove from Loved tracks — TIDAL only */}
+        {!isLocal && (
+          <button className={menuItemClass} onClick={handleToggleFavorite}>
+            <Heart
+              size={18}
+              className={`shrink-0 ${isFav ? "text-th-accent" : "text-th-text-muted"}`}
+              fill={isFav ? "currentColor" : "none"}
+            />
+            <span>
+              {isFav ? "Remove from Loved tracks" : "Add to Loved tracks"}
+            </span>
+          </button>
+        )}
 
-        {/* Go to track radio (not for videos; hidden if mixes is populated but TRACK_MIX is absent) */}
-        {track.itemType !== "video" &&
+        {/* Go to track radio — TIDAL only */}
+        {!isLocal && track.itemType !== "video" &&
           (!track.mixes || !!track.mixes?.TRACK_MIX) && (
             <>
               <div className="my-1 border-t border-th-inset" />
@@ -261,12 +266,16 @@ export default function TrackContextMenu({
             </>
           )}
 
-        {/* Share */}
-        <div className="my-1 border-t border-th-inset" />
-        <button className={menuItemClass} onClick={handleShare}>
-          <Link size={18} className="shrink-0 text-th-text-muted" />
-          <span>Share</span>
-        </button>
+        {/* Share — TIDAL only */}
+        {!isLocal && (
+          <>
+            <div className="my-1 border-t border-th-inset" />
+            <button className={menuItemClass} onClick={handleShare}>
+              <Link size={18} className="shrink-0 text-th-text-muted" />
+              <span>Share</span>
+            </button>
+          </>
+        )}
 
         {/* Remove from playlist (only for user's own playlist) */}
         {canRemoveFromPlaylist && (

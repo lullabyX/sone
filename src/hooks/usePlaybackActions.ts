@@ -32,6 +32,7 @@ import {
   bitPerfectPreviousStateAtom,
   consecutiveFailCountAtom,
   userPausedAtom,
+  gaplessAtom,
 } from "../atoms/playback";
 import {
   currentVideoAtom,
@@ -231,6 +232,64 @@ export function usePlaybackActions() {
           return { ok: false, reason: "transient" };
         }
       }
+      // LOCAL file track → play directly via file:// URI
+      if (track.source === "local" && track.filePath) {
+        store.set(userPausedAtom, false);
+        const gen = ++playGenerationRef.current;
+        const stamped = ensureQid(normalizeTrack(track));
+        const previousTrack = store.get(currentTrackAtom);
+        if (previousTrack && !opts?.skipHistoryPush) {
+          const h = [...store.get(historyAtom), previousTrack];
+          store.set(
+            historyAtom,
+            h.length > MAX_HISTORY_TRACKS
+              ? h.slice(h.length - MAX_HISTORY_TRACKS)
+              : h,
+          );
+        }
+        (stamped as any)._playingFrom = store.get(playbackSourceAtom);
+        (stamped as any)._contextFrom = store.get(contextSourceAtom);
+        markPlaybackLoading(true);
+
+        // Suppress gapless prefetch while the pipeline isn't ready yet —
+        // otherwise useGaplessPrefetch fires on currentTrackAtom change
+        // and calls set_next_local_file before play_local_file completes,
+        // which hits "No active pipeline" in the audio worker.
+        const wasGapless = store.get(gaplessAtom);
+        store.set(gaplessAtom, false);
+        store.set(currentTrackAtom, stamped);
+
+        try {
+          await invoke("play_local_file", {
+            path: stamped.filePath,
+            fileId: stamped.id,
+          });
+          if (gen !== playGenerationRef.current) {
+            store.set(gaplessAtom, wasGapless);
+            return { ok: false, reason: "transient" };
+          }
+          store.set(isPlayingAtom, true);
+          store.set(consecutiveFailCountAtom, 0);
+          markPlaybackLoading(false);
+          store.set(gaplessAtom, wasGapless);
+          return { ok: true };
+        } catch {
+          store.set(gaplessAtom, wasGapless);
+          if (gen !== playGenerationRef.current) {
+            return { ok: false, reason: "transient" };
+          }
+          store.set(isPlayingAtom, false);
+          store.set(
+            consecutiveFailCountAtom,
+            store.get(consecutiveFailCountAtom) + 1,
+          );
+          markPlaybackLoading(false);
+          if (!opts?.suppressUnplayableToast) {
+            showToast("Failed to play file", "error");
+          }
+          return { ok: false, reason: "transient" };
+        }
+      }
       // Mutual exclusion: starting AUDIO stops any background video
       // (mirrors useVideoPlayback.closeVideo's atom clears).
       if (store.get(currentVideoAtom)) {
@@ -374,22 +433,30 @@ export function usePlaybackActions() {
         // Replaying a finished track from the top: gate interpolation so the bar
         // doesn't show the stale end position during the reload.
         markPlaybackLoading(true);
-        const info = await invokePlayWithRetry(
-          track.id,
-          store.get(useTrackGainAtom),
-          () => {
-            store.set(isPlayingAtom, false);
-            showToast("Preparing exclusive audio…", "info");
-          },
-        );
-        store.set(streamInfoAtom, info);
-        // Replay starts at 0; clears the load gate and re-emits to the miniplayer.
-        notifySeek(0);
+        if (track.source === "local" && track.filePath) {
+          await invoke("play_local_file", {
+            path: track.filePath,
+            fileId: track.id,
+          });
+          notifySeek(0);
+        } else {
+          const info = await invokePlayWithRetry(
+            track.id,
+            store.get(useTrackGainAtom),
+            () => {
+              store.set(isPlayingAtom, false);
+              showToast("Preparing exclusive audio…", "info");
+            },
+          );
+          store.set(streamInfoAtom, info);
+          // Replay starts at 0; clears the load gate and re-emits to the miniplayer.
+          notifySeek(0);
 
-        // Notify backend so the replay is scrobbled
-        invoke("notify_track_started", {
-          payload: buildTrackStartedPayload(track, true),
-        }).catch(() => {});
+          // Notify backend so the replay is scrobbled
+          invoke("notify_track_started", {
+            payload: buildTrackStartedPayload(track, true),
+          }).catch(() => {});
+        }
       } else {
         await invoke("resume_track");
       }
@@ -475,9 +542,11 @@ export function usePlaybackActions() {
       // otherwise return early without clearing its load gate. Release it here so
       // the gate can't stay stuck and freeze the position bar on this new track.
       markPlaybackLoading(false);
-      invoke("notify_track_started", {
-        payload: buildTrackStartedPayload(stamped, false),
-      }).catch(() => {});
+      if (stamped.source !== "local") {
+        invoke("notify_track_started", {
+          payload: buildTrackStartedPayload(stamped, false),
+        }).catch(() => {});
+      }
     },
     [store],
   );
@@ -778,6 +847,21 @@ export function usePlaybackActions() {
             // reset fires. Gate interpolation so the bar doesn't keep climbing
             // past the old track's end during the reload.
             markPlaybackLoading(true);
+            if (current.source === "local" && current.filePath) {
+              try {
+                await invoke("play_local_file", {
+                  path: current.filePath,
+                  fileId: current.id,
+                });
+                store.set(isPlayingAtom, true);
+                notifySeek(0);
+        } catch (_error) {
+                markPlaybackLoading(false);
+                console.error("Failed to repeat local track:", _error);
+                store.set(isPlayingAtom, false);
+              }
+              return;
+            }
             try {
               const info = await invokePlayWithRetry(
                 current.id,
@@ -1129,6 +1213,9 @@ export function usePlaybackActions() {
         // Freeze interpolation across the load gap so the bar doesn't climb
         // from 0 before the previous track's first sample is heard.
         markPlaybackLoading(true);
+        // Suppress gapless prefetch until pipeline is ready
+        const wasGapless = store.get(gaplessAtom);
+        store.set(gaplessAtom, false);
         store.set(currentTrackAtom, prevTrack);
 
         if (prevTrack.itemType === "video") {
@@ -1148,25 +1235,38 @@ export function usePlaybackActions() {
         }
 
         try {
-          preloadImage(getTidalImageUrl(prevTrack.album?.cover, 640));
-          preloadImage(getTidalImageUrl(prevTrack.album?.cover, 1280));
-          const info = await invokePlayWithRetry(
-            prevTrack.id,
-            store.get(useTrackGainAtom),
-            () => {
-              store.set(isPlayingAtom, false);
-              showToast("Preparing exclusive audio…", "info");
+          if (prevTrack.source === "local" && prevTrack.filePath) {
+            await invoke("play_local_file", {
+              path: prevTrack.filePath,
+              fileId: prevTrack.id,
+            });
+            store.set(isPlayingAtom, true);
+            markPlaybackLoading(false);
+            notifySeek(0);
+            store.set(gaplessAtom, wasGapless);
+          } else {
+            preloadImage(getTidalImageUrl(prevTrack.album?.cover, 640));
+            preloadImage(getTidalImageUrl(prevTrack.album?.cover, 1280));
+            const info = await invokePlayWithRetry(
+              prevTrack.id,
+              store.get(useTrackGainAtom),
+              () => {
+                store.set(isPlayingAtom, false);
+                showToast("Preparing exclusive audio…", "info");
             },
-          );
-          store.set(streamInfoAtom, info);
-          store.set(isPlayingAtom, true);
-          markPlaybackLoading(false);
+            );
+            store.set(streamInfoAtom, info);
+            store.set(isPlayingAtom, true);
+            markPlaybackLoading(false);
 
-          // Notify backend for scrobbling
-          invoke("notify_track_started", {
-            payload: buildTrackStartedPayload(prevTrack, true),
-          }).catch(() => {});
+            // Notify backend for scrobbling
+            invoke("notify_track_started", {
+              payload: buildTrackStartedPayload(prevTrack, true),
+            }).catch(() => {});
+            store.set(gaplessAtom, wasGapless);
+          }
         } catch (error: any) {
+          store.set(gaplessAtom, wasGapless);
           // Rollback all state
           store.set(currentTrackAtom, savedCurrentTrack);
           store.set(historyAtom, history);

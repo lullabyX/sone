@@ -8,6 +8,7 @@ mod embedded_lastfm;
 mod embedded_librefm;
 mod error;
 mod idle_inhibit;
+mod local_music;
 pub mod logging;
 #[cfg(target_os = "linux")]
 mod mpris;
@@ -176,6 +177,8 @@ pub struct Settings {
     pub overlay_port: u16,
     #[serde(default = "defaults::overlay_host")]
     pub overlay_host: String,
+    #[serde(default)]
+    pub local_music_folders: Vec<String>,
 }
 
 impl Default for Settings {
@@ -207,6 +210,7 @@ impl Default for Settings {
             overlay_enabled: false,
             overlay_port: 5578,
             overlay_host: "127.0.0.1".to_string(),
+            local_music_folders: Vec::new(),
         }
     }
 }
@@ -483,6 +487,7 @@ pub fn run() {
     // the handle must outlive the Tauri event loop.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
@@ -996,6 +1001,17 @@ pub fn run() {
             commands::utility::refresh_signal_path,
             // updates
             commands::updates::check_for_update,
+            // local music
+            commands::local_music::pick_local_folder,
+            commands::local_music::scan_local_folder,
+            commands::local_music::get_local_cover_art,
+            commands::local_music::get_watched_folders,
+            commands::local_music::set_watched_folders,
+            commands::local_music::play_local_file,
+            commands::local_music::set_next_local_file,
+            commands::local_music::load_local_tracks,
+            commands::local_music::save_local_tracks,
+            commands::local_music::delta_scan,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -81,18 +81,37 @@ export function useGaplessPrefetch(
       return;
     }
     try {
-      const info = await invoke<StreamInfo>("set_next_track", {
-        trackId: next.id,
-        qid,
-        useTrackGain: store.get(useTrackGainAtom),
-      });
-      if (gen !== genRef.current) return; // superseded
-      pendingNextRef.current = {
-        trackId: next.id,
-        qid,
-        track: next,
-        streamInfo: info,
-      };
+      if (next.source === "local" && next.filePath) {
+        await invoke("set_next_local_file", {
+          path: next.filePath,
+          fileId: next.id,
+          qid,
+        });
+        if (gen !== genRef.current) return;
+        pendingNextRef.current = {
+          trackId: next.id,
+          qid,
+          track: next,
+          streamInfo: {
+            url: `file://${next.filePath}`,
+            audioQuality: next.audioCodec ?? "LOCAL",
+            trackId: next.id,
+          },
+        };
+      } else {
+        const info = await invoke<StreamInfo>("set_next_track", {
+          trackId: next.id,
+          qid,
+          useTrackGain: store.get(useTrackGainAtom),
+        });
+        if (gen !== genRef.current) return; // superseded
+        pendingNextRef.current = {
+          trackId: next.id,
+          qid,
+          track: next,
+          streamInfo: info,
+        };
+      }
     } catch {
       /* best-effort */
     }

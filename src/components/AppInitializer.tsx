@@ -1099,12 +1099,16 @@ export function AppInitializer() {
           title: getTrackDisplayTitle(track),
           artist: getTrackArtistDiscordDisplay(track),
           album: track.album?.title || "",
-          artUrl: getTidalImageUrl(track.album?.cover, 320),
+          artUrl: track.source === "local"
+            ? track.localCoverBase64 || ""
+            : getTidalImageUrl(track.album?.cover, 320),
           durationSecs: track.duration,
-          // tidal:// so xesam:url matches advertised SupportedUriSchemes.
-          // Share URL stays Discord-only via the separate quality_text path.
-          url: `tidal://track/${track.id}`,
-          qualityText: formatStreamQuality(streamInfo),
+          url: track.source === "local"
+            ? `file://${track.filePath ?? ""}`
+            : `tidal://track/${track.id}`,
+          qualityText: track.source === "local"
+            ? track.audioCodec ?? "LOCAL"
+            : formatStreamQuality(streamInfo),
           albumArtist: albumArtistName || null,
           trackNumber: track.trackNumber ?? null,
           discNumber: track.volumeNumber ?? null,

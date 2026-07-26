@@ -1538,6 +1538,7 @@ impl AudioPlayer {
                 match cmd {
                     AudioCommand::PlayUrl { uri, reply } => {
                         let result = (|| -> Result<(), String> {
+                            log::debug!("[audio] PlayUrl uri={uri}");
                             // ── Teardown old backend (GStreamer pipeline only) ──
                             if let Some(old_backend) = backend.take() {
                                 tearing_down.store(true, Ordering::SeqCst);
@@ -2946,7 +2947,21 @@ fn build_appsink_pipeline(
                 .map_err(|e| format!("Failed to link bit-perfect DASH chain: {e}"))?;
             (None, None, None)
         } else {
-            // BTS: capsfilter for dynamic locking (preserves exact decoded format)
+            // BTS: capsfilter for dynamic locking (preserves exact decoded format).
+            // Pre-set appsink caps to DAC-supported formats so audioconvert
+            // constrains negotiation BEFORE the capsfilter is locked in pad_added.
+            // Without this, a transient CAPS event carries the raw source format
+            // (e.g. S24_32LE from a 24-bit FLAC) to the appsink probe, which
+            // sends a FormatHint that causes the writer to reopen ALSA with an
+            // unsupported format — fatal in bit-perfect mode.
+            let sink_caps = gst::Caps::builder("audio/x-raw")
+                .field(
+                    "format",
+                    gst::List::new(supported_gst_formats.iter().copied()),
+                )
+                .build();
+            appsink.set_caps(Some(&sink_caps));
+
             let capsfilter = gst::ElementFactory::make("capsfilter")
                 .build()
                 .map_err(|e| format!("Failed to create capsfilter: {e}"))?;

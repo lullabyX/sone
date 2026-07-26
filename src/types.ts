@@ -122,6 +122,16 @@ export interface Track {
   /** Video thumbnail UUID (videos carry `imageId` instead of `album.cover`). */
   imageId?: string;
   _qid?: string;
+  /** "tidal" | "local" — discriminates streaming vs local files. */
+  source?: string;
+  /** Absolute file path for local tracks. */
+  filePath?: string;
+  /** Base64-encoded embedded cover art for local tracks. */
+  localCoverBase64?: string;
+  /** Bit depth of local file (e.g. 16, 24). */
+  bitDepth?: number;
+  /** Codec name of local file (e.g. "FLAC", "MP3"). */
+  audioCodec?: string;
 }
 
 export function getTrackDisplayTitle(track: {
@@ -257,6 +267,7 @@ export type AppView =
       };
     }
   | { type: "explore" }
+  | { type: "localMusic" }
   | { type: "explorePage"; apiPath: string; title: string }
   | {
       type: "artistTracks";

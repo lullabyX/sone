@@ -124,6 +124,10 @@ export function useNavigation() {
     navigate({ type: "explore" });
   }, [navigate]);
 
+  const navigateToLocalMusic = useCallback(() => {
+    navigate({ type: "localMusic" });
+  }, [navigate]);
+
   const navigateToExplorePage = useCallback(
     (apiPath: string, title: string) => {
       navigate({ type: "explorePage", apiPath, title });
@@ -163,6 +167,7 @@ export function useNavigation() {
     navigateToProfile,
     navigateToProfilePlaylists,
     navigateToExplore,
+    navigateToLocalMusic,
     navigateToExplorePage,
     navigateToLibraryViewAll,
     navigateToPlaylistFolder,

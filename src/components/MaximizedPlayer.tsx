@@ -759,6 +759,7 @@ export default function MaximizedPlayer() {
 
   const toggleLike = useCallback(async () => {
     if (!currentTrack) return;
+    if (currentTrack.source === "local") return;
     const authTokens = store.get(authTokensAtom);
     if (!authTokens?.user_id) return;
     const userId = authTokens.user_id;

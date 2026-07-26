@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
-import { isAuthenticatedAtom, authTokensAtom } from "../atoms/auth";
+import { isAuthenticatedAtom, authTokensAtom, localOnlyAtom } from "../atoms/auth";
 import {
   getSavedCredentials,
   getDefaultCredentials,
@@ -82,6 +82,7 @@ export default function Login() {
   } = useAuth();
   const [, setAuthTokens] = useAtom(authTokensAtom);
   const [, setIsAuthenticated] = useAtom(isAuthenticatedAtom);
+  const [, setLocalOnly] = useAtom(localOnlyAtom);
 
   const [view, setView] = useState<View>("simple");
   const [simpleTab, setSimpleTab] = useState<SimpleTab>("pkce");
@@ -1274,6 +1275,29 @@ export default function Login() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* Local music only — bypass TIDAL auth */}
+      <div className="mt-6 border-t border-th-border pt-6 text-center">
+        <button
+          onClick={() => {
+            setAuthTokens({
+              access_token: "",
+              refresh_token: "",
+              expires_in: 0,
+              token_type: "Bearer",
+              user_id: 0,
+            });
+            setLocalOnly(true);
+            setIsAuthenticated(true);
+          }}
+          className="text-sm text-th-text-faint hover:text-th-text-primary transition-colors underline underline-offset-4"
+        >
+          Continue with Local Music
+        </button>
+        <p className="mt-1 text-xs text-th-text-disabled">
+          Import and play music from your hard drive without a TIDAL account
+        </p>
       </div>
 
       {/* ==================== Help Modal ==================== */}

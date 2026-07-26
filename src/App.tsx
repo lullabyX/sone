@@ -16,6 +16,7 @@ import MixPage from "./components/MixPage";
 import ExplorePage from "./components/ExplorePage";
 import ExploreSubPage from "./components/ExploreSubPage";
 import LibraryViewAll from "./components/LibraryViewAll";
+import LocalMusicView from "./components/LocalMusicView";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
 import TooltipLayer from "./components/TooltipLayer";
@@ -24,7 +25,7 @@ import { useNavigation } from "./hooks/useNavigation";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useAtomValue } from "jotai";
 import { currentViewAtom } from "./atoms/navigation";
-import { isAuthCheckingAtom } from "./atoms/auth";
+import { isAuthCheckingAtom, localOnlyAtom } from "./atoms/auth";
 import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
@@ -88,6 +89,7 @@ function AppChrome({ children }: { children: ReactNode }) {
 function AppContent() {
   const { isAuthenticated } = useAuth();
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
+  const localOnly = useAtomValue(localOnlyAtom);
   const { navigateHome, navigateToExplore } = useNavigation();
   const currentView = useAtomValue(currentViewAtom);
 
@@ -101,7 +103,7 @@ function AppContent() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !localOnly) {
     return (
       <AppChrome>
         <Login />
@@ -187,6 +189,8 @@ function AppContent() {
         );
       case "explore":
         return <ExplorePage />;
+      case "localMusic":
+        return <LocalMusicView />;
       case "explorePage":
         return (
           <ExploreSubPage
