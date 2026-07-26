@@ -130,6 +130,8 @@ export interface Track {
   localCoverBase64?: string;
   /** Bit depth of local file (e.g. 16, 24). */
   bitDepth?: number;
+  /** Sample rate of local file (e.g. 48000). */
+  sampleRate?: number;
   /** Codec name of local file (e.g. "FLAC", "MP3"). */
   audioCodec?: string;
 }

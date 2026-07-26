@@ -38,6 +38,7 @@ function rawToTrack(raw: LocalTrackRaw): Track {
     duration: raw.duration,
     trackNumber: raw.track_number ?? undefined,
     bitDepth: raw.bit_depth ?? undefined,
+    sampleRate: raw.sample_rate ?? undefined,
     audioCodec: raw.codec ?? undefined,
     source: "local",
     filePath: raw.file_path,

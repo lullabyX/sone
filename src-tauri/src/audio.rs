@@ -2947,21 +2947,7 @@ fn build_appsink_pipeline(
                 .map_err(|e| format!("Failed to link bit-perfect DASH chain: {e}"))?;
             (None, None, None)
         } else {
-            // BTS: capsfilter for dynamic locking (preserves exact decoded format).
-            // Pre-set appsink caps to DAC-supported formats so audioconvert
-            // constrains negotiation BEFORE the capsfilter is locked in pad_added.
-            // Without this, a transient CAPS event carries the raw source format
-            // (e.g. S24_32LE from a 24-bit FLAC) to the appsink probe, which
-            // sends a FormatHint that causes the writer to reopen ALSA with an
-            // unsupported format — fatal in bit-perfect mode.
-            let sink_caps = gst::Caps::builder("audio/x-raw")
-                .field(
-                    "format",
-                    gst::List::new(supported_gst_formats.iter().copied()),
-                )
-                .build();
-            appsink.set_caps(Some(&sink_caps));
-
+            // BTS: capsfilter for dynamic locking (preserves exact decoded format)
             let capsfilter = gst::ElementFactory::make("capsfilter")
                 .build()
                 .map_err(|e| format!("Failed to create capsfilter: {e}"))?;
@@ -3055,6 +3041,8 @@ fn build_appsink_pipeline(
     // pad_added runs on the GStreamer streaming thread; clone writer_gen up front
     // since `writer_gen` itself is moved into the appsink callback later.
     let pad_gen = Arc::clone(&writer_gen);
+    let cf_locked = Arc::new(AtomicBool::new(false));
+    let cf_locked_for_pad = Arc::clone(&cf_locked);
     uridecodebin.connect_pad_added(move |_src, src_pad| {
         let Some(convert) = convert_weak.upgrade() else {
             return;
@@ -3165,6 +3153,7 @@ fn build_appsink_pipeline(
                                 };
                                 log::info!("[audio] capsfilter locked to {locked}");
                                 cf.set_property("caps", &locked);
+                                cf_locked_for_pad.store(true, Ordering::Release);
 
                                 // Belt-and-braces: notify the writer explicitly so it
                                 // reopens ALSA at the chosen format. The appsink CAPS
@@ -3196,6 +3185,7 @@ fn build_appsink_pipeline(
 
     // Pad probe: intercept CAPS events for preemptive ALSA format changes (DASH renegotiation)
     let probe_tx = writer_tx.clone();
+    let cf_locked_for_probe = Arc::clone(&cf_locked);
     if let Some(sink_pad) = appsink.static_pad("sink") {
         let output_cell_for_probe = Arc::clone(&output_cell);
         sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
@@ -3211,7 +3201,9 @@ fn build_appsink_pipeline(
                                 channels: fmt.channels,
                             });
                         }
-                        let _ = probe_tx.try_send(WriterCommand::FormatHint(fmt));
+                        if cf_locked_for_probe.load(Ordering::Acquire) {
+                            let _ = probe_tx.try_send(WriterCommand::FormatHint(fmt));
+                        }
                     }
                 }
             }

@@ -102,6 +102,14 @@ function buildTrackStartedPayload(track: Track, chosenByUser: boolean) {
   };
 }
 
+/** Map local file metadata to a TIDAL-compatible quality tier for the badge. */
+function localQualityLabel(track: Track): string {
+  const codec = track.audioCodec;
+  if (codec === "FLAC" && (track.bitDepth ?? 16) >= 24) return "HI_RES_LOSSLESS";
+  if (codec === "FLAC") return "LOSSLESS";
+  return codec ?? "LOCAL";
+}
+
 /** Safely extract a human-readable message from a SoneError (or any thrown value). */
 function extractPlaybackError(error: unknown): string {
   if (!error) return "Playback failed";
@@ -270,6 +278,14 @@ export function usePlaybackActions() {
           }
           store.set(isPlayingAtom, true);
           store.set(consecutiveFailCountAtom, 0);
+          store.set(streamInfoAtom, {
+            url: stamped.filePath ?? "",
+            codec: stamped.audioCodec,
+            bitDepth: stamped.bitDepth,
+            sampleRate: stamped.sampleRate,
+            audioQuality: localQualityLabel(stamped),
+            trackId: stamped.id,
+          });
           markPlaybackLoading(false);
           store.set(gaplessAtom, wasGapless);
           return { ok: true };
@@ -437,6 +453,14 @@ export function usePlaybackActions() {
           await invoke("play_local_file", {
             path: track.filePath,
             fileId: track.id,
+          });
+          store.set(streamInfoAtom, {
+            url: track.filePath ?? "",
+            codec: track.audioCodec,
+            bitDepth: track.bitDepth,
+            sampleRate: track.sampleRate,
+            audioQuality: localQualityLabel(track),
+            trackId: track.id,
           });
           notifySeek(0);
         } else {
@@ -854,6 +878,14 @@ export function usePlaybackActions() {
                   fileId: current.id,
                 });
                 store.set(isPlayingAtom, true);
+                store.set(streamInfoAtom, {
+                  url: current.filePath ?? "",
+                  codec: current.audioCodec,
+                  bitDepth: current.bitDepth,
+                  sampleRate: current.sampleRate,
+                  audioQuality: localQualityLabel(current),
+                  trackId: current.id,
+                });
                 notifySeek(0);
         } catch (_error) {
                 markPlaybackLoading(false);
@@ -1241,6 +1273,14 @@ export function usePlaybackActions() {
               fileId: prevTrack.id,
             });
             store.set(isPlayingAtom, true);
+            store.set(streamInfoAtom, {
+              url: prevTrack.filePath ?? "",
+              codec: prevTrack.audioCodec,
+              bitDepth: prevTrack.bitDepth,
+              sampleRate: prevTrack.sampleRate,
+              audioQuality: localQualityLabel(prevTrack),
+              trackId: prevTrack.id,
+            });
             markPlaybackLoading(false);
             notifySeek(0);
             store.set(gaplessAtom, wasGapless);
