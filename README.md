@@ -1,7 +1,7 @@
 <div align="center">
   <img src="sone.png" alt="SONE" width="150">
   <h1>SONE</h1>
-<p>The native desktop client for <a href="https://tidal.com">TIDAL</a> on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
+<p>The native desktop client for <a href="https://tidal.com">TIDAL</a> and local musics on Linux. Lossless streaming with bit-perfect ALSA output up to 24-bit/192kHz (MAX) — your DAC, not your browser's resampler.</p>
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-yellow.svg)]()
@@ -18,7 +18,16 @@
 </div>
 
 > [!IMPORTANT]
-> Requires an active [TIDAL](https://tidal.com) subscription. Not affiliated with TIDAL.
+> Requires an active [TIDAL](https://tidal.com) subscription to play tidal contents. Not affiliated with TIDAL.
+> Local files can always be played
+
+This is a fork of the original project [Sone](https://github.com/lullabyX/sone) that added local music
+play back up to bit-perfect quality. This fork is aimed to help more people to enjoy the music they want.
+
+## Road Map:
+- [x] Add local playback
+- [] Add [yt-dlp](https://github.com/yt-dlp/yt-dlp) integration for more music
+- [] Add [musicdl](https://github.com/CharlesPikachu/musicdl) integration for more lossless music
 
 https://github.com/user-attachments/assets/67d7a8ed-352b-4ce6-8b9c-70b7427a5f22
 

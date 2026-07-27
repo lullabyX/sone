@@ -1,5 +1,7 @@
 import { Play, Heart } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useAtomValue } from "jotai";
+import { isAuthenticatedAtom } from "../atoms/auth";
 import { useNavigation } from "../hooks/useNavigation";
 import TidalSignInBanner from "./TidalSignInBanner";
 import {
@@ -252,6 +254,17 @@ export default function Home() {
       }
     });
   }, [loadTab]);
+
+  // When user signs in to TIDAL after starting in local-only mode,
+  // force-refresh the home page since the initial load cached empty data.
+  const isAuthenticated = useAtomValue(isAuthenticatedAtom);
+  const wasAuthRef = useRef(isAuthenticated);
+  useEffect(() => {
+    if (!wasAuthRef.current && isAuthenticated) {
+      loadTab(slugOf(activeType), true);
+    }
+    wasAuthRef.current = isAuthenticated;
+  }, [isAuthenticated, activeType, loadTab]);
 
   const handleTabClick = useCallback(
     (feedType: string) => {
