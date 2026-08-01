@@ -126,10 +126,7 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
             server_raw = Some(v.to_string());
         } else if let Some(v) = line.strip_prefix("Default Sink:").map(str::trim) {
             default_sink = Some(v.to_string());
-        } else if let Some(v) = line
-            .strip_prefix("Default Sample Specification:")
-            .map(str::trim)
-        {
+        } else if let Some(v) = line.strip_prefix("Default Sample Specification:").map(str::trim) {
             spec = Some(v.to_string());
         }
     }
@@ -199,17 +196,11 @@ pub fn sink_volume_and_mute(stdout: &str, target_sink_name: &str) -> (f32, u32, 
             let mut chosen_percent: Option<u32> = None;
             for part in rest.split(',') {
                 // Anchor on " dB" at the end of the channel segment.
-                let Some(db_end) = part.rfind(" dB") else {
-                    continue;
-                };
+                let Some(db_end) = part.rfind(" dB") else { continue };
                 let before_db = &part[..db_end];
-                let Some(last_slash) = before_db.rfind('/') else {
-                    continue;
-                };
+                let Some(last_slash) = before_db.rfind('/') else { continue };
                 let db_str = before_db[last_slash + 1..].trim();
-                let Ok(db) = db_str.parse::<f32>() else {
-                    continue;
-                };
+                let Ok(db) = db_str.parse::<f32>() else { continue };
 
                 // Walk back from the slash-before-dB to find the "<N>%"
                 // token sitting between two earlier slashes:
@@ -379,10 +370,7 @@ impl PipelineProbe {
         signal_path: Arc<crate::signal_path::SignalPathTracker>,
         audio_player: Arc<crate::audio::AudioPlayer>,
     ) -> Self {
-        Self {
-            signal_path,
-            audio_player,
-        }
+        Self { signal_path, audio_player }
     }
 
     /// One-shot refresh: probe all sources, push into tracker. Cheap to call.
@@ -390,10 +378,8 @@ impl PipelineProbe {
     /// shell-out to pactl. Never blocks on audio thread.
     pub fn refresh(&self) {
         // 1. Pad caps cells (mutex reads, very fast).
-        self.signal_path
-            .set_decoded_caps(self.audio_player.snapshot_decoded_caps());
-        self.signal_path
-            .set_output_caps(self.audio_player.snapshot_output_caps());
+        self.signal_path.set_decoded_caps(self.audio_player.snapshot_decoded_caps());
+        self.signal_path.set_output_caps(self.audio_player.snapshot_output_caps());
 
         // 2. OS mixer via pactl. Best-effort; None on failure.
         let mixer = query_os_mixer();
@@ -407,16 +393,9 @@ impl PipelineProbe {
                 // Need sink → alsa.id mapping from `pactl list sinks`.
                 let list_stdout = run_pactl(&["list", "sinks"]);
                 let resolver = |sink: &str| {
-                    list_stdout
-                        .as_deref()
-                        .and_then(|out| sink_alsa_id(out, sink))
+                    list_stdout.as_deref().and_then(|out| sink_alsa_id(out, sink))
                 };
-                discover_active_card_with_resolver(
-                    Some(b),
-                    exclusive_device.as_deref(),
-                    mixer.as_ref(),
-                    &resolver,
-                )
+                discover_active_card_with_resolver(Some(b), exclusive_device.as_deref(), mixer.as_ref(), &resolver)
             } else {
                 discover_active_card(Some(b), exclusive_device.as_deref(), mixer.as_ref())
             }
@@ -440,9 +419,7 @@ pub fn read_hw_params(card_name: &str) -> Option<DacHwParams> {
     for pcm in 0..4u32 {
         for sub in 0..2u32 {
             let path = format!("{base}/pcm{pcm}p/sub{sub}/hw_params");
-            let Ok(contents) = std::fs::read_to_string(&path) else {
-                continue;
-            };
+            let Ok(contents) = std::fs::read_to_string(&path) else { continue };
             let parsed = parse_hw_params_file(&contents)?;
             if parsed.state == HwParamsState::Closed && (pcm != 0 || sub != 0) {
                 continue; // try the next subdevice
@@ -468,13 +445,11 @@ fn read_card_index(card_name: &str) -> Option<u32> {
     // /proc/asound/<name> is sometimes a symlink to /proc/asound/cardN — read the link.
     let link = std::fs::read_link(format!("/proc/asound/{card_name}")).ok()?;
     let s = link.to_string_lossy();
-    s.strip_prefix("card")
-        .and_then(|n| n.parse().ok())
-        .or_else(|| {
-            // Fallback: read the id file (contains the same name; index unknown).
-            let _ = std::fs::read_to_string(id_path);
-            None
-        })
+    s.strip_prefix("card").and_then(|n| n.parse().ok()).or_else(|| {
+        // Fallback: read the id file (contains the same name; index unknown).
+        let _ = std::fs::read_to_string(id_path);
+        None
+    })
 }
 
 fn read_card_longname(card_name: &str) -> Option<String> {
@@ -616,10 +591,7 @@ Default Sink: alsa_output.usb-iFi-by-AMR-HD-USB-Audio.iec958-stereo
     fn detects_pipewire_server() {
         let info = parse_pactl_info(PACTL_INFO_PIPEWIRE).unwrap();
         assert_eq!(info.server, "PipeWire");
-        assert_eq!(
-            info.default_sink_name,
-            "alsa_output.pci-0000_01_00.1.hdmi-stereo"
-        );
+        assert_eq!(info.default_sink_name, "alsa_output.pci-0000_01_00.1.hdmi-stereo");
         assert_eq!(info.sink_format, "float32le");
         assert_eq!(info.sink_rate, 48000);
         assert_eq!(info.sink_channels, 2);
@@ -696,24 +668,19 @@ Sink #60
 
     #[test]
     fn discover_directalsa_uses_exclusive_device() {
-        let card = discover_active_card(Some("DirectAlsa"), Some("hw:CARD=Audio,DEV=0"), None);
+        let card = discover_active_card(
+            Some("DirectAlsa"),
+            Some("hw:CARD=Audio,DEV=0"),
+            None,
+        );
         assert_eq!(card.as_deref(), Some("Audio"));
     }
 
     #[test]
     fn parse_alsa_card_handles_named_form() {
-        assert_eq!(
-            parse_alsa_card_from_device("hw:CARD=Audio,DEV=0").as_deref(),
-            Some("Audio")
-        );
-        assert_eq!(
-            parse_alsa_card_from_device("plughw:CARD=Audio,DEV=0").as_deref(),
-            Some("Audio")
-        );
-        assert_eq!(
-            parse_alsa_card_from_device("hw:CARD=Audio").as_deref(),
-            Some("Audio")
-        );
+        assert_eq!(parse_alsa_card_from_device("hw:CARD=Audio,DEV=0").as_deref(), Some("Audio"));
+        assert_eq!(parse_alsa_card_from_device("plughw:CARD=Audio,DEV=0").as_deref(), Some("Audio"));
+        assert_eq!(parse_alsa_card_from_device("hw:CARD=Audio").as_deref(), Some("Audio"));
     }
 
     #[test]
@@ -737,11 +704,7 @@ Sink #60
         };
         // alsa.id resolution requires the list-sinks stdout — simulated via caller:
         let resolver = |sink: &str| {
-            if sink == "alsa_output.usb-iFi.iec958-stereo" {
-                Some("Audio".into())
-            } else {
-                None
-            }
+            if sink == "alsa_output.usb-iFi.iec958-stereo" { Some("Audio".into()) } else { None }
         };
         let card = discover_active_card_with_resolver(Some("Normal"), None, Some(&info), &resolver);
         assert_eq!(card.as_deref(), Some("Audio"));

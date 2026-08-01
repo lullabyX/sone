@@ -20,11 +20,7 @@ pub async fn update_profile_meta(
     handle: Option<String>,
     dry_run: bool,
 ) -> Result<(), SoneError> {
-    log::debug!(
-        "[update_profile_meta]: artist_id={}, dry_run={}",
-        artist_id,
-        dry_run
-    );
+    log::debug!("[update_profile_meta]: artist_id={}, dry_run={}", artist_id, dry_run);
     let client = state.tidal_client.lock().await;
     client
         .update_artist_meta(artist_id, name.as_deref(), handle.as_deref(), dry_run)
@@ -48,11 +44,7 @@ pub async fn update_profile_links(
     artist_id: u64,
     links: Vec<ExternalLink>,
 ) -> Result<(), SoneError> {
-    log::debug!(
-        "[update_profile_links]: artist_id={}, n={}",
-        artist_id,
-        links.len()
-    );
+    log::debug!("[update_profile_links]: artist_id={}, n={}", artist_id, links.len());
     let client = state.tidal_client.lock().await;
     client.update_external_links(artist_id, links).await
 }

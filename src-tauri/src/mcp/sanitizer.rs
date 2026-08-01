@@ -1,8 +1,6 @@
 use serde::Serialize;
 
-use crate::tidal_api::{
-    TidalAlbumDetail, TidalArtist, TidalArtistDetail, TidalPlaylist, TidalTrack,
-};
+use crate::tidal_api::{TidalAlbumDetail, TidalArtist, TidalArtistDetail, TidalPlaylist, TidalTrack};
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -44,16 +42,8 @@ impl SanitizedTrack {
         Self {
             id: t.id,
             title: t.title.clone(),
-            artist: t
-                .artist
-                .as_ref()
-                .map(|a| a.name.clone())
-                .unwrap_or_default(),
-            album: t
-                .album
-                .as_ref()
-                .map(|a| a.title.clone())
-                .unwrap_or_default(),
+            artist: t.artist.as_ref().map(|a| a.name.clone()).unwrap_or_default(),
+            album: t.album.as_ref().map(|a| a.title.clone()).unwrap_or_default(),
             duration_seconds: t.duration,
         }
     }
@@ -72,10 +62,9 @@ impl SanitizedAlbum {
                     .map(|x| x.name.clone())
             })
             .unwrap_or_default();
-        let release_year = a
-            .release_date
-            .as_ref()
-            .and_then(|d| d.split('-').next().and_then(|y| y.parse::<u16>().ok()));
+        let release_year = a.release_date.as_ref().and_then(|d| {
+            d.split('-').next().and_then(|y| y.parse::<u16>().ok())
+        });
         Self {
             id: a.id,
             title: a.title.clone(),
@@ -88,17 +77,11 @@ impl SanitizedAlbum {
 
 impl SanitizedArtist {
     pub fn from_tidal(a: &TidalArtist) -> Self {
-        Self {
-            id: a.id,
-            name: a.name.clone(),
-        }
+        Self { id: a.id, name: a.name.clone() }
     }
 
     pub fn from_tidal_detail(a: &TidalArtistDetail) -> Self {
-        Self {
-            id: a.id,
-            name: a.name.clone(),
-        }
+        Self { id: a.id, name: a.name.clone() }
     }
 }
 

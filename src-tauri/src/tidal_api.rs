@@ -12,10 +12,7 @@ pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error
 
     if proxy.enabled && !proxy.host.is_empty() && proxy.port > 0 {
         // Reject hosts with characters that could break URL parsing
-        if proxy
-            .host
-            .contains(|c: char| matches!(c, '@' | '/' | '?' | '#') || c.is_whitespace())
-        {
+        if proxy.host.contains(|c: char| matches!(c, '@' | '/' | '?' | '#') || c.is_whitespace()) {
             return builder.build(); // return client without proxy if host is invalid
         }
 
@@ -477,11 +474,7 @@ impl From<TidalPlaylistRaw> for TidalPlaylist {
             duration: raw.duration,
             last_updated: raw.last_updated,
             access_type: raw.public_playlist.map(|p| {
-                if p {
-                    "PUBLIC".to_string()
-                } else {
-                    "UNLISTED".to_string()
-                }
+                if p { "PUBLIC".to_string() } else { "UNLISTED".to_string() }
             }),
         }
     }
@@ -1532,9 +1525,8 @@ impl TidalClient {
             total_number_of_items: u32,
         }
 
-        let data: Resp = serde_json::from_str(&body).map_err(|e| {
-            SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)]))
-        })?;
+        let data: Resp = serde_json::from_str(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)])))?;
         let playlists: Vec<TidalPlaylist> = data.items.into_iter().map(|p| p.into()).collect();
         Ok(PaginatedResponse {
             items: playlists,
@@ -2050,9 +2042,8 @@ impl TidalClient {
             limit: u32,
         }
 
-        let data: RecommendationsResponse = serde_json::from_str(&body).map_err(|e| {
-            SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)]))
-        })?;
+        let data: RecommendationsResponse = serde_json::from_str(&body)
+            .map_err(|e| SoneError::Parse(format!("{} - Body: {}", e, &body[..body.len().min(500)])))?;
 
         let mut tracks: Vec<TidalTrack> = data.items.into_iter().map(|w| w.item).collect();
         for t in &mut tracks {
@@ -3085,7 +3076,9 @@ impl TidalClient {
         if !cursor.is_empty() {
             params.push(("cursor", cursor));
         }
-        let body = self.api_get_body(&url, &params).await?;
+        let body = self
+            .api_get_body(&url, &params)
+            .await?;
 
         log::debug!(
             "[get_playlist_folders]: body_preview={}",
@@ -3648,8 +3641,11 @@ impl TidalClient {
 
     pub async fn get_track(&mut self, track_id: u64) -> Result<serde_json::Value, SoneError> {
         let cc = self.country_code.clone();
-        self.api_get(&format!("/tracks/{}", track_id), &[("countryCode", &cc)])
-            .await
+        self.api_get(
+            &format!("/tracks/{}", track_id),
+            &[("countryCode", &cc)],
+        )
+        .await
     }
 
     pub async fn get_track_credits(
@@ -4729,14 +4725,8 @@ impl TidalClient {
                     "MIX_HEADER" => {
                         if let Some(mix) = module.get("mix") {
                             title = mix.get("title").and_then(|t| t.as_str()).map(String::from);
-                            subtitle = mix
-                                .get("subTitle")
-                                .and_then(|s| s.as_str())
-                                .map(String::from);
-                            mix_type = mix
-                                .get("mixType")
-                                .and_then(|t| t.as_str())
-                                .map(String::from);
+                            subtitle = mix.get("subTitle").and_then(|s| s.as_str()).map(String::from);
+                            mix_type = mix.get("mixType").and_then(|t| t.as_str()).map(String::from);
                             // Extract image URL from images.LARGE.url (or MEDIUM, SMALL)
                             if let Some(images) = mix.get("images") {
                                 image = images
@@ -4750,16 +4740,13 @@ impl TidalClient {
                         }
                     }
                     "TRACK_LIST" => {
-                        if let Some(items) = module
-                            .get("pagedList")
+                        if let Some(items) = module.get("pagedList")
                             .and_then(|p| p.get("items"))
                             .and_then(|i| i.as_array())
                         {
                             tracks = items
                                 .iter()
-                                .filter_map(|item| {
-                                    serde_json::from_value::<TidalTrack>(item.clone()).ok()
-                                })
+                                .filter_map(|item| serde_json::from_value::<TidalTrack>(item.clone()).ok())
                                 .collect();
                             for t in &mut tracks {
                                 t.backfill_artist();
@@ -5231,8 +5218,7 @@ impl TidalClient {
         let body = self
             .api_get_body(&format!("/users/{}", user_id), &[("countryCode", &cc)])
             .await?;
-        let json: Value =
-            serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        let json: Value = serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
         Ok(json.get("artistId").and_then(|v| v.as_u64()))
     }
 
@@ -5305,7 +5291,11 @@ impl TidalClient {
 
     /// Best-effort follower/fan count. Tries the social-host profile endpoint
     /// first, then the openapi followers relationship.
-    async fn fetch_fan_count(&mut self, user_id: u64, artist_id: &str) -> Result<u32, SoneError> {
+    async fn fetch_fan_count(
+        &mut self,
+        user_id: u64,
+        artist_id: &str,
+    ) -> Result<u32, SoneError> {
         let primary = self
             .api_get_body(
                 &format!("https://api.tidal.com/v2/profiles/{}", user_id),
@@ -5329,8 +5319,7 @@ impl TidalClient {
                 &[("countryCode", &self.country_code.clone())],
             )
             .await?;
-        let json: Value =
-            serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        let json: Value = serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
         let count = json
             .get("data")
             .and_then(|d| d.as_array())
@@ -5376,10 +5365,7 @@ impl TidalClient {
         });
         let response = self
             .client
-            .patch(format!(
-                "{}/artistBiographies/{}",
-                TIDAL_OPENAPI_URL, bio_id
-            ))
+            .patch(format!("{}/artistBiographies/{}", TIDAL_OPENAPI_URL, bio_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
@@ -6118,10 +6104,7 @@ mod profile_tests {
         assert_eq!(parts.bio.as_deref(), Some("A short bio."));
         assert_eq!(parts.bio_id.as_deref(), Some("bio-1"));
         assert_eq!(parts.artwork_id.as_deref(), Some("art-1"));
-        assert_eq!(
-            parts.blur_hash.as_deref(),
-            Some("L6Pj0^jE.AyE_3t7t7R**0o#DgR4")
-        );
+        assert_eq!(parts.blur_hash.as_deref(), Some("L6Pj0^jE.AyE_3t7t7R**0o#DgR4"));
         assert_eq!(parts.palette, vec!["#112233", "#445566"]);
         let widths: Vec<u32> = parts
             .picture_files
@@ -6232,21 +6215,13 @@ mod profile_tests {
     #[test]
     fn build_external_links_body_maps_href_and_type() {
         let links = vec![
-            ExternalLink {
-                href: "https://instagram.com/me".into(),
-                link_type: "INSTAGRAM".into(),
-            },
-            ExternalLink {
-                href: "https://me.com".into(),
-                link_type: "OFFICIAL_HOMEPAGE".into(),
-            },
+            ExternalLink { href: "https://instagram.com/me".into(), link_type: "INSTAGRAM".into() },
+            ExternalLink { href: "https://me.com".into(), link_type: "OFFICIAL_HOMEPAGE".into() },
         ];
         let body = build_external_links_body(42, &links);
         assert_eq!(body["data"]["type"], "artists");
         assert_eq!(body["data"]["id"], "42");
-        let arr = body["data"]["attributes"]["externalLinks"]
-            .as_array()
-            .unwrap();
+        let arr = body["data"]["attributes"]["externalLinks"].as_array().unwrap();
         assert_eq!(arr.len(), 2);
         assert_eq!(arr[0]["href"], "https://instagram.com/me");
         assert_eq!(arr[0]["meta"]["type"], "INSTAGRAM");
@@ -6256,9 +6231,7 @@ mod profile_tests {
     #[test]
     fn build_external_links_body_empty_clears() {
         let body = build_external_links_body(42, &[]);
-        let arr = body["data"]["attributes"]["externalLinks"]
-            .as_array()
-            .unwrap();
+        let arr = body["data"]["attributes"]["externalLinks"].as_array().unwrap();
         assert!(arr.is_empty());
     }
 

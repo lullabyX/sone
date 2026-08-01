@@ -113,10 +113,7 @@ mod tests {
 
     #[test]
     fn wayland_wins_when_both_set() {
-        assert_eq!(
-            DisplayServer::detect_from(true, true),
-            DisplayServer::Wayland
-        );
+        assert_eq!(DisplayServer::detect_from(true, true), DisplayServer::Wayland);
     }
 
     #[test]
@@ -126,17 +123,11 @@ mod tests {
 
     #[test]
     fn wayland_when_only_wayland_set() {
-        assert_eq!(
-            DisplayServer::detect_from(true, false),
-            DisplayServer::Wayland
-        );
+        assert_eq!(DisplayServer::detect_from(true, false), DisplayServer::Wayland);
     }
 
     #[test]
     fn unknown_when_neither_set() {
-        assert_eq!(
-            DisplayServer::detect_from(false, false),
-            DisplayServer::Unknown
-        );
+        assert_eq!(DisplayServer::detect_from(false, false), DisplayServer::Unknown);
     }
 }

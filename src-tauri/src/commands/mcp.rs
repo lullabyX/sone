@@ -1,9 +1,9 @@
 use serde::Serialize;
 use tauri::State;
 
+use crate::AppState;
 use crate::error::SoneError;
 use crate::mcp::{NowPlayingSnapshot, QueueTrackSnapshot};
-use crate::AppState;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
