@@ -4089,10 +4089,7 @@ mod tests {
 
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].id, "hw:CARD=TEST_DAC,DEV=0");
-        assert_eq!(
-            merged[0].name,
-            "Test DAC / USB Audio — hw:CARD=TEST_DAC,DEV=0"
-        );
+        assert_eq!(merged[0].name, "Test DAC / USB Audio — hw:CARD=TEST_DAC,DEV=0");
     }
 
     #[test]
