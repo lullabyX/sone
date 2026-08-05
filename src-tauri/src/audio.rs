@@ -3336,6 +3336,7 @@ struct HardwareEndpointKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AudioDeviceSource {
     Native,
+    Hint,
     GStreamer,
     Manual,
 }
@@ -3408,6 +3409,7 @@ fn label_score(label: &str, source: AudioDeviceSource) -> usize {
     score
         + match source {
             AudioDeviceSource::Native => 20,
+            AudioDeviceSource::Hint => 15,
             AudioDeviceSource::GStreamer => 10,
             AudioDeviceSource::Manual => 0,
         }
@@ -3538,6 +3540,27 @@ fn gstreamer_entry(display_name: &str, hardware_key: HardwareEndpointKey) -> Aud
         card_index: None,
         hardware_key: Some(hardware_key),
         source: AudioDeviceSource::GStreamer,
+    }
+}
+
+fn hint_entry(device_id: &str, description: Option<&str>) -> AudioDeviceEntry {
+    let description = description
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| device_id.to_string());
+
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id: device_id.to_string(),
+            name: format_device_name(&description, device_id),
+        },
+        sort_label: description,
+        sort_card_label: "ALSA configured PCMs".to_string(),
+        sort_card_id: device_id.to_string(),
+        sort_device: None,
+        card_index: None,
+        hardware_key: parse_hw_endpoint(device_id).map(|parsed| resolve_hw_endpoint(&parsed, None)),
+        source: AudioDeviceSource::Hint,
     }
 }
 
@@ -3697,6 +3720,33 @@ fn list_native_alsa_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> 
     Ok(Vec::new())
 }
 
+#[cfg(target_os = "linux")]
+fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    let hints = alsa::device_name::HintIter::new_str(None, "pcm")
+        .map_err(|e| format!("failed to enumerate ALSA PCM hints: {e}"))?;
+    let mut result = Vec::new();
+
+    for hint in hints {
+        if hint.direction == Some(alsa::Direction::Capture) {
+            continue;
+        }
+        let Some(name) = hint.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else {
+            continue;
+        };
+        if parse_hw_endpoint(name).is_some() {
+            continue;
+        }
+        result.push(hint_entry(name, hint.desc.as_deref()));
+    }
+
+    Ok(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    Ok(Vec::new())
+}
+
 fn list_gstreamer_audio_devices(
     native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
 ) -> Result<Vec<AudioDeviceEntry>, String> {
@@ -3774,6 +3824,14 @@ fn list_audio_device_entries(manual_device: Option<&str>) -> AudioDeviceDiscover
     };
     let native_lookup = native_card_lookup(&native_entries);
 
+    let hint_entries = match list_alsa_hint_playback_devices() {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("[alsa-hints] enumeration failed: {e}");
+            Vec::new()
+        }
+    };
+
     let gstreamer_entries = match list_gstreamer_audio_devices(Some(&native_lookup)) {
         Ok(entries) => entries,
         Err(e) => {
@@ -3787,6 +3845,7 @@ fn list_audio_device_entries(manual_device: Option<&str>) -> AudioDeviceDiscover
     let mut all_entries = Vec::new();
     all_entries.extend(gstreamer_entries);
     all_entries.extend(native_entries);
+    all_entries.extend(hint_entries);
 
     let manual_entries = manual_device
         .map(str::trim)
@@ -3838,7 +3897,7 @@ pub fn gapless_supported() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hw_device_id, merge_audio_device_entries, parse_hw_endpoint, AudioDevice,
+        build_hw_device_id, hint_entry, merge_audio_device_entries, parse_hw_endpoint, AudioDevice,
         AudioDeviceEntry, AudioDeviceSource, HardwareEndpointKey,
     };
 
@@ -3952,6 +4011,20 @@ mod tests {
 
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].id, "hw:CARD=CODEC,DEV=0");
+    }
+
+    #[test]
+    fn configured_pcm_hints_stay_visible_with_their_description() {
+        let virtual_pcm = hint_entry("VirtualFiiO", Some("ALSATools Equalizer: FiiO Q1"));
+        let merged = merge_audio_device_entries(vec![virtual_pcm]);
+
+        assert_eq!(
+            merged,
+            vec![AudioDevice {
+                id: "VirtualFiiO".to_string(),
+                name: "ALSATools Equalizer: FiiO Q1 — VirtualFiiO".to_string(),
+            }]
+        );
     }
 
     #[test]
