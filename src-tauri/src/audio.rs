@@ -3842,12 +3842,7 @@ fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
         if hint.direction == Some(alsa::Direction::Capture) {
             continue;
         }
-        let Some(name) = hint
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        else {
+        let Some(name) = hint.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else {
             continue;
         };
         if parse_hw_endpoint(name).is_some() {
