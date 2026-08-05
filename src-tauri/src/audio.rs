@@ -1652,6 +1652,15 @@ impl AudioPlayer {
                             *decoded_cell_thread.lock().unwrap() = None;
                             *output_cell_thread.lock().unwrap() = None;
                             signal_path.reset_for_track();
+                            // The manual writer is intentionally limited to raw hardware
+                            // endpoints. Named ALSA PCMs can be plug/extplug graphs (equal,
+                            // rate, route, etc.); snd_pcm_writei through those graphs has
+                            // different application/slave constraints. Let GStreamer's
+                            // alsasink negotiate them as a complete ALSA client instead.
+                            let use_direct_alsa_writer = (exclusive || bit_perfect)
+                                && device
+                                    .as_deref()
+                                    .is_some_and(|dev| parse_hw_endpoint(dev).is_some());
                             if exclusive || bit_perfect {
                                 signal_path.set_backend("DirectAlsa", device.clone());
                             } else {
@@ -1659,7 +1668,7 @@ impl AudioPlayer {
                             }
                             signal_path.set_audio_modes(exclusive, bit_perfect);
 
-                            if exclusive || bit_perfect {
+                            if use_direct_alsa_writer {
                                 // ── DirectAlsa path ──
                                 #[cfg(not(target_os = "linux"))]
                                 return Err("Exclusive/bit-perfect mode requires Linux".into());
@@ -1836,7 +1845,11 @@ impl AudioPlayer {
                                     });
                                 }
                             } else {
-                                // ── Normal path (unchanged) ──
+                                // ── GStreamer sink path ──
+                                // Normal playback uses autoaudiosink. Exclusive playback to
+                                // a named/configured ALSA PCM uses alsasink so ALSA owns all
+                                // plugin negotiation (including alsaequal's FLOAT extplug).
+                                let use_named_alsa_sink = exclusive || bit_perfect;
                                 // Shut down any lingering ALSA writer from a mode switch
                                 if let Some(tx) = writer_tx.take() {
                                     tx.try_send(WriterCommand::Shutdown).ok();
@@ -1886,20 +1899,49 @@ impl AudioPlayer {
                                 let audioconvert = gst::ElementFactory::make("audioconvert")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioconvert: {e}"))?;
+                                if bit_perfect {
+                                    audioconvert.set_property_from_str("dithering", "none");
+                                    audioconvert.set_property_from_str("noise-shaping", "none");
+                                }
                                 let audioresample = gst::ElementFactory::make("audioresample")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioresample: {e}"))?;
                                 let norm_vol = gst::ElementFactory::make("volume")
-                                    .property("volume", current_norm_gain)
+                                    .property(
+                                        "volume",
+                                        if bit_perfect { 1.0 } else { current_norm_gain },
+                                    )
                                     .build()
                                     .map_err(|e| format!("Failed to create norm volume: {e}"))?;
                                 let user_vol = gst::ElementFactory::make("volume")
-                                    .property("volume", slider_to_amplitude(current_volume))
+                                    .property(
+                                        "volume",
+                                        if bit_perfect {
+                                            1.0
+                                        } else {
+                                            slider_to_amplitude(current_volume)
+                                        },
+                                    )
                                     .build()
                                     .map_err(|e| format!("Failed to create user volume: {e}"))?;
-                                let sink = gst::ElementFactory::make("autoaudiosink")
-                                    .build()
-                                    .map_err(|e| format!("Failed to create autoaudiosink: {e}"))?;
+                                let sink = if use_named_alsa_sink {
+                                    let dev = device.as_deref().ok_or_else(|| {
+                                        "No audio device selected for exclusive mode".to_string()
+                                    })?;
+                                    log::info!(
+                                        "[audio] using GStreamer alsasink for configured PCM {dev}"
+                                    );
+                                    gst::ElementFactory::make("alsasink")
+                                        .property("device", dev)
+                                        .property("buffer-time", 500_000i64)
+                                        .property("latency-time", 50_000i64)
+                                        .build()
+                                        .map_err(|e| format!("Failed to create alsasink: {e}"))?
+                                } else {
+                                    gst::ElementFactory::make("autoaudiosink").build().map_err(
+                                        |e| format!("Failed to create autoaudiosink: {e}"),
+                                    )?
+                                };
 
                                 pipe.add_many([
                                     &uridecodebin,
@@ -2051,7 +2093,41 @@ impl AudioPlayer {
                                 // or until the 2s heartbeat triggers a refresh; the diagram
                                 // gracefully shows "—" until then. In practice the connect happens
                                 // before the pipeline transitions to PAUSED, so the race is rare.
-                                if let Ok(sink_bin) = sink.clone().dynamic_cast::<gst::Bin>() {
+                                if use_named_alsa_sink {
+                                    let cell = Arc::clone(&output_cell_thread);
+                                    if let Some(sink_pad) = sink.static_pad("sink") {
+                                        sink_pad.add_probe(
+                                            gst::PadProbeType::EVENT_DOWNSTREAM,
+                                            move |_pad, info| {
+                                                if let Some(gst::PadProbeData::Event(ref event)) =
+                                                    info.data
+                                                {
+                                                    if let gst::EventView::Caps(caps_event) =
+                                                        event.view()
+                                                    {
+                                                        if let Some(fmt) =
+                                                            parse_pcm_format(caps_event.caps())
+                                                        {
+                                                            if let Ok(mut guard) = cell.lock() {
+                                                                *guard = Some(
+                                                                    crate::pipeline_probe::PadCaps {
+                                                                        format: fmt
+                                                                            .gst_format
+                                                                            .clone(),
+                                                                        rate: fmt.sample_rate,
+                                                                        channels: fmt.channels,
+                                                                    },
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                gst::PadProbeReturn::Ok
+                                            },
+                                        );
+                                    }
+                                } else if let Ok(sink_bin) = sink.clone().dynamic_cast::<gst::Bin>()
+                                {
                                     let output_cell = Arc::clone(&output_cell_thread);
                                     sink_bin.connect_element_added(move |_bin, element| {
                                         let cell = Arc::clone(&output_cell);
@@ -3730,7 +3806,12 @@ fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
         if hint.direction == Some(alsa::Direction::Capture) {
             continue;
         }
-        let Some(name) = hint.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else {
+        let Some(name) = hint
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
             continue;
         };
         if parse_hw_endpoint(name).is_some() {
