@@ -1873,6 +1873,16 @@ impl AudioPlayer {
                                     h.join().ok();
                                 }
 
+                                #[cfg(target_os = "linux")]
+                                if use_named_alsa_sink {
+                                    let config_changed = alsa::config::update().map_err(|e| {
+                                        format!("Failed to reload ALSA configuration: {e}")
+                                    })?;
+                                    log::debug!(
+                                        "[audio] ALSA configuration reload before PCM open: changed={config_changed}"
+                                    );
+                                }
+
                                 let pipe = gst::Pipeline::new();
                                 let is_dash = uri.starts_with("data:application/dash");
                                 // 2b: legacy `uridecodebin` per branch. `concat` does the
