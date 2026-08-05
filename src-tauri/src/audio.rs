@@ -111,7 +111,8 @@ enum WriterCommand {
 /// The ALSA writer sender + thread handle live as separate state variables
 /// so they persist across PlayUrl calls (track changes keep DAC open).
 enum PlaybackBackend {
-    /// Normal: full GStreamer pipeline with autoaudiosink.
+    /// Full GStreamer pipeline with autoaudiosink, or with alsasink for a
+    /// configured PCM that must own the ALSA device exclusively.
     /// `concat` sits at the head (per-branch `queue` → concat → chain → sink)
     /// so the next track's decoder can preroll ahead for gapless (2b).
     Normal {
@@ -119,6 +120,7 @@ enum PlaybackBackend {
         concat: gst::Element,
         user_volume_el: Option<gst::Element>,
         norm_volume_el: Option<gst::Element>,
+        owns_exclusive_alsa: bool,
     },
     /// Exclusive/Bit-perfect: GStreamer decode → appsink, ALSA writer is external
     DirectAlsa {
@@ -1585,28 +1587,41 @@ impl AudioPlayer {
                                     PlaybackBackend::Normal {
                                         pipeline,
                                         user_volume_el,
+                                        owns_exclusive_alsa,
                                         ..
                                     } => {
                                         if let Some(bus) = pipeline.bus() {
                                             bus.set_flushing(true);
                                         }
-                                        let old_pipe = pipeline;
-                                        std::thread::spawn(move || {
-                                            // Fade out
-                                            if let Some(ref vol) = user_volume_el {
-                                                for i in (0..=10).rev() {
-                                                    vol.set_property(
-                                                        "volume",
-                                                        slider_to_amplitude(current_volume)
-                                                            * (i as f64 / 10.0),
-                                                    );
-                                                    std::thread::sleep(
-                                                        std::time::Duration::from_millis(10),
-                                                    );
+                                        if owns_exclusive_alsa {
+                                            // alsasink owns the PCM. Release it completely before
+                                            // the replacement pipeline tries to open the same
+                                            // device, otherwise rapid track changes race with the
+                                            // asynchronous teardown and fail their first state
+                                            // transition with EBUSY.
+                                            pipeline.set_state(gst::State::Null).ok();
+                                            let _ = pipeline
+                                                .state(gst::ClockTime::from_mseconds(1_000));
+                                            drop(pipeline);
+                                        } else {
+                                            let old_pipe = pipeline;
+                                            std::thread::spawn(move || {
+                                                // Fade out
+                                                if let Some(ref vol) = user_volume_el {
+                                                    for i in (0..=10).rev() {
+                                                        vol.set_property(
+                                                            "volume",
+                                                            slider_to_amplitude(current_volume)
+                                                                * (i as f64 / 10.0),
+                                                        );
+                                                        std::thread::sleep(
+                                                            std::time::Duration::from_millis(10),
+                                                        );
+                                                    }
                                                 }
-                                            }
-                                            old_pipe.set_state(gst::State::Null).ok();
-                                        });
+                                                old_pipe.set_state(gst::State::Null).ok();
+                                            });
+                                        }
                                     }
                                     PlaybackBackend::DirectAlsa { pipeline, .. } => {
                                         // Unblock writer if paused, then bump generation —
@@ -2307,6 +2322,7 @@ impl AudioPlayer {
                                     concat,
                                     user_volume_el: Some(user_vol),
                                     norm_volume_el: Some(norm_vol),
+                                    owns_exclusive_alsa: use_named_alsa_sink,
                                 });
 
                                 // 2b-A3: this is the sink_0 branch — the currently
@@ -2366,15 +2382,25 @@ impl AudioPlayer {
                         next_active.store(false, Ordering::Release);
                         current_branch = None;
                         let result = match backend.take() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
+                            Some(PlaybackBackend::Normal {
+                                pipeline,
+                                owns_exclusive_alsa,
+                                ..
+                            }) => {
                                 if let Some(bus) = pipeline.bus() {
                                     bus.set_flushing(true);
                                 }
                                 eos.store(false, Ordering::SeqCst);
                                 has_uri.store(false, Ordering::SeqCst);
-                                std::thread::spawn(move || {
+                                if owns_exclusive_alsa {
                                     pipeline.set_state(gst::State::Null).ok();
-                                });
+                                    let _ = pipeline.state(gst::ClockTime::from_mseconds(1_000));
+                                    drop(pipeline);
+                                } else {
+                                    std::thread::spawn(move || {
+                                        pipeline.set_state(gst::State::Null).ok();
+                                    });
+                                }
                                 *decoded_cell_thread.lock().unwrap() = None;
                                 *output_cell_thread.lock().unwrap() = None;
                                 Ok(())
