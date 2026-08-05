@@ -3971,13 +3971,16 @@ mod tests {
     #[test]
     fn merges_gstreamer_and_native_results() {
         let merged = merge_audio_device_entries(vec![
-            gstreamer("hw:CARD=Q1,DEV=0", "Q1", 0, "Q1"),
-            native(3, "Q1", "FiiO Q1", "FiiO Q1", 0, "USB Audio"),
+            gstreamer("hw:CARD=TEST_DAC,DEV=0", "TEST_DAC", 0, "TEST_DAC"),
+            native(3, "TEST_DAC", "Test DAC", "Test DAC", 0, "USB Audio"),
         ]);
 
         assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].id, "hw:CARD=Q1,DEV=0");
-        assert_eq!(merged[0].name, "FiiO Q1 / USB Audio — hw:CARD=Q1,DEV=0");
+        assert_eq!(merged[0].id, "hw:CARD=TEST_DAC,DEV=0");
+        assert_eq!(
+            merged[0].name,
+            "Test DAC / USB Audio — hw:CARD=TEST_DAC,DEV=0"
+        );
     }
 
     #[test]
@@ -4015,14 +4018,14 @@ mod tests {
 
     #[test]
     fn configured_pcm_hints_stay_visible_with_their_description() {
-        let virtual_pcm = hint_entry("VirtualFiiO", Some("ALSATools Equalizer: FiiO Q1"));
+        let virtual_pcm = hint_entry("VirtualTestDac", Some("ALSATools Equalizer: Test DAC"));
         let merged = merge_audio_device_entries(vec![virtual_pcm]);
 
         assert_eq!(
             merged,
             vec![AudioDevice {
-                id: "VirtualFiiO".to_string(),
-                name: "ALSATools Equalizer: FiiO Q1 — VirtualFiiO".to_string(),
+                id: "VirtualTestDac".to_string(),
+                name: "ALSATools Equalizer: Test DAC — VirtualTestDac".to_string(),
             }]
         );
     }
@@ -4086,40 +4089,40 @@ mod tests {
                 },
                 sort_label: "Generic hw".to_string(),
                 sort_card_label: "Generic hw".to_string(),
-                sort_card_id: "Q1".to_string(),
+                sort_card_id: "TEST_DAC".to_string(),
                 sort_device: Some(0),
                 card_index: Some(3),
                 hardware_key: Some(HardwareEndpointKey {
-                    card_id: "Q1".to_string(),
+                    card_id: "TEST_DAC".to_string(),
                     device: 0,
                 }),
                 source: AudioDeviceSource::GStreamer,
             },
-            native(3, "Q1", "FiiO Q1", "FiiO Q1", 0, "USB Audio"),
+            native(3, "TEST_DAC", "Test DAC", "Test DAC", 0, "USB Audio"),
         ]);
 
         assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].id, "hw:CARD=Q1,DEV=0");
+        assert_eq!(merged[0].id, "hw:CARD=TEST_DAC,DEV=0");
     }
 
     #[test]
     fn manual_override_is_inserted_when_missing() {
         let merged = merge_audio_device_entries(vec![
             native(1, "PCH", "HDA Intel PCH", "HDA Intel PCH", 0, "Analog"),
-            manual("hw:CARD=Q1,DEV=0"),
+            manual("hw:CARD=TEST_DAC,DEV=0"),
         ]);
 
-        assert!(merged.iter().any(|d| d.id == "hw:CARD=Q1,DEV=0"));
+        assert!(merged.iter().any(|d| d.id == "hw:CARD=TEST_DAC,DEV=0"));
         assert!(merged
             .iter()
-            .any(|d| d.name == "Manual ALSA device — hw:CARD=Q1,DEV=0"));
+            .any(|d| d.name == "Manual ALSA device — hw:CARD=TEST_DAC,DEV=0"));
     }
 
     #[test]
     fn manual_override_is_not_duplicated_when_present() {
         let merged = merge_audio_device_entries(vec![
-            native(1, "Q1", "FiiO Q1", "FiiO Q1", 0, "USB Audio"),
-            manual("hw:CARD=Q1,DEV=0"),
+            native(1, "TEST_DAC", "Test DAC", "Test DAC", 0, "USB Audio"),
+            manual("hw:CARD=TEST_DAC,DEV=0"),
         ]);
 
         assert_eq!(merged.len(), 1);
@@ -4127,19 +4130,19 @@ mod tests {
 
     #[test]
     fn raw_hardware_id_parsing_accepts_card_and_device_forms() {
-        let parsed = parse_hw_endpoint("hw:CARD=Q1,DEV=0").expect("should parse");
-        assert_eq!(parsed.card_token, "Q1");
+        let parsed = parse_hw_endpoint("hw:CARD=TEST_DAC,DEV=0").expect("should parse");
+        assert_eq!(parsed.card_token, "TEST_DAC");
         assert_eq!(parsed.device, 0);
 
-        let parsed = parse_hw_endpoint("hw:Q1,1").expect("should parse");
-        assert_eq!(parsed.card_token, "Q1");
+        let parsed = parse_hw_endpoint("hw:TEST_DAC,1").expect("should parse");
+        assert_eq!(parsed.card_token, "TEST_DAC");
         assert_eq!(parsed.device, 1);
     }
 
     #[test]
     fn raw_hardware_id_parsing_rejects_virtual_aliases() {
         assert!(parse_hw_endpoint("default").is_none());
-        assert!(parse_hw_endpoint("plughw:CARD=Q1,DEV=0").is_none());
+        assert!(parse_hw_endpoint("plughw:CARD=TEST_DAC,DEV=0").is_none());
         assert!(parse_hw_endpoint("dmix").is_none());
     }
 
@@ -4159,6 +4162,6 @@ mod tests {
 
     #[test]
     fn build_hw_device_id_uses_stable_card_id_format() {
-        assert_eq!(build_hw_device_id("Q1", 0), "hw:CARD=Q1,DEV=0");
+        assert_eq!(build_hw_device_id("TEST_DAC", 0), "hw:CARD=TEST_DAC,DEV=0");
     }
 }
