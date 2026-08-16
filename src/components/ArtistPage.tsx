@@ -207,6 +207,7 @@ export default function ArtistPage({
 
   // Image sources in priority order: dedicated artist artwork → legacy picture →
   // album-cover fallbacks. Each loads progressively (small first, hi-res swaps in).
+  // Mirrors getArtistImage in src/utils/itemHelpers.ts — keep both in sync.
   const heroSources = useMemo(() => {
     const list: { uuid: string; kind: "artist" | "album" }[] = [];
     if (artworkId) list.push({ uuid: artworkId, kind: "artist" });
@@ -352,6 +353,8 @@ export default function ArtistPage({
           id: artistId,
           name: displayName,
           picture,
+          artworkId,
+          selectedAlbumCoverFallback: albumFallback,
         });
       }
     } catch (err) {

@@ -51,6 +51,7 @@ export function formatStreamQuality(info: StreamInfo | null): string {
  * Artist avatar URL. Artist artwork and the legacy picture use the artist CDN
  * size set; `selectedAlbumCoverFallback` is an album cover UUID and uses the
  * album size set.
+ * ArtistPage.tsx repeats this priority chain for progressive loading — keep both in sync.
  */
 export function getArtistImage(item: any, size: number = 320): string {
   if (!item) return "";

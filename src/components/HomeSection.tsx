@@ -353,6 +353,8 @@ export default function HomeSection({ section }: HomeSectionProps) {
                     id: item.id,
                     name: item.name,
                     picture: item.picture,
+                    artworkId: item.artworkId,
+                    selectedAlbumCoverFallback: item.selectedAlbumCoverFallback,
                   });
                 }
               };
