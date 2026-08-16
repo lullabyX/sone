@@ -4,6 +4,8 @@ import {
   getAudioQualityBadge,
   getMediaQualityBadge,
   formatTotalDuration,
+  getArtistImage,
+  getItemImage,
 } from "./itemHelpers";
 
 describe("getTrackPrimaryArtist", () => {
@@ -134,5 +136,58 @@ describe("getMediaQualityBadge", () => {
 
   it("returns null when nothing is available", () => {
     expect(getMediaQualityBadge(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("getArtistImage", () => {
+  it("prefers artworkId and uses artist CDN sizes", () => {
+    expect(
+      getArtistImage({ artworkId: "aaaa-bbbb", picture: "cccc-dddd" }, 480),
+    ).toBe("https://resources.tidal.com/images/aaaa/bbbb/480x480.jpg");
+  });
+
+  it("falls back to the legacy picture UUID", () => {
+    expect(getArtistImage({ picture: "cccc-dddd" }, 320)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/320x320.jpg",
+    );
+  });
+
+  it("uses selectedAlbumCoverFallback with album CDN sizes when no artist artwork exists", () => {
+    expect(
+      getArtistImage(
+        { picture: null, selectedAlbumCoverFallback: "eeee-ffff" },
+        640,
+      ),
+    ).toBe("https://resources.tidal.com/images/eeee/ffff/640x640.jpg");
+  });
+
+  it("accepts the camelCased albumCoverFallback alias used by ArtistPageData", () => {
+    expect(getArtistImage({ albumCoverFallback: "eeee-ffff" }, 320)).toBe(
+      "https://resources.tidal.com/images/eeee/ffff/320x320.jpg",
+    );
+  });
+
+  it("returns an empty string when the item has no image at all", () => {
+    expect(getArtistImage({ id: 1, name: "Nobody" })).toBe("");
+    expect(getArtistImage(null)).toBe("");
+  });
+});
+
+describe("getItemImage artist fallback", () => {
+  it("resolves an artist with no picture through the album fallback", () => {
+    expect(
+      getItemImage({
+        id: 1,
+        name: "CMA",
+        picture: null,
+        selectedAlbumCoverFallback: "eeee-ffff",
+      }),
+    ).toBe("https://resources.tidal.com/images/eeee/ffff/320x320.jpg");
+  });
+
+  it("still prefers an album cover for non-artist items", () => {
+    expect(getItemImage({ cover: "1111-2222", picture: "3333-4444" })).toBe(
+      "https://resources.tidal.com/images/1111/2222/320x320.jpg",
+    );
   });
 });
