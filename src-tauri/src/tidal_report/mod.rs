@@ -1,8 +1,9 @@
 //! Reports completed plays to TIDAL's Event Producer so they appear in the
-//! user's TIDAL Recently Played. Opt-in (default off). Hooks the same playback
-//! lifecycle as the scrobble manager and emits one `playback_session` event per
-//! play that meets the listen threshold. Private, undocumented endpoint — the
-//! same posture as SONE's existing streaming calls; best-effort, may not surface.
+//! user's TIDAL Recently Played. On by default; users can disable it in
+//! Settings. Hooks the same playback lifecycle as the scrobble manager and
+//! emits one `playback_session` event per play that meets the listen
+//! threshold. Private, undocumented endpoint — the same posture as SONE's
+//! existing streaming calls; best-effort, may not surface.
 
 mod event;
 mod queue;

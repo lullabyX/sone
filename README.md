@@ -95,6 +95,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) server on port 5577 lets external AI agents (Claude Code, etc.) search your library, control playback, and manage playlists/favorites. Off by default; enable in Settings with one-click token generation
 - **OBS overlay** — built-in browser source widget (port 5578) displays the currently playing track — album art, title, artist, audio quality badge, and a live progress bar — in any streaming software. Off by default; Enable in Settings, add the URL as a Browser Source in OBS at 400×120px. Inherits your active SONE theme automatically
 - **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
+- **Play reporting** — reports finished plays to TIDAL so Recently Played and personalized mixes reflect what you listen to in SONE. On by default; turn it off in Settings → Scrobbling
 - **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
 
 ## Why SONE?
@@ -106,7 +107,7 @@ SONE is a lightweight, native alternative to the official TIDAL web player and E
 - **Direct hardware access** — GStreamer talks directly to your audio hardware. Lock your DAC to the exact source format, bypassing the system mixer
 - **Lightweight** — built with Tauri and Rust. Small binary, low memory footprint
 - **Encrypted at rest** — credentials, cache, and settings are encrypted with AES-256-GCM
-- **No telemetry, no tracking** — fully open source under GPL-3.0. Your listening data stays on your machine
+- **No telemetry, no tracking** — fully open source under GPL-3.0. SONE collects no telemetry and sends nothing to its developers. Finished plays are reported to TIDAL so Recently Played works; turn it off in Settings → Scrobbling
 
 ## Installation
 
@@ -427,7 +428,7 @@ This is a known issue with NVIDIA's proprietary drivers and WebKitGTK hardware a
 <details>
 <summary>Is SONE free and open source?</summary>
 
-Yes. SONE is fully open source under the GPL-3.0 license, with no telemetry or tracking — your listening data stays on your machine.
+Yes. SONE is fully open source under the GPL-3.0 license, with no telemetry or tracking — SONE itself collects nothing about you. Your play history is reported to TIDAL so Recently Played and personalized mixes reflect what you play in SONE; disable it in Settings → Scrobbling.
 
 </details>
 
@@ -506,4 +507,4 @@ All trademarks belong to their respective owners.
 
 ---
 
-**TL;DR** — SONE is an open-source, native Linux desktop client for TIDAL built with Tauri 2 and Rust. It streams lossless FLAC and Hi-Res audio up to 24-bit/192kHz, with exclusive ALSA output that bypasses PulseAudio and PipeWire entirely for bit-perfect playback directly to your DAC. It also plays TIDAL music videos in a dedicated player — fullscreen or minimized to the bar — that shares a single queue (shuffle, repeat, autoplay, favorites, and history) with your audio tracks. Lightweight, encrypted at rest, and fully offline — no telemetry, no tracking.
+**TL;DR** — SONE is an open-source, native Linux desktop client for TIDAL built with Tauri 2 and Rust. It streams lossless FLAC and Hi-Res audio up to 24-bit/192kHz, with exclusive ALSA output that bypasses PulseAudio and PipeWire entirely for bit-perfect playback directly to your DAC. It also plays TIDAL music videos in a dedicated player — fullscreen or minimized to the bar — that shares a single queue (shuffle, repeat, autoplay, favorites, and history) with your audio tracks. Lightweight and encrypted at rest, with no telemetry or tracking.
