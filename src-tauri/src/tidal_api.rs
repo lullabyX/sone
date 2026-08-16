@@ -320,6 +320,10 @@ pub struct TidalArtist {
     pub name: String,
     #[serde(default)]
     pub picture: Option<String>,
+    #[serde(default)]
+    pub artwork_id: Option<String>,
+    #[serde(default)]
+    pub selected_album_cover_fallback: Option<String>,
     /// "MAIN" | "FEATURED" — present on embedded artist refs in tracks/albums
     #[serde(default, rename = "type")]
     pub artist_type: Option<String>,
@@ -977,6 +981,10 @@ pub struct TidalArtistDetail {
     pub name: String,
     #[serde(default)]
     pub picture: Option<String>,
+    #[serde(default)]
+    pub artwork_id: Option<String>,
+    #[serde(default)]
+    pub selected_album_cover_fallback: Option<String>,
     #[serde(default)]
     pub handle: Option<String>,
     #[serde(default)]
@@ -6052,6 +6060,39 @@ mod home_tab_tests {
             "pagedList": { "items": [ { "header": "X", "artifactId": "1", "type": "PLAYLIST" } ] }
         });
         assert!(super::TidalClient::parse_v1_module(&module).is_some());
+    }
+
+    #[test]
+    fn artist_structs_carry_artwork_fallback_fields() {
+        let body = json!({
+            "id": 42,
+            "name": "Killigrew",
+            "picture": null,
+            "artworkId": "art-1",
+            "selectedAlbumCoverFallback": "cover-1"
+        })
+        .to_string();
+
+        let artist: TidalArtist = serde_json::from_str(&body).expect("parses");
+        assert_eq!(artist.picture, None);
+        assert_eq!(artist.artwork_id.as_deref(), Some("art-1"));
+        assert_eq!(
+            artist.selected_album_cover_fallback.as_deref(),
+            Some("cover-1")
+        );
+
+        let detail: TidalArtistDetail = serde_json::from_str(&body).expect("parses");
+        assert_eq!(detail.artwork_id.as_deref(), Some("art-1"));
+        assert_eq!(
+            detail.selected_album_cover_fallback.as_deref(),
+            Some("cover-1")
+        );
+
+        // Absent fields must not fail the parse.
+        let bare = json!({ "id": 1, "name": "Bare" }).to_string();
+        let bare_artist: TidalArtist = serde_json::from_str(&bare).expect("parses");
+        assert_eq!(bare_artist.artwork_id, None);
+        assert_eq!(bare_artist.selected_album_cover_fallback, None);
     }
 }
 

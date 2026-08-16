@@ -152,6 +152,8 @@ mod tests {
             id: 7,
             name: "Test Artist".to_string(),
             picture: None,
+            artwork_id: None,
+            selected_album_cover_fallback: None,
             artist_type: None,
             handle: None,
         };
