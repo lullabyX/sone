@@ -95,13 +95,7 @@ pub struct SessionEvent {
 
 /// Build the MessageBody JSON (mobile shape) for one event.
 pub fn build_body(ev: &SessionEvent, claims: &Claims) -> String {
-    let (source_type, source_id) = match &ev.source {
-        Some((t, id)) => (t.as_tidal().to_string(), id.clone()),
-        // Empty strings, never null — null fails server validation.
-        None => (String::new(), String::new()),
-    };
-
-    let payload = json!({
+    let mut payload = json!({
         "playbackSessionId": ev.session_id,
         "isPostPaywall": true,
         "productType": "TRACK",
@@ -110,21 +104,23 @@ pub fn build_body(ev: &SessionEvent, claims: &Claims) -> String {
         "actualAssetPresentation": ev.presentation,
         "actualAudioMode": ev.audio_mode,
         "actualQuality": ev.quality,
-        "sourceType": source_type,
-        "sourceId": source_id,
         "startTimestamp": ev.start_ts_ms,
         "endTimestamp": ev.end_ts_ms,
         "startAssetPosition": 0.0,
         "endAssetPosition": ev.end_asset_pos,
-        "actions": [
-            { "actionType": "PLAYBACK_START", "assetPosition": 0.0, "timestamp": ev.start_ts_ms },
-            { "actionType": "PLAYBACK_STOP", "assetPosition": ev.end_asset_pos, "timestamp": ev.end_ts_ms },
-        ],
+        // Interruptions only (pause/resume/seek). A straight play sends [];
+        // session bounds live in start/endTimestamp and start/endAssetPosition.
+        "actions": [],
     });
+
+    // Gson omits nulls, so a sourceless play sends no source keys at all.
+    if let Some((source_type, source_id)) = &ev.source {
+        payload["sourceType"] = json!(source_type.as_tidal());
+        payload["sourceId"] = json!(source_id);
+    }
 
     let body = json!({
         "group": "play_log",
-        "name": "playback_session",
         "version": 2,
         "ts": ev.end_ts_ms,
         "uuid": uuid::Uuid::new_v4().to_string(),
@@ -136,7 +132,7 @@ pub fn build_body(ev: &SessionEvent, claims: &Claims) -> String {
         },
         "client": {
             "token": claims.cid.map(|c| c.to_string()).unwrap_or_default(),
-            "deviceType": "androidAuto",
+            "deviceType": "mobile",
             "version": TIDAL_APP_VERSION,
             "platform": "android",
         },
@@ -248,18 +244,20 @@ mod tests {
     fn body_is_mobile_shape() {
         let v: Value = serde_json::from_str(&build_body(&sample(None), &claims())).unwrap();
         assert_eq!(v["group"], "play_log");
-        assert_eq!(v["name"], "playback_session");
         assert_eq!(v["version"], 2);
         assert!(v.get("user").is_some(), "user object required");
         assert!(v.get("client").is_some(), "client object required");
         // client.token is the cid claim as a string.
         assert_eq!(v["client"]["token"], "8017");
         assert_eq!(v["client"]["platform"], "android");
-        assert_eq!(v["client"]["deviceType"], "androidAuto");
+        assert_eq!(v["client"]["deviceType"], "mobile");
         assert_eq!(v["user"]["id"], 1);
         assert_eq!(v["client"]["version"], "2.205.0");
         assert_eq!(v["payload"]["playbackSessionId"], "sess-123");
-        assert_eq!(v["payload"]["actions"].as_array().unwrap().len(), 2);
+        // Event.kt marks `name` @Transient — it rides as the SQS attribute only.
+        assert!(v.get("name").is_none(), "body must not carry a name key");
+        // The SDK appends actions only for interruptions; a straight play sends [].
+        assert_eq!(v["payload"]["actions"].as_array().unwrap().len(), 0);
     }
 
     // HeadersUtils.kt's exact key set. It sends no app-name, so emitting one is
@@ -281,12 +279,15 @@ mod tests {
         assert_eq!(h["authorization"], "tok-y");
     }
 
-    // Absent source must be "" (empty string), never null — null fails validation.
+    // AudioPlaybackSession.Payload declares sourceType/sourceId as String?, and
+    // the SDK's Gson omits nulls — a sourceless play sends no source keys.
+    // Verified live: a sourceless play produces no Recently-played row either
+    // way, and is accepted with no SenderFault.
     #[test]
-    fn absent_source_is_empty_string_not_null() {
+    fn absent_source_omits_keys() {
         let v: Value = serde_json::from_str(&build_body(&sample(None), &claims())).unwrap();
-        assert_eq!(v["payload"]["sourceType"], "");
-        assert_eq!(v["payload"]["sourceId"], "");
+        assert!(v["payload"].get("sourceType").is_none());
+        assert!(v["payload"].get("sourceId").is_none());
     }
 
     #[test]
@@ -349,5 +350,19 @@ mod tests {
         assert_eq!(c.uid, Some(173234555));
         assert_eq!(c.cid, Some(8017));
         assert_eq!(c.sid.as_deref(), Some("abc"));
+    }
+
+    // Nothing in a sent event may identify SONE.
+    #[test]
+    fn event_carries_no_sone_fingerprint() {
+        let headers = build_headers("cid-x", "tok-y", 123);
+        let body = build_body(&sample(Some((SourceType::Album, "7".into()))), &claims());
+        for payload in [&headers, &body] {
+            assert!(!payload.contains("SONE"), "leaked app name: {payload}");
+            assert!(
+                !payload.contains(env!("CARGO_PKG_VERSION")),
+                "leaked SONE version: {payload}"
+            );
+        }
     }
 }
