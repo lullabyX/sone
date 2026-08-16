@@ -4,6 +4,7 @@ use crate::SoneError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Build a reqwest::Client with optional proxy configuration.
@@ -1064,6 +1065,9 @@ pub struct DeviceAuthResponse {
     pub interval: u64,
 }
 
+/// Invoked with freshly refreshed tokens so the caller can persist them.
+pub type TokenPersist = Arc<dyn Fn(&AuthTokens) + Send + Sync>;
+
 pub struct TidalClient {
     client: Client,
     pub tokens: Option<AuthTokens>,
@@ -1072,6 +1076,7 @@ pub struct TidalClient {
     /// The user's country code from their Tidal session (e.g. "US", "GB", "DE").
     /// Populated after authentication via get_session_info().
     pub country_code: String,
+    token_persist: Option<TokenPersist>,
 }
 
 impl TidalClient {
@@ -1087,7 +1092,13 @@ impl TidalClient {
             client_id: String::new(),
             client_secret: String::new(),
             country_code: "US".to_string(),
+            token_persist: None,
         }
+    }
+
+    /// Register the hook that writes refreshed tokens to disk.
+    pub fn set_token_persist(&mut self, persist: TokenPersist) {
+        self.token_persist = Some(persist);
     }
 
     pub fn set_credentials(&mut self, client_id: &str, client_secret: &str) {
@@ -1174,6 +1185,11 @@ impl TidalClient {
         };
 
         self.tokens = Some(new_tokens.clone());
+        // Persist immediately: the auto-refresh on 401 is the common path, and
+        // without this the stored token stays stale forever.
+        if let Some(persist) = &self.token_persist {
+            persist(&new_tokens);
+        }
         Ok(new_tokens)
     }
 

@@ -29,7 +29,7 @@ use cache::DiskCache;
 use crypto::Crypto;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -253,6 +253,29 @@ pub fn now_secs() -> u64 {
         .as_secs()
 }
 
+/// Write refreshed tokens back into the stored settings. Called from every
+/// refresh, including the automatic one after a 401 — without it the stored
+/// access token stays stale and each launch burns a 401 before the first
+/// request succeeds.
+fn persist_auth_tokens(path: &Path, crypto: &Crypto, tokens: &AuthTokens) {
+    let mut settings = fs::read(path)
+        .ok()
+        .and_then(|data| crypto.decrypt(&data).ok())
+        .and_then(|plain| serde_json::from_slice::<Settings>(&plain).ok())
+        .unwrap_or_default();
+    settings.auth_tokens = Some(tokens.clone());
+
+    let write = || -> Result<(), SoneError> {
+        let json = serde_json::to_string_pretty(&settings)?;
+        let encrypted = crypto.encrypt(json.as_bytes())?;
+        fs::write(path, encrypted)?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        log::warn!("Failed to persist refreshed auth tokens: {e}");
+    }
+}
+
 impl AppState {
     fn new(app_handle: tauri::AppHandle) -> Self {
         // Get config dir
@@ -378,10 +401,19 @@ impl AppState {
             Arc::clone(&audio_player),
         ));
 
+        let mut tidal_client = TidalClient::new(&proxy_settings);
+        tidal_client.set_token_persist({
+            let settings_path = settings_path.clone();
+            let crypto = Arc::clone(&crypto);
+            Arc::new(move |tokens: &AuthTokens| {
+                persist_auth_tokens(&settings_path, &crypto, tokens);
+            })
+        });
+
         Self {
             audio_player,
             pipeline_probe,
-            tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
+            tidal_client: Mutex::new(tidal_client),
             settings_path,
             cache_dir,
             disk_cache,
