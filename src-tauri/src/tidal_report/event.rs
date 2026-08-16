@@ -4,9 +4,14 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 pub const EC_URL: &str = "https://ec.tidal.com/api/event-batch";
-const APP_NAME: &str = "SONE";
-const OS_NAME: &str = "linux";
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Identity of the TIDAL Android client whose `cid` SONE authenticates with.
+/// Events ride on that client's token, so they must describe that client — not
+/// SONE. TIDAL ships roughly weekly, so this pin drifts; bump it occasionally.
+const TIDAL_APP_VERSION: &str = "2.205.0";
+const OS_NAME: &str = "Android";
+const OS_VERSION: &str = "35";
+const DEVICE_MODEL: &str = "Pixel 7";
+const DEVICE_VENDOR: &str = "Google";
 /// Max events per SQS SendMessageBatch.
 pub const MAX_BATCH: usize = 10;
 
@@ -132,7 +137,7 @@ pub fn build_body(ev: &SessionEvent, claims: &Claims) -> String {
         "client": {
             "token": claims.cid.map(|c| c.to_string()).unwrap_or_default(),
             "deviceType": "androidAuto",
-            "version": APP_VERSION,
+            "version": TIDAL_APP_VERSION,
             "platform": "android",
         },
         "payload": payload,
@@ -140,13 +145,16 @@ pub fn build_body(ev: &SessionEvent, claims: &Claims) -> String {
     body.to_string()
 }
 
-/// The per-event `Headers` MessageAttribute (JSON string).
+/// The per-event `Headers` MessageAttribute (JSON string). Key set mirrors
+/// TIDAL's `HeadersUtils.kt`.
 pub fn build_headers(oauth_client_id: &str, access_token: &str, now_ms: i64) -> String {
     json!({
         "client-id": oauth_client_id,
-        "app-name": APP_NAME,
-        "app-version": APP_VERSION,
+        "app-version": TIDAL_APP_VERSION,
         "os-name": OS_NAME,
+        "os-version": OS_VERSION,
+        "device-model": DEVICE_MODEL,
+        "device-vendor": DEVICE_VENDOR,
         "consent-category": "NECESSARY",
         "requested-sent-timestamp": now_ms.to_string(),
         "authorization": access_token,
@@ -249,21 +257,28 @@ mod tests {
         assert_eq!(v["client"]["platform"], "android");
         assert_eq!(v["client"]["deviceType"], "androidAuto");
         assert_eq!(v["user"]["id"], 1);
-        assert_eq!(v["client"]["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(v["client"]["version"], "2.205.0");
         assert_eq!(v["payload"]["playbackSessionId"], "sess-123");
         assert_eq!(v["payload"]["actions"].as_array().unwrap().len(), 2);
     }
 
-    // Report as SONE-on-Linux, not the TIDAL app (verified to surface the same).
+    // HeadersUtils.kt's exact key set. It sends no app-name, so emitting one is
+    // a key no real client produces.
     #[test]
-    fn headers_are_honest_identity() {
+    fn headers_match_sdk_key_set() {
         let h: Value = serde_json::from_str(&build_headers("cid-x", "tok-y", 123)).unwrap();
-        assert_eq!(h["app-name"], "SONE");
-        assert_eq!(h["os-name"], "linux");
-        assert_eq!(h["app-version"], env!("CARGO_PKG_VERSION"));
+        assert!(h.get("app-name").is_none(), "SDK sends no app-name");
+        assert_eq!(h.as_object().unwrap().len(), 9, "exactly nine header keys");
+        assert_eq!(h["app-version"], "2.205.0");
+        assert_eq!(h["os-name"], "Android");
+        assert_eq!(h["os-version"], "35");
+        assert_eq!(h["device-model"], "Pixel 7");
+        assert_eq!(h["device-vendor"], "Google");
         assert_eq!(h["client-id"], "cid-x");
-        assert_eq!(h["authorization"], "tok-y");
         assert_eq!(h["consent-category"], "NECESSARY");
+        assert_eq!(h["requested-sent-timestamp"], "123");
+        // Bare token here; the Bearer prefix lives on the HTTP header.
+        assert_eq!(h["authorization"], "tok-y");
     }
 
     // Absent source must be "" (empty string), never null — null fails validation.
