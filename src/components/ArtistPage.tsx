@@ -207,6 +207,7 @@ export default function ArtistPage({
 
   // Image sources in priority order: dedicated artist artwork → legacy picture →
   // album-cover fallbacks. Each loads progressively (small first, hi-res swaps in).
+  // Mirrors getArtistImage in src/utils/itemHelpers.ts — keep both in sync.
   const heroSources = useMemo(() => {
     const list: { uuid: string; kind: "artist" | "album" }[] = [];
     if (artworkId) list.push({ uuid: artworkId, kind: "artist" });
@@ -225,6 +226,11 @@ export default function ArtistPage({
       ? getTidalArtistImageUrl(s.uuid, hi ? 750 : 160)
       : getTidalImageUrl(s.uuid, hi ? 1280 : 320);
   const heroDisplay = showHi || showLow;
+  // Small avatars reuse the hero's resolved source — same URL, already cached,
+  // and already advanced past any source that failed to fetch.
+  const avatarSrc = heroSources[heroSrcIdx]
+    ? heroSrcUrl(heroSources[heroSrcIdx], false)
+    : "";
 
   // Restart resolution whenever the source set changes.
   useEffect(() => {
@@ -352,6 +358,8 @@ export default function ArtistPage({
           id: artistId,
           name: displayName,
           picture,
+          artworkId,
+          selectedAlbumCoverFallback: albumFallback,
         });
       }
     } catch (err) {
@@ -676,9 +684,9 @@ export default function ArtistPage({
             >
               <div className="flex items-center gap-3 px-6 pt-5 pb-4">
                 <div className="w-11 h-11 shrink-0 rounded-full overflow-hidden bg-th-surface-hover">
-                  {picture ? (
+                  {avatarSrc ? (
                     <img
-                      src={getTidalImageUrl(picture, 160)}
+                      src={avatarSrc}
                       alt={displayName}
                       className="w-full h-full object-cover"
                     />

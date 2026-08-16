@@ -3,6 +3,7 @@ import { useAtom } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { Eye, EyeOff } from "lucide-react";
 import { mcpConnectionInfoAtom, type McpConnectionInfo } from "../../atoms/mcp";
+import { safeErrorMessage } from "../../lib/errorUtils";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 
@@ -13,6 +14,8 @@ export default function McpTab() {
   const [urlCopied, setUrlCopied] = useState(false);
   const [snippetCopied, setSnippetCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [regenError, setRegenError] = useState("");
+  const [toggleError, setToggleError] = useState("");
 
   useEffect(() => {
     invoke<McpConnectionInfo>("mcp_get_connection_info")
@@ -36,6 +39,7 @@ export default function McpTab() {
     setBusy(true);
     setEnabled(next);
     setRevealed(false);
+    setToggleError("");
     try {
       const i = await invoke<McpConnectionInfo>("mcp_set_enabled", {
         enabled: next,
@@ -45,6 +49,14 @@ export default function McpTab() {
     } catch (e) {
       console.error("mcp_set_enabled failed:", e);
       setEnabled(!next);
+      setToggleError(safeErrorMessage(e, "Failed to update MCP server"));
+      try {
+        const i = await invoke<McpConnectionInfo>("mcp_get_connection_info");
+        setInfo(i);
+        setEnabled(i.enabled);
+      } catch {
+        // keep last known state
+      }
     } finally {
       setBusy(false);
     }
@@ -58,12 +70,21 @@ export default function McpTab() {
     )
       return;
     setBusy(true);
+    setRegenError("");
     try {
       const i = await invoke<McpConnectionInfo>("mcp_regenerate_token");
       setInfo(i);
       setRevealed(false);
     } catch (e) {
       console.error("mcp_regenerate_token failed:", e);
+      setRegenError(safeErrorMessage(e, "Failed to regenerate token"));
+      try {
+        const i = await invoke<McpConnectionInfo>("mcp_get_connection_info");
+        setInfo(i);
+        setEnabled(i.enabled);
+      } catch {
+        // keep last known state
+      }
     } finally {
       setBusy(false);
     }
@@ -134,6 +155,10 @@ export default function McpTab() {
             </div>
           );
         })()}
+
+        {toggleError && (
+          <p className="text-[11px] text-[#ff6666] mb-4">{toggleError}</p>
+        )}
 
         {enabled && info.url ? (
           (() => {
@@ -240,6 +265,9 @@ export default function McpTab() {
                     Disconnects connected clients
                   </span>
                 </div>
+                {regenError && (
+                  <p className="text-[11px] text-[#ff6666] mt-1.5">{regenError}</p>
+                )}
               </>
             );
           })()

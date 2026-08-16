@@ -231,6 +231,8 @@ export default function ViewAllPage({
               id: item.id,
               name: item.name,
               picture: item.picture,
+              artworkId: item.artworkId,
+              selectedAlbumCoverFallback: item.selectedAlbumCoverFallback,
             });
         },
       };

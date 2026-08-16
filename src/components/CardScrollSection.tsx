@@ -143,6 +143,8 @@ export default function CardScrollSection({
                     id: item.id,
                     name: item.name,
                     picture: item.picture,
+                    artworkId: item.artworkId,
+                    selectedAlbumCoverFallback: item.selectedAlbumCoverFallback,
                   });
               };
             } else if (sectionType === "PLAYLIST_LIST" && item.uuid) {

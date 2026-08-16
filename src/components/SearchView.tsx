@@ -17,7 +17,11 @@ import {
   type DirectHitItem,
   type MediaItemType,
 } from "../types";
-import { videoToTrack, buildMediaItem } from "../utils/itemHelpers";
+import {
+  videoToTrack,
+  buildMediaItem,
+  getArtistImage,
+} from "../utils/itemHelpers";
 import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
@@ -954,9 +958,9 @@ function TopHitsList({
               }}
             >
               <div className="w-12 h-12 rounded-full bg-th-surface-hover overflow-hidden shrink-0">
-                {hit.picture ? (
+                {getArtistImage(hit, 160) ? (
                   <TidalImage
-                    src={getTidalImageUrl(hit.picture, 80)}
+                    src={getArtistImage(hit, 160)}
                     alt={hit.name || ""}
                     className="w-full h-full object-cover"
                   />

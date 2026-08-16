@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAtom } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { overlayConnectionInfoAtom, type OverlayConnectionInfo } from "../../atoms/overlay";
+import { safeErrorMessage } from "../../lib/errorUtils";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 
@@ -14,6 +15,7 @@ export default function OverlayTab() {
   const [busy, setBusy] = useState(false);
   const [portError, setPortError] = useState("");
   const [hostError, setHostError] = useState("");
+  const [toggleError, setToggleError] = useState("");
 
   useEffect(() => {
     invoke<OverlayConnectionInfo>("overlay_get_connection_info")
@@ -26,6 +28,16 @@ export default function OverlayTab() {
       .catch(() => {});
   }, [setInfo]);
 
+  const refresh = async () => {
+    try {
+      const i = await invoke<OverlayConnectionInfo>("overlay_get_connection_info");
+      setInfo(i);
+      setEnabled(i.enabled);
+    } catch {
+      // keep last known state
+    }
+  };
+
   const copy = async (text: string): Promise<void> => {
     await navigator.clipboard.writeText(text);
     setUrlCopied(true);
@@ -35,6 +47,7 @@ export default function OverlayTab() {
   const toggle = async (next: boolean) => {
     setBusy(true);
     setEnabled(next);
+    setToggleError("");
     try {
       const i = await invoke<OverlayConnectionInfo>("overlay_set_enabled", {
         enabled: next,
@@ -44,6 +57,8 @@ export default function OverlayTab() {
     } catch (e) {
       console.error("overlay_set_enabled failed:", e);
       setEnabled(!next);
+      setToggleError(safeErrorMessage(e, "Failed to update overlay server"));
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -63,6 +78,8 @@ export default function OverlayTab() {
       setPortInput(String(i.port ?? p));
     } catch (e) {
       console.error("overlay_set_port failed:", e);
+      setPortError(safeErrorMessage(e, "Failed to apply port"));
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -80,9 +97,10 @@ export default function OverlayTab() {
       const i = await invoke<OverlayConnectionInfo>("overlay_set_host", { host: h });
       setInfo(i);
       setHostInput(i.host);
-    } catch (e: any) {
-      setHostError(typeof e === "string" ? e : "Invalid host address");
+    } catch (e) {
       console.error("overlay_set_host failed:", e);
+      setHostError(safeErrorMessage(e, "Invalid host address"));
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -153,6 +171,10 @@ export default function OverlayTab() {
             </div>
           );
         })()}
+
+        {toggleError && (
+          <p className="text-[11px] text-[#ff6666] mb-4">{toggleError}</p>
+        )}
 
         {enabled && info.url ? (
           <>

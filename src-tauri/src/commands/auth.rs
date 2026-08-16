@@ -327,14 +327,8 @@ pub async fn poll_device_auth(
 pub async fn refresh_tidal_auth(state: State<'_, AppState>) -> Result<AuthTokens, SoneError> {
     log::debug!("[refresh_tidal_auth]");
     let mut client = state.tidal_client.lock().await;
-    let new_tokens = client.refresh_token().await?;
-
-    // Save refreshed tokens to settings
-    let mut settings = state.load_settings().unwrap_or_default();
-    settings.auth_tokens = Some(new_tokens.clone());
-    state.save_settings(&settings)?;
-
-    Ok(new_tokens)
+    // refresh_token persists the new tokens via the client's persist hook.
+    client.refresh_token().await
 }
 
 fn build_pkce_params(client_id: &str) -> PkceAuthParams {
@@ -437,7 +431,7 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
 
     // Stop the MCP server (cancel its task, drop the listener).
     if let Some(handle) = state.mcp_handle.lock().await.take() {
-        handle.cancel.cancel();
+        handle.shutdown().await;
     }
 
     // Release the idle inhibitor if a track had held it.

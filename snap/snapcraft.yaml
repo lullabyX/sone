@@ -133,7 +133,9 @@ parts:
     source: .
     override-build: |
       set -eu
-      rustup default stable
+      # rustup snap (core26) crashes if the gnome ext's LD_LIBRARY_PATH makes it
+      # load the SDK's older libc; env -u wherever rustup/cargo/rustc run.
+      env -u LD_LIBRARY_PATH rustup default stable
 
       VERSION=$(node -p "require('./package.json').version")
       craftctl set version="$VERSION"
@@ -145,7 +147,7 @@ parts:
       # rm stale .deb so a version bump doesn't leave two for the glob below.
       rm -f src-tauri/target/release/bundle/deb/*.deb
       # no `--` before --bundles: pnpm would forward it to cargo, not tauri.
-      pnpm tauri build --bundles deb
+      env -u LD_LIBRARY_PATH pnpm tauri build --bundles deb
       dpkg -x src-tauri/target/release/bundle/deb/*.deb $SNAPCRAFT_PART_INSTALL/
       # libblas3/liblapack3 put their .so in blas//lapack/ subdirs; recreate the
       # update-alternatives symlinks so libgstlibav (ffmpeg) can load them.

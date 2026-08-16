@@ -4,6 +4,7 @@ use crate::SoneError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Build a reqwest::Client with optional proxy configuration.
@@ -320,6 +321,10 @@ pub struct TidalArtist {
     pub name: String,
     #[serde(default)]
     pub picture: Option<String>,
+    #[serde(default)]
+    pub artwork_id: Option<String>,
+    #[serde(default)]
+    pub selected_album_cover_fallback: Option<String>,
     /// "MAIN" | "FEATURED" — present on embedded artist refs in tracks/albums
     #[serde(default, rename = "type")]
     pub artist_type: Option<String>,
@@ -757,6 +762,10 @@ pub struct DirectHitItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_album_cover_fallback: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
@@ -798,6 +807,14 @@ impl DirectHitItem {
                     .get("picture")
                     .and_then(|v| v.as_str())
                     .map(String::from),
+                artwork_id: val
+                    .get("artworkId")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                selected_album_cover_fallback: val
+                    .get("selectedAlbumCoverFallback")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 cover: None,
                 image: None,
                 artist_name: None,
@@ -825,6 +842,8 @@ impl DirectHitItem {
                     name: None,
                     title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                     picture: None,
+                    artwork_id: None,
+                    selected_album_cover_fallback: None,
                     cover: val.get("cover").and_then(|v| v.as_str()).map(String::from),
                     image: None,
                     artist_name,
@@ -860,6 +879,8 @@ impl DirectHitItem {
                     name: None,
                     title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                     picture: None,
+                    artwork_id: None,
+                    selected_album_cover_fallback: None,
                     cover: None,
                     image: None,
                     artist_name,
@@ -895,6 +916,8 @@ impl DirectHitItem {
                     name: None,
                     title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                     picture: None,
+                    artwork_id: None,
+                    selected_album_cover_fallback: None,
                     cover: None,
                     // Videos carry a thumbnail UUID under `imageId`, not album cover.
                     image: val
@@ -919,6 +942,8 @@ impl DirectHitItem {
                 name: None,
                 title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                 picture: None,
+                artwork_id: None,
+                selected_album_cover_fallback: None,
                 cover: None,
                 image: val
                     .get("squareImage")
@@ -978,6 +1003,10 @@ pub struct TidalArtistDetail {
     #[serde(default)]
     pub picture: Option<String>,
     #[serde(default)]
+    pub artwork_id: Option<String>,
+    #[serde(default)]
+    pub selected_album_cover_fallback: Option<String>,
+    #[serde(default)]
     pub handle: Option<String>,
     #[serde(default)]
     pub user_id: Option<u64>,
@@ -1036,6 +1065,9 @@ pub struct DeviceAuthResponse {
     pub interval: u64,
 }
 
+/// Invoked with freshly refreshed tokens so the caller can persist them.
+pub type TokenPersist = Arc<dyn Fn(&AuthTokens) + Send + Sync>;
+
 pub struct TidalClient {
     client: Client,
     pub tokens: Option<AuthTokens>,
@@ -1044,6 +1076,7 @@ pub struct TidalClient {
     /// The user's country code from their Tidal session (e.g. "US", "GB", "DE").
     /// Populated after authentication via get_session_info().
     pub country_code: String,
+    token_persist: Option<TokenPersist>,
 }
 
 impl TidalClient {
@@ -1059,7 +1092,13 @@ impl TidalClient {
             client_id: String::new(),
             client_secret: String::new(),
             country_code: "US".to_string(),
+            token_persist: None,
         }
+    }
+
+    /// Register the hook that writes refreshed tokens to disk.
+    pub fn set_token_persist(&mut self, persist: TokenPersist) {
+        self.token_persist = Some(persist);
     }
 
     pub fn set_credentials(&mut self, client_id: &str, client_secret: &str) {
@@ -1146,6 +1185,11 @@ impl TidalClient {
         };
 
         self.tokens = Some(new_tokens.clone());
+        // Persist immediately: the auto-refresh on 401 is the common path, and
+        // without this the stored token stays stale forever.
+        if let Some(persist) = &self.token_persist {
+            persist(&new_tokens);
+        }
         Ok(new_tokens)
     }
 
@@ -6052,6 +6096,60 @@ mod home_tab_tests {
             "pagedList": { "items": [ { "header": "X", "artifactId": "1", "type": "PLAYLIST" } ] }
         });
         assert!(super::TidalClient::parse_v1_module(&module).is_some());
+    }
+
+    #[test]
+    fn artist_structs_carry_artwork_fallback_fields() {
+        let body = json!({
+            "id": 42,
+            "name": "Killigrew",
+            "picture": null,
+            "artworkId": "art-1",
+            "selectedAlbumCoverFallback": "cover-1"
+        })
+        .to_string();
+
+        let artist: TidalArtist = serde_json::from_str(&body).expect("parses");
+        assert_eq!(artist.picture, None);
+        assert_eq!(artist.artwork_id.as_deref(), Some("art-1"));
+        assert_eq!(
+            artist.selected_album_cover_fallback.as_deref(),
+            Some("cover-1")
+        );
+
+        let detail: TidalArtistDetail = serde_json::from_str(&body).expect("parses");
+        assert_eq!(detail.artwork_id.as_deref(), Some("art-1"));
+        assert_eq!(
+            detail.selected_album_cover_fallback.as_deref(),
+            Some("cover-1")
+        );
+
+        // Absent fields must not fail the parse.
+        let bare = json!({ "id": 1, "name": "Bare" }).to_string();
+        let bare_artist: TidalArtist = serde_json::from_str(&bare).expect("parses");
+        assert_eq!(bare_artist.artwork_id, None);
+        assert_eq!(bare_artist.selected_album_cover_fallback, None);
+    }
+
+    #[test]
+    fn direct_hit_artist_carries_artwork_fallback() {
+        let item = json!({
+            "type": "ARTISTS",
+            "value": {
+                "id": 7,
+                "name": "Jacoo",
+                "picture": null,
+                "artworkId": "art-9",
+                "selectedAlbumCoverFallback": "cover-9"
+            }
+        });
+        let hit = DirectHitItem::from_typed_value(&item).expect("artist hit parses");
+        assert_eq!(hit.picture, None);
+        assert_eq!(hit.artwork_id.as_deref(), Some("art-9"));
+        assert_eq!(
+            hit.selected_album_cover_fallback.as_deref(),
+            Some("cover-9")
+        );
     }
 }
 
