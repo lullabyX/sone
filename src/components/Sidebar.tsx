@@ -35,6 +35,7 @@ import {
   getTrackArtistDisplay,
   folderSubtitle,
   playlistCountLabel,
+  getArtistImage,
 } from "../utils/itemHelpers";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAtomValue, useAtom, useSetAtom } from "jotai";
@@ -805,9 +806,9 @@ export default function Sidebar() {
                         isCollapsed ? "w-10 h-10" : "w-10 h-10"
                       }`}
                     >
-                      {artist.picture ? (
+                      {getArtistImage(artist, 160) ? (
                         <TidalImage
-                          src={getTidalImageUrl(artist.picture, 80)}
+                          src={getArtistImage(artist, 160)}
                           alt={artist.name}
                           type="artist"
                         />
