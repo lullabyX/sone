@@ -299,6 +299,8 @@ export interface DirectHitItem {
   name?: string;
   title?: string;
   picture?: string;
+  artworkId?: string;
+  selectedAlbumCoverFallback?: string;
   cover?: string;
   image?: string;
   artistName?: string;

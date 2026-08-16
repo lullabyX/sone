@@ -761,6 +761,10 @@ pub struct DirectHitItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_album_cover_fallback: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
@@ -802,6 +806,14 @@ impl DirectHitItem {
                     .get("picture")
                     .and_then(|v| v.as_str())
                     .map(String::from),
+                artwork_id: val
+                    .get("artworkId")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                selected_album_cover_fallback: val
+                    .get("selectedAlbumCoverFallback")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 cover: None,
                 image: None,
                 artist_name: None,
@@ -829,6 +841,8 @@ impl DirectHitItem {
                     name: None,
                     title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                     picture: None,
+                    artwork_id: None,
+                    selected_album_cover_fallback: None,
                     cover: val.get("cover").and_then(|v| v.as_str()).map(String::from),
                     image: None,
                     artist_name,
@@ -864,6 +878,8 @@ impl DirectHitItem {
                     name: None,
                     title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                     picture: None,
+                    artwork_id: None,
+                    selected_album_cover_fallback: None,
                     cover: None,
                     image: None,
                     artist_name,
@@ -899,6 +915,8 @@ impl DirectHitItem {
                     name: None,
                     title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                     picture: None,
+                    artwork_id: None,
+                    selected_album_cover_fallback: None,
                     cover: None,
                     // Videos carry a thumbnail UUID under `imageId`, not album cover.
                     image: val
@@ -923,6 +941,8 @@ impl DirectHitItem {
                 name: None,
                 title: val.get("title").and_then(|v| v.as_str()).map(String::from),
                 picture: None,
+                artwork_id: None,
+                selected_album_cover_fallback: None,
                 cover: None,
                 image: val
                     .get("squareImage")
@@ -6093,6 +6113,27 @@ mod home_tab_tests {
         let bare_artist: TidalArtist = serde_json::from_str(&bare).expect("parses");
         assert_eq!(bare_artist.artwork_id, None);
         assert_eq!(bare_artist.selected_album_cover_fallback, None);
+    }
+
+    #[test]
+    fn direct_hit_artist_carries_artwork_fallback() {
+        let item = json!({
+            "type": "ARTISTS",
+            "value": {
+                "id": 7,
+                "name": "Jacoo",
+                "picture": null,
+                "artworkId": "art-9",
+                "selectedAlbumCoverFallback": "cover-9"
+            }
+        });
+        let hit = DirectHitItem::from_typed_value(&item).expect("artist hit parses");
+        assert_eq!(hit.picture, None);
+        assert_eq!(hit.artwork_id.as_deref(), Some("art-9"));
+        assert_eq!(
+            hit.selected_album_cover_fallback.as_deref(),
+            Some("cover-9")
+        );
     }
 }
 
