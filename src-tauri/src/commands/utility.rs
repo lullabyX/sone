@@ -337,6 +337,11 @@ pub async fn set_report_plays(state: State<'_, AppState>, enabled: bool) -> Resu
     if enabled {
         // Flush any offline backlog now that reporting is on.
         state.tidal_reporter.drain_queue().await;
+    } else {
+        // Drop the in-flight session: every lifecycle hook is gated on
+        // `enabled`, so an orphaned session would keep accruing wall-clock time
+        // and get reported on the next enable.
+        state.tidal_reporter.clear_session().await;
     }
     Ok(())
 }

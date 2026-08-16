@@ -224,7 +224,7 @@ impl TidalReporter {
             }
         };
         if let Some(ev) = prev {
-            self.dispatch(ev).await;
+            self.dispatch(ev);
         }
 
         let Some(tid) = track_id else {
@@ -321,7 +321,7 @@ impl TidalReporter {
             }
         };
         if let Some(ev) = ev {
-            self.dispatch(ev).await;
+            self.dispatch(ev);
         }
     }
 
@@ -337,14 +337,22 @@ impl TidalReporter {
             }
         };
         if let Some(ev) = ev {
-            self.dispatch(ev).await;
+            self.dispatch(ev);
         }
+    }
+
+    /// Opt-out: drop the in-flight session and staged stream metadata. Without
+    /// this the live session keeps ticking while disabled, and the next enable
+    /// would report a play the user opted out of, aged by the whole gap.
+    /// The offline outbox survives — those plays were captured while opted in.
+    pub async fn clear_session(&self) {
+        *self.current.lock().await = None;
+        self.pending_meta.lock().await.clear();
     }
 
     /// Logout: drop everything pending.
     pub async fn clear(&self) {
-        *self.current.lock().await = None;
-        self.pending_meta.lock().await.clear();
+        self.clear_session().await;
         self.queue.clear().await;
     }
 
@@ -423,9 +431,12 @@ impl TidalReporter {
         Some(event::build_body(ev, &claims))
     }
 
-    /// Build the body inline (fast), then send in the background so lifecycle
-    /// hooks never block on the network.
-    async fn dispatch(&self, ev: SessionEvent) {
+    /// Build and send entirely in the background. Nothing here may await the
+    /// TIDAL client lock on the caller's path: lifecycle hooks are fire-and-
+    /// forget commands that Tauri runs concurrently, and a caller stalled on
+    /// that lock lets two rapid track starts install their sessions out of
+    /// order.
+    fn dispatch(&self, ev: SessionEvent) {
         log::debug!(
             "tidal-report: reporting play track={} source={}",
             ev.requested_product_id,
@@ -434,17 +445,18 @@ impl TidalReporter {
                 .map(|(t, id)| format!("{}/{}", t.as_tidal(), id))
                 .unwrap_or_else(|| "<none>".into())
         );
-        let Some(body) = self.build_body(&ev).await else {
-            log::warn!(
-                "tidal-report: no TIDAL token — cannot report track={}",
-                ev.requested_product_id
-            );
-            return;
-        };
         let handle = self.app_handle.clone();
         tauri::async_runtime::spawn(async move {
             let state = handle.state::<crate::AppState>();
-            state.tidal_reporter.post_events(vec![(body, 0)]).await;
+            let reporter = &state.tidal_reporter;
+            let Some(body) = reporter.build_body(&ev).await else {
+                log::warn!(
+                    "tidal-report: no TIDAL token — cannot report track={}",
+                    ev.requested_product_id
+                );
+                return;
+            };
+            reporter.post_events(vec![(body, 0)]).await;
         });
     }
 

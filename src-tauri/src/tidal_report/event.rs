@@ -26,12 +26,18 @@ pub enum SourceType {
 
 impl SourceType {
     /// Map SONE's frontend source strings to the TIDAL enum. Unknown → None.
+    /// Sources with no TIDAL container (favorites, search, home-section,
+    /// view-all, playlist-recs) stay unmapped and report sourceless.
     pub fn from_sone(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "album" => Some(SourceType::Album),
             "playlist" => Some(SourceType::Playlist),
             "artist" => Some(SourceType::Artist),
             "mix" => Some(SourceType::Mix),
+            // Track radio (MixPage) carries a mix id.
+            "radio" => Some(SourceType::Mix),
+            // Artist "all tracks" page carries an artist id.
+            "artist-tracks" => Some(SourceType::Artist),
             _ => None,
         }
     }
@@ -308,7 +314,33 @@ mod tests {
             SourceType::from_sone("MIX"),
             Some(SourceType::Mix)
         ));
-        assert!(SourceType::from_sone("radio").is_none());
+        assert!(SourceType::from_sone("search").is_none());
+    }
+
+    // A sourceless event is accepted but produces no Recently-Played row, so
+    // every frontend source carrying a real container id must map.
+    #[test]
+    fn radio_and_artist_tracks_map_to_containers() {
+        // MixPage emits "radio" with the mix id for TRACK_MIX.
+        assert!(matches!(
+            SourceType::from_sone("radio"),
+            Some(SourceType::Mix)
+        ));
+        // ArtistTracksPage emits "artist-tracks" with the artist id.
+        assert!(matches!(
+            SourceType::from_sone("artist-tracks"),
+            Some(SourceType::Artist)
+        ));
+        // Sources with no TIDAL container stay unmapped.
+        for s in [
+            "favorites",
+            "search",
+            "home-section",
+            "view-all",
+            "playlist-recs",
+        ] {
+            assert!(SourceType::from_sone(s).is_none(), "{s} must stay unmapped");
+        }
     }
 
     #[test]
