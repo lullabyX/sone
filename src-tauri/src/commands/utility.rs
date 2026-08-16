@@ -321,19 +321,23 @@ pub fn set_discord_rpc(state: State<'_, AppState>, enabled: bool) -> Result<(), 
 
 #[tauri::command]
 pub fn get_report_plays(state: State<'_, AppState>) -> bool {
-    state.load_settings().map(|s| s.report_plays).unwrap_or(false)
+    state.load_settings().map(|s| s.report_plays).unwrap_or(true)
 }
 
 #[tauri::command]
 pub async fn set_report_plays(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    // Persist first: if the write fails the caller sees an error and the
+    // in-memory state still matches disk. Reversing this order can silently
+    // discard a user's opt-out.
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.report_plays = enabled;
+    state.save_settings(&settings)?;
+
     state.tidal_reporter.set_enabled(enabled);
     if enabled {
         // Flush any offline backlog now that reporting is on.
         state.tidal_reporter.drain_queue().await;
     }
-    let mut settings = state.load_settings().unwrap_or_default();
-    settings.report_plays = enabled;
-    state.save_settings(&settings)?;
     Ok(())
 }
 

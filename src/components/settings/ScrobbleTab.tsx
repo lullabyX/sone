@@ -98,7 +98,7 @@ export default function ScrobbleTab() {
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [queueSize, setQueueSize] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [reportPlays, setReportPlays] = useState(false);
+  const [reportPlays, setReportPlays] = useState(true);
 
   const [lastfm, setLastfm] = useState<AudioscrobblerState>({
     step: "idle",
@@ -319,7 +319,7 @@ export default function ScrobbleTab() {
       <div className="rounded-xl bg-th-base border border-th-border-subtle overflow-hidden mb-5">
         <SettingRow
           title="Report plays to TIDAL"
-          subtitle="Add plays to your TIDAL listening history (Experimental)"
+          subtitle="Add plays to your TIDAL listening history"
         >
           <button
             onClick={() => {

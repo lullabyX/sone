@@ -177,8 +177,9 @@ pub struct Settings {
     pub overlay_port: u16,
     #[serde(default = "defaults::overlay_host")]
     pub overlay_host: String,
-    /// Report plays to TIDAL (Recently Played). Opt-in, off by default.
-    #[serde(default)]
+    /// Report plays to TIDAL (Recently Played). On by default; disable in
+    /// Settings → Scrobbling.
+    #[serde(default = "defaults::yes")]
     pub report_plays: bool,
 }
 
@@ -211,7 +212,7 @@ impl Default for Settings {
             overlay_enabled: false,
             overlay_port: 5578,
             overlay_host: "127.0.0.1".to_string(),
-            report_plays: false,
+            report_plays: true,
         }
     }
 }
@@ -381,7 +382,7 @@ impl AppState {
             scrobble_http_client.clone(),
         );
 
-        let report_plays = saved.as_ref().map(|s| s.report_plays).unwrap_or(false);
+        let report_plays = saved.as_ref().map(|s| s.report_plays).unwrap_or(true);
         let tidal_reporter = tidal_report::TidalReporter::new(
             app_handle.clone(),
             crypto.clone(),
@@ -1060,4 +1061,18 @@ pub fn run() {
                 });
             }
         });
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::Settings;
+
+    // Play reporting ships on. Existing configs predate the field, so the serde
+    // default is what governs upgrades — not just Settings::default().
+    #[test]
+    fn report_plays_defaults_on() {
+        assert!(Settings::default().report_plays);
+        let upgraded: Settings = serde_json::from_str("{}").unwrap();
+        assert!(upgraded.report_plays);
+    }
 }
