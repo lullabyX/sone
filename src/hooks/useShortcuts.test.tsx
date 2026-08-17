@@ -74,4 +74,26 @@ describe("useShortcuts", () => {
     press({ code: "KeyR", ctrlKey: true, shiftKey: true });
     expect(refreshData).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps a fixed combo when a later-sorting action stores it", () => {
+    const refreshData = vi.fn();
+    const volumeUp = vi.fn();
+    mount(
+      { refreshData, volumeUp },
+      {
+        ...DEFAULT_BINDINGS,
+        volumeUp: { code: "KeyR", mod: true, shift: true, alt: false },
+      },
+    );
+    press({ code: "KeyR", ctrlKey: true, shiftKey: true });
+    expect(refreshData).toHaveBeenCalledTimes(1);
+    expect(volumeUp).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a fixed action even when storage cleared its binding", () => {
+    const refreshData = vi.fn();
+    mount({ refreshData }, { ...DEFAULT_BINDINGS, refreshData: null });
+    press({ code: "KeyR", ctrlKey: true, shiftKey: true });
+    expect(refreshData).toHaveBeenCalledTimes(1);
+  });
 });
