@@ -145,6 +145,16 @@ export default function UserMenu() {
     DISMISS_PRIORITY.contextMenu,
   );
 
+  useEscapeDismiss(
+    shortcutsOpen,
+    () => {
+      setShortcutsOpen(false);
+      setEditingId(null);
+      setReservedHint(false);
+    },
+    DISMISS_PRIORITY.modal,
+  );
+
   const menuItemClass =
     "w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle transition-colors";
 

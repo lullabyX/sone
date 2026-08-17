@@ -12,6 +12,8 @@ import {
   Tv2,
   type LucideIcon,
 } from "lucide-react";
+import { useEscapeDismiss } from "../../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../../lib/dismissStack";
 import PlaybackTab from "./PlaybackTab";
 import ThemesTab from "./ThemesTab";
 import ScrobbleTab from "./ScrobbleTab";
@@ -101,14 +103,7 @@ export default function SettingsSheet({
     return () => document.removeEventListener("mousedown", handler);
   }, [open, onClose]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  useEscapeDismiss(open, onClose, DISMISS_PRIORITY.modal);
 
   if (!open) return null;
 
