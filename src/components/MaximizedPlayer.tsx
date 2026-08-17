@@ -27,6 +27,8 @@ import {
 import { authTokensAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useProgressScrub } from "../hooks/useProgressScrub";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import TidalImage, { fetchCachedImageUrl } from "./TidalImage";
@@ -881,16 +883,7 @@ export default function MaximizedPlayer() {
     };
   }, []);
 
-  // ESC to close — yields to context menu if open
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (contextMenuTrack) return;
-      setMaximized(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [setMaximized, contextMenuTrack]);
+  useEscapeDismiss(true, () => setMaximized(false), DISMISS_PRIORITY.overlay);
 
   if (!currentTrack) return null;
 
