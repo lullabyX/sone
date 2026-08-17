@@ -762,6 +762,8 @@ function CompactGridSection({
         {displayItems.map((item: any, idx: number) => {
           const isTrack = isTrackItem(item, typeHint);
           const myTracks = isMyTracksItem(item);
+          // Deep links and artifact-less promo cards have nothing to play.
+          const canPlay = isTrack || buildMediaItem(item, typeHint) !== null;
           return (
             <div
               key={getItemId(item)}
@@ -788,9 +790,9 @@ function CompactGridSection({
                     <Music size={16} className="text-th-text-faint" />
                   </div>
                 )}
-                {!myTracks && (
+                {canPlay && (
                   <button
-                    aria-label="Play"
+                    aria-label={`Play ${getItemTitle(item)}`}
                     onClick={(e) => handlePlay(e, item)}
                     className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer"
                   >
@@ -807,16 +809,7 @@ function CompactGridSection({
                   {myTracks ? (
                     "Loved Tracks"
                   ) : isTrack && item.album ? (
-                    <span
-                      className="hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigateToAlbum(item.album.id, {
-                          title: item.album.title,
-                          cover: item.album.cover,
-                        });
-                      }}
-                    >
+                    <span className="hover:underline">
                       {getItemTitle(item)}
                     </span>
                   ) : (
