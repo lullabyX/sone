@@ -108,12 +108,68 @@ describe("migrateBindingsV1ToV2", () => {
     expect(v2.focusSearch).toBeNull();
   });
 
+  it("adopts the new defaults for ids absent from a partial v1 map", () => {
+    const partial: Record<string, unknown> = { ...V1_PRISTINE };
+    delete partial.volumeUp;
+    delete partial.volumeDown;
+    delete partial.focusSearch;
+    delete partial.muteToggle;
+    const v2 = migrate(partial)!;
+    expect(comboEquals(v2.volumeUp, combo("ArrowUp", { mod: true }))).toBe(
+      true,
+    );
+    expect(comboEquals(v2.volumeDown, combo("ArrowDown", { mod: true }))).toBe(
+      true,
+    );
+    expect(comboEquals(v2.focusSearch, combo("KeyK", { mod: true }))).toBe(
+      true,
+    );
+    expect(comboEquals(v2.muteToggle, combo("KeyM"))).toBe(true);
+  });
+
+  it("keeps a fixed action bound when a v1 customisation collides with it", () => {
+    const v2 = migrate({
+      ...V1_PRISTINE,
+      zoomIn: combo("KeyR", { mod: true, shift: true }),
+    })!;
+    expect(
+      comboEquals(v2.refreshData, combo("KeyR", { mod: true, shift: true })),
+    ).toBe(true);
+    expect(v2.zoomIn).toBeNull();
+  });
+
+  it("treats corrupt v1 entries as uncustomised", () => {
+    const v2 = migrate({
+      ...V1_PRISTINE,
+      volumeUp: 5,
+      muteToggle: "x",
+      likeToggle: { code: "KeyL" },
+      zoomIn: [],
+    })!;
+    expect(comboEquals(v2.volumeUp, combo("ArrowUp", { mod: true }))).toBe(
+      true,
+    );
+    expect(comboEquals(v2.muteToggle, combo("KeyM"))).toBe(true);
+    expect(comboEquals(v2.likeToggle, combo("KeyL"))).toBe(true);
+    expect(comboEquals(v2.zoomIn, combo("Equal", { mod: true }))).toBe(true);
+  });
+
   it("never emits the same combo twice", () => {
-    const v2 = migrate(V1_PRISTINE)!;
-    const keys = Object.values(v2)
-      .filter((c): c is KeyCombo => c !== null)
-      .map((c) => `${c.code}|${c.mod}${c.shift}${c.alt}`);
-    expect(new Set(keys).size).toBe(keys.length);
+    const colliding: Record<string, unknown> = {
+      ...V1_PRISTINE,
+      nextTrack: combo("KeyK", { mod: true }),
+      prevTrack: combo("ArrowUp", { mod: true }),
+      volumeDown: combo("KeyS", { alt: true }),
+      zoomIn: combo("KeyR", { mod: true, shift: true }),
+    };
+    delete colliding.focusSearch;
+
+    for (const v1 of [V1_PRISTINE, colliding]) {
+      const keys = Object.values(migrate(v1)!)
+        .filter((c): c is KeyCombo => c !== null)
+        .map((c) => `${c.code}|${c.mod}${c.shift}${c.alt}`);
+      expect(new Set(keys).size).toBe(keys.length);
+    }
   });
 });
 

@@ -190,32 +190,46 @@ const V1_DEFAULTS: Partial<Record<ActionId, KeyCombo>> = {
   toggleShortcuts: c("Slash", { shift: true }),
 };
 
+function isKeyCombo(value: unknown): value is KeyCombo {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.code === "string" &&
+    typeof v.mod === "boolean" &&
+    typeof v.shift === "boolean" &&
+    typeof v.alt === "boolean"
+  );
+}
+
 export function migrateBindingsV1ToV2(
   v1Raw: string | null,
 ): Record<ActionId, KeyCombo | null> | null {
   if (!v1Raw) return null;
 
-  let v1: Record<string, KeyCombo | null>;
+  let v1: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(v1Raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    v1 = parsed as Record<string, KeyCombo | null>;
+    v1 = parsed as Record<string, unknown>;
   } catch {
     return null;
   }
 
+  const fixed = new Map<ActionId, KeyCombo>();
   const customised = new Map<ActionId, KeyCombo | null>();
   const fromDefault = new Map<ActionId, KeyCombo | null>();
 
   for (const action of ACTION_REGISTRY) {
     if (action.fixed) {
-      fromDefault.set(action.id, action.default);
+      fixed.set(action.id, action.default);
       continue;
     }
     const previousDefault = V1_DEFAULTS[action.id];
-    const stored = action.id in v1 ? (v1[action.id] ?? null) : undefined;
+    const raw = action.id in v1 ? v1[action.id] : undefined;
+    // Anything that is not a well-formed combo counts as "not customised".
+    const stored = raw === null || isKeyCombo(raw) ? raw : undefined;
     if (
       stored !== undefined &&
       previousDefault &&
@@ -227,21 +241,24 @@ export function migrateBindingsV1ToV2(
     }
   }
 
-  // Customisations claim their combo first; a new default that collides with one
-  // is dropped rather than silently stealing the user's key.
+  // Fixed actions claim their combo first since they can never be rebound, then
+  // customisations; a later claim on a taken combo is dropped rather than
+  // duplicating the binding.
   const result = {} as Record<ActionId, KeyCombo | null>;
   const claimed = new Set<string>();
-  for (const [id, combo] of customised) {
+  for (const [id, combo] of fixed) {
     result[id] = combo;
-    if (combo) claimed.add(comboKey(combo));
+    claimed.add(comboKey(combo));
   }
-  for (const [id, combo] of fromDefault) {
-    if (combo && claimed.has(comboKey(combo))) {
-      result[id] = null;
-      continue;
+  for (const source of [customised, fromDefault]) {
+    for (const [id, combo] of source) {
+      if (combo && claimed.has(comboKey(combo))) {
+        result[id] = null;
+        continue;
+      }
+      result[id] = combo;
+      if (combo) claimed.add(comboKey(combo));
     }
-    result[id] = combo;
-    if (combo) claimed.add(comboKey(combo));
   }
   return result;
 }
