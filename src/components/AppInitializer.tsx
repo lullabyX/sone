@@ -1266,6 +1266,12 @@ export function AppInitializer() {
         addFavoriteTrack(track.id, track);
       }
     },
+    toggleShuffle: () => {
+      store.set(shuffleAtom, !store.get(shuffleAtom));
+    },
+    toggleRepeat: () => {
+      store.set(repeatAtom, (store.get(repeatAtom) + 1) % 3);
+    },
     focusSearch: () => {
       window.dispatchEvent(new CustomEvent("focus-search"));
     },
