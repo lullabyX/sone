@@ -14,6 +14,8 @@ import { useAtom, useAtomValue } from "jotai";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "../hooks/useNavigation";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import {
   exclusiveModeAtom,
   bitPerfectAtom,
@@ -134,18 +136,14 @@ export default function UserMenu() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Close dropdown on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        setDeviceDropdownOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open]);
+  useEscapeDismiss(
+    open,
+    () => {
+      setOpen(false);
+      setDeviceDropdownOpen(false);
+    },
+    DISMISS_PRIORITY.contextMenu,
+  );
 
   const menuItemClass =
     "w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle transition-colors";
