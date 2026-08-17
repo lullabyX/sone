@@ -151,6 +151,8 @@ export default function SearchBar() {
       addToHistory(searchQuery.trim());
       navigateToSearch(searchQuery.trim());
     } else if (e.key === "Escape") {
+      // A focused input owns Escape; keep it off the dismissal stack.
+      e.stopPropagation();
       setSearchOpen(false);
       searchInputRef.current?.blur();
     }
@@ -164,7 +166,7 @@ export default function SearchBar() {
     searchInputRef.current?.focus();
   };
 
-  // Listen for global Ctrl+S focus event
+  // Listen for global Ctrl+K focus event
   useEffect(() => {
     const handler = () => {
       searchInputRef.current?.focus();
