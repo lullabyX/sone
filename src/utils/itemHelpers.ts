@@ -131,7 +131,7 @@ export function getItemTitle(item: any): string {
     return item.data?.shortHeader ?? "";
   }
   if (isDeepLinkItem(item)) {
-    return item.data?.title ?? "";
+    return item.data?.title ?? item.title ?? "";
   }
   if (item.title) return item.title;
   if (item.name) return item.name;
@@ -186,7 +186,7 @@ export function getItemId(item: any): string {
     return item.data?.artifactId ?? String(item.data?.id ?? "");
   }
   if (isDeepLinkItem(item)) {
-    return String(item.data?.id ?? item.data?.url ?? "");
+    return String(item.data?.id ?? item.data?.url ?? item.id ?? item.url ?? "");
   }
   return (
     item.id?.toString() ||
@@ -272,6 +272,8 @@ export function buildMediaItem(
   item: any,
   sectionType?: string,
 ): MediaItemType | null {
+  // A deep link is a navigation target, not media.
+  if (isDeepLinkItem(item)) return null;
   // MAGAZINE promo card wraps a playlist artifact.
   if (isMagazineItem(item)) {
     const d = item.data;
