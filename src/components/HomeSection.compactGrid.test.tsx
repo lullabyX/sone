@@ -214,3 +214,66 @@ describe("Recently played compact grid — navigation", () => {
     expect(navigateToFavorites).toHaveBeenCalled();
   });
 });
+
+describe("Recently played compact grid — play button", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(cleanup);
+
+  const playButtonFor = (title: string) => {
+    const button = rowFor(title).querySelector('button[aria-label="Play"]');
+    if (!button) throw new Error(`no play button for ${title}`);
+    return button;
+  };
+
+  it("plays the track without navigating", () => {
+    renderSection();
+    fireEvent.click(playButtonFor("Smoke On The Water"));
+    expect(playFromSource).toHaveBeenCalledTimes(1);
+    expect(playFromSource.mock.calls[0][0]).toBe(trackItem);
+    expect(playFromSource.mock.calls[0][1]).toEqual([trackItem]);
+    expect(navigateToAlbum).not.toHaveBeenCalled();
+  });
+
+  it("plays the album without navigating", () => {
+    renderSection();
+    fireEvent.click(playButtonFor("Machine Head"));
+    expect(playMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "album", id: 111 }),
+    );
+    expect(navigateToAlbum).not.toHaveBeenCalled();
+  });
+
+  it("plays the playlist without navigating", () => {
+    renderSection();
+    fireEvent.click(playButtonFor("Indie Hits"));
+    expect(playMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "playlist",
+        uuid: "13f9d6c8-58e6-4869-8d9b-000d0ff95f0b",
+      }),
+    );
+    expect(navigateToPlaylist).not.toHaveBeenCalled();
+  });
+
+  it("renders no play button for the Loved Tracks shortcut", () => {
+    renderSection();
+    expect(
+      rowFor("Loved Tracks").querySelector('button[aria-label="Play"]'),
+    ).toBeNull();
+  });
+
+  it("plays albums from a track-first row too", () => {
+    renderSection(
+      makeSection("TRACK_LIST", [
+        trackItem,
+        albumItem,
+        playlistItem,
+        myTracksItem,
+      ]),
+    );
+    fireEvent.click(playButtonFor("Machine Head"));
+    expect(playMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "album", id: 111 }),
+    );
+  });
+});

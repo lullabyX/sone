@@ -636,6 +636,8 @@ function CompactGridSection({
   onItemClick: (item: any) => void;
 }) {
   const { navigateToViewAll, navigateToAlbum } = useNavigation();
+  const { playFromSource } = usePlaybackActions();
+  const playMedia = useMediaPlay();
   const displayItems = items.slice(0, 16);
 
   // Track context menu (for track items)
@@ -722,6 +724,25 @@ function CompactGridSection({
     onItemClick(item);
   };
 
+  const trackItems = displayItems.filter((t: any) => isTrackItem(t, typeHint));
+
+  const handlePlay = (e: React.MouseEvent, item: any) => {
+    e.stopPropagation();
+    if (isTrackItem(item, typeHint)) {
+      playFromSource(item, trackItems, {
+        source: {
+          type: "home-section",
+          id: section.title,
+          name: section.title,
+          allTracks: trackItems,
+        },
+      });
+      return;
+    }
+    const mediaItem = buildMediaItem(item, typeHint);
+    if (mediaItem) playMedia(mediaItem);
+  };
+
   return (
     <section className="mb-8">
       <div className="flex items-center justify-between mb-4">
@@ -768,13 +789,17 @@ function CompactGridSection({
                   </div>
                 )}
                 {!myTracks && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    aria-label="Play"
+                    onClick={(e) => handlePlay(e, item)}
+                    className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer"
+                  >
                     <Play
                       size={14}
                       fill="white"
                       className="text-white ml-0.5"
                     />
-                  </div>
+                  </button>
                 )}
               </div>
               <div className="flex-1 min-w-0">
