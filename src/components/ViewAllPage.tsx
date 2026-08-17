@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Heart } from "lucide-react";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
@@ -23,6 +24,7 @@ import {
   isArtistItem,
   isTrackItem,
   isMixItem,
+  isMyTracksItem,
   buildMediaItem,
 } from "../utils/itemHelpers";
 
@@ -47,6 +49,7 @@ export default function ViewAllPage({
     navigateToPlaylist,
     navigateToArtist,
     navigateToMix,
+    navigateToFavorites,
   } = useNavigation();
   const {
     favoriteVideoIds,
@@ -158,6 +161,10 @@ export default function ViewAllPage({
   }, [artistId, hasMore, handleLoadMore]);
 
   const handleItemClick = (item: any) => {
+    if (isMyTracksItem(item)) {
+      navigateToFavorites();
+      return;
+    }
     const mediaItem = buildMediaItem(item);
     if (mediaItem?.type === "video") {
       playMedia(mediaItem);
@@ -210,6 +217,9 @@ export default function ViewAllPage({
   const hasMixes = items.length > 0 && items.every((item) => isMixItem(item));
 
   const getFavoriteProps = (item: any) => {
+    // A deep link has no favorite state; its string id would otherwise reach
+    // the album-favorite branch below.
+    if (isMyTracksItem(item)) return {};
     if (buildMediaItem(item)?.type === "video" && item.id) {
       return {
         isFavorited: favoriteVideoIds.has(item.id),
@@ -295,12 +305,15 @@ export default function ViewAllPage({
             {items.map((item: any) => {
               const favProps = getFavoriteProps(item);
               const mediaItem = buildMediaItem(item);
+              const myTracks = isMyTracksItem(item);
               return (
                 <MediaCard
                   key={getItemId(item)}
                   item={item}
                   onClick={() => handleItemClick(item)}
-                  onContextMenu={(e) => handleContextMenu(e, item)}
+                  onContextMenu={
+                    myTracks ? undefined : (e) => handleContextMenu(e, item)
+                  }
                   onPlay={
                     !hasArtists && !hasMixes && mediaItem
                       ? (e) => {
@@ -310,9 +323,18 @@ export default function ViewAllPage({
                       : undefined
                   }
                   isArtist={isArtistItem(item) || hasArtists}
-                  showPlayButton={!hasArtists && !hasMixes}
+                  showPlayButton={!myTracks && !hasArtists && !hasMixes}
                   isFavorited={favProps.isFavorited}
                   onFavoriteToggle={favProps.onFavoriteToggle}
+                  {...(myTracks && {
+                    titleOverride: "Loved Tracks",
+                    subtitleOverride: "Collection",
+                    imageOverride: (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#450af5] via-[#8e2de2] to-[#00d2ff]">
+                        <Heart size={40} className="text-white" fill="white" />
+                      </div>
+                    ),
+                  })}
                 />
               );
             })}
