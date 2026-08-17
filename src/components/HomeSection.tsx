@@ -24,6 +24,7 @@ import {
   getItemTitle,
   getItemSubtitle,
   getItemId,
+  getItemType,
   isArtistItem,
   isTrackItem,
   isMixItem,
@@ -76,9 +77,16 @@ export default function HomeSection({ section }: HomeSectionProps) {
     position: { x: number; y: number };
   } | null>(null);
 
+  const items = Array.isArray(section.items) ? section.items : [];
+  // The backend types a row from its first item, so a mixed row can arrive as
+  // TRACK_LIST. Its section type is then a lie about every following item.
+  const isMixedSection =
+    new Set(items.map((i) => getItemType(i)).filter(Boolean)).size > 1;
+  const typeHint = isMixedSection ? undefined : section.sectionType;
+
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, item: any) => {
-      const mediaItem = buildMediaItem(item, section.sectionType);
+      const mediaItem = buildMediaItem(item, typeHint);
       if (mediaItem) {
         e.preventDefault();
         e.stopPropagation();
@@ -88,10 +96,9 @@ export default function HomeSection({ section }: HomeSectionProps) {
         });
       }
     },
-    [section.sectionType],
+    [typeHint],
   );
 
-  const items = Array.isArray(section.items) ? section.items : [];
   if (items.length === 0) return null;
 
   const handleScroll = () => {
@@ -153,15 +160,13 @@ export default function HomeSection({ section }: HomeSectionProps) {
           return;
       }
     }
-    const asMedia = buildMediaItem(item, section.sectionType);
+    const asMedia = buildMediaItem(item, typeHint);
     if (asMedia?.type === "video") {
       playMedia(asMedia);
       return;
     }
-    if (isTrackItem(item, section.sectionType)) {
-      const allTrackItems = items.filter((t: any) =>
-        isTrackItem(t, section.sectionType),
-      );
+    if (isTrackItem(item, typeHint)) {
+      const allTrackItems = items.filter((t: any) => isTrackItem(t, typeHint));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       playFromSource(item as any, allTrackItems as any, {
         source: {
@@ -171,7 +176,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           allTracks: allTrackItems as any,
         },
       });
-    } else if (isMixItem(item, section.sectionType)) {
+    } else if (isMixItem(item, typeHint)) {
       // Mix or radio station - navigate to mix page
       const mixId = item.mixId || item.id?.toString();
       if (mixId) {
@@ -182,7 +187,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           mixType: item.type || item.mixType,
         });
       }
-    } else if (isArtistItem(item, section.sectionType)) {
+    } else if (isArtistItem(item, typeHint)) {
       // Artist - navigate to artist page
       const artistId = item.id;
       if (artistId) {
@@ -211,10 +216,13 @@ export default function HomeSection({ section }: HomeSectionProps) {
     }
   };
 
-  const isTrackSection = section.sectionType === "TRACK_LIST";
   const isCompactGrid =
     section.sectionType === "COMPACT_GRID_CARD" ||
     section.title === "Recently played";
+  // Rendering a mixed row as a track list hands albums and playlists to
+  // playFromSource, which cannot play them.
+  const isTrackSection =
+    section.sectionType === "TRACK_LIST" && !isCompactGrid && !isMixedSection;
   const isMultiPromo = section.sectionType === "MULTIPLE_TOP_PROMOTIONS";
 
   if (isTrackSection) {
@@ -226,6 +234,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
       <CompactGridSection
         section={section}
         items={items}
+        typeHint={typeHint}
         onItemClick={handleItemClick}
       />
     );
@@ -305,11 +314,10 @@ export default function HomeSection({ section }: HomeSectionProps) {
                 />
               );
             }
-            const isVideo =
-              buildMediaItem(item, section.sectionType)?.type === "video";
-            const isArtist = isArtistItem(item, section.sectionType);
-            const isMix = isMixItem(item, section.sectionType);
-            const isTrack = isTrackItem(item, section.sectionType);
+            const isVideo = buildMediaItem(item, typeHint)?.type === "video";
+            const isArtist = isArtistItem(item, typeHint);
+            const isMix = isMixItem(item, typeHint);
+            const isTrack = isTrackItem(item, typeHint);
             const isPlaylist = !isArtist && !isMix && !isTrack && !!item.uuid;
             const isAlbum =
               !isVideo &&
@@ -392,7 +400,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
               }
             }
 
-            const mediaItem = buildMediaItem(item, section.sectionType);
+            const mediaItem = buildMediaItem(item, typeHint);
             const myTracks = isMyTracksItem(item);
 
             return (
@@ -619,10 +627,12 @@ function TrackListSection({
 function CompactGridSection({
   section,
   items,
+  typeHint,
   onItemClick,
 }: {
   section: HomeSectionType;
   items: any[];
+  typeHint?: string;
   onItemClick: (item: any) => void;
 }) {
   const { navigateToViewAll, navigateToAlbum } = useNavigation();
@@ -647,14 +657,14 @@ function CompactGridSection({
       e.stopPropagation();
       const position = { x: e.clientX, y: e.clientY };
 
-      if (isTrackItem(item, section.sectionType)) {
+      if (isTrackItem(item, typeHint)) {
         setTrackContextMenu({ track: item, index, position });
         return;
       }
 
       // Build MediaItemType for non-track items
       let mediaItem: MediaItemType | null = null;
-      if (isMixItem(item, section.sectionType)) {
+      if (isMixItem(item, typeHint)) {
         const mixId = item.mixId || item.id?.toString();
         if (mixId) {
           mediaItem = {
@@ -665,7 +675,7 @@ function CompactGridSection({
             subtitle: getItemSubtitle(item),
           };
         }
-      } else if (isArtistItem(item, section.sectionType)) {
+      } else if (isArtistItem(item, typeHint)) {
         if (item.id) {
           mediaItem = {
             type: "artist",
@@ -698,7 +708,7 @@ function CompactGridSection({
         setMediaContextMenu({ item: mediaItem, position });
       }
     },
-    [section.sectionType],
+    [typeHint],
   );
 
   return (
@@ -718,7 +728,7 @@ function CompactGridSection({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-x-6 gap-y-1">
         {displayItems.map((item: any, idx: number) => {
-          const isTrack = isTrackItem(item, section.sectionType);
+          const isTrack = isTrackItem(item, typeHint);
           const myTracks = isMyTracksItem(item);
           return (
             <div

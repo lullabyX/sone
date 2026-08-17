@@ -1,0 +1,170 @@
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { Provider, createStore } from "jotai";
+import type { PropsWithChildren } from "react";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(() => Promise.resolve(undefined)),
+}));
+
+const navigateToAlbum = vi.fn();
+const navigateToPlaylist = vi.fn();
+const navigateToFavorites = vi.fn();
+const navigateToViewAll = vi.fn();
+const navigateToArtist = vi.fn();
+const navigateToMix = vi.fn();
+
+vi.mock("../hooks/useNavigation", () => ({
+  useNavigation: () => ({
+    navigateToAlbum,
+    navigateToPlaylist,
+    navigateToFavorites,
+    navigateToViewAll,
+    navigateToArtist,
+    navigateToMix,
+  }),
+}));
+
+const playFromSource = vi.fn();
+vi.mock("../hooks/usePlaybackActions", () => ({
+  usePlaybackActions: () => ({ playFromSource }),
+}));
+
+const playMedia = vi.fn();
+vi.mock("../hooks/useMediaPlay", () => ({
+  useMediaPlay: () => playMedia,
+}));
+
+vi.mock("../hooks/useFavorites", () => ({
+  useFavorites: () => ({
+    favoriteVideoIds: new Set(),
+    addFavoriteVideo: vi.fn(),
+    removeFavoriteVideo: vi.fn(),
+    favoriteAlbumIds: new Set(),
+    addFavoriteAlbum: vi.fn(),
+    removeFavoriteAlbum: vi.fn(),
+    favoritePlaylistUuids: new Set(),
+    addFavoritePlaylist: vi.fn(),
+    removeFavoritePlaylist: vi.fn(),
+    followedArtistIds: new Set(),
+    followArtist: vi.fn(),
+    unfollowArtist: vi.fn(),
+    favoriteMixIds: new Set(),
+    addFavoriteMix: vi.fn(),
+    removeFavoriteMix: vi.fn(),
+  }),
+}));
+
+import HomeSection from "./HomeSection";
+
+// Shapes copied from a real v2 home feed "Recently played" section
+// (moduleId CONTINUE_LISTEN_TO): items arrive unwrapped, carrying _itemType.
+const trackItem = {
+  _itemType: "TRACK",
+  id: 140680560,
+  title: "Smoke On The Water",
+  duration: 228,
+  artists: [{ id: 3355, name: "Deep Purple", main: true }],
+  album: {
+    id: 140680536,
+    title: "Old But Gold 70's",
+    cover: "deb458e6-00d7-4b82-9650-82571008f785",
+  },
+};
+
+const albumItem = {
+  _itemType: "ALBUM",
+  id: 111,
+  title: "Machine Head",
+  cover: "aaaa-bbbb",
+  artists: [{ id: 3355, name: "Deep Purple" }],
+  numberOfTracks: 7,
+};
+
+const playlistItem = {
+  _itemType: "PLAYLIST",
+  uuid: "13f9d6c8-58e6-4869-8d9b-000d0ff95f0b",
+  title: "Indie Hits",
+  squareImage: "e1cf1fae-5763-46e1-a0d7-651b2af21d00",
+  creator: { id: 0, type: "TIDAL" },
+  numberOfTracks: 51,
+};
+
+const myTracksItem = {
+  _itemType: "DEEP_LINK",
+  title: "My Tracks",
+  id: "tidal://my-collection/tracks",
+  url: "tidal://my-collection/tracks",
+};
+
+// The backend types the row from its FIRST item, so the same row arrives as
+// ALBUM_LIST or TRACK_LIST depending on what was played last.
+function makeSection(sectionType: string, items: unknown[]) {
+  return {
+    title: "Recently played",
+    sectionType,
+    items,
+    hasMore: true,
+    apiPath: "home/pages/CONTINUE_LISTEN_TO/view-all",
+  };
+}
+
+function renderSection(
+  section: ReturnType<typeof makeSection> = makeSection("ALBUM_LIST", [
+    albumItem,
+    trackItem,
+    playlistItem,
+    myTracksItem,
+  ]),
+) {
+  const store = createStore();
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <Provider store={store}>{children}</Provider>
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return render(<HomeSection section={section as any} />, { wrapper });
+}
+
+function rowFor(title: string): HTMLElement {
+  const row = screen.getByText(title).closest("div.group");
+  if (!row) throw new Error(`no row for ${title}`);
+  return row as HTMLElement;
+}
+
+describe("Recently played — layout routing", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(cleanup);
+
+  // The row is typed TRACK_LIST whenever a track was played most recently.
+  // It must still render as the compact grid, or album rows get handed to
+  // playFromSource as if they were tracks.
+  const trackFirst = makeSection("TRACK_LIST", [
+    trackItem,
+    albumItem,
+    playlistItem,
+    myTracksItem,
+  ]);
+
+  it("opens the album page when a track-first row's album is clicked", () => {
+    renderSection(trackFirst);
+    fireEvent.click(rowFor("Machine Head"));
+    expect(navigateToAlbum).toHaveBeenCalledWith(111, expect.anything());
+    expect(playFromSource).not.toHaveBeenCalled();
+  });
+
+  it("opens the playlist page when a track-first row's playlist is clicked", () => {
+    renderSection(trackFirst);
+    fireEvent.click(rowFor("Indie Hits"));
+    expect(navigateToPlaylist).toHaveBeenCalledWith(
+      "13f9d6c8-58e6-4869-8d9b-000d0ff95f0b",
+      expect.anything(),
+    );
+    expect(playFromSource).not.toHaveBeenCalled();
+  });
+
+  it("shows the Loved Tracks shortcut in a track-first row", () => {
+    renderSection(trackFirst);
+    fireEvent.click(screen.getByText("Loved Tracks"));
+    expect(navigateToFavorites).toHaveBeenCalled();
+  });
+});
