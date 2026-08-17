@@ -149,6 +149,7 @@ export const DEFAULT_BINDINGS: Record<ActionId, KeyCombo | null> =
 const RESERVED_COMBOS: readonly KeyCombo[] = [
   c("KeyR", { mod: true }),
   ...ACTION_REGISTRY.filter((a) => a.fixed).map((a) => a.default),
+  ...FIXED_KEY_DOCS.map((d) => d.combo),
 ];
 
 export function comboKey(combo: KeyCombo | null): string {

@@ -186,4 +186,8 @@ describe("fixed actions", () => {
   it("does not reserve combos that are merely in use", () => {
     expect(isReserved(combo("KeyK", { mod: true }))).toBe(false);
   });
+
+  it("reserves the keys the dismissal stack owns", () => {
+    expect(isReserved(combo("Escape"))).toBe(true);
+  });
 });
