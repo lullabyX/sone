@@ -8,6 +8,8 @@ export const ACTION_IDS = [
   "volumeDown",
   "muteToggle",
   "likeToggle",
+  "toggleShuffle",
+  "toggleRepeat",
   "focusSearch",
   "refreshData",
   "closeDrawer",
@@ -33,6 +35,9 @@ type ActionMeta = {
   label: string;
   default: KeyCombo;
   repeatable?: boolean;
+  // Not user-rebindable: always dispatched on `default`, shown read-only in the
+  // shortcuts panel, and its combo is reserved against other actions.
+  fixed?: boolean;
 };
 
 const c = (
@@ -59,8 +64,12 @@ export const ACTION_REGISTRY: readonly ActionMeta[] = [
     default: c("ArrowLeft", { mod: true }),
     repeatable: false,
   },
-  { id: "volumeUp", label: "Volume up", default: c("ArrowUp") },
-  { id: "volumeDown", label: "Volume down", default: c("ArrowDown") },
+  { id: "volumeUp", label: "Volume up", default: c("ArrowUp", { mod: true }) },
+  {
+    id: "volumeDown",
+    label: "Volume down",
+    default: c("ArrowDown", { mod: true }),
+  },
   {
     id: "muteToggle",
     label: "Mute / Unmute",
@@ -74,14 +83,27 @@ export const ACTION_REGISTRY: readonly ActionMeta[] = [
     repeatable: false,
   },
   {
+    id: "toggleShuffle",
+    label: "Shuffle on / off",
+    default: c("KeyS", { alt: true }),
+    repeatable: false,
+  },
+  {
+    id: "toggleRepeat",
+    label: "Repeat off / all / one",
+    default: c("KeyR", { alt: true }),
+    repeatable: false,
+  },
+  {
     id: "focusSearch",
     label: "Focus search bar",
-    default: c("KeyS", { mod: true }),
+    default: c("KeyK", { mod: true }),
   },
   {
     id: "refreshData",
     label: "Refresh app data",
     default: c("KeyR", { mod: true, shift: true }),
+    fixed: true,
   },
   {
     id: "closeDrawer",
@@ -124,12 +146,10 @@ export const DEFAULT_BINDINGS: Record<ActionId, KeyCombo | null> =
     KeyCombo | null
   >;
 
-const RESERVED_COMBOS: readonly KeyCombo[] = [c("KeyR", { mod: true })];
-
-export const shortcutsAtom = atomWithStorage<Record<ActionId, KeyCombo | null>>(
-  "sone.shortcuts.v1",
-  DEFAULT_BINDINGS,
-);
+const RESERVED_COMBOS: readonly KeyCombo[] = [
+  c("KeyR", { mod: true }),
+  ...ACTION_REGISTRY.filter((a) => a.fixed).map((a) => a.default),
+];
 
 export function comboKey(combo: KeyCombo | null): string {
   if (!combo) return "";
@@ -145,6 +165,106 @@ export function comboEquals(a: KeyCombo | null, b: KeyCombo | null): boolean {
     a.alt === b.alt
   );
 }
+
+const STORAGE_KEY_V1 = "sone.shortcuts.v1";
+const STORAGE_KEY_V2 = "sone.shortcuts.v2";
+
+// Frozen snapshot of the v1 defaults. Used only to tell "user customised this"
+// apart from "user never touched this" when migrating.
+const V1_DEFAULTS: Partial<Record<ActionId, KeyCombo>> = {
+  playPause: c("Space"),
+  nextTrack: c("ArrowRight", { mod: true }),
+  prevTrack: c("ArrowLeft", { mod: true }),
+  volumeUp: c("ArrowUp"),
+  volumeDown: c("ArrowDown"),
+  muteToggle: c("KeyM"),
+  likeToggle: c("KeyL"),
+  focusSearch: c("KeyS", { mod: true }),
+  refreshData: c("KeyR", { mod: true, shift: true }),
+  closeDrawer: c("Escape"),
+  zoomIn: c("Equal", { mod: true }),
+  zoomOut: c("Minus", { mod: true }),
+  zoomReset: c("Digit0", { mod: true }),
+  toggleExclusive: c("KeyE", { mod: true }),
+  toggleBitPerfect: c("KeyB", { mod: true }),
+  toggleShortcuts: c("Slash", { shift: true }),
+};
+
+export function migrateBindingsV1ToV2(
+  v1Raw: string | null,
+): Record<ActionId, KeyCombo | null> | null {
+  if (!v1Raw) return null;
+
+  let v1: Record<string, KeyCombo | null>;
+  try {
+    const parsed: unknown = JSON.parse(v1Raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    v1 = parsed as Record<string, KeyCombo | null>;
+  } catch {
+    return null;
+  }
+
+  const customised = new Map<ActionId, KeyCombo | null>();
+  const fromDefault = new Map<ActionId, KeyCombo | null>();
+
+  for (const action of ACTION_REGISTRY) {
+    if (action.fixed) {
+      fromDefault.set(action.id, action.default);
+      continue;
+    }
+    const previousDefault = V1_DEFAULTS[action.id];
+    const stored = action.id in v1 ? (v1[action.id] ?? null) : undefined;
+    if (
+      stored !== undefined &&
+      previousDefault &&
+      !comboEquals(stored, previousDefault)
+    ) {
+      customised.set(action.id, stored);
+    } else {
+      fromDefault.set(action.id, action.default);
+    }
+  }
+
+  // Customisations claim their combo first; a new default that collides with one
+  // is dropped rather than silently stealing the user's key.
+  const result = {} as Record<ActionId, KeyCombo | null>;
+  const claimed = new Set<string>();
+  for (const [id, combo] of customised) {
+    result[id] = combo;
+    if (combo) claimed.add(comboKey(combo));
+  }
+  for (const [id, combo] of fromDefault) {
+    if (combo && claimed.has(comboKey(combo))) {
+      result[id] = null;
+      continue;
+    }
+    result[id] = combo;
+    if (combo) claimed.add(comboKey(combo));
+  }
+  return result;
+}
+
+function initBindingsStorage(): void {
+  try {
+    if (localStorage.getItem(STORAGE_KEY_V2) !== null) return;
+    const migrated = migrateBindingsV1ToV2(
+      localStorage.getItem(STORAGE_KEY_V1),
+    );
+    if (!migrated) return;
+    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(migrated));
+  } catch {
+    // Storage unavailable — fall through to defaults.
+  }
+}
+
+initBindingsStorage();
+
+export const shortcutsAtom = atomWithStorage<Record<ActionId, KeyCombo | null>>(
+  STORAGE_KEY_V2,
+  DEFAULT_BINDINGS,
+);
 
 export function isReserved(combo: KeyCombo): boolean {
   return RESERVED_COMBOS.some((r) => comboEquals(r, combo));
