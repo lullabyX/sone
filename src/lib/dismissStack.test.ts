@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import React from "react";
+import { render, cleanup, fireEvent } from "@testing-library/react";
 import { registerDismissable, DISMISS_PRIORITY } from "./dismissStack";
 
 function escape() {
@@ -17,6 +19,7 @@ describe("dismissStack", () => {
   afterEach(() => {
     // Never leak an entry into the next test — the stack is module state.
     cleanups.forEach((fn) => fn());
+    cleanup();
   });
 
   const register = (priority: number, onClose: () => void) => {
@@ -106,6 +109,34 @@ describe("dismissStack", () => {
 
   it("does nothing when the stack is empty", () => {
     expect(() => escape()).not.toThrow();
+  });
+
+  // A focused input owns Escape by calling stopPropagation in its React
+  // onKeyDown (see SearchBar). React attaches below window, so the key never
+  // reaches the stack — which only holds while the stack listens on bubble.
+  const renderInput = (onKeyDown: (e: React.KeyboardEvent) => void) => {
+    const { container } = render(React.createElement("input", { onKeyDown }));
+    return container.querySelector("input")!;
+  };
+
+  it("dismisses when a focused element lets the key bubble", () => {
+    const onClose = vi.fn();
+    register(DISMISS_PRIORITY.drawer, onClose);
+    fireEvent.keyDown(
+      renderInput(() => {}),
+      { key: "Escape" },
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not dismiss when a focused element stops propagation", () => {
+    const onClose = vi.fn();
+    register(DISMISS_PRIORITY.drawer, onClose);
+    fireEvent.keyDown(
+      renderInput((e) => e.stopPropagation()),
+      { key: "Escape" },
+    );
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("tolerates a repeated unregister across a drain and reattach", () => {

@@ -39,6 +39,7 @@ export function registerDismissable(
   const entry: Entry = { priority, onClose, seq: ++seq };
   entries.push(entry);
   if (!listening) {
+    // Bubble phase on purpose — a focused input's stopPropagation must win.
     window.addEventListener("keydown", onKeyDown);
     listening = true;
   }
