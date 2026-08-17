@@ -168,3 +168,49 @@ describe("Recently played — layout routing", () => {
     expect(navigateToFavorites).toHaveBeenCalled();
   });
 });
+
+describe("Recently played compact grid — navigation", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(cleanup);
+
+  it("opens the track's album page when the track row is clicked", () => {
+    renderSection();
+    fireEvent.click(rowFor("Smoke On The Water"));
+    expect(navigateToAlbum).toHaveBeenCalledWith(140680536, {
+      title: "Old But Gold 70's",
+      cover: "deb458e6-00d7-4b82-9650-82571008f785",
+    });
+    expect(playFromSource).not.toHaveBeenCalled();
+  });
+
+  it("opens the album page when the track title is clicked", () => {
+    renderSection();
+    fireEvent.click(screen.getByText("Smoke On The Water"));
+    expect(navigateToAlbum).toHaveBeenCalledWith(140680536, {
+      title: "Old But Gold 70's",
+      cover: "deb458e6-00d7-4b82-9650-82571008f785",
+    });
+    expect(playFromSource).not.toHaveBeenCalled();
+  });
+
+  it("opens the album page when an album row is clicked", () => {
+    renderSection();
+    fireEvent.click(rowFor("Machine Head"));
+    expect(navigateToAlbum).toHaveBeenCalledWith(111, expect.anything());
+  });
+
+  it("opens the playlist page when a playlist row is clicked", () => {
+    renderSection();
+    fireEvent.click(rowFor("Indie Hits"));
+    expect(navigateToPlaylist).toHaveBeenCalledWith(
+      "13f9d6c8-58e6-4869-8d9b-000d0ff95f0b",
+      expect.anything(),
+    );
+  });
+
+  it("opens favorites when the Loved Tracks shortcut is clicked", () => {
+    renderSection();
+    fireEvent.click(rowFor("Loved Tracks"));
+    expect(navigateToFavorites).toHaveBeenCalled();
+  });
+});

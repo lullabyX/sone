@@ -711,6 +711,17 @@ function CompactGridSection({
     [typeHint],
   );
 
+  const handleRowClick = (item: any) => {
+    if (isTrackItem(item, typeHint) && item.album?.id) {
+      navigateToAlbum(item.album.id, {
+        title: item.album.title,
+        cover: item.album.cover,
+      });
+      return;
+    }
+    onItemClick(item);
+  };
+
   return (
     <section className="mb-8">
       <div className="flex items-center justify-between mb-4">
@@ -733,7 +744,7 @@ function CompactGridSection({
           return (
             <div
               key={getItemId(item)}
-              onClick={() => onItemClick(item)}
+              onClick={() => handleRowClick(item)}
               onContextMenu={
                 myTracks ? undefined : (e) => openMenu(e, item, idx)
               }
