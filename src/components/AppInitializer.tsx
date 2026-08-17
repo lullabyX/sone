@@ -1274,10 +1274,6 @@ export function AppInitializer() {
       window.dispatchEvent(new CustomEvent("focus-search"));
     },
     refreshData: () => void refreshApp(),
-    closeDrawer: () => {
-      if (store.get(maximizedPlayerAtom)) return;
-      setDrawerOpen(false);
-    },
     toggleExclusive: () => {
       const isExclusive = store.get(exclusiveModeAtom);
       if (isExclusive) {

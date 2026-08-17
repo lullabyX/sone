@@ -25,6 +25,7 @@ import { currentUserAvatarAtom } from "../atoms/auth";
 import { useToast } from "../contexts/ToastContext";
 import {
   ACTION_REGISTRY,
+  FIXED_KEY_DOCS,
   DEFAULT_BINDINGS,
   shortcutsAtom,
   formatCombo,
@@ -428,6 +429,20 @@ export default function UserMenu() {
                   </div>
                 );
               })}
+              {FIXED_KEY_DOCS.map((doc) => (
+                <div
+                  key={doc.label}
+                  title="Not rebindable"
+                  className="flex items-center justify-between py-2 px-2 rounded select-none opacity-60"
+                >
+                  <span className="text-[13px] text-th-text-secondary">
+                    {doc.label}
+                  </span>
+                  <kbd className="text-[12px] font-mono px-2.5 py-1 rounded-md border bg-th-surface text-th-text-muted border-th-border-subtle">
+                    {formatCombo(doc.combo)}
+                  </kbd>
+                </div>
+              ))}
             </div>
             <div className="border-t border-th-border-subtle px-5 py-3 flex justify-between items-center">
               <span className="text-[11px] text-th-text-muted">

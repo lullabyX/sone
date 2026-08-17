@@ -40,6 +40,8 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { useToast } from "../contexts/ToastContext";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
 import {
@@ -1565,6 +1567,11 @@ export default function NowPlayingDrawer() {
   const videoCovers = useAtomValue(videoCoversAtom);
   const animatedCover = videoCovers && Boolean(currentTrack?.album?.videoCover);
   const { drawerOpen, setDrawerOpen, drawerTab, setDrawerTab } = useDrawer();
+  useEscapeDismiss(
+    drawerOpen,
+    () => setDrawerOpen(false),
+    DISMISS_PRIORITY.drawer,
+  );
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);

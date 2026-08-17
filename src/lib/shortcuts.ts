@@ -12,7 +12,6 @@ export const ACTION_IDS = [
   "toggleRepeat",
   "focusSearch",
   "refreshData",
-  "closeDrawer",
   "zoomIn",
   "zoomOut",
   "zoomReset",
@@ -105,11 +104,6 @@ export const ACTION_REGISTRY: readonly ActionMeta[] = [
     default: c("KeyR", { mod: true, shift: true }),
     fixed: true,
   },
-  {
-    id: "closeDrawer",
-    label: "Close now-playing drawer",
-    default: c("Escape"),
-  },
   { id: "zoomIn", label: "Zoom in", default: c("Equal", { mod: true }) },
   { id: "zoomOut", label: "Zoom out", default: c("Minus", { mod: true }) },
   {
@@ -139,6 +133,12 @@ export const ACTION_REGISTRY: readonly ActionMeta[] = [
 export const ACTION_BY_ID: ReadonlyMap<ActionId, ActionMeta> = new Map(
   ACTION_REGISTRY.map((a) => [a.id, a]),
 );
+
+// Keys the dismissal stack owns. Not bindable to any action, but listed in the
+// shortcuts panel so they stay discoverable.
+export const FIXED_KEY_DOCS: readonly { combo: KeyCombo; label: string }[] = [
+  { combo: c("Escape"), label: "Dismiss topmost overlay" },
+];
 
 export const DEFAULT_BINDINGS: Record<ActionId, KeyCombo | null> =
   Object.fromEntries(ACTION_REGISTRY.map((a) => [a.id, a.default])) as Record<
@@ -170,8 +170,9 @@ const STORAGE_KEY_V1 = "sone.shortcuts.v1";
 const STORAGE_KEY_V2 = "sone.shortcuts.v2";
 
 // Frozen snapshot of the v1 defaults. Used only to tell "user customised this"
-// apart from "user never touched this" when migrating.
-const V1_DEFAULTS: Partial<Record<ActionId, KeyCombo>> = {
+// apart from "user never touched this" when migrating. Keyed by string because
+// it still describes ids that have since been retired.
+const V1_DEFAULTS: Record<string, KeyCombo | undefined> = {
   playPause: c("Space"),
   nextTrack: c("ArrowRight", { mod: true }),
   prevTrack: c("ArrowLeft", { mod: true }),

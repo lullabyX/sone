@@ -87,9 +87,9 @@ describe("migrateBindingsV1ToV2", () => {
     );
   });
 
-  it("keeps closeDrawer in Part 1", () => {
-    const v2 = migrate(V1_PRISTINE)!;
-    expect(comboEquals(v2.closeDrawer, combo("Escape"))).toBe(true);
+  it("drops closeDrawer now that the dismissal stack owns Escape", () => {
+    const v2 = migrate(V1_PRISTINE)! as Record<string, unknown>;
+    expect("closeDrawer" in v2).toBe(false);
   });
 
   it("forces a fixed action back to its default even if v1 moved it", () => {
