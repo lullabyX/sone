@@ -17,6 +17,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
 import { updateToastSeenAtom } from "../atoms/updates";
 import { shouldShowUpdateToast, type UpdateInfo } from "../lib/updateToast";
+import { refreshApp } from "../lib/refreshApp";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -81,7 +82,6 @@ import { useOverlayBridge } from "../hooks/useOverlayBridge";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
-  clearCache,
   savePlaybackQueue,
   loadPlaybackQueue,
   getHomePage,
@@ -1269,10 +1269,7 @@ export function AppInitializer() {
     focusSearch: () => {
       window.dispatchEvent(new CustomEvent("focus-search"));
     },
-    refreshData: () => {
-      clearCache();
-      window.location.reload();
-    },
+    refreshData: () => void refreshApp(),
     closeDrawer: () => {
       if (store.get(maximizedPlayerAtom)) return;
       setDrawerOpen(false);

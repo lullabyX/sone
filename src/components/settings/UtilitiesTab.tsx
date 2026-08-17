@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Folder } from "lucide-react";
-import { clearAllCache } from "../../api/tidal";
+import { refreshApp } from "../../lib/refreshApp";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 
@@ -71,10 +71,7 @@ export default function UtilitiesTab() {
           subtitle="Clear cache and reload the application"
         >
           <button
-            onClick={async () => {
-              await clearAllCache();
-              window.location.reload();
-            }}
+            onClick={() => void refreshApp()}
             className="px-3 py-1 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors shrink-0"
           >
             Refresh
