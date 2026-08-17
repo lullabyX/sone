@@ -70,6 +70,7 @@
       <li>Open and share tidal:// deep links for tracks, albums, playlists, artists, and mixes</li>
       <li>Keep Awake — prevents the screen from sleeping during playback on X11, Wayland, and D-Bus</li>
       <li>MCP server — external AI agents like Claude Code can search your library and control playback (off by default)</li>
+      <li>Play reporting — finished plays are reported to TIDAL so Recently Played stays in sync (on by default)</li>
       <li>Proxy support — HTTP, HTTPS, and SOCKS5</li>
       <li>Sign in securely with PKCE inside the app</li>
     </ul>
