@@ -12,6 +12,7 @@ import {
   type Track,
   type MediaItemType,
 } from "../types";
+import { getArtistImage } from "../utils/itemHelpers";
 import TidalImage from "./TidalImage";
 import TrackContextMenu from "./TrackContextMenu";
 import MediaContextMenu from "./MediaContextMenu";
@@ -377,9 +378,9 @@ export default function SearchBar() {
                           }}
                         >
                           <div className="w-12 h-12 rounded-full bg-th-surface-hover overflow-hidden shrink-0">
-                            {hit.picture ? (
+                            {getArtistImage(hit, 160) ? (
                               <TidalImage
-                                src={getTidalImageUrl(hit.picture, 80)}
+                                src={getArtistImage(hit, 160)}
                                 alt={hit.name || ""}
                                 className="w-full h-full object-cover"
                               />

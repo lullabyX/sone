@@ -1,5 +1,6 @@
 import {
   getTidalImageUrl,
+  getTidalArtistImageUrl,
   type MediaItemType,
   type StreamInfo,
   type Track,
@@ -44,6 +45,22 @@ export function formatStreamQuality(info: StreamInfo | null): string {
   }
   if (info.codec) parts.push(info.codec.toUpperCase());
   return parts.join(" ");
+}
+
+/**
+ * Artist avatar URL. Artist artwork and the legacy picture use the artist CDN
+ * size set; `selectedAlbumCoverFallback` is an album cover UUID and uses the
+ * album size set.
+ * ArtistPage.tsx repeats this priority chain for progressive loading — keep both in sync.
+ */
+export function getArtistImage(item: any, size: number = 320): string {
+  if (!item) return "";
+  const artistUuid = item.artworkId || item.picture;
+  if (artistUuid) return getTidalArtistImageUrl(artistUuid, size);
+  const albumFallback =
+    item.selectedAlbumCoverFallback || item.albumCoverFallback;
+  if (albumFallback) return getTidalImageUrl(albumFallback, size);
+  return "";
 }
 
 export function getItemImage(item: any, size: number = 320): string {
@@ -92,8 +109,9 @@ export function getItemImage(item: any, size: number = 320): string {
   if (item.cover) return getTidalImageUrl(item.cover, size);
   if (item.squareImage) return getTidalImageUrl(item.squareImage, size);
   if (item.image) return getTidalImageUrl(item.image, size);
-  // Artist picture UUID
-  if (item.picture) return getTidalImageUrl(item.picture, size);
+  // Artist artwork / picture / album-cover fallback
+  const artistImage = getArtistImage(item, size);
+  if (artistImage) return artistImage;
   // Nested album cover
   if (item.album?.cover) return getTidalImageUrl(item.album.cover, size);
   // V2 imageUrl direct
@@ -113,7 +131,7 @@ export function getItemTitle(item: any): string {
     return item.data?.shortHeader ?? "";
   }
   if (isDeepLinkItem(item)) {
-    return item.data?.title ?? "";
+    return item.data?.title ?? item.title ?? "";
   }
   if (item.title) return item.title;
   if (item.name) return item.name;
@@ -168,7 +186,7 @@ export function getItemId(item: any): string {
     return item.data?.artifactId ?? String(item.data?.id ?? "");
   }
   if (isDeepLinkItem(item)) {
-    return String(item.data?.id ?? item.data?.url ?? "");
+    return String(item.data?.id ?? item.data?.url ?? item.id ?? item.url ?? "");
   }
   return (
     item.id?.toString() ||
@@ -254,6 +272,8 @@ export function buildMediaItem(
   item: any,
   sectionType?: string,
 ): MediaItemType | null {
+  // A deep link is a navigation target, not media.
+  if (isDeepLinkItem(item)) return null;
   // MAGAZINE promo card wraps a playlist artifact.
   if (isMagazineItem(item)) {
     const d = item.data;

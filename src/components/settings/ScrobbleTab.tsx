@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Loader2, ExternalLink } from "lucide-react";
+import Toggle from "../Toggle";
+import SettingRow from "./SettingRow";
 
 interface ProviderStatus {
   name: string;
@@ -96,6 +98,7 @@ export default function ScrobbleTab() {
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [queueSize, setQueueSize] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [reportPlays, setReportPlays] = useState(true);
 
   const [lastfm, setLastfm] = useState<AudioscrobblerState>({
     step: "idle",
@@ -135,6 +138,9 @@ export default function ScrobbleTab() {
     setLibrefm({ step: "idle", token: "", error: null });
     setListenBrainz({ step: "idle", token: "", error: null });
     fetchStatus();
+    invoke<boolean>("get_report_plays")
+      .then(setReportPlays)
+      .catch(() => {});
   }, []);
 
   const getStatus = (name: string): ProviderStatus | undefined =>
@@ -307,6 +313,28 @@ export default function ScrobbleTab() {
 
   return (
     <div>
+      <p className="text-[10.5px] font-bold tracking-[1.4px] uppercase text-th-text-faint mb-3">
+        TIDAL
+      </p>
+      <div className="rounded-xl bg-th-base border border-th-border-subtle overflow-hidden mb-5">
+        <SettingRow
+          title="Report plays to TIDAL"
+          subtitle="Add plays to your TIDAL listening history"
+        >
+          <button
+            onClick={() => {
+              const next = !reportPlays;
+              setReportPlays(next);
+              invoke("set_report_plays", { enabled: next }).catch(() => {
+                setReportPlays(!next);
+              });
+            }}
+          >
+            <Toggle on={reportPlays} />
+          </button>
+        </SettingRow>
+      </div>
+
       <p className="text-[10.5px] font-bold tracking-[1.4px] uppercase text-th-text-faint mb-3">
         Scrobbling
       </p>
