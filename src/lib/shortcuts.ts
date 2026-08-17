@@ -230,8 +230,10 @@ export function migrateBindingsV1ToV2(
     }
     const previousDefault = V1_DEFAULTS[action.id];
     const raw = action.id in v1 ? v1[action.id] : undefined;
-    // Anything that is not a well-formed combo counts as "not customised".
-    const stored = raw === null || isKeyCombo(raw) ? raw : undefined;
+    // Anything that is not a well-formed combo, or that claims a key no action
+    // may hold, counts as "not customised".
+    const stored =
+      raw === null || (isKeyCombo(raw) && !isReserved(raw)) ? raw : undefined;
     if (
       stored !== undefined &&
       previousDefault &&

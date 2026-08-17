@@ -3,6 +3,7 @@ import {
   migrateBindingsV1ToV2,
   isReserved,
   ACTION_BY_ID,
+  ACTION_REGISTRY,
   comboEquals,
   type KeyCombo,
 } from "./shortcuts";
@@ -135,7 +136,20 @@ describe("migrateBindingsV1ToV2", () => {
     expect(
       comboEquals(v2.refreshData, combo("KeyR", { mod: true, shift: true })),
     ).toBe(true);
-    expect(v2.zoomIn).toBeNull();
+    expect(comboEquals(v2.zoomIn, combo("Equal", { mod: true }))).toBe(true);
+  });
+
+  it("treats a v1 binding on a stack-owned key as uncustomised", () => {
+    const v2 = migrate({ ...V1_PRISTINE, zoomOut: combo("Escape") })!;
+    expect(comboEquals(v2.zoomOut, combo("Minus", { mod: true }))).toBe(true);
+  });
+
+  it("treats a v1 binding on Ctrl+R as uncustomised", () => {
+    const v2 = migrate({
+      ...V1_PRISTINE,
+      likeToggle: combo("KeyR", { mod: true }),
+    })!;
+    expect(comboEquals(v2.likeToggle, combo("KeyL"))).toBe(true);
   });
 
   it("treats corrupt v1 entries as uncustomised", () => {
@@ -189,5 +203,12 @@ describe("fixed actions", () => {
 
   it("reserves the keys the dismissal stack owns", () => {
     expect(isReserved(combo("Escape"))).toBe(true);
+  });
+
+  it("never ships a rebindable action whose default is reserved", () => {
+    for (const action of ACTION_REGISTRY) {
+      if (action.fixed) continue;
+      expect(isReserved(action.default)).toBe(false);
+    }
   });
 });
