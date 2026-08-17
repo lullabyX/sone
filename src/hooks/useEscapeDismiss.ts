@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { registerDismissable, DISMISS_PRIORITY } from "../lib/dismissStack";
 
 // Registers while `active` — not merely while mounted — so a layer that is
@@ -10,7 +10,8 @@ export function useEscapeDismiss(
   priority: number = DISMISS_PRIORITY.modal,
 ): void {
   const onCloseRef = useRef(onClose);
-  useEffect(() => {
+  // Layout-phase so an Escape between render and passive flush can't run a stale closure.
+  useLayoutEffect(() => {
     onCloseRef.current = onClose;
   });
 

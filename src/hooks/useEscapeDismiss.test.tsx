@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { renderHook, cleanup } from "@testing-library/react";
 import { useEscapeDismiss } from "./useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
@@ -10,12 +10,14 @@ function escape() {
 }
 
 describe("useEscapeDismiss", () => {
+  // The dismiss stack is module state — a failed assertion must not leak an entry.
+  afterEach(cleanup);
+
   it("dismisses while active", () => {
     const onClose = vi.fn();
     renderHook(() => useEscapeDismiss(true, onClose));
     escape();
     expect(onClose).toHaveBeenCalledTimes(1);
-    cleanup();
   });
 
   it("does not register while inactive", () => {
@@ -23,7 +25,6 @@ describe("useEscapeDismiss", () => {
     renderHook(() => useEscapeDismiss(false, onClose));
     escape();
     expect(onClose).not.toHaveBeenCalled();
-    cleanup();
   });
 
   it("registers and unregisters as active flips", () => {
@@ -40,7 +41,6 @@ describe("useEscapeDismiss", () => {
     rerender({ active: false });
     escape();
     expect(onClose).toHaveBeenCalledTimes(1);
-    cleanup();
   });
 
   it("unregisters on unmount", () => {
@@ -64,7 +64,6 @@ describe("useEscapeDismiss", () => {
     escape();
     expect(second).toHaveBeenCalledTimes(1);
     expect(first).not.toHaveBeenCalled();
-    cleanup();
   });
 
   it("keeps its place in the stack when the callback identity changes", () => {
@@ -82,7 +81,6 @@ describe("useEscapeDismiss", () => {
     escape();
     expect(top).toHaveBeenCalledTimes(1);
     expect(lower).not.toHaveBeenCalled();
-    cleanup();
   });
 
   it("respects the priority argument", () => {
@@ -95,6 +93,5 @@ describe("useEscapeDismiss", () => {
     escape();
     expect(menu).toHaveBeenCalledTimes(1);
     expect(drawer).not.toHaveBeenCalled();
-    cleanup();
   });
 });

@@ -107,4 +107,26 @@ describe("dismissStack", () => {
   it("does nothing when the stack is empty", () => {
     expect(() => escape()).not.toThrow();
   });
+
+  it("tolerates a repeated unregister across a drain and reattach", () => {
+    const remove = vi.spyOn(window, "removeEventListener");
+    const stale = vi.fn();
+    const live = vi.fn();
+
+    const offStale = registerDismissable(DISMISS_PRIORITY.modal, stale);
+    offStale();
+    expect(() => offStale()).not.toThrow();
+
+    // The stack drained and reattached — the stale unregister must not detach it.
+    register(DISMISS_PRIORITY.modal, live);
+    offStale();
+    escape();
+    expect(live).toHaveBeenCalledTimes(1);
+    expect(stale).not.toHaveBeenCalled();
+    expect(
+      remove.mock.calls.filter(([type]) => type === "keydown"),
+    ).toHaveLength(1);
+
+    remove.mockRestore();
+  });
 });
