@@ -883,7 +883,13 @@ export default function MaximizedPlayer() {
     };
   }, []);
 
-  useEscapeDismiss(true, () => setMaximized(false), DISMISS_PRIORITY.overlay);
+  // Trackless (MPRIS set-fullscreen with nothing playing) renders nothing, so
+  // registering would swallow an Escape for an invisible layer.
+  useEscapeDismiss(
+    Boolean(currentTrack),
+    () => setMaximized(false),
+    DISMISS_PRIORITY.overlay,
+  );
 
   if (!currentTrack) return null;
 
