@@ -64,7 +64,12 @@ export default function UserMenu() {
 
   // Toggle shortcuts modal from ? key
   useEffect(() => {
-    const handler = () => setShortcutsOpen((prev) => !prev);
+    // Close the dropdown too — left open it sits above the modal on the
+    // dismissal stack and eats the first Escape.
+    const handler = () => {
+      setOpen(false);
+      setShortcutsOpen((prev) => !prev);
+    };
     window.addEventListener("toggle-shortcuts", handler);
     return () => window.removeEventListener("toggle-shortcuts", handler);
   }, []);
