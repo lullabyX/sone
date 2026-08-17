@@ -22,7 +22,8 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
   const inverse = useMemo(() => {
     const m = new Map<string, ActionId>();
     for (const id of ownedKey.split(",").filter(Boolean) as ActionId[]) {
-      const combo = bindings[id];
+      const meta = ACTION_BY_ID.get(id);
+      const combo = meta?.fixed ? meta.default : bindings[id];
       if (combo) m.set(comboKey(combo), id);
     }
     return m;
