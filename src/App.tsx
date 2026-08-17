@@ -80,7 +80,7 @@ function AppChrome({ children }: { children: ReactNode }) {
     <div className="relative flex flex-col h-full w-full overflow-hidden">
       {!nativeChrome && !hideTitleBar && <TitleBar />}
       <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
-      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={4} />}
+      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={2} />}
     </div>
   );
 }
