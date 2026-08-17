@@ -378,15 +378,26 @@ export default function UserMenu() {
             <div className="px-5 pb-3 flex flex-col gap-0.5 overflow-y-auto min-h-0">
               {ACTION_REGISTRY.map((action) => {
                 const isEditing = editingId === action.id;
-                const binding = bindings[action.id];
+                const binding = action.fixed
+                  ? action.default
+                  : bindings[action.id];
                 return (
                   <div
                     key={action.id}
-                    onDoubleClick={() => {
-                      setReservedHint(false);
-                      setEditingId(action.id);
-                    }}
-                    className="flex items-center justify-between py-2 px-2 rounded hover:bg-th-inset cursor-pointer select-none"
+                    title={action.fixed ? "Not rebindable" : undefined}
+                    onDoubleClick={
+                      action.fixed
+                        ? undefined
+                        : () => {
+                            setReservedHint(false);
+                            setEditingId(action.id);
+                          }
+                    }
+                    className={`flex items-center justify-between py-2 px-2 rounded select-none ${
+                      action.fixed
+                        ? "opacity-60"
+                        : "hover:bg-th-inset cursor-pointer"
+                    }`}
                   >
                     <span className="text-[13px] text-th-text-secondary">
                       {action.label}
