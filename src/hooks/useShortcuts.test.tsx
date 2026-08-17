@@ -12,6 +12,10 @@ function press(init: KeyboardEventInit) {
   );
 }
 
+function pressIn(el: HTMLElement, init: KeyboardEventInit) {
+  el.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true }));
+}
+
 function mount(
   dispatch: Parameters<typeof useShortcuts>[0],
   bindings = DEFAULT_BINDINGS,
@@ -58,6 +62,24 @@ describe("useShortcuts", () => {
     press({ code: "KeyR", altKey: true });
     expect(toggleShuffle).toHaveBeenCalledTimes(1);
     expect(toggleRepeat).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Alt combos live in a text field while bare letters stay muted", () => {
+    const toggleShuffle = vi.fn();
+    const muteToggle = vi.fn();
+    mount({ toggleShuffle, muteToggle });
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+
+    pressIn(input, { code: "KeyM" });
+    expect(muteToggle).not.toHaveBeenCalled();
+
+    pressIn(input, { code: "KeyS", altKey: true });
+    expect(toggleShuffle).toHaveBeenCalledTimes(1);
+
+    input.remove();
   });
 
   it("dispatches a fixed action on its default even when storage moved it", () => {

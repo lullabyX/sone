@@ -48,7 +48,8 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
       const inInput =
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement;
-      if (inInput && !combo.mod) return;
+      // Alt-modified combos type nothing, so they stay live inside text fields.
+      if (inInput && !combo.mod && !combo.alt) return;
 
       const fn = dispatchRef.current[id];
       if (!fn) return;
