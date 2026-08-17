@@ -1266,9 +1266,7 @@ export function AppInitializer() {
         addFavoriteTrack(track.id, track);
       }
     },
-    toggleShuffle: () => {
-      store.set(shuffleAtom, !store.get(shuffleAtom));
-    },
+    toggleShuffle,
     toggleRepeat: () => {
       store.set(repeatAtom, (store.get(repeatAtom) + 1) % 3);
     },
