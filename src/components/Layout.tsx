@@ -36,8 +36,21 @@ export default function Layout({ children }: LayoutProps) {
 
   useMiniplayerEmitter();
 
+  // Focus alongside the scroll reset: the container has to own focus for bare
+  // arrow keys to scroll it, and nothing else would give it focus before the
+  // first click.
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, 0);
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo(0, 0);
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    ) {
+      return;
+    }
+    el.focus({ preventScroll: true });
   }, [currentView]);
 
   // ── Middle-mouse autoscroll (Chrome-style) ──
@@ -113,7 +126,8 @@ export default function Layout({ children }: LayoutProps) {
           <div
             ref={scrollRef}
             onMouseDown={onMouseDown}
-            className="flex-1 overflow-y-auto custom-scrollbar relative"
+            tabIndex={-1}
+            className="flex-1 overflow-y-auto custom-scrollbar relative outline-none"
           >
             {children}
           </div>
