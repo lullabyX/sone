@@ -1,7 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSetAtom } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import type { AppView } from "../types";
+
+function stateTab(): string | undefined {
+  const tab = (window.history.state as { tab?: unknown } | null)?.tab;
+  return typeof tab === "string" ? tab : undefined;
+}
 
 /**
  * Keeps a page-level tab selection in sync with `currentViewAtom` and
@@ -15,11 +20,10 @@ export function useViewTab<T extends string>(
   initial: T,
 ): [T, (tab: T) => void] {
   const setCurrentView = useSetAtom(currentViewAtom);
-  const [tab, setTabState] = useState<T>(initial);
+  const [tab, setTabState] = useState<T>(() => (stateTab() as T) ?? initial);
 
-  const setTab = useCallback(
+  const writeTab = useCallback(
     (next: T) => {
-      setTabState(next);
       const prev = (window.history.state ?? {}) as AppView &
         Record<string, unknown>;
       const merged = { ...prev, tab: next };
@@ -28,6 +32,21 @@ export function useViewTab<T extends string>(
     },
     [setCurrentView],
   );
+
+  const setTab = useCallback(
+    (next: T) => {
+      setTabState(next);
+      writeTab(next);
+    },
+    [writeTab],
+  );
+
+  // The tab an entry opens on needs to be in the entry's state too, or its
+  // scroll offset is filed under the empty tab segment and lost as soon as the
+  // first switch writes a real one. Reuses the id-preserving write.
+  useEffect(() => {
+    if (stateTab() === undefined) writeTab(tab);
+  }, [tab, writeTab]);
 
   return [tab, setTab];
 }
