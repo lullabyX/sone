@@ -210,7 +210,7 @@ export type SearchTab =
   | "albums"
   | "artists";
 
-export type AppView =
+type ViewTarget =
   | { type: "home" }
   | {
       type: "album";
@@ -275,6 +275,11 @@ export type AppView =
       playlists: ProfilePlaylist[];
       profileName: string;
     };
+
+export type AppView = ViewTarget & {
+  __navId?: number;
+  __navSession?: string;
+};
 
 export interface SearchResults {
   artists: {
