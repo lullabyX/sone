@@ -85,21 +85,24 @@ describe("useNavigation profile playlists", () => {
 });
 
 describe("useNavigation scroll memory stamping", () => {
-  beforeEach(() => {
-    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
-  });
-
   it("stamps the pushed view so the entry can own a scroll offset", () => {
+    const spy = vi
+      .spyOn(window.history, "pushState")
+      .mockImplementation(() => {});
     const store = createStore();
     const wrapper = ({ children }: PropsWithChildren) => (
       <Provider store={store}>{children}</Provider>
     );
     const { result } = renderHook(() => useNavigation(), { wrapper });
 
+    const callsBefore = spy.mock.calls.length;
     act(() => {
       result.current.navigateToAlbum(42);
     });
 
     expect(scrollKey(store.get(currentViewAtom))).not.toBe(null);
+    expect(spy).toHaveBeenCalledTimes(callsBefore + 1);
+    const pushed = spy.mock.calls[callsBefore][0] as { __navId?: number };
+    expect(pushed.__navId).toBe(store.get(currentViewAtom).__navId);
   });
 });

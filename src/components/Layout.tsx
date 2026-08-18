@@ -16,6 +16,7 @@ import MaximizedPlayer from "./MaximizedPlayer";
 import VideoPlayer from "./VideoPlayer";
 import { currentVideoAtom, videoExpandedAtom } from "../atoms/video";
 import { useMiniplayerEmitter } from "../hooks/useMiniplayerEmitter";
+import { useScrollRestoration } from "../hooks/useScrollRestoration";
 
 interface LayoutProps {
   children: ReactNode;
@@ -35,14 +36,13 @@ export default function Layout({ children }: LayoutProps) {
   const hideTitleBar = useAtomValue(hideTitleBarAtom);
 
   useMiniplayerEmitter();
+  useScrollRestoration(scrollRef);
 
-  // Focus alongside the scroll reset: the container has to own focus for bare
-  // arrow keys to scroll it, and nothing else would give it focus before the
-  // first click.
+  // The container has to own focus for bare arrow keys to scroll it, and
+  // nothing else would give it focus before the first click.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo(0, 0);
     const active = document.activeElement;
     if (
       active instanceof HTMLInputElement ||
