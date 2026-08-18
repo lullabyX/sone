@@ -50,11 +50,21 @@ function fakeMetrics(
 }
 
 let container: HTMLDivElement | null = null;
-let child: HTMLDivElement | null = null;
+let nested: HTMLDivElement | null = null;
+let overlay: HTMLDivElement | null = null;
 
-/** The container is pre-scrolled because refs attach before layout effects, so a
+/** `nested` is the container's first child and scrolls, so it stands in for a
+ *  page root; `overlay` scrolls too but is off that chain, standing in for the
+ *  modal panes and menus that must never be recorded as the page's offset. The
+ *  container is pre-scrolled because refs attach before layout effects, so a
  *  restore that lands at the top has to actively reset a non-zero offset. */
-function Harness({ scrollHeight }: { scrollHeight: number }) {
+function Harness({
+  scrollHeight,
+  nestedScrollHeight,
+}: {
+  scrollHeight: number;
+  nestedScrollHeight: number;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   useScrollRestoration(ref);
   return (
@@ -64,14 +74,24 @@ function Harness({ scrollHeight }: { scrollHeight: number }) {
         if (el && el !== container) {
           container = el;
           fakeMetrics(el, scrollHeight, 500);
-          el.scrollTop = 900;
+          el.scrollTop = 100;
         }
       }}
     >
       <div
         ref={(el) => {
-          if (el && el !== child) {
-            child = el;
+          if (el && el !== nested) {
+            nested = el;
+            el.style.overflowY = "auto";
+            fakeMetrics(el, nestedScrollHeight, 500);
+          }
+        }}
+      />
+      <div
+        ref={(el) => {
+          if (el && el !== overlay) {
+            overlay = el;
+            el.style.overflowY = "auto";
             fakeMetrics(el, 4000, 500);
           }
         }}
@@ -80,12 +100,19 @@ function Harness({ scrollHeight }: { scrollHeight: number }) {
   );
 }
 
-function renderWith(view: AppView, scrollHeight: number) {
+function renderWith(
+  view: AppView,
+  scrollHeight: number,
+  nestedScrollHeight = 0,
+) {
   const store = createStore();
   store.set(currentViewAtom, view);
   const utils = render(
     <Provider store={store}>
-      <Harness scrollHeight={scrollHeight} />
+      <Harness
+        scrollHeight={scrollHeight}
+        nestedScrollHeight={nestedScrollHeight}
+      />
     </Provider>,
   );
   return { store, ...utils };
@@ -101,7 +128,8 @@ describe("useScrollRestoration", () => {
   beforeEach(() => {
     observers.length = 0;
     container = null;
-    child = null;
+    nested = null;
+    overlay = null;
     clearAllOffsets();
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -179,10 +207,28 @@ describe("useScrollRestoration", () => {
   });
 
   it("records a descendant scroller that never bubbles its scroll event", () => {
-    renderWith(view(11), 4000);
-    child!.scrollTop = 800;
-    child!.dispatchEvent(new Event("scroll"));
+    renderWith(view(11), 4000, 4000);
+    nested!.scrollTop = 800;
+    nested!.dispatchEvent(new Event("scroll"));
     expect(getOffset("11:")).toBe(800);
+  });
+
+  it("restores a nested overflow-auto child alongside the container", () => {
+    saveOffset("12:", 1200);
+    renderWith(view(12), 4000, 4000);
+    expect(container!.scrollTop).toBe(1200);
+    expect(nested!.scrollTop).toBe(1200);
+  });
+
+  it("ignores a scroller the restore does not write to", () => {
+    renderWith(view(13), 4000);
+    overlay!.scrollTop = 60;
+    overlay!.dispatchEvent(new Event("scroll"));
+    expect(getOffset("13:")).toBeUndefined();
+
+    container!.scrollTop = 2400;
+    container!.dispatchEvent(new Event("scroll"));
+    expect(getOffset("13:")).toBe(2400);
   });
 
   it("records the offset after the restore has finished", () => {

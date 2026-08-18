@@ -29,6 +29,7 @@ export function useScrollRestoration(
   const key = scrollKey(currentView);
   const keyRef = useRef(key);
   const pausedRef = useRef(false);
+  const targetsRef = useRef<HTMLElement[]>([]);
 
   useLayoutEffect(() => {
     keyRef.current = key;
@@ -36,6 +37,7 @@ export function useScrollRestoration(
     if (!container) return;
 
     const targets = scrollTargets(container);
+    targetsRef.current = targets;
     const target = key === null ? undefined : getOffset(key);
 
     if (target === undefined || target <= 0) {
@@ -45,6 +47,13 @@ export function useScrollRestoration(
 
     pausedRef.current = true;
     let done = false;
+
+    // Async page data and late-loading images keep growing the content after
+    // mount; each growth is another chance to reach the saved offset.
+    const observer = new ResizeObserver(() => {
+      if (!done) apply();
+    });
+    const timer = setTimeout(() => finish(), SETTLE_MS);
 
     const finish = () => {
       if (done) return;
@@ -66,16 +75,10 @@ export function useScrollRestoration(
       if (reached) finish();
     };
 
-    // Async page data and late-loading images keep growing the content after
-    // mount; each growth is another chance to reach the saved offset.
-    const observer = new ResizeObserver(() => {
-      if (!done) apply();
-    });
     for (const el of targets) {
       observer.observe(el);
       if (el.firstElementChild) observer.observe(el.firstElementChild);
     }
-    const timer = setTimeout(finish, SETTLE_MS);
     for (const type of ABORT_EVENTS) {
       window.addEventListener(type, finish, { passive: true });
     }
@@ -94,7 +97,10 @@ export function useScrollRestoration(
     const onScroll = (event: Event) => {
       if (pausedRef.current || frame) return;
       const el = event.target as HTMLElement | null;
-      if (!el) return;
+      // In-page scrollers (modal panes, menus) also reach this listener, and
+      // their offsets are not the page's. Only elements the restore writes to
+      // may be recorded, so record and restore share one target set.
+      if (!el || !targetsRef.current.includes(el)) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         const current = keyRef.current;
