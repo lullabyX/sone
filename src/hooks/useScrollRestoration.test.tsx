@@ -50,7 +50,10 @@ function fakeMetrics(
 }
 
 let container: HTMLDivElement | null = null;
+let child: HTMLDivElement | null = null;
 
+/** The container is pre-scrolled because refs attach before layout effects, so a
+ *  restore that lands at the top has to actively reset a non-zero offset. */
 function Harness({ scrollHeight }: { scrollHeight: number }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useScrollRestoration(ref);
@@ -61,9 +64,19 @@ function Harness({ scrollHeight }: { scrollHeight: number }) {
         if (el && el !== container) {
           container = el;
           fakeMetrics(el, scrollHeight, 500);
+          el.scrollTop = 900;
         }
       }}
-    />
+    >
+      <div
+        ref={(el) => {
+          if (el && el !== child) {
+            child = el;
+            fakeMetrics(el, 4000, 500);
+          }
+        }}
+      />
+    </div>
   );
 }
 
@@ -88,6 +101,7 @@ describe("useScrollRestoration", () => {
   beforeEach(() => {
     observers.length = 0;
     container = null;
+    child = null;
     clearAllOffsets();
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -162,6 +176,13 @@ describe("useScrollRestoration", () => {
     renderWith(view(6), 700);
     container!.dispatchEvent(new Event("scroll", { bubbles: false }));
     expect(getOffset("6:")).toBe(1200);
+  });
+
+  it("records a descendant scroller that never bubbles its scroll event", () => {
+    renderWith(view(11), 4000);
+    child!.scrollTop = 800;
+    child!.dispatchEvent(new Event("scroll"));
+    expect(getOffset("11:")).toBe(800);
   });
 
   it("records the offset after the restore has finished", () => {
