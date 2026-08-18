@@ -112,6 +112,12 @@ import {
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
 import {
+  clearOffset,
+  pushView,
+  replaceView,
+  scrollKey,
+} from "../lib/scrollMemory";
+import {
   initPositionInterpolator,
   destroyPositionInterpolator,
   notifySeek,
@@ -520,8 +526,8 @@ export function AppInitializer() {
     if (!action) return;
 
     if (action.kind === "navigate") {
-      window.history.pushState(action.view, "");
-      startTransition(() => setCurrentView(action.view));
+      const stamped = pushView(action.view);
+      startTransition(() => setCurrentView(stamped));
     } else {
       // playTrack: fetch track metadata, then play
       getTrack(action.trackId)
@@ -1365,7 +1371,7 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     if (!window.history.state) {
-      window.history.replaceState({ type: "home" }, "");
+      setCurrentView(replaceView({ type: "home" }));
     }
 
     const handler = (event: PopStateEvent) => {
@@ -1375,6 +1381,8 @@ export function AppInitializer() {
         event.state.type === "playlist" &&
         deletedPlaylistIdsRef.current.has(event.state.playlistId)
       ) {
+        const key = scrollKey(event.state);
+        if (key) clearOffset(key);
         window.history.back();
         return;
       }

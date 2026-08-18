@@ -5,6 +5,7 @@ import type { PropsWithChildren } from "react";
 import { useNavigation } from "./useNavigation";
 import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
 import { currentViewAtom } from "../atoms/navigation";
+import { scrollKey } from "../lib/scrollMemory";
 import type { ProfilePlaylist } from "../types";
 
 describe("useNavigation overlay dismissal", () => {
@@ -80,5 +81,25 @@ describe("useNavigation profile playlists", () => {
       profileName: "Alice",
       playlists,
     });
+  });
+});
+
+describe("useNavigation scroll memory stamping", () => {
+  beforeEach(() => {
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+  });
+
+  it("stamps the pushed view so the entry can own a scroll offset", () => {
+    const store = createStore();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result } = renderHook(() => useNavigation(), { wrapper });
+
+    act(() => {
+      result.current.navigateToAlbum(42);
+    });
+
+    expect(scrollKey(store.get(currentViewAtom))).not.toBe(null);
   });
 });

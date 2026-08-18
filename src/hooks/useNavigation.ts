@@ -2,6 +2,7 @@ import { useCallback, startTransition } from "react";
 import { useSetAtom } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import { drawerOpenAtom, maximizedPlayerAtom } from "../atoms/ui";
+import { pushView } from "../lib/scrollMemory";
 import type { AppView, ProfilePlaylist } from "../types";
 
 export function useNavigation() {
@@ -17,11 +18,11 @@ export function useNavigation() {
     (view: AppView) => {
       setDrawerOpen(false);
       setMaximized(false);
-      window.history.pushState(view, "");
+      const stamped = pushView(view);
       // Wrap in startTransition so React can show the new page's skeleton
       // immediately without blocking on unmounting the old page's heavy DOM.
       startTransition(() => {
-        setCurrentView(view);
+        setCurrentView(stamped);
       });
     },
     [setCurrentView, setDrawerOpen, setMaximized],
