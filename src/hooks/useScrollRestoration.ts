@@ -3,14 +3,17 @@ import { useAtomValue } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import { getOffset, saveOffset, scrollKey } from "../lib/scrollMemory";
 
-const SETTLE_MS = 3000;
+/** Growth restarts the quiet period, so a slow first page keeps the loop alive;
+ *  the ceiling stops a feed that grows forever from chasing forever. */
+const QUIET_MS = 3000;
+const MAX_RESTORE_MS = 15000;
 /** A scrollbar-thumb drag emits `scroll` with no `wheel`, so pointerdown is
  *  what lets a drag win against an in-flight restore. Covers touch and pen too. */
 const ABORT_EVENTS = ["wheel", "pointerdown", "keydown"] as const;
 
 /** Page content may sit inside its own `overflow-y-auto` root, so the offset is
- *  applied to the container and to any nested scroll candidate. Writing to a
- *  non-scrolling element clamps to 0 and costs nothing. */
+ *  applied to the container and to any nested scroll candidate. Candidates that
+ *  turn out not to scroll are skipped when the offset is applied. */
 function scrollTargets(container: HTMLElement): HTMLElement[] {
   const targets = [container];
   let el = container.firstElementChild as HTMLElement | null;
@@ -36,7 +39,7 @@ export function useScrollRestoration(
     const container = containerRef.current;
     if (!container) return;
 
-    const targets = scrollTargets(container);
+    let targets = scrollTargets(container);
     targetsRef.current = targets;
     const target = key === null ? undefined : getOffset(key);
 
@@ -48,19 +51,13 @@ export function useScrollRestoration(
     pausedRef.current = true;
     let done = false;
 
-    // Async page data and late-loading images keep growing the content after
-    // mount; each growth is another chance to reach the saved offset.
-    const observer = new ResizeObserver(() => {
-      if (!done) apply();
-    });
-    const timer = setTimeout(() => finish(), SETTLE_MS);
-
     const finish = () => {
       if (done) return;
       done = true;
       pausedRef.current = false;
       observer.disconnect();
-      clearTimeout(timer);
+      clearTimeout(quiet);
+      clearTimeout(ceiling);
       for (const type of ABORT_EVENTS) window.removeEventListener(type, finish);
     };
 
@@ -75,10 +72,32 @@ export function useScrollRestoration(
       if (reached) finish();
     };
 
-    for (const el of targets) {
-      observer.observe(el);
-      if (el.firstElementChild) observer.observe(el.firstElementChild);
-    }
+    const observe = () => {
+      for (const el of targets) {
+        observer.observe(el);
+        if (el.firstElementChild) observer.observe(el.firstElementChild);
+      }
+    };
+
+    // Async page data and late-loading images keep growing the content after
+    // mount; each growth is another chance to reach the saved offset.
+    const observer = new ResizeObserver(() => {
+      if (done) return;
+      // A page swapping its loading skeleton for its real root detaches the
+      // node being watched, so the set is re-derived on every callback to chain
+      // into the new subtree. Re-observing an observed element is a no-op.
+      targets = scrollTargets(container);
+      targetsRef.current = targets;
+      observe();
+      clearTimeout(quiet);
+      quiet = setTimeout(finish, QUIET_MS);
+      apply();
+    });
+
+    const ceiling = setTimeout(finish, MAX_RESTORE_MS);
+    let quiet = setTimeout(finish, QUIET_MS);
+
+    observe();
     for (const type of ABORT_EVENTS) {
       window.addEventListener(type, finish, { passive: true });
     }

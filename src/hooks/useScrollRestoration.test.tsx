@@ -13,12 +13,18 @@ import { useScrollRestoration } from "./useScrollRestoration";
 import type { AppView } from "../types";
 
 const observers: Array<() => void> = [];
+/** The real observer reports growth for whatever it was told to watch, so the
+ *  stub records that set: re-attaching after a subtree swap is the behaviour
+ *  under test, not an implementation detail. */
+const observed = new Set<Element>();
 
 class StubResizeObserver {
   constructor(private cb: () => void) {
     observers.push(() => this.cb());
   }
-  observe() {}
+  observe(el: Element) {
+    observed.add(el);
+  }
   disconnect() {}
 }
 
@@ -118,6 +124,39 @@ function renderWith(
   return { store, ...utils };
 }
 
+/** The child is created imperatively so React never owns it and the test can
+ *  swap it the way the seven skeleton-returning pages do: a different element
+ *  type at the same position, i.e. unmount + mount. Ref callbacks run before
+ *  layout effects, so the "skeleton" is already in place when the restore
+ *  starts. */
+function SwapHarness() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useScrollRestoration(ref);
+  return (
+    <div
+      ref={(el) => {
+        ref.current = el;
+        if (el && el !== container) {
+          container = el;
+          fakeMetrics(el, 700, 500);
+          el.scrollTop = 100;
+          el.appendChild(document.createElement("div"));
+        }
+      }}
+    />
+  );
+}
+
+function renderSwap(view: AppView) {
+  const store = createStore();
+  store.set(currentViewAtom, view);
+  return render(
+    <Provider store={store}>
+      <SwapHarness />
+    </Provider>,
+  );
+}
+
 const view = (navId: number): AppView => ({
   type: "favorites",
   __navId: navId,
@@ -127,6 +166,7 @@ const view = (navId: number): AppView => ({
 describe("useScrollRestoration", () => {
   beforeEach(() => {
     observers.length = 0;
+    observed.clear();
     container = null;
     nested = null;
     overlay = null;
@@ -250,5 +290,64 @@ describe("useScrollRestoration", () => {
     fakeMetrics(container!, 4000, 500);
     observers.forEach((fire) => fire());
     expect(container!.scrollTop).toBe(200);
+  });
+
+  it("watches the new subtree after a skeleton is swapped for content", () => {
+    saveOffset("14:", 1200);
+    renderSwap(view(14));
+    expect(container!.scrollTop).toBe(200);
+
+    const skeleton = container!.firstElementChild!;
+    expect(observed.has(skeleton)).toBe(true);
+
+    const content = document.createElement("section");
+    container!.replaceChild(content, skeleton);
+    fakeMetrics(container!, 4000, 500);
+    observers.forEach((fire) => fire());
+
+    expect(observed.has(content)).toBe(true);
+    expect(container!.scrollTop).toBe(1200);
+  });
+
+  it("restarts the settle timeout on growth, then gives up once growth stops", () => {
+    vi.useFakeTimers();
+    saveOffset("15:", 1200);
+    renderSwap(view(15));
+    expect(container!.scrollTop).toBe(200);
+
+    vi.advanceTimersByTime(2500);
+    fakeMetrics(container!, 1000, 500);
+    observers.forEach((fire) => fire());
+    expect(container!.scrollTop).toBe(500);
+
+    // Past 3000ms since the restore started, but only 2500ms since the growth.
+    vi.advanceTimersByTime(2500);
+    fakeMetrics(container!, 1600, 500);
+    observers.forEach((fire) => fire());
+    expect(container!.scrollTop).toBe(1100);
+
+    vi.advanceTimersByTime(3000);
+    fakeMetrics(container!, 4000, 500);
+    observers.forEach((fire) => fire());
+    expect(container!.scrollTop).toBe(1100);
+  });
+
+  it("stops chasing at the absolute ceiling even while content keeps growing", () => {
+    vi.useFakeTimers();
+    saveOffset("16:", 50000);
+    renderSwap(view(16));
+
+    // Growth every 2s keeps the quiet period alive, so only the ceiling can
+    // end this restore: it fires during the eighth step, at 15000ms.
+    for (let height = 1000; height <= 8000; height += 1000) {
+      vi.advanceTimersByTime(2000);
+      fakeMetrics(container!, height, 500);
+      observers.forEach((fire) => fire());
+    }
+
+    expect(container!.scrollTop).toBe(6500);
+    fakeMetrics(container!, 60000, 500);
+    observers.forEach((fire) => fire());
+    expect(container!.scrollTop).toBe(6500);
   });
 });
