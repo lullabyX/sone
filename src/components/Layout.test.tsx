@@ -3,12 +3,52 @@ import { render, cleanup, act } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import type { ReactNode } from "react";
 
-// jsdom has no Element.prototype.scrollTo; Layout's effect calls it.
+// jsdom has no Element.prototype.scrollTo. A real implementation, not a no-op,
+// so that a scroll reset re-added to Layout is observable as a lost offset.
 beforeAll(() => {
   if (!Element.prototype.scrollTo) {
-    Element.prototype.scrollTo = () => {};
+    Element.prototype.scrollTo = function (x?: unknown, y?: unknown) {
+      if (typeof x === "object" && x !== null) {
+        const opts = x as ScrollToOptions;
+        if (opts.left !== undefined) this.scrollLeft = opts.left;
+        if (opts.top !== undefined) this.scrollTop = opts.top;
+        return;
+      }
+      if (typeof x === "number") this.scrollLeft = x;
+      if (typeof y === "number") this.scrollTop = y;
+    };
   }
 });
+
+class StubResizeObserver {
+  observe() {}
+  disconnect() {}
+}
+
+/** jsdom has no layout: scrollHeight/clientHeight are always 0, so the
+ *  restore's clamp would pin every offset to 0. */
+function fakeMetrics(
+  el: HTMLElement,
+  scrollHeight: number,
+  clientHeight: number,
+) {
+  let top = el.scrollTop;
+  Object.defineProperty(el, "scrollHeight", {
+    configurable: true,
+    get: () => scrollHeight,
+  });
+  Object.defineProperty(el, "clientHeight", {
+    configurable: true,
+    get: () => clientHeight,
+  });
+  Object.defineProperty(el, "scrollTop", {
+    configurable: true,
+    get: () => top,
+    set: (v: number) => {
+      top = Math.max(0, Math.min(v, scrollHeight - clientHeight));
+    },
+  });
+}
 
 vi.mock("./Sidebar", () => ({ default: () => <div /> }));
 vi.mock("./Header", () => ({ default: () => <div /> }));
@@ -24,9 +64,14 @@ vi.mock("../hooks/useMiniplayerEmitter", () => ({
 
 import Layout from "./Layout";
 import { currentViewAtom } from "../atoms/navigation";
+import {
+  clearAllOffsets,
+  pushView,
+  saveOffset,
+  scrollKey,
+} from "../lib/scrollMemory";
 
-function renderLayout(children: ReactNode = null) {
-  const store = createStore();
+function renderLayout(children: ReactNode = null, store = createStore()) {
   const view = render(
     <Provider store={store}>
       <Layout>{children}</Layout>
@@ -36,7 +81,11 @@ function renderLayout(children: ReactNode = null) {
 }
 
 describe("Layout", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    clearAllOffsets();
+  });
 
   it("makes the scroll container focusable so arrow keys can scroll it", () => {
     const { container } = renderLayout();
@@ -74,5 +123,27 @@ describe("Layout", () => {
       store.set(currentViewAtom, { type: "album", albumId: 1 });
     });
     expect(document.activeElement).toBe(input);
+  });
+
+  it("keeps the restored offset instead of resetting the scroll container", () => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    const view = pushView({ type: "favorites" });
+    saveOffset(scrollKey(view)!, 250);
+    const store = createStore();
+    store.set(currentViewAtom, view);
+
+    // Child refs attach before Layout's layout effects, so this is the only
+    // place metrics can be faked before the restore reads them.
+    const { container } = renderLayout(
+      <div
+        ref={(el) => {
+          if (el) fakeMetrics(el.parentElement!, 4000, 500);
+        }}
+      />,
+      store,
+    );
+
+    const scroller = container.querySelector(".custom-scrollbar")!;
+    expect(scroller.scrollTop).toBe(250);
   });
 });

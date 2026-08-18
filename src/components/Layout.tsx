@@ -39,7 +39,8 @@ export default function Layout({ children }: LayoutProps) {
   useScrollRestoration(scrollRef);
 
   // The container has to own focus for bare arrow keys to scroll it, and
-  // nothing else would give it focus before the first click.
+  // nothing else would give it focus before the first click; `preventScroll`
+  // keeps that focus from scrolling the container out from under a restore.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;

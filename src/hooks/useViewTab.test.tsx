@@ -14,6 +14,9 @@ describe("useViewTab", () => {
     const seeded = pushView({ type: "favorites" });
     window.history.replaceState(seeded, "");
     const seededKey = scrollKey(seeded)!;
+    // Installed after seeding: `pushView` pushes state of its own.
+    const pushState = vi.spyOn(window.history, "pushState");
+    const replaceState = vi.spyOn(window.history, "replaceState");
 
     const store = createStore();
     store.set(currentViewAtom, seeded);
@@ -34,5 +37,7 @@ describe("useViewTab", () => {
     expect(next.__navId).toBe(seeded.__navId);
     expect(next.__navSession).toBe(seeded.__navSession);
     expect(scrollKey(next)).toBe(`${seededKey.split(":")[0]}:albums`);
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(pushState).not.toHaveBeenCalled();
   });
 });
