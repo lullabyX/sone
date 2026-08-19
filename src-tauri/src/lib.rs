@@ -9,16 +9,16 @@ mod embedded_librefm;
 mod error;
 mod idle_inhibit;
 pub mod logging;
+pub mod mcp;
 #[cfg(target_os = "linux")]
 mod mpris;
+mod pipeline_probe;
 mod scrobble;
 mod signal_path;
-mod pipeline_probe;
+mod tidal_api;
 #[cfg(target_os = "linux")]
 mod tray;
-mod tidal_api;
 mod tidal_report;
-pub mod mcp;
 pub mod overlay;
 mod http_util;
 
@@ -29,6 +29,7 @@ use audio::{AudioDevice, AudioPlayer};
 use cache::DiskCache;
 use crypto::Crypto;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -217,6 +218,60 @@ impl Default for Settings {
     }
 }
 
+fn normalize_alsa_device_value(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+pub(crate) fn parse_alsa_device_cli_override<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut args = args.into_iter().peekable();
+
+    while let Some(arg) = args.next() {
+        let arg = arg.as_ref().to_string_lossy().into_owned();
+
+        if arg == "--" {
+            break;
+        }
+
+        if let Some(value) = arg.strip_prefix("--alsa-device=") {
+            if let Some(value) = normalize_alsa_device_value(value.to_owned()) {
+                return Some(value);
+            }
+            continue;
+        }
+
+        if arg == "--alsa-device" {
+            if let Some(next) = args.next() {
+                let value = next.as_ref().to_string_lossy().into_owned();
+                if let Some(value) = normalize_alsa_device_value(value) {
+                    return Some(value);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+pub(crate) fn read_alsa_device_env_override() -> Option<String> {
+    std::env::var_os("SONE_ALSA_DEVICE")
+        .and_then(|value| normalize_alsa_device_value(value.to_string_lossy().into_owned()))
+}
+
+pub(crate) fn resolve_alsa_device_override(
+    cli: Option<String>,
+    env: Option<String>,
+    saved: Option<String>,
+) -> Option<String> {
+    cli.and_then(normalize_alsa_device_value)
+        .or_else(|| env.and_then(normalize_alsa_device_value))
+        .or_else(|| saved.and_then(normalize_alsa_device_value))
+}
+
 pub struct AppState {
     pub audio_player: Arc<AudioPlayer>,
     pub pipeline_probe: Arc<crate::pipeline_probe::PipelineProbe>,
@@ -232,6 +287,7 @@ pub struct AppState {
     pub bit_perfect: AtomicBool,
     pub gapless: AtomicBool,
     pub max_quality: std::sync::Mutex<String>,
+    pub alsa_device_override: Option<String>,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
     pub cached_audio_devices: std::sync::Mutex<Option<Vec<AudioDevice>>>,
     /// Current track's selected replay gain (dB) stored as f64 bits. NAN = no data.
@@ -324,9 +380,7 @@ impl AppState {
                 if let Ok(json) = serde_json::to_string_pretty(s) {
                     if let Ok(encrypted) = crypto.encrypt(json.as_bytes()) {
                         if let Err(e) = fs::write(&settings_path, encrypted) {
-                            log::warn!(
-                                "[migration] failed to persist titlebar_migration_v1: {e}"
-                            );
+                            log::warn!("[migration] failed to persist titlebar_migration_v1: {e}");
                         }
                     }
                 }
@@ -361,7 +415,12 @@ impl AppState {
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
         let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
-        let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
+        let cli_alsa_device = parse_alsa_device_cli_override(std::env::args_os());
+        let env_alsa_device = read_alsa_device_env_override();
+        let saved_exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
+        let alsa_device_override =
+            resolve_alsa_device_override(cli_alsa_device, env_alsa_device, None);
+        let exclusive_device = alsa_device_override.clone().or(saved_exclusive_device);
         let max_quality = saved
             .as_ref()
             .map(|s| s.max_quality.clone())
@@ -441,6 +500,7 @@ impl AppState {
             bit_perfect: AtomicBool::new(bit_perfect),
             gapless: AtomicBool::new(gapless),
             max_quality: std::sync::Mutex::new(max_quality),
+            alsa_device_override,
             exclusive_device: std::sync::Mutex::new(exclusive_device),
             cached_audio_devices: std::sync::Mutex::new(None),
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
@@ -512,6 +572,57 @@ impl AppState {
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::{parse_alsa_device_cli_override, resolve_alsa_device_override};
+
+    #[test]
+    fn resolve_alsa_device_override_prefers_cli_over_env_and_saved() {
+        let resolved = resolve_alsa_device_override(
+            Some("hw:CARD=cli,DEV=0".to_string()),
+            Some("hw:CARD=env,DEV=0".to_string()),
+            Some("hw:CARD=saved,DEV=0".to_string()),
+        );
+
+        assert_eq!(resolved.as_deref(), Some("hw:CARD=cli,DEV=0"));
+    }
+
+    #[test]
+    fn resolve_alsa_device_override_trims_and_ignores_empty_values() {
+        let resolved = resolve_alsa_device_override(
+            Some("   ".to_string()),
+            Some("  hw:CARD=env,DEV=0  ".to_string()),
+            Some("  hw:CARD=saved,DEV=0  ".to_string()),
+        );
+
+        assert_eq!(resolved.as_deref(), Some("hw:CARD=env,DEV=0"));
+    }
+
+    #[test]
+    fn parse_alsa_device_cli_override_supports_long_option_value() {
+        let args = ["sone", "--alsa-device", "  hw:CARD=cli,DEV=0  "];
+
+        let parsed = parse_alsa_device_cli_override(args);
+
+        assert_eq!(parsed.as_deref(), Some("hw:CARD=cli,DEV=0"));
+    }
+
+    #[test]
+    fn parse_alsa_device_cli_override_ignores_empty_values() {
+        let args = [
+            "sone",
+            "--alsa-device",
+            "   ",
+            "--alsa-device=hw:CARD=cli,DEV=0",
+        ];
+
+        let parsed = parse_alsa_device_cli_override(args);
+
+        assert_eq!(parsed.as_deref(), Some("hw:CARD=cli,DEV=0"));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // File logger setup. Must happen before Tauri builds so early log
@@ -523,10 +634,7 @@ pub fn run() {
         .unwrap_or_else(|| std::path::PathBuf::from("./.sone"));
     let logging_toggle_path = sone_dir.join("logging.toggle");
     let logging_enabled = crate::logging::read_logging_preference(&logging_toggle_path);
-    let _logger_handle = crate::logging::init_logging(
-        sone_dir.join("logs"),
-        logging_enabled,
-    );
+    let _logger_handle = crate::logging::init_logging(sone_dir.join("logs"), logging_enabled);
     // Bind to a named local (not `let _ = ...`) so the handle lives until
     // the end of `run()`. flexi_logger flushes the log file on drop, so
     // the handle must outlive the Tauri event loop.
@@ -542,15 +650,14 @@ pub fn run() {
         )
         .setup(|app| {
             // Single-instance: focus existing window if launched again
-            app.handle().plugin(
-                tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            app.handle()
+                .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.unminimize();
                         let _ = window.set_focus();
                     }
-                }),
-            )?;
+                }))?;
             // Deep link: register tidal:// scheme handler
             app.handle().plugin(tauri_plugin_deep_link::init())?;
             #[cfg(target_os = "linux")]
@@ -600,10 +707,14 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    if let Ok(devices) = crate::audio::list_alsa_devices() {
+                    let override_device = {
                         let state = handle.state::<AppState>();
-                        *state.cached_audio_devices.lock().unwrap() = Some(devices);
-                    }
+                        state.alsa_device_override.clone()
+                    };
+                    let devices =
+                        crate::audio::list_alsa_devices_with_override(override_device.as_deref());
+                    let state = handle.state::<AppState>();
+                    *state.cached_audio_devices.lock().unwrap() = Some(devices);
                 });
             }
 
@@ -613,14 +724,13 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<AppState>();
                     if let Some(settings) = state.load_settings() {
-                        let http_client = crate::tidal_api::build_http_client(
-                            &settings.proxy
-                        ).unwrap_or_else(|_| {
-                            reqwest::Client::builder()
-                                .timeout(std::time::Duration::from_secs(30))
-                                .build()
-                                .unwrap()
-                        });
+                        let http_client = crate::tidal_api::build_http_client(&settings.proxy)
+                            .unwrap_or_else(|_| {
+                                reqwest::Client::builder()
+                                    .timeout(std::time::Duration::from_secs(30))
+                                    .build()
+                                    .unwrap()
+                            });
 
                         // Last.fm
                         if let Some(ref creds) = settings.scrobble.lastfm {
@@ -668,8 +778,9 @@ pub fn run() {
 
                         // ListenBrainz
                         if let Some(ref creds) = settings.scrobble.listenbrainz {
-                            let provider =
-                                crate::scrobble::listenbrainz::ListenBrainzProvider::new(http_client.clone());
+                            let provider = crate::scrobble::listenbrainz::ListenBrainzProvider::new(
+                                http_client.clone(),
+                            );
                             provider
                                 .set_token(creds.token.clone(), creds.username.clone())
                                 .await;
@@ -766,7 +877,7 @@ pub fn run() {
                         })
                         .ok();
                 }
-                
+
                 // tauri.conf.json sets decorations: false, so the window is
                 // born without GTK CSD. Only re-enable native chrome if the
                 // user has explicitly opted in via the escape-hatch toggle.
@@ -821,45 +932,43 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "main" {
-                        let app = window.app_handle();
-                        let state = app.state::<AppState>();
-                        if state.minimize_to_tray.load(Ordering::Relaxed) {
-                            api.prevent_close();
-                            let _ = window.hide();
-                        }
-                    } else if window.label() == "miniplayer" {
-                        let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if window.label() == "main" {
+                    let app = window.app_handle();
+                    let state = app.state::<AppState>();
+                    if state.minimize_to_tray.load(Ordering::Relaxed) {
+                        api.prevent_close();
+                        let _ = window.hide();
                     }
+                } else if window.label() == "miniplayer" {
+                    let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
                 }
-                tauri::WindowEvent::Destroyed => {
-                    if window.label() == "miniplayer" {
-                        let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
-                    } else if window.label() == "pkce-login" {
-                        commands::auth::on_pkce_window_closed(window.app_handle());
-                    }
-                }
-                #[cfg(target_os = "linux")]
-                tauri::WindowEvent::Focused(true) => {
-                    if window.label() == "miniplayer" {
-                        if let Some(ww) = window.app_handle().get_webview_window("miniplayer") {
-                            let _ = ww.with_webview(|webview| {
-                                use gtk::prelude::WidgetExt;
-                                let wv: webkit2gtk::WebView = webview.inner();
-                                if let Some(toplevel) = wv.toplevel() {
-                                    if let Some(gdk_win) = toplevel.window() {
-                                        gdk_win.set_shadow_width(12, 12, 12, 12);
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-                _ => {}
             }
+            tauri::WindowEvent::Destroyed => {
+                if window.label() == "miniplayer" {
+                    let _ = window.app_handle().emit_to("main", "miniplayer-closed", ());
+                } else if window.label() == "pkce-login" {
+                    commands::auth::on_pkce_window_closed(window.app_handle());
+                }
+            }
+            #[cfg(target_os = "linux")]
+            tauri::WindowEvent::Focused(true) => {
+                if window.label() == "miniplayer" {
+                    if let Some(ww) = window.app_handle().get_webview_window("miniplayer") {
+                        let _ = ww.with_webview(|webview| {
+                            use gtk::prelude::WidgetExt;
+                            let wv: webkit2gtk::WebView = webview.inner();
+                            if let Some(toplevel) = wv.toplevel() {
+                                if let Some(gdk_win) = toplevel.window() {
+                                    gdk_win.set_shadow_width(12, 12, 12, 12);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             // auth
@@ -1020,6 +1129,7 @@ pub fn run() {
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
+            commands::utility::refresh_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
             commands::utility::get_report_plays,
@@ -1053,7 +1163,9 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppState>();
-                state.discord.send(crate::discord::DiscordCommand::Disconnect);
+                state
+                    .discord
+                    .send(crate::discord::DiscordCommand::Disconnect);
                 tauri::async_runtime::block_on(async {
                     state.idle_inhibitor.lock().await.uninhibit().await;
                     state.scrobble_manager.flush().await;

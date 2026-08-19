@@ -62,6 +62,19 @@ export default function UserMenu() {
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const refreshAudioDevices = () =>
+    invoke<Array<{ id: string; name: string }>>("refresh_audio_devices")
+      .then((devices) => {
+        setAudioDevices(devices);
+        if (!exclusiveDevice && devices.length > 0) {
+          setExclusiveDevice(devices[0].id);
+          invoke("set_exclusive_device", { device: devices[0].id }).catch(
+            () => {},
+          );
+        }
+      })
+      .catch(() => {});
+
   // Toggle shortcuts modal from ? key
   useEffect(() => {
     // Close the dropdown too — left open it sits above the modal on the
@@ -115,19 +128,16 @@ export default function UserMenu() {
   // Load audio devices when exclusive mode is enabled
   useEffect(() => {
     if (exclusiveMode) {
-      invoke<Array<{ id: string; name: string }>>("list_audio_devices")
-        .then((devices) => {
-          setAudioDevices(devices);
-          if (!exclusiveDevice && devices.length > 0) {
-            setExclusiveDevice(devices[0].id);
-            invoke("set_exclusive_device", { device: devices[0].id }).catch(
-              () => {},
-            );
-          }
-        })
-        .catch(() => {});
+      refreshAudioDevices();
     }
   }, [exclusiveMode]);
+
+  // Re-enumerate when the selector is opened so hotplugged devices can appear
+  useEffect(() => {
+    if (exclusiveMode && deviceDropdownOpen) {
+      refreshAudioDevices();
+    }
+  }, [exclusiveMode, deviceDropdownOpen]);
 
   // Close on click outside
   useEffect(() => {

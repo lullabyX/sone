@@ -3,6 +3,7 @@ use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
@@ -10,7 +11,7 @@ use tauri::Emitter;
 
 type Reply<T> = mpsc::Sender<T>;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AudioDevice {
     pub id: String,
     pub name: String,
@@ -94,8 +95,14 @@ enum WriterCommand {
         generation: u64,
     },
     FormatHint(PcmFormat),
-    Resampling { from: u32, to: u32 },
-    PendingPromotion { from: String, generation: u64 },
+    Resampling {
+        from: u32,
+        to: u32,
+    },
+    PendingPromotion {
+        from: String,
+        generation: u64,
+    },
     Flush,
     Shutdown,
 }
@@ -104,7 +111,8 @@ enum WriterCommand {
 /// The ALSA writer sender + thread handle live as separate state variables
 /// so they persist across PlayUrl calls (track changes keep DAC open).
 enum PlaybackBackend {
-    /// Normal: full GStreamer pipeline with autoaudiosink.
+    /// Full GStreamer pipeline with autoaudiosink, or with alsasink for a
+    /// configured PCM that must own the ALSA device exclusively.
     /// `concat` sits at the head (per-branch `queue` → concat → chain → sink)
     /// so the next track's decoder can preroll ahead for gapless (2b).
     Normal {
@@ -112,6 +120,7 @@ enum PlaybackBackend {
         concat: gst::Element,
         user_volume_el: Option<gst::Element>,
         norm_volume_el: Option<gst::Element>,
+        owns_exclusive_alsa: bool,
     },
     /// Exclusive/Bit-perfect: GStreamer decode → appsink, ALSA writer is external
     DirectAlsa {
@@ -351,9 +360,7 @@ fn attach_next_bin(
     // Wait for the preroll to complete so pad_added has fired + linked. Bounded
     // so a stalled network source can't hang the executor thread.
     let (ret, cur, pend) = udb.state(gst::ClockTime::from_seconds(15));
-    log::debug!(
-        "[audio] gapless: next bin preroll state ret={ret:?} cur={cur:?} pend={pend:?}"
-    );
+    log::debug!("[audio] gapless: next bin preroll state ret={ret:?} cur={cur:?} pend={pend:?}");
 
     // Preroll done + pad linked: now safe to promote to PLAYING.
     if let Err(e) = branch_queue.sync_state_with_parent() {
@@ -412,9 +419,7 @@ fn detach_bin(
     let _ = branch_queue.set_state(gst::State::Null);
     let (br, bcur, _) = bin.state(gst::ClockTime::from_seconds(10));
     let (qr, qcur, _) = branch_queue.state(gst::ClockTime::from_seconds(10));
-    log::debug!(
-        "[audio] gapless: next bin NULL wait bin={br:?}/{bcur:?} queue={qr:?}/{qcur:?}"
-    );
+    log::debug!("[audio] gapless: next bin NULL wait bin={br:?}/{bcur:?} queue={qr:?}/{qcur:?}");
 
     let _ = pipeline.remove_many([bin, branch_queue]);
     log::debug!("[audio] gapless: detached next bin");
@@ -488,8 +493,8 @@ fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
     };
     let probe: &[(Format, &str)] = &[
         (Format::S32LE, "S32LE"),
-        (Format::S24LE, "S24_32LE"),  // ALSA S24LE = GStreamer S24_32LE
-        (Format::S243LE, "S24LE"),    // ALSA S243LE = GStreamer S24LE
+        (Format::S24LE, "S24_32LE"), // ALSA S24LE = GStreamer S24_32LE
+        (Format::S243LE, "S24LE"),   // ALSA S243LE = GStreamer S24LE
         (Format::FloatLE, "F32LE"),
         (Format::S16LE, "S16LE"),
     ];
@@ -511,7 +516,7 @@ fn probe_supported_gst_formats(pcm: &alsa::PCM) -> Vec<&'static str> {
 ///   2. Narrowest lossless promotion the DAC supports (container widening or, for S24_32LE,
 ///      shrinking to S24LE which holds the same 24 audio bits in 3 bytes).
 ///   3. Lossy fallback: DAC's first probed format (widest per probe order).
-/// In case 3, the writer's `resolve_pending` still emits a truthful from→to toast.
+///      The writer's `resolve_pending` still emits a truthful from→to toast.
 #[cfg(target_os = "linux")]
 fn pick_capsfilter_format(source: &str, dac_supported: &[String]) -> String {
     // 1. Pass-through.
@@ -523,12 +528,15 @@ fn pick_capsfilter_format(source: &str, dac_supported: &[String]) -> String {
     //    S24_32LE → S24LE is safe because audioconvert writes a zero pad byte
     //    upstream; stripping it preserves the 24 audio bits exactly.
     let promotions: &[&str] = match source {
-        "S16LE"    => &["S24LE", "S24_32LE", "S32LE"],
-        "S24LE"    => &["S24_32LE", "S32LE"],
+        "S16LE" => &["S24LE", "S24_32LE", "S32LE"],
+        "S24LE" => &["S24_32LE", "S32LE"],
         "S24_32LE" => &["S24LE", "S32LE"], // S24LE = same 24 bits, narrower container
-        _          => &[], // S32LE, F32LE, unknowns: no lossless integer alternative
+        _ => &[], // S32LE, F32LE, unknowns: no lossless integer alternative
     };
-    if let Some(p) = promotions.iter().find(|p| dac_supported.iter().any(|f| f == *p)) {
+    if let Some(p) = promotions
+        .iter()
+        .find(|p| dac_supported.iter().any(|f| f == *p))
+    {
         return (*p).to_string();
     }
     // 3. Lossy fallback — DAC's preferred (widest) format. PendingPromotion still
@@ -603,8 +611,8 @@ fn configure_alsa_hwparams(
         // Ranked fallback: requested first, then descending quality
         let fallbacks: &[Format] = &[
             Format::S32LE,
-            Format::S24LE,   // 24-in-32 container
-            Format::S243LE,  // 24-bit packed
+            Format::S24LE,  // 24-in-32 container
+            Format::S243LE, // 24-bit packed
             Format::FloatLE,
             Format::S16LE,
         ];
@@ -636,7 +644,10 @@ fn configure_alsa_hwparams(
     hwp.set_rate(fmt.sample_rate, ValueOr::Nearest)
         .map_err(|e| {
             if bit_perfect {
-                log::warn!("[audio] bit-perfect set_rate({}) failed: {e}", fmt.sample_rate);
+                log::warn!(
+                    "[audio] bit-perfect set_rate({}) failed: {e}",
+                    fmt.sample_rate
+                );
                 format!(
                     "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
                     fmt.sample_rate / 1000
@@ -650,7 +661,8 @@ fn configure_alsa_hwparams(
         if actual_rate != fmt.sample_rate {
             log::warn!(
                 "[audio] bit-perfect rate mismatch: DAC negotiated {}Hz, track requires {}Hz",
-                actual_rate, fmt.sample_rate
+                actual_rate,
+                fmt.sample_rate
             );
             return Err(format!(
                 "DAC doesn't support {}kHz — turn off bit-perfect mode for compatibility",
@@ -668,7 +680,8 @@ fn configure_alsa_hwparams(
             Ok(n) if n > 0 => {
                 log::info!(
                     "[audio] DAC rejects {}ch, using device-native {}ch",
-                    fmt.channels, n
+                    fmt.channels,
+                    n
                 );
                 n
             }
@@ -693,13 +706,17 @@ fn configure_alsa_hwparams(
     // writei), which causes underruns when the writer can't keep up from frame one.
     // Match GStreamer alsasink: start_threshold = buffer_size (full pre-fill).
     {
-        let swp = pcm.sw_params_current()
+        let swp = pcm
+            .sw_params_current()
             .map_err(|e| format!("sw_params_current: {e}"))?;
-        let hwp_active = pcm.hw_params_current()
+        let hwp_active = pcm
+            .hw_params_current()
             .map_err(|e| format!("hw_params_current for sw: {e}"))?;
-        let buffer_frames = hwp_active.get_buffer_size()
+        let buffer_frames = hwp_active
+            .get_buffer_size()
             .map_err(|e| format!("get_buffer_size: {e}"))?;
-        let period_frames = hwp_active.get_period_size()
+        let period_frames = hwp_active
+            .get_period_size()
             .map_err(|e| format!("get_period_size: {e}"))?;
         // start_threshold: largest period-aligned value ≤ buffer_size.
         // With our time-near requests this equals buffer_size, but the
@@ -709,11 +726,11 @@ fn configure_alsa_hwparams(
             .map_err(|e| format!("set_start_threshold: {e}"))?;
         swp.set_avail_min(period_frames as alsa::pcm::Frames)
             .map_err(|e| format!("set_avail_min: {e}"))?;
-        pcm.sw_params(&swp)
-            .map_err(|e| format!("sw_params: {e}"))?;
+        pcm.sw_params(&swp).map_err(|e| format!("sw_params: {e}"))?;
         log::debug!(
             "[audio] sw_params committed: start_threshold={}, avail_min={}",
-            start, period_frames
+            start,
+            period_frames
         );
     }
 
@@ -733,10 +750,13 @@ fn configure_alsa_hwparams(
     if alsa_fmt != requested {
         log::info!(
             "[audio] format fallback: {} -> {} (DAC doesn't support {})",
-            fmt.gst_format, gst_fmt_str, fmt.gst_format
+            fmt.gst_format,
+            gst_fmt_str,
+            fmt.gst_format
         );
     }
-    let actual_rate = pcm.hw_params_current()
+    let actual_rate = pcm
+        .hw_params_current()
         .and_then(|p| p.get_rate())
         .unwrap_or(fmt.sample_rate);
     Ok(PcmFormat {
@@ -748,6 +768,7 @@ fn configure_alsa_hwparams(
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 fn spawn_alsa_writer(
     device: &str,
@@ -763,7 +784,16 @@ fn spawn_alsa_writer(
     signal_path: Arc<SignalPathTracker>,
     decoded_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
     output_cell: Arc<Mutex<Option<crate::pipeline_probe::PadCaps>>>,
-) -> Result<(crossbeam_channel::Sender<WriterCommand>, JoinHandle<()>, PcmFormat, Vec<&'static str>, Vec<u32>), String> {
+) -> Result<
+    (
+        crossbeam_channel::Sender<WriterCommand>,
+        JoinHandle<()>,
+        PcmFormat,
+        Vec<&'static str>,
+        Vec<u32>,
+    ),
+    String,
+> {
     let device = device.to_string();
     let initial_format = initial_format.clone();
     let (tx, rx) = crossbeam_channel::bounded::<WriterCommand>(256);
@@ -779,7 +809,10 @@ fn spawn_alsa_writer(
     })?;
 
     let supported_gst_formats = probe_supported_gst_formats(&pcm);
-    log::debug!("[alsa-writer] DAC supported GStreamer formats: {:?}", supported_gst_formats);
+    log::debug!(
+        "[alsa-writer] DAC supported GStreamer formats: {:?}",
+        supported_gst_formats
+    );
 
     let supported_rates = probe_supported_rates(&pcm);
     log::debug!("[alsa-writer] DAC supported rates: {:?}", supported_rates);
@@ -794,7 +827,8 @@ fn spawn_alsa_writer(
             let (_, bps) = alsa_format_to_gst(gst_format_to_alsa(best));
             log::info!(
                 "[alsa-writer] DAC doesn't support {}, using {} for initial config",
-                fmt.gst_format, best
+                fmt.gst_format,
+                best
             );
             fmt.gst_format = best.to_string();
             fmt.bytes_per_sample = bps;
@@ -803,7 +837,8 @@ fn spawn_alsa_writer(
             let fallback = supported_rates[0]; // first probed rate (44100 typically)
             log::info!(
                 "[alsa-writer] DAC doesn't support {}Hz, using {}Hz for initial config",
-                fmt.sample_rate, fallback
+                fmt.sample_rate,
+                fallback
             );
             fmt.sample_rate = fallback;
         }
@@ -1340,7 +1375,13 @@ fn spawn_alsa_writer(
         })
         .map_err(|e| format!("Failed to spawn ALSA writer thread: {e}"))?;
 
-    Ok((tx, handle, negotiated_fmt, supported_gst_formats, supported_rates))
+    Ok((
+        tx,
+        handle,
+        negotiated_fmt,
+        supported_gst_formats,
+        supported_rates,
+    ))
 }
 
 // ── Audio command protocol ─────────────────────────────────────────────
@@ -1546,22 +1587,41 @@ impl AudioPlayer {
                                     PlaybackBackend::Normal {
                                         pipeline,
                                         user_volume_el,
+                                        owns_exclusive_alsa,
                                         ..
                                     } => {
                                         if let Some(bus) = pipeline.bus() {
                                             bus.set_flushing(true);
                                         }
-                                        let old_pipe = pipeline;
-                                        std::thread::spawn(move || {
-                                            // Fade out
-                                            if let Some(ref vol) = user_volume_el {
-                                                for i in (0..=10).rev() {
-                                                    vol.set_property("volume", slider_to_amplitude(current_volume) * (i as f64 / 10.0));
-                                                    std::thread::sleep(std::time::Duration::from_millis(10));
+                                        if owns_exclusive_alsa {
+                                            // alsasink owns the PCM. Release it completely before
+                                            // the replacement pipeline tries to open the same
+                                            // device, otherwise rapid track changes race with the
+                                            // asynchronous teardown and fail their first state
+                                            // transition with EBUSY.
+                                            pipeline.set_state(gst::State::Null).ok();
+                                            let _ = pipeline
+                                                .state(gst::ClockTime::from_mseconds(1_000));
+                                            drop(pipeline);
+                                        } else {
+                                            let old_pipe = pipeline;
+                                            std::thread::spawn(move || {
+                                                // Fade out
+                                                if let Some(ref vol) = user_volume_el {
+                                                    for i in (0..=10).rev() {
+                                                        vol.set_property(
+                                                            "volume",
+                                                            slider_to_amplitude(current_volume)
+                                                                * (i as f64 / 10.0),
+                                                        );
+                                                        std::thread::sleep(
+                                                            std::time::Duration::from_millis(10),
+                                                        );
+                                                    }
                                                 }
-                                            }
-                                            old_pipe.set_state(gst::State::Null).ok();
-                                        });
+                                                old_pipe.set_state(gst::State::Null).ok();
+                                            });
+                                        }
                                     }
                                     PlaybackBackend::DirectAlsa { pipeline, .. } => {
                                         // Unblock writer if paused, then bump generation —
@@ -1607,6 +1667,15 @@ impl AudioPlayer {
                             *decoded_cell_thread.lock().unwrap() = None;
                             *output_cell_thread.lock().unwrap() = None;
                             signal_path.reset_for_track();
+                            // The manual writer is intentionally limited to raw hardware
+                            // endpoints. Named ALSA PCMs can be plug/extplug graphs (equal,
+                            // rate, route, etc.); snd_pcm_writei through those graphs has
+                            // different application/slave constraints. Let GStreamer's
+                            // alsasink negotiate them as a complete ALSA client instead.
+                            let use_direct_alsa_writer = (exclusive || bit_perfect)
+                                && device
+                                    .as_deref()
+                                    .is_some_and(|dev| parse_hw_endpoint(dev).is_some());
                             if exclusive || bit_perfect {
                                 signal_path.set_backend("DirectAlsa", device.clone());
                             } else {
@@ -1614,7 +1683,7 @@ impl AudioPlayer {
                             }
                             signal_path.set_audio_modes(exclusive, bit_perfect);
 
-                            if exclusive || bit_perfect {
+                            if use_direct_alsa_writer {
                                 // ── DirectAlsa path ──
                                 #[cfg(not(target_os = "linux"))]
                                 return Err("Exclusive/bit-perfect mode requires Linux".into());
@@ -1649,7 +1718,11 @@ impl AudioPlayer {
                                     let device_changed = writer_device.as_deref() != Some(dev);
                                     let mode_changed = writer_bit_perfect != Some(bit_perfect);
 
-                                    if !writer_alive || writer_tx.is_none() || device_changed || mode_changed {
+                                    if !writer_alive
+                                        || writer_tx.is_none()
+                                        || device_changed
+                                        || mode_changed
+                                    {
                                         // Shut down old writer cleanly
                                         if let Some(tx) = writer_tx.take() {
                                             tx.try_send(WriterCommand::Shutdown).ok();
@@ -1657,7 +1730,13 @@ impl AudioPlayer {
                                         if let Some(h) = writer_thread.take() {
                                             h.join().ok();
                                         }
-                                        let (tx, handle, negotiated_fmt, supported_gst_fmts, supported_rates) = spawn_alsa_writer(
+                                        let (
+                                            tx,
+                                            handle,
+                                            negotiated_fmt,
+                                            supported_gst_fmts,
+                                            supported_rates,
+                                        ) = spawn_alsa_writer(
                                             dev,
                                             &default_fmt,
                                             app_handle.clone(),
@@ -1684,9 +1763,13 @@ impl AudioPlayer {
                                     let wtx = writer_tx.as_ref().unwrap().clone();
 
                                     // Build appsink pipeline
-                                    let fmt_for_pipeline = writer_fmt.as_ref().unwrap_or(&default_fmt);
-                                    let supported_fmts_for_pipeline = writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
-                                    let supported_rates_for_pipeline = writer_supported_rates.as_deref().unwrap_or(&[44100, 48000]);
+                                    let fmt_for_pipeline =
+                                        writer_fmt.as_ref().unwrap_or(&default_fmt);
+                                    let supported_fmts_for_pipeline =
+                                        writer_supported_fmts.as_deref().unwrap_or(&["S32LE"]);
+                                    let supported_rates_for_pipeline = writer_supported_rates
+                                        .as_deref()
+                                        .unwrap_or(&[44100, 48000]);
                                     let (pipe, u_vol, n_vol) = build_appsink_pipeline(
                                         &uri,
                                         exclusive,
@@ -1777,13 +1860,27 @@ impl AudioPlayer {
                                     });
                                 }
                             } else {
-                                // ── Normal path (unchanged) ──
+                                // ── GStreamer sink path ──
+                                // Normal playback uses autoaudiosink. Exclusive playback to
+                                // a named/configured ALSA PCM uses alsasink so ALSA owns all
+                                // plugin negotiation (including alsaequal's FLOAT extplug).
+                                let use_named_alsa_sink = exclusive || bit_perfect;
                                 // Shut down any lingering ALSA writer from a mode switch
                                 if let Some(tx) = writer_tx.take() {
                                     tx.try_send(WriterCommand::Shutdown).ok();
                                 }
                                 if let Some(h) = writer_thread.take() {
                                     h.join().ok();
+                                }
+
+                                #[cfg(target_os = "linux")]
+                                if use_named_alsa_sink {
+                                    let config_changed = alsa::config::update().map_err(|e| {
+                                        format!("Failed to reload ALSA configuration: {e}")
+                                    })?;
+                                    log::debug!(
+                                        "[audio] ALSA configuration reload before PCM open: changed={config_changed}"
+                                    );
                                 }
 
                                 let pipe = gst::Pipeline::new();
@@ -1827,20 +1924,49 @@ impl AudioPlayer {
                                 let audioconvert = gst::ElementFactory::make("audioconvert")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioconvert: {e}"))?;
+                                if bit_perfect {
+                                    audioconvert.set_property_from_str("dithering", "none");
+                                    audioconvert.set_property_from_str("noise-shaping", "none");
+                                }
                                 let audioresample = gst::ElementFactory::make("audioresample")
                                     .build()
                                     .map_err(|e| format!("Failed to create audioresample: {e}"))?;
                                 let norm_vol = gst::ElementFactory::make("volume")
-                                    .property("volume", current_norm_gain)
+                                    .property(
+                                        "volume",
+                                        if bit_perfect { 1.0 } else { current_norm_gain },
+                                    )
                                     .build()
                                     .map_err(|e| format!("Failed to create norm volume: {e}"))?;
                                 let user_vol = gst::ElementFactory::make("volume")
-                                    .property("volume", slider_to_amplitude(current_volume))
+                                    .property(
+                                        "volume",
+                                        if bit_perfect {
+                                            1.0
+                                        } else {
+                                            slider_to_amplitude(current_volume)
+                                        },
+                                    )
                                     .build()
                                     .map_err(|e| format!("Failed to create user volume: {e}"))?;
-                                let sink = gst::ElementFactory::make("autoaudiosink")
-                                    .build()
-                                    .map_err(|e| format!("Failed to create autoaudiosink: {e}"))?;
+                                let sink = if use_named_alsa_sink {
+                                    let dev = device.as_deref().ok_or_else(|| {
+                                        "No audio device selected for exclusive mode".to_string()
+                                    })?;
+                                    log::info!(
+                                        "[audio] using GStreamer alsasink for configured PCM {dev}"
+                                    );
+                                    gst::ElementFactory::make("alsasink")
+                                        .property("device", dev)
+                                        .property("buffer-time", 500_000i64)
+                                        .property("latency-time", 50_000i64)
+                                        .build()
+                                        .map_err(|e| format!("Failed to create alsasink: {e}"))?
+                                } else {
+                                    gst::ElementFactory::make("autoaudiosink").build().map_err(
+                                        |e| format!("Failed to create autoaudiosink: {e}"),
+                                    )?
+                                };
 
                                 pipe.add_many([
                                     &uridecodebin,
@@ -1955,23 +2081,32 @@ impl AudioPlayer {
                                 // format when the downstream capsfilter is locked, which is misleading.
                                 if let Some(sink_pad) = audioconvert.static_pad("sink") {
                                     let cell = Arc::clone(&decoded_cell_thread);
-                                    sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
-                                        if let Some(gst::PadProbeData::Event(ref event)) = info.data {
-                                            if let gst::EventView::Caps(caps_event) = event.view() {
-                                                let caps = caps_event.caps();
-                                                if let Some(fmt) = parse_pcm_format(caps) {
-                                                    if let Ok(mut guard) = cell.lock() {
-                                                        *guard = Some(crate::pipeline_probe::PadCaps {
-                                                            format: fmt.gst_format.clone(),
-                                                            rate: fmt.sample_rate,
-                                                            channels: fmt.channels,
-                                                        });
+                                    sink_pad.add_probe(
+                                        gst::PadProbeType::EVENT_DOWNSTREAM,
+                                        move |_pad, info| {
+                                            if let Some(gst::PadProbeData::Event(ref event)) =
+                                                info.data
+                                            {
+                                                if let gst::EventView::Caps(caps_event) =
+                                                    event.view()
+                                                {
+                                                    let caps = caps_event.caps();
+                                                    if let Some(fmt) = parse_pcm_format(caps) {
+                                                        if let Ok(mut guard) = cell.lock() {
+                                                            *guard = Some(
+                                                                crate::pipeline_probe::PadCaps {
+                                                                    format: fmt.gst_format.clone(),
+                                                                    rate: fmt.sample_rate,
+                                                                    channels: fmt.channels,
+                                                                },
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
-                                        gst::PadProbeReturn::Ok
-                                    });
+                                            gst::PadProbeReturn::Ok
+                                        },
+                                    );
                                 }
 
                                 // autoaudiosink is a bin — its real child sink
@@ -1983,7 +2118,41 @@ impl AudioPlayer {
                                 // or until the 2s heartbeat triggers a refresh; the diagram
                                 // gracefully shows "—" until then. In practice the connect happens
                                 // before the pipeline transitions to PAUSED, so the race is rare.
-                                if let Ok(sink_bin) = sink.clone().dynamic_cast::<gst::Bin>() {
+                                if use_named_alsa_sink {
+                                    let cell = Arc::clone(&output_cell_thread);
+                                    if let Some(sink_pad) = sink.static_pad("sink") {
+                                        sink_pad.add_probe(
+                                            gst::PadProbeType::EVENT_DOWNSTREAM,
+                                            move |_pad, info| {
+                                                if let Some(gst::PadProbeData::Event(ref event)) =
+                                                    info.data
+                                                {
+                                                    if let gst::EventView::Caps(caps_event) =
+                                                        event.view()
+                                                    {
+                                                        if let Some(fmt) =
+                                                            parse_pcm_format(caps_event.caps())
+                                                        {
+                                                            if let Ok(mut guard) = cell.lock() {
+                                                                *guard = Some(
+                                                                    crate::pipeline_probe::PadCaps {
+                                                                        format: fmt
+                                                                            .gst_format
+                                                                            .clone(),
+                                                                        rate: fmt.sample_rate,
+                                                                        channels: fmt.channels,
+                                                                    },
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                gst::PadProbeReturn::Ok
+                                            },
+                                        );
+                                    }
+                                } else if let Ok(sink_bin) = sink.clone().dynamic_cast::<gst::Bin>()
+                                {
                                     let output_cell = Arc::clone(&output_cell_thread);
                                     sink_bin.connect_element_added(move |_bin, element| {
                                         let cell = Arc::clone(&output_cell);
@@ -2098,8 +2267,7 @@ impl AudioPlayer {
                                                                     if let Ok(el) = obj
                                                                         .clone()
                                                                         .downcast::<gst::Element>(
-                                                                        )
-                                                                    {
+                                                                    ) {
                                                                         if el == next_el {
                                                                             found = true;
                                                                             break;
@@ -2123,9 +2291,8 @@ impl AudioPlayer {
                                                         log::warn!(
                                                             "[audio] gapless: next-bin bus error, isolating: {err_msg}"
                                                         );
-                                                        let _ = cmd_tx_bus.send(
-                                                            AudioCommand::HandleNextBinError,
-                                                        );
+                                                        let _ = cmd_tx_bus
+                                                            .send(AudioCommand::HandleNextBinError);
                                                         // Do NOT set eos / emit audio-error /
                                                         // break — current track is unaffected.
                                                         continue;
@@ -2165,6 +2332,7 @@ impl AudioPlayer {
                                     concat,
                                     user_volume_el: Some(user_vol),
                                     norm_volume_el: Some(norm_vol),
+                                    owns_exclusive_alsa: use_named_alsa_sink,
                                 });
 
                                 // 2b-A3: this is the sink_0 branch — the currently
@@ -2224,15 +2392,25 @@ impl AudioPlayer {
                         next_active.store(false, Ordering::Release);
                         current_branch = None;
                         let result = match backend.take() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
+                            Some(PlaybackBackend::Normal {
+                                pipeline,
+                                owns_exclusive_alsa,
+                                ..
+                            }) => {
                                 if let Some(bus) = pipeline.bus() {
                                     bus.set_flushing(true);
                                 }
                                 eos.store(false, Ordering::SeqCst);
                                 has_uri.store(false, Ordering::SeqCst);
-                                std::thread::spawn(move || {
+                                if owns_exclusive_alsa {
                                     pipeline.set_state(gst::State::Null).ok();
-                                });
+                                    let _ = pipeline.state(gst::ClockTime::from_mseconds(1_000));
+                                    drop(pipeline);
+                                } else {
+                                    std::thread::spawn(move || {
+                                        pipeline.set_state(gst::State::Null).ok();
+                                    });
+                                }
                                 *decoded_cell_thread.lock().unwrap() = None;
                                 *output_cell_thread.lock().unwrap() = None;
                                 Ok(())
@@ -2413,11 +2591,12 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): enabling exclusive invalidates any
                         // Normal-pipeline next bin. Detach it (gated on !next_active).
                         if enabled && !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2440,11 +2619,12 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): enabling bit-perfect invalidates any
                         // Normal-pipeline next bin. Detach it (gated on !next_active).
                         if enabled && !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2465,11 +2645,12 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): disabling gapless invalidates any
                         // prerolled next bin. Detach it (gated on !next_active).
                         if !enabled && !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2518,7 +2699,8 @@ impl AudioPlayer {
                             // Gapless off / wrong mode: detach any existing next_bin
                             // (gated on !next_active per C5) and do nothing else.
                             if !next_active.load(Ordering::Acquire) {
-                                if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take()) {
+                                if let Some(stale) = next_bin.lock().ok().and_then(|mut g| g.take())
+                                {
                                     if let Some(PlaybackBackend::Normal {
                                         pipeline, concat, ..
                                     }) = backend.as_ref()
@@ -2576,7 +2758,9 @@ impl AudioPlayer {
                             });
                         }
 
-                        log::debug!("[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id}");
+                        log::debug!(
+                            "[gapless-diag] SetNextTrack: dispatching ATTACH for track {track_id}"
+                        );
                         let _ = attach_tx.send(AttachJob::Attach {
                             pipeline,
                             concat,
@@ -2638,11 +2822,12 @@ impl AudioPlayer {
                         // detach now that concat has switched away from it. Gated to
                         // Normal (C5) — the worker never reaches here on DirectAlsa
                         // (gapless is mode-gated off), but be defensive.
-                        if let (Some((old_bin, old_queue)), Some(PlaybackBackend::Normal {
-                            pipeline,
-                            concat,
-                            ..
-                        })) = (current_branch.take(), backend.as_ref())
+                        if let (
+                            Some((old_bin, old_queue)),
+                            Some(PlaybackBackend::Normal {
+                                pipeline, concat, ..
+                            }),
+                        ) = (current_branch.take(), backend.as_ref())
                         {
                             let _ = attach_tx.send(AttachJob::Detach {
                                 pipeline: pipeline.clone(),
@@ -2693,11 +2878,12 @@ impl AudioPlayer {
                     // current track — the natural boundary falls back to playNext.
                     AudioCommand::HandleNextBinError => {
                         if !next_active.load(Ordering::Acquire) {
-                            if let (Some(stale), Some(PlaybackBackend::Normal {
-                                pipeline,
-                                concat,
-                                ..
-                            })) = (
+                            if let (
+                                Some(stale),
+                                Some(PlaybackBackend::Normal {
+                                    pipeline, concat, ..
+                                }),
+                            ) = (
                                 next_bin.lock().ok().and_then(|mut g| g.take()),
                                 backend.as_ref(),
                             ) {
@@ -2712,7 +2898,7 @@ impl AudioPlayer {
                     }
 
                     AudioCommand::ListDevices { reply } => {
-                        let result = list_alsa_devices_inner();
+                        let result = Ok(list_alsa_devices_with_override(None));
                         reply.send(result).ok();
                     }
                 }
@@ -2841,6 +3027,7 @@ fn stereo_pad_mix_matrix(out_channels: u32) -> gst::Array {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
 fn build_appsink_pipeline(
     uri: &str,
     exclusive: bool,
@@ -2915,7 +3102,10 @@ fn build_appsink_pipeline(
     // non-DASH/BTS path).
     if is_dash {
         let mut caps_builder = gst::Caps::builder("audio/x-raw")
-            .field("format", gst::List::new(supported_gst_formats.iter().copied()))
+            .field(
+                "format",
+                gst::List::new(supported_gst_formats.iter().copied()),
+            )
             .field("channels", device_channels as i32);
         let rate_list: Vec<i32> = supported_rates.iter().map(|&r| r as i32).collect();
         if !bit_perfect && !rate_list.is_empty() {
@@ -2925,7 +3115,11 @@ fn build_appsink_pipeline(
         log::debug!(
             "[audio] DASH appsink caps = formats:{:?} rates:{} (bit_perfect={bit_perfect})",
             supported_gst_formats,
-            if bit_perfect { "passthrough".to_string() } else { format!("{supported_rates:?}") }
+            if bit_perfect {
+                "passthrough".to_string()
+            } else {
+                format!("{supported_rates:?}")
+            }
         );
     }
 
@@ -2933,7 +3127,11 @@ fn build_appsink_pipeline(
         "[audio] building appsink pipeline: exclusive={exclusive} bit_perfect={bit_perfect}"
     );
 
-    let (u_vol, n_vol, capsfilter_weak_from_build): (Option<gst::Element>, Option<gst::Element>, Option<gst::glib::WeakRef<gst::Element>>) = if bit_perfect {
+    let (u_vol, n_vol, capsfilter_weak_from_build): (
+        Option<gst::Element>,
+        Option<gst::Element>,
+        Option<gst::glib::WeakRef<gst::Element>>,
+    ) = if bit_perfect {
         audioconvert.set_property_from_str("dithering", "none");
         audioconvert.set_property_from_str("noise-shaping", "none");
 
@@ -3033,7 +3231,10 @@ fn build_appsink_pipeline(
 
     // Connect uridecodebin's dynamic pad to audioconvert
     let convert_weak = audioconvert.downgrade();
-    let supported_fmts_for_closure: Vec<String> = supported_gst_formats.iter().map(|s| s.to_string()).collect();
+    let supported_fmts_for_closure: Vec<String> = supported_gst_formats
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let supported_rates_for_closure: Vec<u32> = supported_rates.to_vec();
     let resample_tx = writer_tx.clone();
     let is_bit_perfect = bit_perfect;
@@ -3075,9 +3276,10 @@ fn build_appsink_pipeline(
                                 .copied()
                                 .min_by_key(|&r| (r as i64 - native as i64).unsigned_abs())
                                 .unwrap_or(48000);
-                            let _ = resample_tx.try_send(
-                                WriterCommand::Resampling { from: native, to: closest },
-                            );
+                            let _ = resample_tx.try_send(WriterCommand::Resampling {
+                                from: native,
+                                to: closest,
+                            });
                         }
                     }
                 }
@@ -3169,7 +3371,8 @@ fn build_appsink_pipeline(
                                         channels: device_channels,
                                         bytes_per_sample: bps,
                                     };
-                                    let _ = resample_tx.try_send(WriterCommand::FormatHint(hint_fmt));
+                                    let _ =
+                                        resample_tx.try_send(WriterCommand::FormatHint(hint_fmt));
                                 }
                             }
                         }
@@ -3236,13 +3439,476 @@ fn build_appsink_pipeline(
 
 // ── Device enumeration ─────────────────────────────────────────────────
 
-/// Enumerate ALSA hardware devices. Does NOT use the audio pipeline,
-/// so it is safe to call from any thread.
-pub fn list_alsa_devices() -> Result<Vec<AudioDevice>, String> {
-    list_alsa_devices_inner()
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct HardwareEndpointKey {
+    card_id: String,
+    device: u32,
 }
 
-fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioDeviceSource {
+    Native,
+    Hint,
+    GStreamer,
+    Manual,
+}
+
+#[derive(Debug, Clone)]
+struct AudioDeviceEntry {
+    device: AudioDevice,
+    sort_label: String,
+    sort_card_label: String,
+    sort_card_id: String,
+    sort_device: Option<u32>,
+    card_index: Option<i32>,
+    hardware_key: Option<HardwareEndpointKey>,
+    source: AudioDeviceSource,
+}
+
+impl AudioDeviceEntry {
+    fn dedup_key(&self) -> DeviceDedupKey {
+        if let Some(key) = &self.hardware_key {
+            DeviceDedupKey::Hardware(key.clone())
+        } else {
+            DeviceDedupKey::Exact(self.device.id.clone())
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum DeviceDedupKey {
+    Hardware(HardwareEndpointKey),
+    Exact(String),
+}
+
+#[derive(Debug, Clone)]
+struct NativeCardMeta {
+    index: i32,
+    id: String,
+    name: String,
+    longname: String,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedHwEndpoint {
+    card_token: String,
+    device: u32,
+}
+
+struct AudioDeviceDiscovery {
+    entries: Vec<AudioDeviceEntry>,
+    gstreamer_count: usize,
+    native_alsa_count: usize,
+    manual_count: usize,
+}
+
+fn build_hw_device_id(card_id: &str, device: u32) -> String {
+    format!("hw:CARD={card_id},DEV={device}")
+}
+
+fn format_device_name(label: &str, id: &str) -> String {
+    format!("{label} — {id}")
+}
+
+fn label_score(label: &str, source: AudioDeviceSource) -> usize {
+    let mut score = label.trim().len();
+    if label.contains(" / ") {
+        score += 8;
+    }
+    if label.contains(" - ") || label.contains(" | ") {
+        score += 4;
+    }
+    score
+        + match source {
+            AudioDeviceSource::Native => 20,
+            AudioDeviceSource::Hint => 15,
+            AudioDeviceSource::GStreamer => 10,
+            AudioDeviceSource::Manual => 0,
+        }
+}
+
+fn better_audio_device_entry(candidate: &AudioDeviceEntry, current: &AudioDeviceEntry) -> bool {
+    let candidate_score = label_score(&candidate.sort_label, candidate.source);
+    let current_score = label_score(&current.sort_label, current.source);
+    candidate_score > current_score
+}
+
+fn sort_audio_device_entries(a: &AudioDeviceEntry, b: &AudioDeviceEntry) -> std::cmp::Ordering {
+    a.sort_card_label
+        .cmp(&b.sort_card_label)
+        .then_with(|| a.sort_card_id.cmp(&b.sort_card_id))
+        .then_with(|| {
+            a.sort_device
+                .unwrap_or(u32::MAX)
+                .cmp(&b.sort_device.unwrap_or(u32::MAX))
+        })
+        .then_with(|| a.device.name.cmp(&b.device.name))
+}
+
+fn parse_hw_endpoint(device_id: &str) -> Option<ParsedHwEndpoint> {
+    let rest = device_id.strip_prefix("hw:")?;
+    if let Some(card) = rest.strip_prefix("CARD=") {
+        let idx = card.rfind(",DEV=")?;
+        let (card_token, device_token) = card.split_at(idx);
+        let device = device_token.strip_prefix(",DEV=")?.parse().ok()?;
+        return Some(ParsedHwEndpoint {
+            card_token: card_token.trim().to_string(),
+            device,
+        });
+    }
+
+    let idx = rest.rfind(',')?;
+    let (card_token, device_token) = rest.split_at(idx);
+    let device = device_token.strip_prefix(',')?.parse().ok()?;
+    Some(ParsedHwEndpoint {
+        card_token: card_token.trim().to_string(),
+        device,
+    })
+}
+
+fn resolve_card_id(
+    card_token: &str,
+    native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
+) -> String {
+    if let Ok(index) = card_token.parse::<i32>() {
+        if let Some(meta) = native_lookup.and_then(|lookup| lookup.get(&index)) {
+            return meta.id.clone();
+        }
+    }
+
+    card_token.to_string()
+}
+
+fn resolve_hw_endpoint(
+    parsed: &ParsedHwEndpoint,
+    native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
+) -> HardwareEndpointKey {
+    HardwareEndpointKey {
+        card_id: resolve_card_id(&parsed.card_token, native_lookup),
+        device: parsed.device,
+    }
+}
+
+fn card_display_label(card_name: &str, card_longname: &str, card_id: &str) -> String {
+    let card_name = card_name.trim();
+    let card_longname = card_longname.trim();
+
+    if !card_name.is_empty() && card_name != card_id {
+        card_name.to_string()
+    } else if !card_longname.is_empty() {
+        card_longname.to_string()
+    } else {
+        card_id.to_string()
+    }
+}
+
+fn pcm_label(card_name: &str, card_longname: &str, pcm_name: &str, card_id: &str) -> String {
+    let card_label = card_display_label(card_name, card_longname, card_id);
+    let pcm_name = pcm_name.trim();
+
+    if !pcm_name.is_empty() && pcm_name != card_label {
+        format!("{card_label} / {pcm_name}")
+    } else {
+        card_label
+    }
+}
+
+fn native_entry(card: &NativeCardMeta, pcm_device: u32, pcm_name: &str) -> AudioDeviceEntry {
+    let id = build_hw_device_id(&card.id, pcm_device);
+    let card_label = card_display_label(&card.name, &card.longname, &card.id);
+    let label = pcm_label(&card.name, &card.longname, pcm_name, &card.id);
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id,
+            name: format_device_name(&label, &build_hw_device_id(&card.id, pcm_device)),
+        },
+        sort_label: label,
+        sort_card_label: card_label,
+        sort_card_id: card.id.clone(),
+        sort_device: Some(pcm_device),
+        card_index: Some(card.index),
+        hardware_key: Some(HardwareEndpointKey {
+            card_id: card.id.clone(),
+            device: pcm_device,
+        }),
+        source: AudioDeviceSource::Native,
+    }
+}
+
+fn gstreamer_entry(display_name: &str, hardware_key: HardwareEndpointKey) -> AudioDeviceEntry {
+    let id = build_hw_device_id(&hardware_key.card_id, hardware_key.device);
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id,
+            name: format_device_name(
+                display_name,
+                &build_hw_device_id(&hardware_key.card_id, hardware_key.device),
+            ),
+        },
+        sort_label: display_name.trim().to_string(),
+        sort_card_label: display_name.trim().to_string(),
+        sort_card_id: hardware_key.card_id.clone(),
+        sort_device: Some(hardware_key.device),
+        card_index: None,
+        hardware_key: Some(hardware_key),
+        source: AudioDeviceSource::GStreamer,
+    }
+}
+
+fn hint_entry(device_id: &str, description: Option<&str>) -> AudioDeviceEntry {
+    let description = description
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| device_id.to_string());
+
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id: device_id.to_string(),
+            name: format_device_name(&description, device_id),
+        },
+        sort_label: description,
+        sort_card_label: "ALSA configured PCMs".to_string(),
+        sort_card_id: device_id.to_string(),
+        sort_device: None,
+        card_index: None,
+        hardware_key: parse_hw_endpoint(device_id).map(|parsed| resolve_hw_endpoint(&parsed, None)),
+        source: AudioDeviceSource::Hint,
+    }
+}
+
+fn is_selectable_configured_pcm_hint(name: &str) -> bool {
+    // ALSA's global configuration publishes plugin and hardware-route aliases
+    // alongside user-defined PCMs. Native enumeration already covers hardware.
+    !matches!(
+        name.split_once(':').map_or(name, |(prefix, _)| prefix),
+        "a52"
+            | "aaf"
+            | "asym"
+            | "center_lfe"
+            | "default"
+            | "dshare"
+            | "dmix"
+            | "dsnoop"
+            | "front"
+            | "hdmi"
+            | "iec958"
+            | "jack"
+            | "lavrate"
+            | "null"
+            | "oss"
+            | "pipewire"
+            | "plug"
+            | "plughw"
+            | "pulse"
+            | "rate"
+            | "rear"
+            | "samplerate"
+            | "side"
+            | "speex"
+            | "speexrate"
+            | "spdif"
+            | "surround21"
+            | "surround40"
+            | "surround41"
+            | "surround50"
+            | "surround51"
+            | "surround71"
+            | "sysdefault"
+            | "upmix"
+            | "usbstream"
+            | "vdownmix"
+    )
+}
+
+fn manual_entry(device_id: &str) -> AudioDeviceEntry {
+    AudioDeviceEntry {
+        device: AudioDevice {
+            id: device_id.to_string(),
+            name: format_device_name("Manual ALSA device", device_id),
+        },
+        sort_label: "Manual ALSA device".to_string(),
+        sort_card_label: "Manual ALSA device".to_string(),
+        sort_card_id: device_id.to_string(),
+        sort_device: None,
+        card_index: None,
+        hardware_key: parse_hw_endpoint(device_id).map(|parsed| resolve_hw_endpoint(&parsed, None)),
+        source: AudioDeviceSource::Manual,
+    }
+}
+
+fn merge_audio_device_entries(entries: Vec<AudioDeviceEntry>) -> Vec<AudioDevice> {
+    let mut merged: HashMap<DeviceDedupKey, AudioDeviceEntry> = HashMap::new();
+
+    for entry in entries {
+        let key = entry.dedup_key();
+        merged
+            .entry(key)
+            .and_modify(|current| {
+                if better_audio_device_entry(&entry, current) {
+                    *current = entry.clone();
+                }
+            })
+            .or_insert(entry);
+    }
+
+    let mut merged: Vec<_> = merged.into_values().collect();
+    merged.sort_by(sort_audio_device_entries);
+    merged.into_iter().map(|entry| entry.device).collect()
+}
+
+fn native_card_lookup(entries: &[AudioDeviceEntry]) -> HashMap<i32, NativeCardMeta> {
+    let mut lookup = HashMap::new();
+    for entry in entries {
+        if let Some(index) = entry.card_index {
+            if let Some(key) = &entry.hardware_key {
+                lookup.entry(index).or_insert_with(|| NativeCardMeta {
+                    index,
+                    id: key.card_id.clone(),
+                    name: entry.sort_card_label.clone(),
+                    longname: entry.sort_card_label.clone(),
+                });
+            }
+        }
+    }
+    lookup
+}
+
+#[cfg(target_os = "linux")]
+fn list_native_alsa_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    let mut result = Vec::new();
+
+    for card_result in alsa::card::Iter::new() {
+        let card = match card_result {
+            Ok(card) => card,
+            Err(e) => {
+                log::warn!("[native-alsa] card iteration failed: {e}");
+                continue;
+            }
+        };
+
+        let ctl = match alsa::Ctl::from_card(&card, false) {
+            Ok(ctl) => ctl,
+            Err(e) => {
+                log::warn!(
+                    "[native-alsa] failed to open control for card {}: {e}",
+                    card.get_index()
+                );
+                continue;
+            }
+        };
+
+        let info = match ctl.card_info() {
+            Ok(info) => info,
+            Err(e) => {
+                log::warn!(
+                    "[native-alsa] failed to query card info for {}: {e}",
+                    card.get_index()
+                );
+                continue;
+            }
+        };
+
+        let meta = NativeCardMeta {
+            index: info.get_card().get_index(),
+            id: match info.get_id() {
+                Ok(id) => id.to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "[native-alsa] card id query failed for {}: {e}",
+                        card.get_index()
+                    );
+                    continue;
+                }
+            },
+            name: match info.get_name() {
+                Ok(name) => name.to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "[native-alsa] card name query failed for {}: {e}",
+                        card.get_index()
+                    );
+                    continue;
+                }
+            },
+            longname: match info.get_longname() {
+                Ok(longname) => longname.to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "[native-alsa] card longname query failed for {}: {e}",
+                        card.get_index()
+                    );
+                    continue;
+                }
+            },
+        };
+
+        log::debug!(
+            "[native-alsa] card index={} id={} name=\"{}\"",
+            meta.index,
+            meta.id,
+            meta.name
+        );
+
+        for device in alsa::ctl::DeviceIter::new(&ctl) {
+            let Ok(pcm_info) = ctl.pcm_info(device as u32, 0, alsa::Direction::Playback) else {
+                continue;
+            };
+
+            let pcm_name = pcm_info.get_name().unwrap_or("").to_string();
+            let pcm_device = pcm_info.get_device();
+            let entry = native_entry(&meta, pcm_device, &pcm_name);
+            log::debug!(
+                "[native-alsa] playback pcm card={} device={} id={} name=\"{}\"",
+                meta.id,
+                pcm_device,
+                entry.device.id,
+                pcm_name
+            );
+            result.push(entry);
+        }
+    }
+
+    Ok(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn list_native_alsa_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(target_os = "linux")]
+fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    let hints = alsa::device_name::HintIter::new_str(None, "pcm")
+        .map_err(|e| format!("failed to enumerate ALSA PCM hints: {e}"))?;
+    let mut result = Vec::new();
+
+    for hint in hints {
+        if hint.direction == Some(alsa::Direction::Capture) {
+            continue;
+        }
+        let Some(name) = hint.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else {
+            continue;
+        };
+        if parse_hw_endpoint(name).is_some() {
+            continue;
+        }
+        if !is_selectable_configured_pcm_hint(name) {
+            continue;
+        }
+        result.push(hint_entry(name, hint.desc.as_deref()));
+    }
+
+    Ok(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
+    Ok(Vec::new())
+}
+
+fn list_gstreamer_audio_devices(
+    native_lookup: Option<&HashMap<i32, NativeCardMeta>>,
+) -> Result<Vec<AudioDeviceEntry>, String> {
     gst::init().map_err(|e| format!("GStreamer init failed: {e}"))?;
     let monitor = gst::DeviceMonitor::new();
     let caps = gst::Caps::new_empty_simple("audio/x-raw");
@@ -3251,8 +3917,6 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
         .start()
         .map_err(|e| format!("Failed to start device monitor: {e}"))?;
 
-    // GStreamer 1.28+ starts providers async, so devices() may initially be empty.
-    // On older versions start() blocks and devices are available immediately.
     let devices = {
         let mut devs = monitor.devices();
         let mut waited = 0u32;
@@ -3267,7 +3931,7 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
     monitor.stop();
 
     log::debug!(
-        "[list_alsa_devices] DeviceMonitor found {} devices",
+        "[list_gstreamer_audio_devices] DeviceMonitor found {} devices",
         devices.len()
     );
 
@@ -3282,21 +3946,102 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
             continue;
         }
 
-        let path = props.get::<String>("api.alsa.path").ok().or_else(|| {
-            let card = props.get::<String>("alsa.card").ok()?;
-            let dev_num = props.get::<String>("alsa.device").ok()?;
-            Some(format!("hw:{card},{dev_num}"))
-        });
+        let parsed = props
+            .get::<String>("api.alsa.path")
+            .ok()
+            .as_deref()
+            .and_then(parse_hw_endpoint);
 
-        if let Some(path) = path {
-            let name = dev.display_name().to_string();
-            log::debug!("[list_alsa_devices] found: '{}' -> {}", name, path);
-            result.push(AudioDevice { id: path, name });
-        }
+        let Some(parsed) = parsed else {
+            continue;
+        };
+
+        let hardware_key = resolve_hw_endpoint(&parsed, native_lookup);
+        let display_name = dev.display_name().to_string();
+        log::debug!(
+            "[list_gstreamer_audio_devices] found: '{}' -> {}",
+            display_name,
+            build_hw_device_id(&hardware_key.card_id, hardware_key.device)
+        );
+        result.push(gstreamer_entry(&display_name, hardware_key));
     }
 
-    log::debug!("[list_alsa_devices] returning {} devices", result.len());
+    log::debug!(
+        "[list_gstreamer_audio_devices] returning {} devices",
+        result.len()
+    );
     Ok(result)
+}
+
+fn list_audio_device_entries(manual_device: Option<&str>) -> AudioDeviceDiscovery {
+    let native_entries = match list_native_alsa_playback_devices() {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("[native-alsa] enumeration failed: {e}");
+            Vec::new()
+        }
+    };
+    let native_lookup = native_card_lookup(&native_entries);
+
+    let hint_entries = match list_alsa_hint_playback_devices() {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("[alsa-hints] enumeration failed: {e}");
+            Vec::new()
+        }
+    };
+
+    let gstreamer_entries = match list_gstreamer_audio_devices(Some(&native_lookup)) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("[list_gstreamer_audio_devices] enumeration failed: {e}");
+            Vec::new()
+        }
+    };
+    let gstreamer_count = gstreamer_entries.len();
+    let native_count = native_entries.len();
+
+    let mut all_entries = Vec::new();
+    all_entries.extend(gstreamer_entries);
+    all_entries.extend(native_entries);
+    all_entries.extend(hint_entries);
+
+    let manual_entries = manual_device
+        .map(str::trim)
+        .filter(|device| !device.is_empty())
+        .map(manual_entry);
+    let manual_count = manual_entries.as_ref().map(|_| 1).unwrap_or(0);
+    if let Some(entry) = manual_entries {
+        all_entries.push(entry);
+    }
+
+    AudioDeviceDiscovery {
+        entries: all_entries,
+        gstreamer_count,
+        native_alsa_count: native_count,
+        manual_count,
+    }
+}
+
+/// Enumerate ALSA hardware devices. Does NOT use the audio pipeline,
+/// so it is safe to call from any thread.
+#[allow(dead_code)]
+pub fn list_alsa_devices() -> Vec<AudioDevice> {
+    list_alsa_devices_with_override(None)
+}
+
+pub fn list_alsa_devices_with_override(manual_device: Option<&str>) -> Vec<AudioDevice> {
+    let discovery = list_audio_device_entries(manual_device);
+    let devices = merge_audio_device_entries(discovery.entries);
+    log::debug!(
+        "[audio-devices] gstreamer={} native_alsa={} manual={} merged={}",
+        discovery.gstreamer_count,
+        discovery.native_alsa_count,
+        discovery.manual_count,
+        devices.len(),
+    );
+
+    devices
 }
 
 /// Gapless (2b architecture) needs the `concat` element. The chain is legacy
@@ -3306,4 +4051,297 @@ fn list_alsa_devices_inner() -> Result<Vec<AudioDevice>, String> {
 /// coreelements, so this is effectively always true.
 pub fn gapless_supported() -> bool {
     gst::ElementFactory::find("concat").is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_hw_device_id, hint_entry, is_selectable_configured_pcm_hint,
+        merge_audio_device_entries, parse_hw_endpoint, AudioDevice, AudioDeviceEntry,
+        AudioDeviceSource, HardwareEndpointKey,
+    };
+
+    fn native(
+        card_index: i32,
+        card_id: &str,
+        card_name: &str,
+        card_longname: &str,
+        device: u32,
+        pcm_name: &str,
+    ) -> AudioDeviceEntry {
+        let id = build_hw_device_id(card_id, device);
+        let card_label = super::card_display_label(card_name, card_longname, card_id);
+        let label = super::pcm_label(card_name, card_longname, pcm_name, card_id);
+        AudioDeviceEntry {
+            device: AudioDevice {
+                id: id.clone(),
+                name: format!("{label} — {id}"),
+            },
+            sort_label: label,
+            sort_card_label: card_label,
+            sort_card_id: card_id.to_string(),
+            sort_device: Some(device),
+            card_index: Some(card_index),
+            hardware_key: Some(HardwareEndpointKey {
+                card_id: card_id.to_string(),
+                device,
+            }),
+            source: AudioDeviceSource::Native,
+        }
+    }
+
+    fn gstreamer(id: &str, card_id: &str, device: u32, label: &str) -> AudioDeviceEntry {
+        AudioDeviceEntry {
+            device: AudioDevice {
+                id: id.to_string(),
+                name: format!("{label} — {id}"),
+            },
+            sort_label: label.to_string(),
+            sort_card_label: label.to_string(),
+            sort_card_id: card_id.to_string(),
+            sort_device: Some(device),
+            card_index: None,
+            hardware_key: Some(HardwareEndpointKey {
+                card_id: card_id.to_string(),
+                device,
+            }),
+            source: AudioDeviceSource::GStreamer,
+        }
+    }
+
+    fn manual(id: &str) -> AudioDeviceEntry {
+        AudioDeviceEntry {
+            device: AudioDevice {
+                id: id.to_string(),
+                name: format!("Manual ALSA device — {id}"),
+            },
+            sort_label: "Manual ALSA device".to_string(),
+            sort_card_label: "Manual ALSA device".to_string(),
+            sort_card_id: id.to_string(),
+            sort_device: None,
+            card_index: None,
+            hardware_key: parse_hw_endpoint(id).map(|parsed| HardwareEndpointKey {
+                card_id: parsed.card_token,
+                device: parsed.device,
+            }),
+            source: AudioDeviceSource::Manual,
+        }
+    }
+
+    #[test]
+    fn merges_gstreamer_and_native_results() {
+        let merged = merge_audio_device_entries(vec![
+            gstreamer("hw:CARD=TEST_DAC,DEV=0", "TEST_DAC", 0, "TEST_DAC"),
+            native(3, "TEST_DAC", "Test DAC", "Test DAC", 0, "USB Audio"),
+        ]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "hw:CARD=TEST_DAC,DEV=0");
+        assert_eq!(merged[0].name, "Test DAC / USB Audio — hw:CARD=TEST_DAC,DEV=0");
+    }
+
+    #[test]
+    fn native_only_results_stay_visible() {
+        let merged = merge_audio_device_entries(vec![native(
+            1,
+            "PCH",
+            "HDA Intel PCH",
+            "HDA Intel PCH",
+            0,
+            "ALC1220 Analog",
+        )]);
+
+        assert_eq!(
+            merged,
+            vec![AudioDevice {
+                id: "hw:CARD=PCH,DEV=0".to_string(),
+                name: "HDA Intel PCH / ALC1220 Analog — hw:CARD=PCH,DEV=0".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn gstreamer_only_results_stay_visible() {
+        let merged = merge_audio_device_entries(vec![gstreamer(
+            "hw:CARD=CODEC,DEV=0",
+            "CODEC",
+            0,
+            "USB Audio CODEC / USB Audio",
+        )]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "hw:CARD=CODEC,DEV=0");
+    }
+
+    #[test]
+    fn configured_pcm_hints_stay_visible_with_their_description() {
+        let virtual_pcm = hint_entry("VirtualTestDac", Some("ALSATools Equalizer: Test DAC"));
+        let merged = merge_audio_device_entries(vec![virtual_pcm]);
+
+        assert_eq!(
+            merged,
+            vec![AudioDevice {
+                id: "VirtualTestDac".to_string(),
+                name: "ALSATools Equalizer: Test DAC — VirtualTestDac".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn configured_pcm_hints_exclude_builtin_plugins_and_hardware_aliases() {
+        assert!(is_selectable_configured_pcm_hint("VirtualTestDac"));
+        assert!(is_selectable_configured_pcm_hint("Configured-PCM"));
+
+        for name in [
+            "default",
+            "null",
+            "pipewire",
+            "lavrate",
+            "hdmi:CARD=HDMI,DEV=0",
+            "front:CARD=CODEC,DEV=0",
+            "surround51:CARD=CODEC,DEV=0",
+            "sysdefault:CARD=CODEC",
+            "usbstream:CARD=CODEC",
+        ] {
+            assert!(
+                !is_selectable_configured_pcm_hint(name),
+                "built-in ALSA hint {name} should be hidden"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_multiple_cards_and_pcm_devices() {
+        let merged = merge_audio_device_entries(vec![
+            native(
+                0,
+                "PCH",
+                "HDA Intel PCH",
+                "HDA Intel PCH",
+                0,
+                "ALC1220 Analog",
+            ),
+            native(
+                1,
+                "CODEC",
+                "USB Audio CODEC",
+                "USB Audio CODEC",
+                0,
+                "USB Audio",
+            ),
+            native(
+                1,
+                "CODEC",
+                "USB Audio CODEC",
+                "USB Audio CODEC",
+                1,
+                "S/PDIF",
+            ),
+        ]);
+
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id, "hw:CARD=PCH,DEV=0");
+        assert_eq!(merged[1].id, "hw:CARD=CODEC,DEV=0");
+        assert_eq!(merged[2].id, "hw:CARD=CODEC,DEV=1");
+    }
+
+    #[test]
+    fn sorts_predictably_by_label_card_id_device_then_name() {
+        let merged = merge_audio_device_entries(vec![
+            native(2, "B", "Bravo", "Bravo", 1, "Beta"),
+            native(1, "A", "Alpha", "Alpha", 0, "Alpha"),
+            native(3, "A", "Alpha", "Alpha", 2, "Gamma"),
+        ]);
+
+        assert_eq!(
+            merged.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            vec!["hw:CARD=A,DEV=0", "hw:CARD=A,DEV=2", "hw:CARD=B,DEV=1"]
+        );
+    }
+
+    #[test]
+    fn deduplicates_semantic_hw_forms() {
+        let merged = merge_audio_device_entries(vec![
+            AudioDeviceEntry {
+                device: AudioDevice {
+                    id: "hw:3,0".to_string(),
+                    name: "Generic hw:3,0 — hw:3,0".to_string(),
+                },
+                sort_label: "Generic hw".to_string(),
+                sort_card_label: "Generic hw".to_string(),
+                sort_card_id: "TEST_DAC".to_string(),
+                sort_device: Some(0),
+                card_index: Some(3),
+                hardware_key: Some(HardwareEndpointKey {
+                    card_id: "TEST_DAC".to_string(),
+                    device: 0,
+                }),
+                source: AudioDeviceSource::GStreamer,
+            },
+            native(3, "TEST_DAC", "Test DAC", "Test DAC", 0, "USB Audio"),
+        ]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "hw:CARD=TEST_DAC,DEV=0");
+    }
+
+    #[test]
+    fn manual_override_is_inserted_when_missing() {
+        let merged = merge_audio_device_entries(vec![
+            native(1, "PCH", "HDA Intel PCH", "HDA Intel PCH", 0, "Analog"),
+            manual("hw:CARD=TEST_DAC,DEV=0"),
+        ]);
+
+        assert!(merged.iter().any(|d| d.id == "hw:CARD=TEST_DAC,DEV=0"));
+        assert!(merged
+            .iter()
+            .any(|d| d.name == "Manual ALSA device — hw:CARD=TEST_DAC,DEV=0"));
+    }
+
+    #[test]
+    fn manual_override_is_not_duplicated_when_present() {
+        let merged = merge_audio_device_entries(vec![
+            native(1, "TEST_DAC", "Test DAC", "Test DAC", 0, "USB Audio"),
+            manual("hw:CARD=TEST_DAC,DEV=0"),
+        ]);
+
+        assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
+    fn raw_hardware_id_parsing_accepts_card_and_device_forms() {
+        let parsed = parse_hw_endpoint("hw:CARD=TEST_DAC,DEV=0").expect("should parse");
+        assert_eq!(parsed.card_token, "TEST_DAC");
+        assert_eq!(parsed.device, 0);
+
+        let parsed = parse_hw_endpoint("hw:TEST_DAC,1").expect("should parse");
+        assert_eq!(parsed.card_token, "TEST_DAC");
+        assert_eq!(parsed.device, 1);
+    }
+
+    #[test]
+    fn raw_hardware_id_parsing_rejects_virtual_aliases() {
+        assert!(parse_hw_endpoint("default").is_none());
+        assert!(parse_hw_endpoint("plughw:CARD=TEST_DAC,DEV=0").is_none());
+        assert!(parse_hw_endpoint("dmix").is_none());
+    }
+
+    #[test]
+    fn supports_unusual_card_ids_and_punctuation() {
+        let merged = merge_audio_device_entries(vec![native(
+            4,
+            "USB-Audio.1",
+            "USB Audio",
+            "USB Audio",
+            0,
+            "USB Audio",
+        )]);
+
+        assert_eq!(merged[0].id, "hw:CARD=USB-Audio.1,DEV=0");
+    }
+
+    #[test]
+    fn build_hw_device_id_uses_stable_card_id_format() {
+        assert_eq!(build_hw_device_id("TEST_DAC", 0), "hw:CARD=TEST_DAC,DEV=0");
+    }
 }
