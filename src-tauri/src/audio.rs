@@ -3676,6 +3676,50 @@ fn hint_entry(device_id: &str, description: Option<&str>) -> AudioDeviceEntry {
     }
 }
 
+fn is_selectable_configured_pcm_hint(name: &str) -> bool {
+    // ALSA's global configuration publishes plugin and hardware-route aliases
+    // alongside user-defined PCMs. Native enumeration already covers hardware.
+    !matches!(
+        name.split_once(':').map_or(name, |(prefix, _)| prefix),
+        "a52"
+            | "aaf"
+            | "asym"
+            | "center_lfe"
+            | "default"
+            | "dshare"
+            | "dmix"
+            | "dsnoop"
+            | "front"
+            | "hdmi"
+            | "iec958"
+            | "jack"
+            | "lavrate"
+            | "null"
+            | "oss"
+            | "pipewire"
+            | "plug"
+            | "plughw"
+            | "pulse"
+            | "rate"
+            | "rear"
+            | "samplerate"
+            | "side"
+            | "speex"
+            | "speexrate"
+            | "spdif"
+            | "surround21"
+            | "surround40"
+            | "surround41"
+            | "surround50"
+            | "surround51"
+            | "surround71"
+            | "sysdefault"
+            | "upmix"
+            | "usbstream"
+            | "vdownmix"
+    )
+}
+
 fn manual_entry(device_id: &str) -> AudioDeviceEntry {
     AudioDeviceEntry {
         device: AudioDevice {
@@ -3848,6 +3892,9 @@ fn list_alsa_hint_playback_devices() -> Result<Vec<AudioDeviceEntry>, String> {
         if parse_hw_endpoint(name).is_some() {
             continue;
         }
+        if !is_selectable_configured_pcm_hint(name) {
+            continue;
+        }
         result.push(hint_entry(name, hint.desc.as_deref()));
     }
 
@@ -4009,8 +4056,9 @@ pub fn gapless_supported() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hw_device_id, hint_entry, merge_audio_device_entries, parse_hw_endpoint, AudioDevice,
-        AudioDeviceEntry, AudioDeviceSource, HardwareEndpointKey,
+        build_hw_device_id, hint_entry, is_selectable_configured_pcm_hint,
+        merge_audio_device_entries, parse_hw_endpoint, AudioDevice, AudioDeviceEntry,
+        AudioDeviceSource, HardwareEndpointKey,
     };
 
     fn native(
@@ -4137,6 +4185,29 @@ mod tests {
                 name: "ALSATools Equalizer: Test DAC — VirtualTestDac".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn configured_pcm_hints_exclude_builtin_plugins_and_hardware_aliases() {
+        assert!(is_selectable_configured_pcm_hint("VirtualTestDac"));
+        assert!(is_selectable_configured_pcm_hint("Configured-PCM"));
+
+        for name in [
+            "default",
+            "null",
+            "pipewire",
+            "lavrate",
+            "hdmi:CARD=HDMI,DEV=0",
+            "front:CARD=CODEC,DEV=0",
+            "surround51:CARD=CODEC,DEV=0",
+            "sysdefault:CARD=CODEC",
+            "usbstream:CARD=CODEC",
+        ] {
+            assert!(
+                !is_selectable_configured_pcm_hint(name),
+                "built-in ALSA hint {name} should be hidden"
+            );
+        }
     }
 
     #[test]
