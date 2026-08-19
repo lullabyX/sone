@@ -8,6 +8,8 @@ import {
   uploadProfilePicture,
 } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { safeErrorMessage } from "../lib/errorUtils";
 import { splitLinks, assembleExternalLinks } from "../lib/socialLinks";
 import SocialMediaPanel from "./SocialMediaPanel";
@@ -67,14 +69,7 @@ export default function ProfileEditModal({
     };
   }, [open, profile.pictureFiles]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  useEscapeDismiss(open, onClose, DISMISS_PRIORITY.modal);
 
   if (!open) return null;
 

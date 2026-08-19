@@ -22,6 +22,8 @@ import {
   gainFactorToDb,
 } from "./signal-path/types";
 import { useSignalPathRefresh } from "../hooks/useSignalPathRefresh";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 
 interface SignalPathPanelProps {
   open: boolean;
@@ -51,14 +53,7 @@ export default function SignalPathPanel({
     return () => document.removeEventListener("mousedown", handler);
   }, [open, onClose]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  useEscapeDismiss(open, onClose, DISMISS_PRIORITY.modal);
 
   // Reset expanded state when the modal closes so it always opens at the
   // compact verdict, not where the user left it.

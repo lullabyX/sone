@@ -11,6 +11,8 @@ import { useAtom, useSetAtom } from "jotai";
 import { useToast } from "../contexts/ToastContext";
 import { useFolders, getRecentFolderIds } from "../hooks/useFolders";
 import { useContextMenu } from "../hooks/useContextMenu";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { getPlaylistFolders, normalizePlaylistFolders } from "../api/tidal";
 import { folderSubtitle } from "../utils/itemHelpers";
 import {
@@ -61,14 +63,7 @@ function CreateFolderModal({
     nameRef.current?.focus();
   }, []);
 
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeDismiss(true, onClose, DISMISS_PRIORITY.contextMenu);
 
   const handleSave = useCallback(async () => {
     if (!name.trim() || saving) return;

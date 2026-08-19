@@ -29,6 +29,12 @@ pub struct TrackStartedPayload {
     pub chosen_by_user: bool,
     pub isrc: Option<String>,
     pub track_id: Option<u64>,
+    /// Container the play was started from (album/playlist/artist/mix), for
+    /// TIDAL play-reporting attribution. Absent for radio/single-track plays.
+    #[serde(default)]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub source_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +46,10 @@ pub async fn notify_track_started(
     state: State<'_, AppState>,
     payload: TrackStartedPayload,
 ) -> Result<(), SoneError> {
+    let source = match (payload.source_type, payload.source_id) {
+        (Some(t), Some(id)) => Some((t, id)),
+        _ => None,
+    };
     let track = ScrobbleTrack {
         artist: payload.artist,
         track: payload.title,
@@ -55,30 +65,38 @@ pub async fn notify_track_started(
         artist_primary: payload.artist_primary,
         artist_mbids: Vec::new(),
     };
+    state
+        .tidal_reporter
+        .on_track_started(payload.track_id, payload.duration_secs, source)
+        .await;
     state.scrobble_manager.on_track_started(track).await;
     Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_paused(state: State<'_, AppState>) -> Result<(), SoneError> {
+    state.tidal_reporter.on_pause().await;
     state.scrobble_manager.on_pause().await;
     Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_resumed(state: State<'_, AppState>) -> Result<(), SoneError> {
+    state.tidal_reporter.on_resume().await;
     state.scrobble_manager.on_resume().await;
     Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_seeked(state: State<'_, AppState>) -> Result<(), SoneError> {
+    state.tidal_reporter.on_seek().await;
     state.scrobble_manager.on_seek().await;
     Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notify_track_stopped(state: State<'_, AppState>) -> Result<(), SoneError> {
+    state.tidal_reporter.on_track_stopped().await;
     state.scrobble_manager.on_track_stopped().await;
     Ok(())
 }

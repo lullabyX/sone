@@ -7,6 +7,8 @@ import { allPlaylistsAtom, addedToFolderAtom } from "../atoms/playlists";
 import { authTokensAtom } from "../atoms/auth";
 import { getAllPlaylists } from "../api/tidal";
 import { useContextMenu } from "../hooks/useContextMenu";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { type Playlist, getTidalImageUrl } from "../types";
 import { playlistCountLabel } from "../utils/itemHelpers";
 import TidalImage from "./TidalImage";
@@ -70,14 +72,7 @@ export function CreatePlaylistModal({
     titleRef.current?.focus();
   }, []);
 
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeDismiss(true, onClose, DISMISS_PRIORITY.contextMenu);
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || saving) return;
@@ -246,13 +241,7 @@ export function EditPlaylistModal({
     titleRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeDismiss(true, onClose, DISMISS_PRIORITY.contextMenu);
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || saving) return;

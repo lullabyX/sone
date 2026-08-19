@@ -17,6 +17,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
 import { updateToastSeenAtom } from "../atoms/updates";
 import { shouldShowUpdateToast, type UpdateInfo } from "../lib/updateToast";
+import { refreshApp } from "../lib/refreshApp";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -81,7 +82,6 @@ import { useOverlayBridge } from "../hooks/useOverlayBridge";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
-  clearCache,
   savePlaybackQueue,
   loadPlaybackQueue,
   getHomePage,
@@ -1266,17 +1266,14 @@ export function AppInitializer() {
         addFavoriteTrack(track.id, track);
       }
     },
+    toggleShuffle,
+    toggleRepeat: () => {
+      store.set(repeatAtom, (store.get(repeatAtom) + 1) % 3);
+    },
     focusSearch: () => {
       window.dispatchEvent(new CustomEvent("focus-search"));
     },
-    refreshData: () => {
-      clearCache();
-      window.location.reload();
-    },
-    closeDrawer: () => {
-      if (store.get(maximizedPlayerAtom)) return;
-      setDrawerOpen(false);
-    },
+    refreshData: () => void refreshApp(),
     toggleExclusive: () => {
       const isExclusive = store.get(exclusiveModeAtom);
       if (isExclusive) {

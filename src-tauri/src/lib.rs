@@ -18,6 +18,7 @@ mod signal_path;
 mod tidal_api;
 #[cfg(target_os = "linux")]
 mod tray;
+mod tidal_report;
 pub mod overlay;
 mod http_util;
 
@@ -30,7 +31,7 @@ use crypto::Crypto;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -177,6 +178,10 @@ pub struct Settings {
     pub overlay_port: u16,
     #[serde(default = "defaults::overlay_host")]
     pub overlay_host: String,
+    /// Report plays to TIDAL (Recently Played). On by default; disable in
+    /// Settings → Scrobbling.
+    #[serde(default = "defaults::yes")]
+    pub report_plays: bool,
 }
 
 impl Default for Settings {
@@ -208,6 +213,7 @@ impl Default for Settings {
             overlay_enabled: false,
             overlay_port: 5578,
             overlay_host: "127.0.0.1".to_string(),
+            report_plays: true,
         }
     }
 }
@@ -293,6 +299,7 @@ pub struct AppState {
     #[cfg(target_os = "linux")]
     pub mpris: mpris::MprisHandle,
     pub scrobble_manager: scrobble::ScrobbleManager,
+    pub tidal_reporter: tidal_report::TidalReporter,
     pub discord: discord::DiscordHandle,
     pub idle_inhibitor: Mutex<idle_inhibit::IdleInhibitor>,
     pub mcp_state: crate::mcp::McpStateRef,
@@ -307,6 +314,29 @@ pub fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+/// Write refreshed tokens back into the stored settings. Called from every
+/// refresh, including the automatic one after a 401 — without it the stored
+/// access token stays stale and each launch burns a 401 before the first
+/// request succeeds.
+fn persist_auth_tokens(path: &Path, crypto: &Crypto, tokens: &AuthTokens) {
+    let mut settings = fs::read(path)
+        .ok()
+        .and_then(|data| crypto.decrypt(&data).ok())
+        .and_then(|plain| serde_json::from_slice::<Settings>(&plain).ok())
+        .unwrap_or_default();
+    settings.auth_tokens = Some(tokens.clone());
+
+    let write = || -> Result<(), SoneError> {
+        let json = serde_json::to_string_pretty(&settings)?;
+        let encrypted = crypto.encrypt(json.as_bytes())?;
+        fs::write(path, encrypted)?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        log::warn!("Failed to persist refreshed auth tokens: {e}");
+    }
 }
 
 impl AppState {
@@ -408,7 +438,16 @@ impl AppState {
             app_handle.clone(),
             crypto.clone(),
             &config_dir,
+            scrobble_http_client.clone(),
+        );
+
+        let report_plays = saved.as_ref().map(|s| s.report_plays).unwrap_or(true);
+        let tidal_reporter = tidal_report::TidalReporter::new(
+            app_handle.clone(),
+            crypto.clone(),
+            &config_dir,
             scrobble_http_client,
+            report_plays,
         );
 
         let discord_rpc_enabled = saved.as_ref().map(|s| s.discord_rpc).unwrap_or(true);
@@ -437,10 +476,19 @@ impl AppState {
             Arc::clone(&audio_player),
         ));
 
+        let mut tidal_client = TidalClient::new(&proxy_settings);
+        tidal_client.set_token_persist({
+            let settings_path = settings_path.clone();
+            let crypto = Arc::clone(&crypto);
+            Arc::new(move |tokens: &AuthTokens| {
+                persist_auth_tokens(&settings_path, &crypto, tokens);
+            })
+        });
+
         Self {
             audio_player,
             pipeline_probe,
-            tidal_client: Mutex::new(TidalClient::new(&proxy_settings)),
+            tidal_client: Mutex::new(tidal_client),
             settings_path,
             cache_dir,
             disk_cache,
@@ -460,6 +508,7 @@ impl AppState {
             #[cfg(target_os = "linux")]
             mpris: mpris::MprisHandle::new(app_handle),
             scrobble_manager,
+            tidal_reporter,
             discord: discord_handle,
             idle_inhibitor: Mutex::new(idle_inhibit::IdleInhibitor::new()),
             mcp_state: crate::mcp::new_state(),
@@ -743,8 +792,9 @@ pub fn run() {
                         }
                     }
 
-                    // Drain retry queue in background
+                    // Drain retry queues in background
                     state.scrobble_manager.drain_queue().await;
+                    state.tidal_reporter.drain_queue().await;
                 });
             }
 
@@ -756,6 +806,7 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<AppState>();
                         state.scrobble_manager.try_scrobble_finished().await;
+                        state.tidal_reporter.try_finish().await;
                     });
                 });
             }
@@ -789,11 +840,9 @@ pub fn run() {
 
                     let handle = handle.clone();
                     tauri::async_runtime::spawn(async move {
-                        handle
-                            .state::<AppState>()
-                            .scrobble_manager
-                            .try_scrobble_finished()
-                            .await;
+                        let state = handle.state::<AppState>();
+                        state.scrobble_manager.try_scrobble_finished().await;
+                        state.tidal_reporter.try_finish().await;
                     });
                 });
             }
@@ -1083,6 +1132,8 @@ pub fn run() {
             commands::utility::refresh_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
+            commands::utility::get_report_plays,
+            commands::utility::set_report_plays,
             commands::utility::get_discord_status_text,
             commands::utility::set_discord_status_text,
             commands::utility::get_proxy_settings,
@@ -1118,7 +1169,22 @@ pub fn run() {
                 tauri::async_runtime::block_on(async {
                     state.idle_inhibitor.lock().await.uninhibit().await;
                     state.scrobble_manager.flush().await;
+                    state.tidal_reporter.flush().await;
                 });
             }
         });
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::Settings;
+
+    // Play reporting ships on. Existing configs predate the field, so the serde
+    // default is what governs upgrades — not just Settings::default().
+    #[test]
+    fn report_plays_defaults_on() {
+        assert!(Settings::default().report_plays);
+        let upgraded: Settings = serde_json::from_str("{}").unwrap();
+        assert!(upgraded.report_plays);
+    }
 }

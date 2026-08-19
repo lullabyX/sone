@@ -5,6 +5,8 @@ import {
   type RefObject,
   type CSSProperties,
 } from "react";
+import { useEscapeDismiss } from "./useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 
 interface UseContextMenuOptions {
   cursorPosition?: { x: number; y: number };
@@ -80,7 +82,9 @@ export function useContextMenu({
     return () => cancelAnimationFrame(raf);
   }, [cursorPosition, anchorRef, anchorGap]);
 
-  // Dismiss on click-outside / Escape
+  useEscapeDismiss(!suppressClose, onClose, DISMISS_PRIORITY.contextMenu);
+
+  // Dismiss on click-outside
   useEffect(() => {
     if (suppressClose) return;
 
@@ -92,15 +96,9 @@ export function useContextMenu({
       onClose();
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-
     document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose, anchorRef, ignoreRefs, suppressClose]);
 

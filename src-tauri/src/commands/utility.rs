@@ -325,6 +325,33 @@ pub fn set_discord_rpc(state: State<'_, AppState>, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn get_report_plays(state: State<'_, AppState>) -> bool {
+    state.load_settings().map(|s| s.report_plays).unwrap_or(true)
+}
+
+#[tauri::command]
+pub async fn set_report_plays(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    // Persist first: if the write fails the caller sees an error and the
+    // in-memory state still matches disk. Reversing this order can silently
+    // discard a user's opt-out.
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.report_plays = enabled;
+    state.save_settings(&settings)?;
+
+    state.tidal_reporter.set_enabled(enabled);
+    if enabled {
+        // Flush any offline backlog now that reporting is on.
+        state.tidal_reporter.drain_queue().await;
+    } else {
+        // Drop the in-flight session: every lifecycle hook is gated on
+        // `enabled`, so an orphaned session would keep accruing wall-clock time
+        // and get reported on the next enable.
+        state.tidal_reporter.clear_session().await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_discord_status_text(state: State<'_, AppState>) -> String {
     state
         .load_settings()
@@ -365,7 +392,11 @@ pub async fn set_proxy_settings(
         let client = state.tidal_client.lock().await;
         client.raw_client().clone()
     };
-    state.scrobble_manager.update_http_client(new_client).await;
+    state
+        .scrobble_manager
+        .update_http_client(new_client.clone())
+        .await;
+    state.tidal_reporter.update_http_client(new_client);
 
     // Save to disk
     let mut app_settings = state.load_settings().unwrap_or_default();

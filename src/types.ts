@@ -277,7 +277,13 @@ export type AppView =
     };
 
 export interface SearchResults {
-  artists: { id: number; name: string; picture?: string }[];
+  artists: {
+    id: number;
+    name: string;
+    picture?: string;
+    artworkId?: string;
+    selectedAlbumCoverFallback?: string;
+  }[];
   albums: AlbumDetail[];
   tracks: Track[];
   playlists: Playlist[];
@@ -293,6 +299,8 @@ export interface DirectHitItem {
   name?: string;
   title?: string;
   picture?: string;
+  artworkId?: string;
+  selectedAlbumCoverFallback?: string;
   cover?: string;
   image?: string;
   artistName?: string;
@@ -557,6 +565,8 @@ export interface ArtistDetail {
   id: number;
   name: string;
   picture?: string;
+  artworkId?: string;
+  selectedAlbumCoverFallback?: string;
   handle?: string;
   userId?: number;
   popularity?: number;

@@ -4,6 +4,11 @@ import {
   getAudioQualityBadge,
   getMediaQualityBadge,
   formatTotalDuration,
+  getArtistImage,
+  getItemImage,
+  getItemTitle,
+  getItemId,
+  buildMediaItem,
 } from "./itemHelpers";
 
 describe("getTrackPrimaryArtist", () => {
@@ -134,5 +139,104 @@ describe("getMediaQualityBadge", () => {
 
   it("returns null when nothing is available", () => {
     expect(getMediaQualityBadge(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("getArtistImage", () => {
+  it("prefers artworkId and uses artist CDN sizes", () => {
+    expect(
+      getArtistImage({ artworkId: "aaaa-bbbb", picture: "cccc-dddd" }, 480),
+    ).toBe("https://resources.tidal.com/images/aaaa/bbbb/480x480.jpg");
+  });
+
+  it("falls back to the legacy picture UUID", () => {
+    expect(getArtistImage({ picture: "cccc-dddd" }, 320)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/320x320.jpg",
+    );
+  });
+
+  it("uses selectedAlbumCoverFallback with album CDN sizes when no artist artwork exists", () => {
+    expect(
+      getArtistImage(
+        { picture: null, selectedAlbumCoverFallback: "eeee-ffff" },
+        640,
+      ),
+    ).toBe("https://resources.tidal.com/images/eeee/ffff/640x640.jpg");
+  });
+
+  it("accepts the camelCased albumCoverFallback alias used by ArtistPageData", () => {
+    expect(getArtistImage({ albumCoverFallback: "eeee-ffff" }, 320)).toBe(
+      "https://resources.tidal.com/images/eeee/ffff/320x320.jpg",
+    );
+  });
+
+  it("returns an empty string when the item has no image at all", () => {
+    expect(getArtistImage({ id: 1, name: "Nobody" })).toBe("");
+    expect(getArtistImage(null)).toBe("");
+  });
+});
+
+describe("getItemImage artist fallback", () => {
+  it("resolves an artist with no picture through the album fallback", () => {
+    expect(
+      getItemImage({
+        id: 1,
+        name: "CMA",
+        picture: null,
+        selectedAlbumCoverFallback: "eeee-ffff",
+      }),
+    ).toBe("https://resources.tidal.com/images/eeee/ffff/320x320.jpg");
+  });
+
+  it("still prefers an album cover for non-artist items", () => {
+    expect(getItemImage({ cover: "1111-2222", picture: "3333-4444" })).toBe(
+      "https://resources.tidal.com/images/1111/2222/320x320.jpg",
+    );
+  });
+});
+
+describe("deep-link items (v2 My Tracks shortcut)", () => {
+  // The backend unwraps {type, data} and injects _itemType, so the runtime
+  // item is flat. The wrapped shape still arrives from v1 payloads.
+  const unwrapped = {
+    _itemType: "DEEP_LINK",
+    title: "My Tracks",
+    id: "tidal://my-collection/tracks",
+    url: "tidal://my-collection/tracks",
+    externalUrl: false,
+  };
+  const wrapped = {
+    type: "DEEP_LINK",
+    data: {
+      title: "My Tracks",
+      id: "tidal://my-collection/tracks",
+      url: "tidal://my-collection/tracks",
+    },
+  };
+
+  it("reads the title from an unwrapped deep link", () => {
+    expect(getItemTitle(unwrapped)).toBe("My Tracks");
+  });
+
+  it("still reads the title from a wrapped deep link", () => {
+    expect(getItemTitle(wrapped)).toBe("My Tracks");
+  });
+
+  it("returns a stable id for an unwrapped deep link", () => {
+    expect(getItemId(unwrapped)).toBe("tidal://my-collection/tracks");
+  });
+
+  it("returns a stable id for a wrapped deep link", () => {
+    expect(getItemId(wrapped)).toBe("tidal://my-collection/tracks");
+  });
+
+  it("has no image for either shape", () => {
+    expect(getItemImage(unwrapped)).toBe("");
+    expect(getItemImage(wrapped)).toBe("");
+  });
+
+  it("is not playable media", () => {
+    expect(buildMediaItem(unwrapped)).toBeNull();
+    expect(buildMediaItem(wrapped)).toBeNull();
   });
 });
