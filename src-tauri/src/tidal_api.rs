@@ -7,6 +7,33 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Playbackinfo sub-statuses occupy the 4xxx range. Auth failures use a
+/// different namespace (11002/11003 token, 6001 session, 1002 pending), so a
+/// 4xxx code on a 401 is never fixed by refreshing the token.
+const PLAYBACKINFO_SUB_STATUS_RANGE: std::ops::RangeInclusive<u64> = 4000..=4999;
+
+/// Sub-statuses meaning "this track will not play, move on". Deliberately
+/// excludes 4006 (streaming privileges lost — recovers) and 4033 (subscription
+/// up-sell — the user can fix it), which must NOT delete the track.
+const TERMINAL_SUB_STATUSES: &[u64] = &[4005, 4010, 4030, 4031, 4032, 4034, 4035];
+
+fn sub_status(body: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("subStatus").and_then(|s| s.as_u64()))
+}
+
+/// True when a response body carries a playbackinfo sub-status. Drives the
+/// "do not refresh the token" decision.
+pub fn is_playbackinfo_sub_status(body: &str) -> bool {
+    sub_status(body).is_some_and(|s| PLAYBACKINFO_SUB_STATUS_RANGE.contains(&s))
+}
+
+/// True when the sub-status means the track itself is unplayable.
+pub fn is_terminal_sub_status(body: &str) -> bool {
+    sub_status(body).is_some_and(|s| TERMINAL_SUB_STATUSES.contains(&s))
+}
+
 /// Build a reqwest::Client with optional proxy configuration.
 pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error> {
     let mut builder = Client::builder().timeout(Duration::from_secs(30));
@@ -1279,6 +1306,18 @@ impl TidalClient {
 
         // 3. Check 401
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            // A 401 carrying a playbackinfo sub-status is not auth expiry.
+            // Refreshing costs a token round-trip, a settings rewrite and a
+            // second GET, and the answer never changes.
+            let body = response.text().await.unwrap_or_default();
+            if is_playbackinfo_sub_status(&body) {
+                log::warn!(
+                    "[authenticated_get] {} -> 401 playbackinfo sub-status, not retrying: {}",
+                    url,
+                    body.chars().take(200).collect::<String>()
+                );
+                return Err(SoneError::Api { status: 401, body });
+            }
             log::debug!("Got 401 from {}, attempting refresh...", url);
             // 4. Refresh token (requires &mut self)
             let new_tokens = self.refresh_token().await?;
@@ -6418,5 +6457,48 @@ mod profile_upload_tests {
     #[test]
     fn normalize_square_jpeg_rejects_garbage() {
         assert!(normalize_square_jpeg(b"not an image").is_err());
+    }
+}
+
+#[cfg(test)]
+mod sub_status_tests {
+    use super::{is_playbackinfo_sub_status, is_terminal_sub_status};
+
+    #[test]
+    fn terminal_codes_are_terminal() {
+        for code in [4005u64, 4010, 4030, 4031, 4032, 4034, 4035] {
+            let body = format!(r#"{{"status":401,"subStatus":{}}}"#, code);
+            assert!(is_terminal_sub_status(&body), "{} should be terminal", code);
+            assert!(is_playbackinfo_sub_status(&body));
+        }
+    }
+
+    #[test]
+    fn retryable_playbackinfo_codes_are_not_terminal() {
+        // 4006 = privileges lost, 4033 = subscription up-sell. Both recover.
+        for code in [4006u64, 4033] {
+            let body = format!(r#"{{"status":401,"subStatus":{}}}"#, code);
+            assert!(
+                !is_terminal_sub_status(&body),
+                "{} must not be terminal",
+                code
+            );
+            // …but still must NOT trigger a token refresh.
+            assert!(is_playbackinfo_sub_status(&body));
+        }
+    }
+
+    #[test]
+    fn auth_sub_statuses_and_junk_are_neither() {
+        for body in [
+            r#"{"status":401,"subStatus":11003}"#,
+            r#"{"status":401,"subStatus":6001}"#,
+            r#"{"subStatus":"4005"}"#, // string-typed, not a number
+            "",
+            "not json",
+        ] {
+            assert!(!is_playbackinfo_sub_status(body), "{body}");
+            assert!(!is_terminal_sub_status(body), "{body}");
+        }
     }
 }
