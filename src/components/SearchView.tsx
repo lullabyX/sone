@@ -40,6 +40,8 @@ const TABS: { id: SearchTab; label: string }[] = [
   { id: "artists", label: "Artists" },
 ];
 
+const TAB_IDS = TABS.map((t) => t.id);
+
 interface SearchViewProps {
   query: string;
   initialTab?: SearchTab;
@@ -71,7 +73,10 @@ export default function SearchView({
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useViewTab<SearchTab>(initialTab ?? "all");
+  const [activeTab, setActiveTab] = useViewTab<SearchTab>(
+    initialTab ?? "all",
+    TAB_IDS,
+  );
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{

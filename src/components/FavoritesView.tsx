@@ -72,7 +72,10 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const hasMoreVideosRef = useRef(true);
   const bgFetchingVideosRef = useRef(false);
   const videosSentinelRef = useRef<HTMLDivElement>(null);
-  const [tab, setTab] = useViewTab<"tracks" | "videos">("tracks");
+  const [tab, setTab] = useViewTab<"tracks" | "videos">("tracks", [
+    "tracks",
+    "videos",
+  ]);
 
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [totalTracks, setTotalTracks] = useState(0);

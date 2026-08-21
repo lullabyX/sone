@@ -16,10 +16,14 @@ function favoritesEntry() {
   >;
 }
 
-function renderTab<T extends string>(initial: T, view: AppView) {
+function renderTab<T extends string>(
+  initial: T,
+  view: AppView,
+  allowed: readonly T[],
+) {
   const store = createStore();
   store.set(currentViewAtom, view);
-  const utils = renderHook(() => useViewTab<T>(initial), {
+  const utils = renderHook(() => useViewTab<T>(initial, allowed), {
     wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
   });
   return { store, ...utils };
@@ -43,7 +47,7 @@ describe("useViewTab", () => {
     const store = createStore();
     store.set(currentViewAtom, seeded);
     const { result } = renderHook(
-      () => useViewTab<"tracks" | "albums">("tracks"),
+      () => useViewTab<"tracks" | "albums">("tracks", ["tracks", "albums"]),
       {
         wrapper: ({ children }) => (
           <Provider store={store}>{children}</Provider>
@@ -67,7 +71,10 @@ describe("useViewTab", () => {
     const seeded = { ...favoritesEntry(), tab: "videos" };
     window.history.replaceState(seeded, "");
 
-    const { result } = renderTab<"tracks" | "videos">("tracks", seeded);
+    const { result } = renderTab<"tracks" | "videos">("tracks", seeded, [
+      "tracks",
+      "videos",
+    ]);
 
     expect(result.current[0]).toBe("videos");
   });
@@ -77,7 +84,10 @@ describe("useViewTab", () => {
     window.history.replaceState(seeded, "");
     const pushState = vi.spyOn(window.history, "pushState");
 
-    const { store } = renderTab<"tracks" | "videos">("tracks", seeded);
+    const { store } = renderTab<"tracks" | "videos">("tracks", seeded, [
+      "tracks",
+      "videos",
+    ]);
 
     const next = store.get(currentViewAtom);
     expect(next.__navId).toBe(seeded.__navId);
@@ -92,7 +102,7 @@ describe("useViewTab", () => {
     window.history.replaceState(seeded, "");
     const replaceState = vi.spyOn(window.history, "replaceState");
 
-    renderTab<"tracks" | "videos">("tracks", seeded);
+    renderTab<"tracks" | "videos">("tracks", seeded, ["tracks", "videos"]);
 
     expect(replaceState).not.toHaveBeenCalled();
   });
@@ -104,7 +114,7 @@ describe("useViewTab", () => {
     const store = createStore();
     store.set(currentViewAtom, first);
     const { result } = renderHook(
-      () => useViewTab<"tracks" | "videos">("tracks"),
+      () => useViewTab<"tracks" | "videos">("tracks", ["tracks", "videos"]),
       {
         wrapper: ({ children }) => (
           <Provider store={store}>{children}</Provider>
@@ -129,5 +139,23 @@ describe("useViewTab", () => {
     expect(scrollKey(store.get(currentViewAtom))).toBe(
       `${second.__navId}:videos`,
     );
+  });
+
+  it("falls back to the initial tab when history state holds a foreign value", () => {
+    const entry = { ...favoritesEntry(), tab: "albums" };
+    window.history.replaceState(entry, "");
+
+    const store = createStore();
+    store.set(currentViewAtom, entry);
+    const { result } = renderHook(
+      () => useViewTab<"tracks" | "videos">("tracks", ["tracks", "videos"]),
+      {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      },
+    );
+
+    expect(result.current[0]).toBe("tracks");
   });
 });

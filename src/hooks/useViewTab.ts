@@ -18,9 +18,16 @@ function stateTab(): string | undefined {
  */
 export function useViewTab<T extends string>(
   initial: T,
+  allowed: readonly T[],
 ): [T, (tab: T) => void] {
   const setCurrentView = useSetAtom(currentViewAtom);
-  const [tab, setTabState] = useState<T>(() => (stateTab() as T) ?? initial);
+  const [tab, setTabState] = useState<T>(() => {
+    const stored = stateTab();
+    return stored !== undefined &&
+      (allowed as readonly string[]).includes(stored)
+      ? (stored as T)
+      : initial;
+  });
 
   const writeTab = useCallback(
     (next: T) => {
