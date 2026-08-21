@@ -28,9 +28,10 @@ function feedSubtitle(entry: FeedItem): string {
           .join(", ")
       : "";
     const rawType = typeof entry.item?.type === "string" ? entry.item.type : "";
-    const label = rawType
-      ? rawType.charAt(0) + rawType.slice(1).toLowerCase()
-      : "";
+    const label =
+      rawType === "EP"
+        ? "EP"
+        : rawType.charAt(0) + rawType.slice(1).toLowerCase();
     if (label && artists) return `${label} by ${artists}`;
     if (artists) return artists;
   }

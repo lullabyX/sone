@@ -1,6 +1,12 @@
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { authTokensAtom } from "../atoms/auth";
 import type { FeedResponse } from "../types";
@@ -110,12 +116,20 @@ describe("FeedPage", () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText("July 2026")).toBeTruthy());
 
-    // The unknown payload has no title of its own, so the row shows the mix and
-    // album rows as clickable and leaves the third inert: exactly two rows carry
-    // the cursor-pointer affordance.
-    const clickable = document.querySelectorAll("div.group.cursor-pointer");
-    expect(clickable.length).toBe(2);
-    // Same two rows carry a play button; the inert one contributes none.
+    // The unknown payload renders no title and no subtitle, so assert the row
+    // count directly: without this the tests would pass just as well against an
+    // implementation that dropped unknown kinds from the list entirely.
+    const rows = document.querySelectorAll("div.group");
+    expect(rows.length).toBe(3);
+
+    // Inertness has to be tested through behaviour, not through a styling class:
+    // a row wired to `handleOpen` but missing `cursor-pointer` would still call
+    // `navigateToAlbum(NaN)` and open a blank page.
+    fireEvent.click(rows[2]);
+    expect(navigateToMix).not.toHaveBeenCalled();
+    expect(navigateToAlbum).not.toHaveBeenCalled();
+
+    // Only the mix and album rows carry a play button; the inert one has none.
     // `queryAll` rather than `query`, which throws on more than one match.
     expect(screen.queryAllByLabelText(/^Play /).length).toBe(2);
   });
