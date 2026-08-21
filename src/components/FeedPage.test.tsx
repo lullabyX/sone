@@ -12,12 +12,13 @@ import { authTokensAtom } from "../atoms/auth";
 import type { FeedResponse } from "../types";
 
 const getFeed = vi.fn();
+const markFeedSeen = vi.fn();
 const navigateToMix = vi.fn();
 const navigateToAlbum = vi.fn();
 
 vi.mock("../api/tidal", () => ({
   getFeed: (...args: unknown[]) => getFeed(...args),
-  markFeedSeen: vi.fn(() => Promise.resolve()),
+  markFeedSeen: (...args: unknown[]) => markFeedSeen(...args),
 }));
 
 vi.mock("../hooks/useNavigation", () => ({
@@ -97,6 +98,7 @@ describe("FeedPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getFeed.mockResolvedValue(RESPONSE);
+    markFeedSeen.mockResolvedValue(undefined);
   });
 
   it("renders a row per item with a bucket heading", async () => {
@@ -141,5 +143,29 @@ describe("FeedPage", () => {
     await waitFor(() =>
       expect(screen.getByText(/nothing here yet/i)).toBeTruthy(),
     );
+  });
+
+  it("marks the feed seen on mount", async () => {
+    renderFeed();
+    await waitFor(() => expect(markFeedSeen).toHaveBeenCalledWith(1));
+  });
+
+  // Mark-seen lives in its own effect rather than inside `getFeed`'s `.then`,
+  // precisely so a failed load cannot leave the sidebar dot stuck on. Folding
+  // the two effects together would still pass every other test in this file.
+  it("marks the feed seen even when the fetch fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    getFeed.mockRejectedValue(new Error("boom"));
+
+    renderFeed();
+
+    // Assert the failure actually surfaced, so this cannot silently degrade
+    // into a second copy of the happy-path test.
+    await waitFor(() => expect(screen.getByText("boom")).toBeTruthy());
+    await waitFor(() => expect(markFeedSeen).toHaveBeenCalledWith(1));
+
+    consoleError.mockRestore();
   });
 });
