@@ -1,6 +1,7 @@
 import {
   Home,
   Compass,
+  Bell,
   Library,
   Heart,
   Music,
@@ -60,7 +61,7 @@ import {
   renamedFoldersAtom,
   updatedPlaylistsAtom,
 } from "../atoms/playlists";
-import { sidebarCollapsedAtom } from "../atoms/ui";
+import { sidebarCollapsedAtom, feedUnseenCountAtom } from "../atoms/ui";
 import { currentViewAtom } from "../atoms/navigation";
 
 export default function Sidebar() {
@@ -72,10 +73,12 @@ export default function Sidebar() {
     navigateToFavorites,
     navigateHome,
     navigateToExplore,
+    navigateToFeed,
     navigateToLibraryViewAll,
     navigateToPlaylistFolder,
   } = useNavigation();
   const currentView = useAtomValue(currentViewAtom);
+  const feedUnseenCount = useAtomValue(feedUnseenCountAtom);
   const { authTokens } = useAuth();
   const [isCollapsed, setIsCollapsed] = useAtom(sidebarCollapsedAtom);
   const [activeFilter, setActiveFilter] = useState<
@@ -451,6 +454,23 @@ export default function Sidebar() {
           {!isCollapsed && (
             <span className="font-semibold text-sm">Explore</span>
           )}
+        </button>
+        <button
+          onClick={navigateToFeed}
+          className={`relative w-full flex items-center gap-3 px-2.5 py-2.5 rounded-md transition-colors duration-150 group ${
+            currentView.type === "feed"
+              ? "text-th-text-primary bg-th-hl-med"
+              : "text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle"
+          } ${isCollapsed ? "justify-center px-0" : ""}`}
+          title="Feed"
+        >
+          <span className="relative">
+            <Bell size={20} strokeWidth={2} />
+            {feedUnseenCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-th-accent ring-2 ring-th-base" />
+            )}
+          </span>
+          {!isCollapsed && <span className="font-semibold text-sm">Feed</span>}
         </button>
       </nav>
 
