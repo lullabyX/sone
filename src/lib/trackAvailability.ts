@@ -53,6 +53,26 @@ export function isUnplayableError(error: unknown): boolean {
   return status === 401 && hasTerminalSubStatus(parsed);
 }
 
+/** True if the backend refused because we are rate-limited. Distinct from
+ *  "unplayable": the track is fine, we are the problem — back off, don't skip. */
+export function isRateLimitedError(error: unknown): boolean {
+  const parsed = typeof error === "string" ? safeJsonParse(error) : error;
+  return getApiStatus(parsed) === 429;
+}
+
+/** Seconds the backend asked us to wait, when it said so. */
+export function retryAfterSecs(error: unknown): number | null {
+  const parsed = typeof error === "string" ? safeJsonParse(error) : error;
+  const body = (parsed as { message?: { body?: unknown } })?.message?.body;
+  if (typeof body !== "string") return null;
+  try {
+    const n = (JSON.parse(body) as { retryAfterSecs?: unknown }).retryAfterSecs;
+    return typeof n === "number" ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 function safeJsonParse(s: string): unknown {
   try {
     return JSON.parse(s);

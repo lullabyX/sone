@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isUnplayableError } from "./trackAvailability";
+import {
+  isRateLimitedError,
+  isUnplayableError,
+  retryAfterSecs,
+} from "./trackAvailability";
 
 const api = (status: number, body = "") => ({
   kind: "Api",
@@ -30,5 +34,18 @@ describe("isUnplayableError", () => {
     expect(isUnplayableError({ kind: "Network", message: "offline" })).toBe(
       false,
     );
+  });
+});
+
+describe("isRateLimitedError", () => {
+  it("detects 429 and nothing else", () => {
+    expect(isRateLimitedError(api(429))).toBe(true);
+    expect(isRateLimitedError(api(401))).toBe(false);
+    expect(isRateLimitedError(api(500))).toBe(false);
+  });
+
+  it("extracts retryAfterSecs when present", () => {
+    expect(retryAfterSecs(api(429, '{"retryAfterSecs":7}'))).toBe(7);
+    expect(retryAfterSecs(api(429))).toBe(null);
   });
 });

@@ -48,8 +48,10 @@ import {
   markPlaybackLoading,
 } from "../lib/playbackPosition";
 import {
+  isRateLimitedError,
   isTrackUnavailable,
   isUnplayableError,
+  retryAfterSecs,
 } from "../lib/trackAvailability";
 import { pickGaplessNext } from "../lib/gaplessPredict";
 import { startVideoSession } from "../lib/videoSession";
@@ -70,7 +72,10 @@ import {
 
 type PlayResult =
   | { ok: true }
-  | { ok: false; reason: "network" | "unplayable" | "transient" };
+  | {
+      ok: false;
+      reason: "network" | "unplayable" | "transient" | "rate-limited";
+    };
 
 const MAX_CONSECUTIVE_PLAY_FAILS = 3;
 
@@ -187,6 +192,9 @@ export function usePlaybackActions() {
   const autoplayIdsRef = useRef(new Set<number>());
   const playNextLockRef = useRef(false);
   const lastPlayInvokeRef = useRef(0);
+  const playNextRef = useRef<
+    ((opts?: { explicit?: boolean }) => Promise<void>) | null
+  >(null);
 
   const playTrack = useCallback(
     async (
@@ -317,6 +325,23 @@ export function usePlaybackActions() {
           checkNetworkError(error);
           return { ok: false, reason: "network" };
         }
+        if (isRateLimitedError(error)) {
+          const wait = retryAfterSecs(error) ?? 5;
+          showToast(`Too many requests — resuming in ${wait}s`, "info");
+          // Without this, a 429 from ANY endpoint (search, home, library) stops
+          // the music permanently: the track is re-queued at the head and
+          // nothing retries once the cooldown lapses.
+          const gen = playGenerationRef.current;
+          setTimeout(
+            () => {
+              if (gen !== playGenerationRef.current) return;
+              if (store.get(userPausedAtom)) return;
+              void playNextRef.current?.();
+            },
+            (wait + 1) * 1000,
+          );
+          return { ok: false, reason: "rate-limited" };
+        }
         if (isUnplayableError(error)) {
           if (!opts?.suppressUnplayableToast) {
             showToast("Track unavailable", "info");
@@ -413,6 +438,11 @@ export function usePlaybackActions() {
       markPlaybackLoading(false);
       if (isNetworkError(error)) {
         checkNetworkError(error);
+      } else if (isRateLimitedError(error)) {
+        showToast(
+          `Too many requests — try again in ${retryAfterSecs(error) ?? 5}s`,
+          "info",
+        );
       } else if (isUnplayableError(error)) {
         showToast("Track unavailable", "info");
       } else {
@@ -1077,6 +1107,8 @@ export function usePlaybackActions() {
     [store, playTrack],
   );
 
+  playNextRef.current = playNext;
+
   const playPrevious = useCallback(async () => {
     if (playNextLockRef.current) return;
     playNextLockRef.current = true;
@@ -1205,6 +1237,11 @@ export function usePlaybackActions() {
           markPlaybackLoading(false);
           if (isNetworkError(error)) {
             checkNetworkError(error);
+          } else if (isRateLimitedError(error)) {
+            showToast(
+              `Too many requests — try again in ${retryAfterSecs(error) ?? 5}s`,
+              "info",
+            );
           } else if (isUnplayableError(error)) {
             showToast("Track unavailable", "info");
           } else {

@@ -920,6 +920,17 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
         tokens.access_token.clone()
     };
 
+    let gate = { state.tidal_client.lock().await.gate() };
+    if let Some(secs) = gate.cooling_down() {
+        return Err(SoneError::Api {
+            status: 429,
+            body: format!(
+                r#"{{"status":429,"retryAfterSecs":{},"userMessage":"Rate limited — try again in {}s"}}"#,
+                secs, secs
+            ),
+        });
+    }
+
     let http = {
         let client = state.tidal_client.lock().await;
         client.raw_client().clone()
