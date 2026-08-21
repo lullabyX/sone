@@ -1079,6 +1079,10 @@ export function usePlaybackActions() {
               playNextLockRef.current = false;
               await playNext();
               return;
+            } else if (!result.ok && result.reason === "rate-limited") {
+              // The queue holds only `rest`; the resume is a playNext(), so
+              // without this the rebuilt loop would lose its first track.
+              requeueHead(first);
             }
           } else {
             store.set(isPlayingAtom, false);
@@ -1111,6 +1115,10 @@ export function usePlaybackActions() {
                   playNextLockRef.current = false;
                   await playNext();
                   return;
+                } else if (!result.ok && result.reason === "rate-limited") {
+                  // Same as above: `next` is in neither queue, so the resume
+                  // would start the radio one track in.
+                  requeueHead(next);
                 }
                 return;
               }
@@ -1133,7 +1141,7 @@ export function usePlaybackActions() {
         playNextLockRef.current = false;
       }
     },
-    [store, playTrack, scheduleRateLimitResume],
+    [store, playTrack, scheduleRateLimitResume, requeueHead],
   );
 
   playNextRef.current = playNext;

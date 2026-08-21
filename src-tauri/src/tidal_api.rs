@@ -20,7 +20,16 @@ const TERMINAL_SUB_STATUSES: &[u64] = &[4005, 4010, 4030, 4031, 4032, 4034, 4035
 fn sub_status(body: &str) -> Option<u64> {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
-        .and_then(|v| v.get("subStatus").and_then(|s| s.as_u64()))
+        .and_then(|v| v.get("subStatus").cloned())
+        .and_then(|s| match s.as_u64() {
+            Some(n) => Some(n),
+            // A float-encoded whole number (4005.0) is still a sub-status; the
+            // frontend's `typeof sub === "number"` accepts it, so we must too.
+            None => s
+                .as_f64()
+                .filter(|f| f.is_finite() && f.fract() == 0.0 && *f >= 0.0)
+                .map(|f| f as u64),
+        })
 }
 
 /// True when a response body carries a playbackinfo sub-status. Drives the
@@ -1164,6 +1173,10 @@ impl TidalClient {
         if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let secs = crate::rate_gate::retry_after_or_default(resp.headers());
             self.gate.trip(secs);
+            // Report the gate's own view, not the raw header: `trip` clamps to
+            // MAX_COOLDOWN_SECS, and a concurrent longer cooldown may already
+            // be in force, so `.min(120)` here would under-report instead.
+            let secs = self.gate.cooling_down().unwrap_or(secs);
             log::warn!("[send] rate limited, cooling down {}s", secs);
             return Err(rate_limited_error(secs));
         }
@@ -6523,5 +6536,14 @@ mod sub_status_tests {
             assert!(!is_playbackinfo_sub_status(body), "{body}");
             assert!(!is_terminal_sub_status(body), "{body}");
         }
+    }
+
+    #[test]
+    fn float_encoded_sub_status_is_terminal() {
+        // serde_json reads 4005.0 as f64, so as_u64() alone says None while the
+        // frontend's `typeof sub === "number"` accepts it. Keep the two agreeing.
+        let body = r#"{"status":401,"subStatus":4005.0}"#;
+        assert!(is_terminal_sub_status(body));
+        assert!(is_playbackinfo_sub_status(body));
     }
 }

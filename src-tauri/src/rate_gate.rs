@@ -62,7 +62,7 @@ pub fn retry_after_or_default(headers: &reqwest::header::HeaderMap) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_retry_after_value, RateGate};
+    use super::{parse_retry_after_value, RateGate, MAX_COOLDOWN_SECS};
 
     #[test]
     fn clear_then_trips_then_expires() {
@@ -87,6 +87,16 @@ mod tests {
         let gate = RateGate::new();
         gate.trip_at(1_000, 99_999);
         assert_eq!(gate.cooling_down_at(1_000), Some(120));
+    }
+
+    #[test]
+    fn huge_cooldown_is_reported_clamped() {
+        // send() reports the gate's own view rather than the raw Retry-After,
+        // so an hour-long header can never arm an hour-long frontend timer.
+        let gate = RateGate::new();
+        gate.trip(3_600);
+        let reported = gate.cooling_down().expect("gate is cooling down");
+        assert!(reported <= MAX_COOLDOWN_SECS, "reported {reported}s");
     }
 
     #[test]
