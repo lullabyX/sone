@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import type { AppView } from "../types";
 
@@ -41,12 +41,15 @@ export function useViewTab<T extends string>(
     [writeTab],
   );
 
+  const navId = useAtomValue(currentViewAtom).__navId;
+
   // The tab an entry opens on needs to be in the entry's state too, or its
   // scroll offset is filed under the empty tab segment and lost as soon as the
-  // first switch writes a real one. Reuses the id-preserving write.
+  // first switch writes a real one. Keyed on the entry rather than on mount:
+  // a new entry can appear for a page that never remounts.
   useEffect(() => {
     if (stateTab() === undefined) writeTab(tab);
-  }, [tab, writeTab]);
+  }, [navId, tab, writeTab]);
 
   return [tab, setTab];
 }

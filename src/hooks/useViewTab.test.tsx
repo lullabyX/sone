@@ -96,4 +96,38 @@ describe("useViewTab", () => {
 
     expect(replaceState).not.toHaveBeenCalled();
   });
+
+  it("stamps the tab into a new entry created without a remount", () => {
+    const first = pushView({ type: "favorites" });
+    window.history.replaceState(first, "");
+
+    const store = createStore();
+    store.set(currentViewAtom, first);
+    const { result } = renderHook(
+      () => useViewTab<"tracks" | "videos">("tracks"),
+      {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      },
+    );
+
+    act(() => {
+      result.current[1]("videos");
+    });
+    expect(scrollKey(store.get(currentViewAtom))).toBe(
+      `${first.__navId}:videos`,
+    );
+
+    // A fresh entry for the same page, with no remount of the hook.
+    const second = pushView({ type: "favorites" });
+    window.history.replaceState(second, "");
+    act(() => {
+      store.set(currentViewAtom, second);
+    });
+
+    expect(scrollKey(store.get(currentViewAtom))).toBe(
+      `${second.__navId}:videos`,
+    );
+  });
 });
