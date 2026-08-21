@@ -551,7 +551,10 @@ function VirtualTrackRows({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, onLoadMore]);
+    // tracks.length re-arms the observer on growth: a restored offset can park
+    // the viewport at max scroll with the sentinel already inside it, and
+    // IntersectionObserver reports only crossings, never a standing overlap.
+  }, [hasMore, onLoadMore, tracks.length]);
 
   return (
     <>
@@ -722,7 +725,7 @@ export default memo(function TrackList({
     }
 
     return () => observerRef.current?.disconnect();
-  }, [hasMore, onLoadMore, virtualize]);
+  }, [hasMore, onLoadMore, virtualize, tracks.length]);
 
   // Build grid columns string
   const gridCols = useMemo(
