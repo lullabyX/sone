@@ -65,6 +65,7 @@ import {
 import {
   decorationsAtom,
   drawerOpenAtom,
+  feedUnseenCountAtom,
   maximizedPlayerAtom,
 } from "../atoms/ui";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
@@ -93,6 +94,7 @@ import {
   normalizePlaylistFolders,
   getTrack,
   getProfile,
+  getFeed,
 } from "../api/tidal";
 import { pickProfileAvatarHref } from "./ProfilePage";
 
@@ -209,6 +211,7 @@ export function AppInitializer() {
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const setDecorations = useSetAtom(decorationsAtom);
+  const setFeedUnseenCount = useSetAtom(feedUnseenCountAtom);
   const { showToast } = useToast();
 
   // ---- Store for one-time reads (volume, queue, history, etc.) — no subscription ----
@@ -455,6 +458,12 @@ export function AppInitializer() {
       .catch((error) =>
         console.error("Failed to load favorite video IDs:", error),
       );
+
+    // Activity feed — fetched at startup so the sidebar unread dot is correct
+    // before the user ever opens the page. Also warms the backend feed cache.
+    getFeed(userId)
+      .then((feed) => setFeedUnseenCount(feed.unseenCount))
+      .catch((error) => console.error("Failed to load feed:", error));
 
     // Non-blocking background preload (2s delay to avoid startup congestion)
     const timer = setTimeout(() => {

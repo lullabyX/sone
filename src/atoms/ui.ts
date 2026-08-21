@@ -8,6 +8,10 @@ export const maximizedLyricsAtom = atom(false);
 export const sidebarCollapsedAtom = atom(false);
 export const miniplayerOpenAtom = atom(false);
 
+/** Unread activity-feed count, from `stats.totalNotSeenActivities`. Drives the
+ *  sidebar Feed dot. Zeroed optimistically when the Feed page is opened. */
+export const feedUnseenCountAtom = atom(0);
+
 // `true` = native OS chrome (escape hatch), `false` = custom React titlebar
 // (default after migration). Hydrated from Rust `get_decorations` on app boot.
 export const decorationsAtom = atom<boolean>(false);
