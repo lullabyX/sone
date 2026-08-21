@@ -12,6 +12,7 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useAuth } from "../hooks/useAuth";
 import { useFavorites } from "../hooks/useFavorites";
 import { useViewTab } from "../hooks/useViewTab";
+import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { useNavigation } from "../hooks/useNavigation";
 import {
   getFavoriteTracks,
@@ -19,7 +20,11 @@ import {
   getPageSection,
 } from "../api/tidal";
 import { safeErrorMessage } from "../lib/errorUtils";
-import { buildMediaItem, getItemTitle, videoToTrack } from "../utils/itemHelpers";
+import {
+  buildMediaItem,
+  getItemTitle,
+  videoToTrack,
+} from "../utils/itemHelpers";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../atoms/favorites";
 import { type Track, type TidalVideo, type MediaItemType } from "../types";
 import TrackList from "./TrackList";
@@ -373,6 +378,10 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const isFiltering = searchQuery.trim().length > 0;
 
+  // Lets an in-flight scroll restore pull the pages it needs directly, instead
+  // of the viewport tripping the pagination sentinel step by step.
+  useRestoreLoader(isFiltering ? undefined : loadMore, hasMore);
+
   const { filteredTracks, displayNumbers } = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return { filteredTracks: tracks, displayNumbers: undefined };
@@ -420,7 +429,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [loadMoreVideos, hasMoreVideos, tab, isFiltering]);
+  }, [loadMoreVideos, hasMoreVideos, tab, isFiltering, displayedVideos.length]);
 
   const handleSearchFocus = useCallback(() => {
     if (hasMoreRef.current && !bgFetchingRef.current) {
@@ -554,7 +563,12 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         console.error("Failed to play video:", err);
       }
     },
-    [displayedVideos, playFromSource, videosSource, appendRemainingVideosToQueue],
+    [
+      displayedVideos,
+      playFromSource,
+      videosSource,
+      appendRemainingVideosToQueue,
+    ],
   );
 
   const handlePlayAllVideos = async () => {

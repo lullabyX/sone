@@ -24,6 +24,7 @@ import { authTokensAtom, userNameAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
+import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { useToast } from "../contexts/ToastContext";
 import {
   getPlaylistTracksPage,
@@ -32,7 +33,11 @@ import {
   getPlaylistDetails,
 } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
-import { getShareUrl, formatTotalDuration, playlistCountLabel } from "../utils/itemHelpers";
+import {
+  getShareUrl,
+  formatTotalDuration,
+  playlistCountLabel,
+} from "../utils/itemHelpers";
 import NotFoundPage from "./NotFoundPage";
 import { getTidalImageUrl, type Track, type MediaItemType } from "../types";
 import TidalImage from "./TidalImage";
@@ -395,6 +400,10 @@ export default function PlaylistView({
 
   const tracks = allTracks;
   const hasMore = allTracks.length < totalTracks;
+
+  // Lets an in-flight scroll restore pull the pages it needs directly, rather
+  // than the viewport tripping the pagination sentinel page by page.
+  useRestoreLoader(loadMore, hasMore);
 
   // Local search / filter (debounce handled inside DebouncedFilterInput)
   const [searchQuery, setSearchQuery] = useState("");

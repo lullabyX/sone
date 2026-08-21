@@ -10,6 +10,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "../hooks/useNavigation";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useFavorites } from "../hooks/useFavorites";
+import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { useAtomValue, useStore } from "jotai";
 import {
   deletedPlaylistIdsAtom,
@@ -327,7 +328,7 @@ export default function LibraryViewAll({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, loading]);
+  }, [loadMore, loading, items.length]);
 
   const displayItems = useMemo(() => {
     if (libraryType !== "playlists") return items;
@@ -626,6 +627,10 @@ export default function LibraryViewAll({
   // ==================== Render ====================
 
   const hasMore = !isFiltering && items.length < totalCount;
+
+  // Lets an in-flight scroll restore pull the pages it needs directly, rather
+  // than the viewport tripping the pagination sentinel page by page.
+  useRestoreLoader(isFiltering ? undefined : loadMore, hasMore);
   const isArtist = libraryType === "artists";
   const itemCount = isFiltering
     ? filteredItems.length

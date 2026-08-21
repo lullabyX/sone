@@ -10,6 +10,7 @@ import {
   saveOffset,
 } from "../lib/scrollMemory";
 import { useScrollRestoration } from "./useScrollRestoration";
+import { useRestoreLoader } from "./useRestoreLoader";
 import type { AppView } from "../types";
 
 const observers: Array<() => void> = [];
@@ -163,6 +164,68 @@ const view = (navId: number): AppView => ({
   __navSession: NAV_SESSION,
 });
 
+function LoaderHarness({
+  scrollHeight,
+  loadMore,
+  hasMore,
+}: {
+  scrollHeight: number;
+  loadMore: () => void;
+  hasMore: boolean;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useRestoreLoader(loadMore, hasMore);
+  useScrollRestoration(ref);
+  return (
+    <div
+      ref={(el) => {
+        ref.current = el;
+        if (el && el !== container) {
+          container = el;
+          fakeMetrics(el, scrollHeight, 500);
+          el.scrollTop = 100;
+        }
+      }}
+    />
+  );
+}
+
+function renderWithLoader(
+  view: AppView,
+  scrollHeight: number,
+  loadMore: () => void,
+  hasMore: boolean,
+) {
+  const store = createStore();
+  store.set(currentViewAtom, view);
+  return render(
+    <Provider store={store}>
+      <LoaderHarness
+        scrollHeight={scrollHeight}
+        loadMore={loadMore}
+        hasMore={hasMore}
+      />
+    </Provider>,
+  );
+}
+
+function GlideHarness({ scrollTo }: { scrollTo: (opts: unknown) => void }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useScrollRestoration(ref);
+  return (
+    <div
+      ref={(el) => {
+        ref.current = el;
+        if (el && el !== container) {
+          container = el;
+          fakeMetrics(el, 4000, 500);
+          (el as unknown as { scrollTo: unknown }).scrollTo = scrollTo;
+        }
+      }}
+    />
+  );
+}
+
 describe("useScrollRestoration", () => {
   beforeEach(() => {
     observers.length = 0;
@@ -172,9 +235,12 @@ describe("useScrollRestoration", () => {
     overlay = null;
     clearAllOffsets();
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    // Returns 0, not 1: the callback runs synchronously and clears the hook's
+    // frame handle, so a truthy return would latch the throttle and silently
+    // drop every scroll after the first.
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0);
-      return 1;
+      return 0;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
   });
@@ -207,10 +273,12 @@ describe("useScrollRestoration", () => {
     expect(container!.scrollTop).toBe(1200);
   });
 
-  it("clamps while content is short, then reaches the target once it grows", () => {
+  it("holds still while content is short, then lands in one jump", () => {
     saveOffset("4:", 1200);
     renderWith(view(4), 700);
-    expect(container!.scrollTop).toBe(200);
+    // The old behaviour stepped to the clamped 200 here; stepping down as each
+    // page arrived is what the single jump replaces.
+    expect(container!.scrollTop).toBe(100);
 
     fakeMetrics(container!, 4000, 500);
     observers.forEach((fire) => fire());
@@ -220,23 +288,23 @@ describe("useScrollRestoration", () => {
   it("stops chasing the target once the user scrolls", () => {
     saveOffset("5:", 1200);
     renderWith(view(5), 700);
-    expect(container!.scrollTop).toBe(200);
+    expect(container!.scrollTop).toBe(100);
 
     window.dispatchEvent(new Event("wheel"));
     fakeMetrics(container!, 4000, 500);
     observers.forEach((fire) => fire());
-    expect(container!.scrollTop).toBe(200);
+    expect(container!.scrollTop).toBe(100);
   });
 
   it("stops chasing the target when the user grabs the scrollbar", () => {
     saveOffset("10:", 1200);
     renderWith(view(10), 700);
-    expect(container!.scrollTop).toBe(200);
+    expect(container!.scrollTop).toBe(100);
 
     window.dispatchEvent(new Event("pointerdown"));
     fakeMetrics(container!, 4000, 500);
     observers.forEach((fire) => fire());
-    expect(container!.scrollTop).toBe(200);
+    expect(container!.scrollTop).toBe(100);
   });
 
   it("does not let a restore's own scroll events overwrite the stored offset", () => {
@@ -285,7 +353,9 @@ describe("useScrollRestoration", () => {
     vi.useFakeTimers();
     saveOffset("8:", 1200);
     renderWith(view(8), 700);
+    // Out of content: the settle lands as deep as the page goes, in one move.
     vi.advanceTimersByTime(3000);
+    expect(container!.scrollTop).toBe(200);
 
     fakeMetrics(container!, 4000, 500);
     observers.forEach((fire) => fire());
@@ -295,7 +365,7 @@ describe("useScrollRestoration", () => {
   it("watches the new subtree after a skeleton is swapped for content", () => {
     saveOffset("14:", 1200);
     renderSwap(view(14));
-    expect(container!.scrollTop).toBe(200);
+    expect(container!.scrollTop).toBe(100);
 
     const skeleton = container!.firstElementChild!;
     expect(observed.has(skeleton)).toBe(true);
@@ -313,23 +383,136 @@ describe("useScrollRestoration", () => {
     vi.useFakeTimers();
     saveOffset("15:", 1200);
     renderSwap(view(15));
-    expect(container!.scrollTop).toBe(200);
+    expect(container!.scrollTop).toBe(100);
 
     vi.advanceTimersByTime(2500);
     fakeMetrics(container!, 1000, 500);
     observers.forEach((fire) => fire());
-    expect(container!.scrollTop).toBe(500);
+    expect(container!.scrollTop).toBe(100);
 
-    // Past 3000ms since the restore started, but only 2500ms since the growth.
+    // Past 3000ms since the restore started, but only 2500ms since the growth,
+    // so the restore is still live and still has not moved the viewport.
     vi.advanceTimersByTime(2500);
     fakeMetrics(container!, 1600, 500);
     observers.forEach((fire) => fire());
+    expect(container!.scrollTop).toBe(100);
+
+    // Growth stops: the quiet period expires and lands at the deepest offset
+    // the content allows, once.
+    vi.advanceTimersByTime(3000);
     expect(container!.scrollTop).toBe(1100);
 
-    vi.advanceTimersByTime(3000);
     fakeMetrics(container!, 4000, 500);
     observers.forEach((fire) => fire());
     expect(container!.scrollTop).toBe(1100);
+  });
+
+  it("asks the page for more rows instead of moving the viewport", () => {
+    saveOffset("17:", 1200);
+    const loadMore = vi.fn();
+    renderWithLoader(view(17), 700, loadMore, true);
+
+    // Unreachable offset: the request goes to the data layer and the list has
+    // not moved, which is what removes the visible pagination stepping.
+    expect(loadMore).toHaveBeenCalledTimes(1);
+    expect(container!.scrollTop).toBe(100);
+
+    // A callback that brought no rows must not cost another fetch — a real
+    // ResizeObserver fires for reasons that add nothing.
+    observers.forEach((fire) => fire());
+    expect(loadMore).toHaveBeenCalledTimes(1);
+
+    // Rows arrived but the offset is still out of reach: ask once more.
+    fakeMetrics(container!, 900, 500);
+    observers.forEach((fire) => fire());
+    expect(loadMore).toHaveBeenCalledTimes(2);
+    expect(container!.scrollTop).toBe(100);
+
+    observers.forEach((fire) => fire());
+    expect(loadMore).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops asking once the rows it needs have arrived", () => {
+    saveOffset("18:", 1200);
+    const loadMore = vi.fn();
+    renderWithLoader(view(18), 700, loadMore, true);
+    expect(loadMore).toHaveBeenCalledTimes(1);
+
+    fakeMetrics(container!, 4000, 500);
+    observers.forEach((fire) => fire());
+
+    expect(container!.scrollTop).toBe(1200);
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask a page that has no more rows", () => {
+    saveOffset("19:", 1200);
+    const loadMore = vi.fn();
+    renderWithLoader(view(19), 700, loadMore, false);
+
+    observers.forEach((fire) => fire());
+    expect(loadMore).not.toHaveBeenCalled();
+  });
+
+  it("jumps instantly when the user prefers reduced motion", () => {
+    const scrollTo = vi.fn();
+    const store = createStore();
+    store.set(currentViewAtom, view(20));
+    saveOffset("20:", 1200);
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+
+    render(
+      <Provider store={store}>
+        <GlideHarness scrollTo={scrollTo} />
+      </Provider>,
+    );
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(container!.scrollTop).toBe(1200);
+  });
+
+  it("jumps a runway short of the offset, then scrolls smoothly to it", () => {
+    const scrollTo = vi.fn();
+    const store = createStore();
+    store.set(currentViewAtom, view(22));
+    saveOffset("22:", 1200);
+
+    render(
+      <Provider store={store}>
+        <GlideHarness scrollTo={scrollTo} />
+      </Provider>,
+    );
+
+    // clientHeight 500 * 1.5 runway = 750 below the 1200 target.
+    expect(container!.scrollTop).toBe(450);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });
+  });
+
+  it("keeps recording paused until the glide settles", () => {
+    const scrollTo = vi.fn();
+    const store = createStore();
+    store.set(currentViewAtom, view(23));
+    saveOffset("23:", 1200);
+
+    render(
+      <Provider store={store}>
+        <GlideHarness scrollTo={scrollTo} />
+      </Provider>,
+    );
+
+    // Mid-glide scroll events must not overwrite the offset being restored.
+    container!.scrollTop = 700;
+    container!.dispatchEvent(new Event("scroll"));
+    expect(getOffset("23:")).toBe(1200);
+
+    container!.dispatchEvent(new Event("scrollend"));
+    container!.scrollTop = 1200;
+    container!.dispatchEvent(new Event("scroll"));
+    expect(getOffset("23:")).toBe(1200);
+
+    container!.scrollTop = 1500;
+    container!.dispatchEvent(new Event("scroll"));
+    expect(getOffset("23:")).toBe(1500);
   });
 
   it("stops chasing at the absolute ceiling even while content keeps growing", () => {
@@ -345,6 +528,8 @@ describe("useScrollRestoration", () => {
       observers.forEach((fire) => fire());
     }
 
+    // The ceiling fires mid-eighth-step, so it lands against the height the
+    // seventh step left behind.
     expect(container!.scrollTop).toBe(6500);
     fakeMetrics(container!, 60000, 500);
     observers.forEach((fire) => fire());

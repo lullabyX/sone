@@ -4,6 +4,7 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
+import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { getPageSection, getArtistViewAll } from "../api/tidal";
 import { safeErrorMessage } from "../lib/errorUtils";
 import { type MediaItemType } from "../types";
@@ -144,6 +145,10 @@ export default function ViewAllPage({
     }
   }, [artistId, apiPath, items.length, hasMore]);
 
+  // Lets an in-flight scroll restore pull the pages it needs directly, rather
+  // than the viewport tripping the pagination sentinel page by page.
+  useRestoreLoader(handleLoadMore, hasMore);
+
   useEffect(() => {
     if (!artistId) return;
     const sentinel = sentinelRef.current;
@@ -158,7 +163,7 @@ export default function ViewAllPage({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [artistId, hasMore, handleLoadMore]);
+  }, [artistId, hasMore, handleLoadMore, items.length]);
 
   const handleItemClick = (item: any) => {
     if (isMyTracksItem(item)) {

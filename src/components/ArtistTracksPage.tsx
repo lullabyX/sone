@@ -2,6 +2,7 @@ import { Shuffle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SourcePlayButton from "./SourcePlayButton";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { getArtistTopTracksAll } from "../api/tidal";
 import type { Track } from "../types";
 import TrackList from "./TrackList";
@@ -94,6 +95,10 @@ export default function ArtistTracksPage({
       setLoadingMore(false);
     }
   }, [artistId, tracks.length, hasMore]);
+
+  // Lets an in-flight scroll restore pull the pages it needs directly, rather
+  // than the viewport tripping the pagination sentinel page by page.
+  useRestoreLoader(handleLoadMore, hasMore);
 
   const artistSource = {
     type: "artist-tracks" as const,
