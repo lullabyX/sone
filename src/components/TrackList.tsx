@@ -506,6 +506,8 @@ function VirtualTrackRows({
 
   // Load-bearing for the page's scrollHeight: 60 = a 40px cover + 20px py-2.5.
   // If this drifts from a real row's height the scrollbar shifts under a restore.
+  // The 48 branch is unexercised — no caller passes no-cover — and is not
+  // derived; a real no-cover row is ~50px with showArtist, ~58px without.
   const rowHeight = showCover ? 60 : 48;
 
   const virtualizer = useVirtualizer({
@@ -516,6 +518,8 @@ function VirtualTrackRows({
     scrollMargin,
     // The virtualizer scrolls its element to initialOffset once on attach, and
     // the default 0 would wipe a restored offset the moment this list mounts.
+    // Resolved once and memoised on first read, so this relies on Layout's
+    // element already being attached before any virtualized list first renders.
     initialOffset: () => scrollEl?.scrollTop ?? 0,
     getItemKey: (i) => tracks[i]?.id ?? i,
   });
