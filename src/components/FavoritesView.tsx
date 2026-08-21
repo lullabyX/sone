@@ -44,6 +44,9 @@ interface FavoritesViewProps {
 const PAGE_SIZE = 100;
 const VIDEO_PAGE_SIZE = 50;
 
+const FAVORITES_TABS = ["tracks", "videos"] as const;
+type FavoritesTab = (typeof FAVORITES_TABS)[number];
+
 /** A favorite video as a queue-ready Track (itemType "video") so it flows through
  *  playFromSource/playAllFromSource exactly like an audio track — giving the video
  *  tab a full queue with working prev/next, like the tracks tab. */
@@ -72,10 +75,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const hasMoreVideosRef = useRef(true);
   const bgFetchingVideosRef = useRef(false);
   const videosSentinelRef = useRef<HTMLDivElement>(null);
-  const [tab, setTab] = useViewTab<"tracks" | "videos">("tracks", [
-    "tracks",
-    "videos",
-  ]);
+  const [tab, setTab] = useViewTab<FavoritesTab>("tracks", FAVORITES_TABS);
 
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [totalTracks, setTotalTracks] = useState(0);
@@ -682,7 +682,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       <PageContainer>
         {/* Tracks | Videos tab bar (always shown) */}
         <div className="px-8 pb-4 flex items-center gap-2">
-          {(["tracks", "videos"] as const).map((id) => (
+          {FAVORITES_TABS.map((id) => (
             <button
               key={id}
               onClick={() => setTab(id)}

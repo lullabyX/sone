@@ -55,6 +55,10 @@ export function useViewTab<T extends string>(
   // first switch writes a real one. Keyed on the entry rather than on mount:
   // a new entry can appear for a page that never remounts.
   useEffect(() => {
+    const stateNavId = (window.history.state as { __navId?: number } | null)
+      ?.__navId;
+    // The trigger is the atom but the write targets history state.
+    if (stateNavId !== navId) return;
     if (stateTab() === undefined) writeTab(tab);
   }, [navId, tab, writeTab]);
 

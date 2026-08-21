@@ -40,7 +40,7 @@ const TABS: { id: SearchTab; label: string }[] = [
   { id: "artists", label: "Artists" },
 ];
 
-const TAB_IDS = TABS.map((t) => t.id);
+const TAB_IDS: readonly SearchTab[] = TABS.map((t) => t.id);
 
 interface SearchViewProps {
   query: string;

@@ -139,6 +139,7 @@ describe("useViewTab", () => {
     expect(scrollKey(store.get(currentViewAtom))).toBe(
       `${second.__navId}:videos`,
     );
+    expect((window.history.state as { tab?: string }).tab).toBe("videos");
   });
 
   it("falls back to the initial tab when history state holds a foreign value", () => {
@@ -157,5 +158,20 @@ describe("useViewTab", () => {
     );
 
     expect(result.current[0]).toBe("tracks");
+  });
+
+  it("does not stamp an entry the live history state disagrees with", () => {
+    const seeded = favoritesEntry();
+    window.history.replaceState(seeded, "");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+
+    // The atom names a different entry than the one history is sitting on.
+    renderTab<"tracks" | "videos">(
+      "tracks",
+      { ...seeded, __navId: (seeded.__navId ?? 0) + 1 },
+      ["tracks", "videos"],
+    );
+
+    expect(replaceState).not.toHaveBeenCalled();
   });
 });
