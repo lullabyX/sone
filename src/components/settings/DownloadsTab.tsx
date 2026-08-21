@@ -6,10 +6,12 @@ import SettingRow from "./SettingRow";
 
 export default function DownloadsTab() {
   const [folder, setFolder] = useState<string | null>(null);
+  const [quality, setQuality] = useState("max");
   const [downloadAlbumCover, setDownloadAlbumCover] = useState(true);
 
   useEffect(() => {
     invoke<string | null>("get_download_folder").then(setFolder).catch(() => {});
+    invoke<string>("get_download_quality").then(setQuality).catch(() => {});
     invoke<boolean>("get_download_album_cover").then(setDownloadAlbumCover).catch(() => {});
   }, []);
 
@@ -36,6 +38,28 @@ export default function DownloadsTab() {
           >
             {folder ? "Change" : "Choose folder"}
           </button>
+        </SettingRow>
+        <SettingRow
+          title="Audio quality"
+          subtitle="Preferred Tidal quality for music downloads"
+        >
+          <select
+            aria-label="Download audio quality"
+            value={quality}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuality(next);
+              invoke("set_download_quality", { quality: next }).catch(() => {
+                setQuality(quality);
+              });
+            }}
+            className="rounded-lg border border-th-border-subtle bg-th-surface px-2.5 py-1.5 text-[12px] font-semibold text-th-text-secondary hover:border-th-accent/50 focus:outline-none focus:border-th-accent"
+          >
+            <option value="max">Max</option>
+            <option value="high">High</option>
+            <option value="normal">Normal</option>
+            <option value="low">Low</option>
+          </select>
         </SettingRow>
         <SettingRow
           title="Album cover"

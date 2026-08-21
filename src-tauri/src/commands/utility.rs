@@ -317,6 +317,24 @@ pub fn set_download_folder(
 }
 
 #[tauri::command]
+pub fn get_download_quality(state: State<'_, AppState>) -> String {
+    state
+        .load_settings()
+        .map(|settings| settings.download_quality)
+        .unwrap_or_else(|| "max".to_string())
+}
+
+#[tauri::command]
+pub fn set_download_quality(state: State<'_, AppState>, quality: String) -> Result<(), SoneError> {
+    if !matches!(quality.as_str(), "low" | "normal" | "high" | "max") {
+        return Err(SoneError::Parse("Unsupported download quality.".to_string()));
+    }
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.download_quality = quality;
+    state.save_settings(&settings)
+}
+
+#[tauri::command]
 pub fn get_download_album_cover(state: State<'_, AppState>) -> bool {
     state
         .load_settings()

@@ -99,6 +99,7 @@ async fn kill_process_group(child: &mut tokio::process::Child) {
 async fn run_invocation(
     app: &AppHandle,
     destination: &str,
+    quality: &str,
     group: DownloadInvocation,
     cancellation: &CancellationToken,
 ) -> Result<Vec<PathBuf>, InvocationResult> {
@@ -122,8 +123,10 @@ async fn run_invocation(
             destination,
             "--output",
             &group.output,
-            "url",
         ])
+        .arg("--track-quality")
+        .arg(quality)
+        .arg("url")
         .args(&group.urls)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -304,6 +307,11 @@ pub async fn start_download_job(
     }
     let cancellation = CancellationToken::new();
     *state.download_cancellation.lock().unwrap() = Some(cancellation.clone());
+    let quality = state
+        .load_settings()
+        .map(|settings| settings.download_quality)
+        .filter(|quality| matches!(quality.as_str(), "low" | "normal" | "high" | "max"))
+        .unwrap_or_else(|| "max".to_string());
     let result: Result<(), InvocationResult> = async {
         for group in groups {
             let save_cover = state
@@ -311,7 +319,7 @@ pub async fn start_download_job(
                 .map(|settings| settings.download_album_cover)
                 .unwrap_or(false);
             let cover_url = group.cover_url.clone();
-            let directories = run_invocation(&app, &destination, group, &cancellation).await?;
+            let directories = run_invocation(&app, &destination, &quality, group, &cancellation).await?;
             if save_cover {
                 if let Some(cover_url) = cover_url {
                     if let Err(error) = save_album_cover(&state, &cover_url, directories).await {
