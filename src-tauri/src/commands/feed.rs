@@ -7,9 +7,16 @@ use crate::AppState;
 
 /// Invalidation tag for every cached feed entry. Intentionally undiscriminated —
 /// `mark_feed_seen` drops the whole tag, so it must cover all users' entries.
+///
+/// Ordering assumption: on page open, `get_feed`'s `put` and `mark_feed_seen`'s
+/// `invalidate_tag` are unordered, and a `put` landing second would re-tag a body
+/// with the stale nonzero `unseenCount` for a full TTL. Safe today only because
+/// `mark_feed_seen` waits on the `tidal_client` mutex `get_feed` holds across its
+/// fetch and then makes its own network round-trip, while the `put` is a local
+/// disk write. Reintroducing SWR to `get_feed` makes that race live.
 const FEED_CACHE_TAG: &str = "feed";
 
-/// Cache key prefix for the activity feed. Scoped per user, matching the
+/// Cache key for the activity feed. Scoped per user, matching the
 /// convention of every other user-scoped cache in this codebase
 /// (`user-playlists:{id}`, `fav-albums:{id}`, …) — logging out does not purge
 /// the disk cache, so an undiscriminated key would serve the previous

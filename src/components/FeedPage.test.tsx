@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { authTokensAtom } from "../atoms/auth";
+import { feedUnseenCountAtom } from "../atoms/ui";
 import type { FeedResponse } from "../types";
 
 const getFeed = vi.fn();
@@ -34,14 +35,20 @@ vi.mock("../hooks/useMediaPlay", () => ({
 import FeedPage from "./FeedPage";
 
 /** FeedPage reads the user id from `authTokensAtom` and bails when it is absent,
- *  so every render needs a store with one set — the default atom value is null. */
+ *  so every render needs a store with one set — the default atom value is null.
+ *
+ *  The unseen count is seeded nonzero and the store is returned so callers can
+ *  assert the badge was actually cleared: `feedUnseenCountAtom` defaults to 0,
+ *  so asserting against a fresh store would pass even with the clearing line
+ *  deleted. */
 function renderFeed() {
   const store = createStore();
   store.set(authTokensAtom, { user_id: 1 } as never);
+  store.set(feedUnseenCountAtom, 3);
   const wrapper = ({ children }: PropsWithChildren) => (
     <Provider store={store}>{children}</Provider>
   );
-  return render(<FeedPage />, { wrapper });
+  return { ...render(<FeedPage />, { wrapper }), store };
 }
 
 const RESPONSE: FeedResponse = {
@@ -145,26 +152,30 @@ describe("FeedPage", () => {
     );
   });
 
-  it("marks the feed seen on mount", async () => {
-    renderFeed();
+  it("marks the feed seen and clears the badge on mount", async () => {
+    const { store } = renderFeed();
     await waitFor(() => expect(markFeedSeen).toHaveBeenCalledWith(1));
+    // Clearing the badge is the half of this feature the user actually sees,
+    // and it is optimistic — it must not wait on the request above.
+    expect(store.get(feedUnseenCountAtom)).toBe(0);
   });
 
   // Mark-seen lives in its own effect rather than inside `getFeed`'s `.then`,
   // precisely so a failed load cannot leave the sidebar dot stuck on. Folding
   // the two effects together would still pass every other test in this file.
-  it("marks the feed seen even when the fetch fails", async () => {
+  it("marks the feed seen and clears the badge even when the fetch fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
     getFeed.mockRejectedValue(new Error("boom"));
 
-    renderFeed();
+    const { store } = renderFeed();
 
     // Assert the failure actually surfaced, so this cannot silently degrade
     // into a second copy of the happy-path test.
     await waitFor(() => expect(screen.getByText("boom")).toBeTruthy());
     await waitFor(() => expect(markFeedSeen).toHaveBeenCalledWith(1));
+    expect(store.get(feedUnseenCountAtom)).toBe(0);
 
     consoleError.mockRestore();
   });
