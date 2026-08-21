@@ -5875,6 +5875,49 @@ impl TidalClient {
 
         Ok(feed)
     }
+
+    /// Mark every feed activity as seen.
+    ///
+    /// Hand-rolled because no authenticated PUT helper exists. Two things the GET
+    /// path gives for free must be done manually: the v2 client-version header
+    /// (v2 returns 400/404 without it), and routing through `self.send` so the
+    /// rate gate still applies. An expired token hard-401s with no refresh retry —
+    /// callers treat failure as non-fatal.
+    pub async fn mark_feed_seen(&self, user_id: u64) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        log::debug!("[mark_feed_seen] user_id={}", user_id);
+
+        let user_id_str = user_id.to_string();
+        let req = self
+            .client
+            .put(format!("{}/feed/activities/seen", TIDAL_API_V2_URL))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[
+                ("userId", user_id_str.as_str()),
+                ("countryCode", self.country_code.as_str()),
+            ]);
+        let response = self.send(req).await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[mark_feed_seen] status={}, body={}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
+    }
 }
 
 // ==================== Profile ====================

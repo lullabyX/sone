@@ -5,13 +5,15 @@ use crate::error::SoneError;
 use crate::tidal_api::FeedResponse;
 use crate::AppState;
 
+/// Invalidation tag for every cached feed entry. Intentionally undiscriminated —
+/// `mark_feed_seen` drops the whole tag, so it must cover all users' entries.
+const FEED_CACHE_TAG: &str = "feed";
+
 /// Cache key prefix for the activity feed. Scoped per user, matching the
 /// convention of every other user-scoped cache in this codebase
 /// (`user-playlists:{id}`, `fav-albums:{id}`, …) — logging out does not purge
 /// the disk cache, so an undiscriminated key would serve the previous
 /// account's feed and unread count after an account switch.
-const FEED_CACHE_TAG: &str = "feed";
-
 fn feed_cache_key(user_id: u64) -> String {
     format!("feed:activities:{}", user_id)
 }
@@ -50,4 +52,17 @@ pub async fn get_feed(state: State<'_, AppState>, user_id: u64) -> Result<FeedRe
     }
 
     Ok(feed)
+}
+
+/// Mark all feed activities seen, then drop the cached feed so the next
+/// `get_feed` refetches instead of replaying a body with a nonzero count.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mark_feed_seen(state: State<'_, AppState>, user_id: u64) -> Result<(), SoneError> {
+    let client = state.tidal_client.lock().await;
+    let result = client.mark_feed_seen(user_id).await;
+    drop(client);
+
+    state.disk_cache.invalidate_tag(FEED_CACHE_TAG).await;
+
+    result
 }

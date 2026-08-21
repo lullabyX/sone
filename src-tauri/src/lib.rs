@@ -954,6 +954,7 @@ pub fn run() {
             commands::pages::debug_home_page_raw,
             // feed
             commands::feed::get_feed,
+            commands::feed::mark_feed_seen,
             // search
             commands::search::search_tidal,
             commands::search::get_suggestions,

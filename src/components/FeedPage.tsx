@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, type MouseEvent } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { Music, Play } from "lucide-react";
-import { getFeed } from "../api/tidal";
+import { getFeed, markFeedSeen } from "../api/tidal";
 import { authTokensAtom } from "../atoms/auth";
+import { feedUnseenCountAtom } from "../atoms/ui";
 import { safeErrorMessage } from "../lib/errorUtils";
 import { groupFeedByPeriod } from "../lib/feedGrouping";
 import {
@@ -122,6 +123,7 @@ function FeedRow({ entry }: { entry: FeedItem }) {
 
 export default function FeedPage() {
   const userId = useAtomValue(authTokensAtom)?.user_id;
+  const setUnseenCount = useSetAtom(feedUnseenCountAtom);
 
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -151,6 +153,16 @@ export default function FeedPage() {
       active = false;
     };
   }, [userId]);
+
+  // Separate from the fetch: opening the page is what marks the feed seen, so
+  // this must fire even when the list fails to load.
+  useEffect(() => {
+    if (!userId) return;
+    setUnseenCount(0);
+    markFeedSeen(userId).catch((err) =>
+      console.error("[FeedPage] mark seen failed:", err),
+    );
+  }, [userId, setUnseenCount]);
 
   const groups = useMemo(() => groupFeedByPeriod(items, new Date()), [items]);
 

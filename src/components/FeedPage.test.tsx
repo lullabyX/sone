@@ -17,6 +17,7 @@ const navigateToAlbum = vi.fn();
 
 vi.mock("../api/tidal", () => ({
   getFeed: (...args: unknown[]) => getFeed(...args),
+  markFeedSeen: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../hooks/useNavigation", () => ({
