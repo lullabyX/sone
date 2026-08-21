@@ -39,7 +39,7 @@ with the downloader.
 
 - `tiddl` was found at `/home/mikele/.local/bin/tiddl`.
 - The non-destructive capability command completed successfully.
-- `pnpm test`: 201 tests passed.
+- `pnpm test`: 203 tests passed.
 - `pnpm build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml --lib`: passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 125 tests passed.
@@ -88,6 +88,9 @@ with the downloader.
   during an authenticated download.
 - `Clear download queue` now also clears the completed download rows and
   in-memory job state; it never deletes downloaded files.
+- `Stop` cancels all active downloader invocations. Interrupted rows remain
+  visible as `cancelled`, the queue is preserved, and a later `Download`
+  restarts the full queue so tiddl skips completed files.
 - A Dolby Atmos track completed without a new file because the installed
   tiddl configuration filters Atmos media. This is a tiddl `skipped` outcome,
   not an Sone path or process failure.
@@ -288,9 +291,9 @@ Backend:
 - Existing Tauri events provide the project pattern for streaming backend state
   to React. Emit dedicated names such as `download:job-started`,
   `download:item-discovered`, `download:item-started`,
-  `download:item-progress`, `download:item-completed`,
-  `download:item-skipped`, `download:item-failed`, `download:job-failed`, and
-  `download:job-completed`.
+   `download:item-progress`, `download:item-completed`,
+   `download:item-skipped`, `download:item-failed`, `download:job-failed`,
+   `download:job-cancelled`, and `download:job-completed`.
 - The project does not currently have a filesystem picker plugin. Add the
   official Tauri dialog plugin and use its frontend directory picker. The
   selected absolute path is passed to the backend download command.
@@ -323,9 +326,12 @@ Backend:
 3. Do not make native file existence the source of truth. Tiddl emits final
    paths and skip/failure states. Sone displays those events.
 
-4. Cancellation was not requested. Do not add it unless the product decision
-   below changes. If added later, terminate the child process, wait for it,
-   and emit a clearly distinct cancelled terminal job state.
+4. `Stop` cancels an active job. Run each tiddl invocation in a dedicated
+   process group, send `SIGINT`, wait briefly, and fall back to `SIGKILL` so a
+   child `ffmpeg` cannot outlive tiddl. Emit `download:job-cancelled` rather
+   than treating cancellation as a failed job. The downloader owns cleanup of
+   its clearly named `.tiddl-part-*` files; Sone must not scan or delete user
+   files in the selected directory.
 
 ## Frontend State Design
 
@@ -334,7 +340,8 @@ Use a separate atom family/module, for example `src/atoms/downloads.ts`:
 - `downloadQueueAtom`: user-enqueued source resources, preserving insertion
   order and duplicate entries.
 - `downloadJobAtom`: `idle | choosing-folder | checking | downloading |
-  complete | failed` plus destination, job ID, diagnostics, and started time.
+  complete | cancelled | failed` plus destination, job ID, diagnostics, and
+  started time.
 - `downloadItemsAtom`: keyed by `item_instance_id`, with source reference,
   metadata, output path, byte count, and terminal status.
 
@@ -347,6 +354,7 @@ type DownloadItemStatus =
   | "downloading"
   | "success"
   | "skipped"
+  | "cancelled"
   | "error";
 ```
 
@@ -368,8 +376,9 @@ On `Download`:
 7. Clear only the completed job's transient expanded rows after an explicit
    user action; preserve results long enough for inspection.
 
-`Clear download queue` must be disabled while a job runs unless cancellation
-is implemented. Clearing must never delete files already downloaded.
+`Clear download queue` must be disabled while a job runs. `Stop` must preserve
+the queue and mark incomplete rows as `cancelled`. Clearing must never delete
+files already downloaded.
 
 ## Tests And Verification
 

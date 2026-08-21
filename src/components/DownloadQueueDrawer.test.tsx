@@ -9,14 +9,15 @@ import {
 } from "../atoms/downloads";
 import DownloadQueueDrawer from "./DownloadQueueDrawer";
 
-const { checkTiddl, startDownloadJob, open, listen } = vi.hoisted(() => ({
+const { checkTiddl, startDownloadJob, stopDownloadJob, open, listen } = vi.hoisted(() => ({
   checkTiddl: vi.fn(),
   startDownloadJob: vi.fn(),
+  stopDownloadJob: vi.fn(),
   open: vi.fn(),
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: vi.fn((_name: string, _callback: (event: { payload: Record<string, unknown> }) => void) => Promise.resolve(() => {})),
 }));
 
-vi.mock("../api/tidal", () => ({ checkTiddl, startDownloadJob }));
+vi.mock("../api/tidal", () => ({ checkTiddl, startDownloadJob, stopDownloadJob }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
@@ -86,7 +87,33 @@ describe("DownloadQueueDrawer", () => {
   it("shows completed and remaining discovered items while downloading", () => {
     renderDrawer(false, true);
 
-    expect(screen.getByText("1 of 3 complete · 2 remaining")).toBeTruthy();
+    expect(screen.getByText("1 of 3 finished · 2 remaining")).toBeTruthy();
+  });
+
+  it("stops a running download and keeps the queue", async () => {
+    const store = renderDrawer(true, true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+
+    await waitFor(() => expect(stopDownloadJob).toHaveBeenCalledOnce());
+    expect(store.get(downloadQueueAtom)).toHaveLength(1);
+  });
+
+  it("marks active items as cancelled when the backend confirms the stop", async () => {
+    let cancelled: ((event: { payload: Record<string, unknown> }) => void) | undefined;
+    listen.mockImplementation((name, callback) => {
+      if (name === "download:job-cancelled") cancelled = callback;
+      return Promise.resolve(() => {});
+    });
+    const store = renderDrawer(true, true);
+
+    await waitFor(() => expect(cancelled).toBeDefined());
+    act(() => cancelled?.({ payload: {} }));
+
+    expect(store.get(downloadJobAtom).status).toBe("cancelled");
+    expect(store.get(downloadItemsAtom).second.status).toBe("cancelled");
+    expect(store.get(downloadItemsAtom).third.status).toBe("cancelled");
+    expect(store.get(downloadItemsAtom).first.status).toBe("success");
   });
 
   it("clears completed download history with the queue", () => {

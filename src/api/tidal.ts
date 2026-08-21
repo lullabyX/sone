@@ -1261,3 +1261,7 @@ export async function startDownloadJob(
   }, []);
   return invoke("start_download_job", { destination, groups });
 }
+
+export async function stopDownloadJob(): Promise<void> {
+  return invoke("stop_download_job");
+}

@@ -445,6 +445,7 @@ export type DownloadItemStatus =
   | "downloading"
   | "success"
   | "skipped"
+  | "cancelled"
   | "error";
 
 export interface DownloadItem {
@@ -461,7 +462,7 @@ export interface DownloadItem {
 }
 
 export interface DownloadJob {
-  status: "idle" | "checking" | "choosing-folder" | "downloading" | "complete" | "failed";
+  status: "idle" | "checking" | "choosing-folder" | "downloading" | "complete" | "cancelled" | "failed";
   destination?: string;
   error?: string;
 }

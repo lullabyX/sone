@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::time::{timeout, Duration};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,13 +61,49 @@ fn emit_failure(app: &AppHandle, message: &str) {
     emit(app, "download:job-completed", json!({ "success": false }));
 }
 
+enum InvocationResult {
+    Failed(String),
+    Cancelled,
+}
+
+async fn stop_process_group(child: &mut tokio::process::Child) {
+    let Some(pid) = child.id() else {
+        return;
+    };
+
+    // tiddl may invoke ffmpeg, so terminate the dedicated process group rather
+    // than leaving a converter running after its parent is gone.
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGINT);
+    }
+    if timeout(Duration::from_secs(2), child.wait()).await.is_err() {
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+        let _ = child.wait().await;
+    }
+}
+
+async fn kill_process_group(child: &mut tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+    let _ = child.wait().await;
+}
+
 async fn run_invocation(
     app: &AppHandle,
     destination: &str,
     group: DownloadInvocation,
-) -> Result<(), String> {
+    cancellation: &CancellationToken,
+) -> Result<(), InvocationResult> {
     if group.urls.is_empty() {
         return Ok(());
+    }
+    if cancellation.is_cancelled() {
+        return Err(InvocationResult::Cancelled);
     }
 
     log::debug!("Starting tiddl download invocation for {} resource(s)", group.urls.len());
@@ -86,18 +124,26 @@ async fn run_invocation(
         .args(&group.urls)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let mut child = command
         .spawn()
-        .map_err(|error| format!("Could not start tiddl: {error}"))?;
+        .map_err(|error| InvocationResult::Failed(format!("Could not start tiddl: {error}")))?;
     log::debug!("tiddl download invocation started");
     let stdout = child
         .stdout
         .take()
-        .ok_or("tiddl stdout was not available")?;
+        .ok_or_else(|| InvocationResult::Failed("tiddl stdout was not available".to_string()))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or("tiddl stderr was not available")?;
+        .ok_or_else(|| InvocationResult::Failed("tiddl stderr was not available".to_string()))?;
     let stderr_task = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         let mut tail = Vec::new();
@@ -115,27 +161,35 @@ async fn run_invocation(
 
     let mut lines = BufReader::new(stdout).lines();
     let mut completed = false;
-    while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
+    loop {
+        let line = tokio::select! {
+            _ = cancellation.cancelled() => {
+                stop_process_group(&mut child).await;
+                let _ = stderr_task.await;
+                return Err(InvocationResult::Cancelled);
+            }
+            result = lines.next_line() => result.map_err(|error| InvocationResult::Failed(error.to_string()))?,
+        };
+        let Some(line) = line else {
+            break;
+        };
         let value: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(_) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(
+                kill_process_group(&mut child).await;
+                return Err(InvocationResult::Failed(
                     "tiddl emitted malformed JSONL. Install a compatible tiddl-headless version."
                         .to_string(),
-                );
+                ));
             }
         };
         if value.get("schema_version").and_then(Value::as_u64) != Some(1) {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err("tiddl emitted an unsupported event schema. Install a compatible tiddl-headless version.".to_string());
+            kill_process_group(&mut child).await;
+            return Err(InvocationResult::Failed("tiddl emitted an unsupported event schema. Install a compatible tiddl-headless version.".to_string()));
         }
         let Some(event) = value.get("event").and_then(Value::as_str) else {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err("tiddl emitted an event without a name. Install a compatible tiddl-headless version.".to_string());
+            kill_process_group(&mut child).await;
+            return Err(InvocationResult::Failed("tiddl emitted an event without a name. Install a compatible tiddl-headless version.".to_string()));
         };
         match event {
             "job_started" | "item_discovered" | "item_started" | "item_progress"
@@ -151,26 +205,28 @@ async fn run_invocation(
                 completed = value.get("success").and_then(Value::as_bool) == Some(true);
             }
             _ => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(
+                kill_process_group(&mut child).await;
+                return Err(InvocationResult::Failed(
                     "tiddl emitted an unknown event. Install a compatible tiddl-headless version."
                         .to_string(),
-                );
+                ));
             }
         }
     }
-    let status = child.wait().await.map_err(|error| error.to_string())?;
+    if cancellation.is_cancelled() {
+        return Err(InvocationResult::Cancelled);
+    }
+    let status = child.wait().await.map_err(|error| InvocationResult::Failed(error.to_string()))?;
     let stderr_tail = stderr_task.await.unwrap_or_default();
     if !completed {
-        return Err(if stderr_tail.is_empty() {
+        return Err(InvocationResult::Failed(if stderr_tail.is_empty() {
             "tiddl exited without a job_completed event.".to_string()
         } else {
             "tiddl exited without completing the job. Check that it is authenticated with `tiddl auth login`.".to_string()
-        });
+        }));
     }
     if !status.success() {
-        return Err("tiddl reported that the download job failed.".to_string());
+        return Err(InvocationResult::Failed("tiddl reported that the download job failed.".to_string()));
     }
     Ok(())
 }
@@ -205,21 +261,38 @@ pub async fn start_download_job(
     if state.download_active.swap(true, Ordering::AcqRel) {
         return Err(dependency_error("A download job is already running."));
     }
-    let result = async {
+    let cancellation = CancellationToken::new();
+    *state.download_cancellation.lock().unwrap() = Some(cancellation.clone());
+    let result: Result<(), InvocationResult> = async {
         for group in groups {
-            run_invocation(&app, &destination, group).await?;
+            run_invocation(&app, &destination, group, &cancellation).await?;
         }
         emit(&app, "download:job-completed", json!({ "success": true }));
-        Ok::<(), String>(())
+        Ok(())
     }
     .await;
     state.download_active.store(false, Ordering::Release);
+    *state.download_cancellation.lock().unwrap() = None;
 
-    result.map_err(|message| {
-        log::warn!("tiddl download job failed: {message}");
-        emit_failure(&app, &message);
-        dependency_error(message)
-    })?;
+    match result {
+        Ok(()) => {}
+        Err(InvocationResult::Cancelled) => {
+            emit(&app, "download:job-cancelled", json!({}));
+        }
+        Err(InvocationResult::Failed(message)) => {
+            log::warn!("tiddl download job failed: {message}");
+            emit_failure(&app, &message);
+            return Err(dependency_error(message));
+        }
+    }
     log::debug!("tiddl download job completed successfully");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_download_job(state: State<'_, AppState>) -> Result<(), SoneError> {
+    if let Some(cancellation) = state.download_cancellation.lock().unwrap().as_ref() {
+        cancellation.cancel();
+    }
     Ok(())
 }

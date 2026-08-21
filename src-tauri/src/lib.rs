@@ -287,6 +287,7 @@ pub struct AppState {
     pub bit_perfect: AtomicBool,
     pub gapless: AtomicBool,
     pub download_active: AtomicBool,
+    pub download_cancellation: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>,
     pub max_quality: std::sync::Mutex<String>,
     pub alsa_device_override: Option<String>,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
@@ -501,6 +502,7 @@ impl AppState {
             bit_perfect: AtomicBool::new(bit_perfect),
             gapless: AtomicBool::new(gapless),
             download_active: AtomicBool::new(false),
+            download_cancellation: std::sync::Mutex::new(None),
             max_quality: std::sync::Mutex::new(max_quality),
             alsa_device_override,
             exclusive_device: std::sync::Mutex::new(exclusive_device),
@@ -1163,6 +1165,7 @@ pub fn run() {
             // downloads
             commands::downloads::check_tiddl,
             commands::downloads::start_download_job,
+            commands::downloads::stop_download_job,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
