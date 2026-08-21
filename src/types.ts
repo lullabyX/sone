@@ -435,6 +435,8 @@ export interface DownloadQueueEntry {
   title: string;
   subtitle?: string;
   output: string;
+  previewItems?: Track[];
+  previewStatus?: "loading" | "ready" | "error";
 }
 
 export type DownloadItemStatus =

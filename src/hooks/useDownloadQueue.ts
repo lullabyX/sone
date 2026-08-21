@@ -1,14 +1,15 @@
 import { useCallback } from "react";
 import { useSetAtom } from "jotai";
 import { downloadDrawerOpenAtom, downloadQueueAtom } from "../atoms/downloads";
-import type { MediaItemType, Track } from "../types";
+import type { DownloadQueueEntry, MediaItemType, Track } from "../types";
+import { fetchMediaTracks, getAlbumPage, getArtistAlbums } from "../api/tidal";
 
 const albumOutput = "{album.artist}/{album.title}/{item.number} - {item.title}";
 const playlistOutput = "{playlist.title}/{playlist.index} - {item.artist} - {item.title}";
 const videoOutput = "{item.artist}/Videos/{item.artist} - {item.title}";
 const looseTrackOutput = "{item.artist}/{item.title}";
 
-function entryFromTrack(track: Track) {
+function entryFromTrack(track: Track): DownloadQueueEntry {
   const isVideo = track.itemType === "video";
   const sourceType = isVideo ? "video" : "track";
   return {
@@ -18,10 +19,12 @@ function entryFromTrack(track: Track) {
     title: track.title,
     subtitle: track.artist?.name ?? track.artists?.[0]?.name,
     output: isVideo ? videoOutput : track.album ? albumOutput : looseTrackOutput,
-  } as const;
+    previewItems: [track],
+    previewStatus: "ready" as const,
+  };
 }
 
-function entryFromMedia(item: MediaItemType) {
+function entryFromMedia(item: MediaItemType): DownloadQueueEntry | null {
   switch (item.type) {
     case "album":
       return { id: crypto.randomUUID(), sourceType: "album" as const, url: `https://tidal.com/album/${item.id}`, title: item.title, subtitle: item.artistName, output: albumOutput };
@@ -46,7 +49,18 @@ export function useDownloadQueue() {
   const addMediaToDownloads = useCallback((item: MediaItemType) => {
     const entry = entryFromMedia(item);
     if (!entry) return;
-    setQueue((queue) => [...queue, entry]);
+    setQueue((queue) => [...queue, { ...entry, previewStatus: "loading" }]);
+    const loadPreview = async () => {
+      try {
+        const tracks = item.type === "artist"
+          ? (await Promise.all((await getArtistAlbums(item.id, 100)).map((album) => getAlbumPage(album.id).then(({ page }) => page.tracks)))).flat()
+          : await fetchMediaTracks(item);
+        setQueue((queue) => queue.map((queued) => queued.id === entry.id ? { ...queued, previewItems: tracks, previewStatus: "ready" } : queued));
+      } catch {
+        setQueue((queue) => queue.map((queued) => queued.id === entry.id ? { ...queued, previewStatus: "error" } : queued));
+      }
+    };
+    void loadPreview();
   }, [setQueue]);
   return { addTrackToDownloads, addMediaToDownloads, openDownloadQueue: () => setDrawerOpen(true) };
 }
