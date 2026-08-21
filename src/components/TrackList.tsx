@@ -32,6 +32,7 @@ import { favoriteTrackIdsAtom, favoriteVideoIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
 import { useToast } from "../contexts/ToastContext";
+import { usePageScrollElement } from "../contexts/PageScrollContext";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import { TrackArtists } from "./TrackArtists";
 
@@ -62,16 +63,6 @@ interface TrackListProps {
   /** When true, rows render through @tanstack/react-virtual. Only paginated
    * callers (Loved tracks, Playlists) use this. */
   virtualize?: boolean;
-}
-
-function findScrollParent(el: HTMLElement | null): HTMLElement | null {
-  let cur: HTMLElement | null = el?.parentElement ?? null;
-  while (cur) {
-    const overflowY = getComputedStyle(cur).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll") return cur;
-    cur = cur.parentElement;
-  }
-  return null;
 }
 
 function formatDuration(seconds: number): string {
@@ -488,14 +479,8 @@ function VirtualTrackRows({
   loadingMore,
 }: VirtualTrackRowsProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const scrollEl = usePageScrollElement();
   const [scrollMargin, setScrollMargin] = useState(0);
-
-  // Locate the page scroll container by walking up from this list.
-  useLayoutEffect(() => {
-    const el = findScrollParent(parentRef.current);
-    setScrollEl(el);
-  }, []);
 
   // Maintain scrollMargin: the list's offset within the scroll container.
   // Re-measures when own list, page content above, or scroll element resizes.
@@ -574,6 +559,7 @@ function VirtualTrackRows({
               key={v.key}
               ref={virtualizer.measureElement}
               data-index={v.index}
+              data-track-row="true"
               style={{
                 position: "absolute",
                 top: 0,

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import type { PropsWithChildren } from "react";
+import { PageScrollProvider } from "../contexts/PageScrollContext";
 import type { Track } from "../types";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -67,17 +68,23 @@ function track(id: number): Track {
   } as unknown as Track;
 }
 
+/** The virtualizer only windows against a real scroll container; the app always
+ *  supplies one through context. */
+let scroller: HTMLElement;
+
 function renderList(tracks: Track[], onLoadMore: () => void) {
   const store = createStore();
   return render(
     <Provider store={store}>
-      <TrackList
-        tracks={tracks}
-        onPlay={vi.fn()}
-        onLoadMore={onLoadMore}
-        hasMore
-        virtualize
-      />
+      <PageScrollProvider element={scroller}>
+        <TrackList
+          tracks={tracks}
+          onPlay={vi.fn()}
+          onLoadMore={onLoadMore}
+          hasMore
+          virtualize
+        />
+      </PageScrollProvider>
     </Provider>,
   );
 }
@@ -86,12 +93,15 @@ describe("TrackList pagination sentinel", () => {
   beforeEach(() => {
     observed.length = 0;
     liveObservers = 0;
+    scroller = document.createElement("div");
+    document.body.appendChild(scroller);
     vi.stubGlobal("IntersectionObserver", RecordingIntersectionObserver);
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
   });
 
   afterEach(() => {
     cleanup();
+    scroller.remove();
     vi.unstubAllGlobals();
   });
 
@@ -110,13 +120,15 @@ describe("TrackList pagination sentinel", () => {
     const store = createStore();
     rerender(
       <Provider store={store}>
-        <TrackList
-          tracks={[track(1), track(2), track(3), track(4)]}
-          onPlay={vi.fn()}
-          onLoadMore={onLoadMore}
-          hasMore
-          virtualize
-        />
+        <PageScrollProvider element={scroller}>
+          <TrackList
+            tracks={[track(1), track(2), track(3), track(4)]}
+            onPlay={vi.fn()}
+            onLoadMore={onLoadMore}
+            hasMore
+            virtualize
+          />
+        </PageScrollProvider>
       </Provider>,
     );
 
