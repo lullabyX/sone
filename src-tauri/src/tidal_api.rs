@@ -6461,6 +6461,29 @@ mod profile_upload_tests {
 }
 
 #[cfg(test)]
+mod rate_limit_error_tests {
+    use super::rate_limited_error;
+    use crate::SoneError;
+
+    /// Pins the wire contract that src/lib/trackAvailability.ts parses:
+    /// status 429, a numeric `retryAfterSecs`, and a non-empty `userMessage`.
+    #[test]
+    fn synthesized_429_carries_retry_after_and_a_human_message() {
+        match rate_limited_error(7) {
+            SoneError::Api { status, body } => {
+                assert_eq!(status, 429);
+                let v: serde_json::Value =
+                    serde_json::from_str(&body).expect("body must be valid JSON");
+                assert_eq!(v["status"].as_u64(), Some(429));
+                assert_eq!(v["retryAfterSecs"].as_u64(), Some(7));
+                assert!(!v["userMessage"].as_str().unwrap_or_default().is_empty());
+            }
+            other => panic!("expected SoneError::Api, got {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
 mod sub_status_tests {
     use super::{is_playbackinfo_sub_status, is_terminal_sub_status};
 

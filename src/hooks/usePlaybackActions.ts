@@ -196,6 +196,36 @@ export function usePlaybackActions() {
     ((opts?: { explicit?: boolean }) => Promise<void>) | null
   >(null);
 
+  // Toast the cooldown and schedule one automatic retry once it lapses.
+  // Used only on automatic advances — user-initiated paths toast and stop.
+  const scheduleRateLimitResume = useCallback(
+    (error: unknown) => {
+      // The backend cooldown is a deadline, not a duration; add a second so the
+      // retry lands after it rather than exactly on it.
+      const wait = (retryAfterSecs(error) ?? 5) + 1;
+      showToast(`Too many requests — resuming in ${wait}s`, "info");
+      const gen = playGenerationRef.current;
+      setTimeout(() => {
+        if (gen !== playGenerationRef.current) return;
+        if (store.get(userPausedAtom)) return;
+        void playNextRef.current?.();
+      }, wait * 1000);
+    },
+    [store, showToast],
+  );
+
+  // Put a track back at the queue head so the rate-limit resume (a playNext)
+  // replays it instead of skipping to the one after it.
+  const requeueHead = useCallback(
+    (track: Track) => {
+      const stamped = ensureQid(normalizeTrack(track));
+      store.set(queueAtom, [stamped, ...store.get(queueAtom)]);
+      const orig = store.get(originalQueueAtom);
+      if (orig) store.set(originalQueueAtom, [stamped, ...orig]);
+    },
+    [store],
+  );
+
   const playTrack = useCallback(
     async (
       track: Track,
@@ -326,20 +356,11 @@ export function usePlaybackActions() {
           return { ok: false, reason: "network" };
         }
         if (isRateLimitedError(error)) {
-          const wait = retryAfterSecs(error) ?? 5;
-          showToast(`Too many requests — resuming in ${wait}s`, "info");
           // Without this, a 429 from ANY endpoint (search, home, library) stops
-          // the music permanently: the track is re-queued at the head and
-          // nothing retries once the cooldown lapses.
-          const gen = playGenerationRef.current;
-          setTimeout(
-            () => {
-              if (gen !== playGenerationRef.current) return;
-              if (store.get(userPausedAtom)) return;
-              void playNextRef.current?.();
-            },
-            (wait + 1) * 1000,
-          );
+          // the music permanently: nothing retries once the cooldown lapses.
+          // Callers must leave the track at the queue head — the resume is a
+          // playNext(), so anything not in the queue would be skipped.
+          scheduleRateLimitResume(error);
           return { ok: false, reason: "rate-limited" };
         }
         if (isUnplayableError(error)) {
@@ -356,7 +377,7 @@ export function usePlaybackActions() {
         return { ok: false, reason: "transient" };
       }
     },
-    [store, showToast],
+    [store, showToast, scheduleRateLimitResume],
   );
 
   const pauseTrack = useCallback(async () => {
@@ -851,6 +872,10 @@ export function usePlaybackActions() {
               store.set(isPlayingAtom, false);
               if (isNetworkError(error)) {
                 checkNetworkError(error);
+              } else if (isRateLimitedError(error)) {
+                // Repeat-one replays currentTrackAtom in place, so the resume's
+                // playNext() lands back on this same branch and retries it.
+                scheduleRateLimitResume(error);
               } else if (isUnplayableError(error)) {
                 showToast("Track unavailable", "info");
               }
@@ -1092,6 +1117,10 @@ export function usePlaybackActions() {
             } catch (error: unknown) {
               if (isNetworkError(error)) {
                 checkNetworkError(error);
+              } else if (isRateLimitedError(error)) {
+                // Highest-volume burst in the app: a 429 here used to stop
+                // playback with no toast and nothing to restart it.
+                scheduleRateLimitResume(error);
               }
               /* fall through to stop */
             }
@@ -1104,7 +1133,7 @@ export function usePlaybackActions() {
         playNextLockRef.current = false;
       }
     },
-    [store, playTrack],
+    [store, playTrack, scheduleRateLimitResume],
   );
 
   playNextRef.current = playNext;
@@ -1534,9 +1563,13 @@ export function usePlaybackActions() {
       if (!result.ok && result.reason === "unplayable") {
         // First track was unavailable. Engage skip-loop on rest.
         await playNext({ explicit: true });
+      } else if (!result.ok && result.reason === "rate-limited") {
+        // The queue holds only `rest`; the resume is a playNext(), so without
+        // this the retry would skip straight past the track the user picked.
+        requeueHead(track);
       }
     },
-    [store, playTrack, setQueueTracks, setShuffledQueue, playNext],
+    [store, playTrack, setQueueTracks, setShuffledQueue, playNext, requeueHead],
   );
 
   const playAllFromSource = useCallback(
@@ -1575,9 +1608,11 @@ export function usePlaybackActions() {
       const result = await playTrack(first);
       if (!result.ok && result.reason === "unplayable") {
         await playNext({ explicit: true });
+      } else if (!result.ok && result.reason === "rate-limited") {
+        requeueHead(first);
       }
     },
-    [store, playTrack, setQueueTracks, setShuffledQueue, playNext],
+    [store, playTrack, setQueueTracks, setShuffledQueue, playNext, requeueHead],
   );
 
   const clearQueue = useCallback(() => {
