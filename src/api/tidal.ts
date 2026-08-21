@@ -1253,7 +1253,13 @@ export async function startDownloadJob(
   destination: string,
   queue: DownloadQueueEntry[],
 ): Promise<void> {
-  const groups = queue.reduce<{ urls: string[]; output: string }[]>((groups, entry) => {
+  const groups = queue.reduce<{ urls: string[]; output: string; coverUrl?: string }[]>((groups, entry) => {
+    // Albums run separately so their completed track paths identify one folder
+    // in which the optional cover can be saved.
+    if (entry.sourceType === "album") {
+      groups.push({ urls: [entry.url], output: entry.output, coverUrl: entry.coverUrl });
+      return groups;
+    }
     const existing = groups.find((group) => group.output === entry.output);
     if (existing) existing.urls.push(entry.url);
     else groups.push({ urls: [entry.url], output: entry.output });

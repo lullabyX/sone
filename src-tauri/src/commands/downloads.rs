@@ -1,6 +1,8 @@
 use crate::{AppState, SoneError};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -13,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 pub struct DownloadInvocation {
     pub urls: Vec<String>,
     pub output: String,
+    pub cover_url: Option<String>,
 }
 
 fn dependency_error(message: impl Into<String>) -> SoneError {
@@ -98,9 +101,9 @@ async fn run_invocation(
     destination: &str,
     group: DownloadInvocation,
     cancellation: &CancellationToken,
-) -> Result<(), InvocationResult> {
+) -> Result<Vec<PathBuf>, InvocationResult> {
     if group.urls.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     if cancellation.is_cancelled() {
         return Err(InvocationResult::Cancelled);
@@ -161,6 +164,7 @@ async fn run_invocation(
 
     let mut lines = BufReader::new(stdout).lines();
     let mut completed = false;
+    let mut output_directories = HashSet::new();
     loop {
         let line = tokio::select! {
             _ = cancellation.cancelled() => {
@@ -197,6 +201,15 @@ async fn run_invocation(
                 if matches!(event, "item_completed" | "item_skipped") {
                     if let Some(output_path) = value.get("output_path").and_then(Value::as_str) {
                         log::debug!("tiddl {event}: {output_path}");
+                        let output_path = Path::new(output_path);
+                        let output_path = if output_path.is_absolute() {
+                            output_path.to_path_buf()
+                        } else {
+                            Path::new(destination).join(output_path)
+                        };
+                        if let Some(parent) = output_path.parent() {
+                            output_directories.insert(parent.to_path_buf());
+                        }
                     }
                 }
                 emit(app, &frontend_event_name(event), value.clone());
@@ -227,6 +240,34 @@ async fn run_invocation(
     }
     if !status.success() {
         return Err(InvocationResult::Failed("tiddl reported that the download job failed.".to_string()));
+    }
+    Ok(output_directories.into_iter().collect())
+}
+
+async fn save_album_cover(state: &AppState, cover_url: &str, directories: Vec<PathBuf>) -> Result<(), String> {
+    if directories.is_empty() {
+        return Ok(());
+    }
+    let http_client = state.tidal_client.lock().await.raw_client().clone();
+    let response = http_client
+        .get(cover_url)
+        .send()
+        .await
+        .map_err(|error| format!("could not fetch album cover: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("could not fetch album cover: {error}"))?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("could not read album cover: {error}"))?;
+
+    for directory in directories {
+        tokio::fs::write(directory.join("cover.jpg"), &bytes)
+            .await
+            .map_err(|error| format!("could not save cover.jpg: {error}"))?;
+        tokio::fs::write(directory.join("folder.jpg"), &bytes)
+            .await
+            .map_err(|error| format!("could not save folder.jpg: {error}"))?;
     }
     Ok(())
 }
@@ -265,7 +306,19 @@ pub async fn start_download_job(
     *state.download_cancellation.lock().unwrap() = Some(cancellation.clone());
     let result: Result<(), InvocationResult> = async {
         for group in groups {
-            run_invocation(&app, &destination, group, &cancellation).await?;
+            let save_cover = state
+                .load_settings()
+                .map(|settings| settings.download_album_cover)
+                .unwrap_or(false);
+            let cover_url = group.cover_url.clone();
+            let directories = run_invocation(&app, &destination, group, &cancellation).await?;
+            if save_cover {
+                if let Some(cover_url) = cover_url {
+                    if let Err(error) = save_album_cover(&state, &cover_url, directories).await {
+                        log::warn!("Could not save downloaded album cover: {error}");
+                    }
+                }
+            }
         }
         emit(&app, "download:job-completed", json!({ "success": true }));
         Ok(())

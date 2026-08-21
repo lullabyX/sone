@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useSetAtom } from "jotai";
 import { downloadDrawerOpenAtom, downloadQueueAtom } from "../atoms/downloads";
-import type { DownloadQueueEntry, MediaItemType, Track } from "../types";
+import { getTidalImageUrl, type DownloadQueueEntry, type MediaItemType, type Track } from "../types";
 import { fetchMediaTracks, getAlbumPage, getArtistAlbums } from "../api/tidal";
 
 function numberingWidth(trackCount: number): number {
@@ -37,7 +37,7 @@ function entryFromTrack(track: Track): DownloadQueueEntry {
 function entryFromMedia(item: MediaItemType): DownloadQueueEntry | null {
   switch (item.type) {
     case "album":
-      return { id: crypto.randomUUID(), sourceType: "album" as const, url: `https://tidal.com/album/${item.id}`, title: item.title, subtitle: item.artistName, output: albumOutput() };
+      return { id: crypto.randomUUID(), sourceType: "album" as const, url: `https://tidal.com/album/${item.id}`, title: item.title, subtitle: item.artistName, output: albumOutput(), coverUrl: getTidalImageUrl(item.cover, 1280) || undefined };
     case "playlist":
       return { id: crypto.randomUUID(), sourceType: "playlist" as const, url: `https://tidal.com/playlist/${item.uuid}`, title: item.title, subtitle: item.creatorName, output: playlistOutput() };
     case "artist":
@@ -72,11 +72,18 @@ export function useDownloadQueue() {
     setQueue((queue) => [...queue, { ...entry, previewStatus: "loading" }]);
     const loadPreview = async () => {
       try {
+        const albumPage = item.type === "album" ? (await getAlbumPage(item.id)).page : undefined;
         const tracks = item.type === "artist"
           ? (await Promise.all((await getArtistAlbums(item.id, 100)).map((album) => getAlbumPage(album.id).then(({ page }) => page.tracks)))).flat()
-          : await fetchMediaTracks(item);
+          : albumPage?.tracks ?? await fetchMediaTracks(item);
         const output = item.type === "playlist" ? playlistOutput(tracks.length) : albumOutput(tracks.length);
-        setQueue((queue) => queue.map((queued) => queued.id === entry.id ? { ...queued, output, previewItems: tracks, previewStatus: "ready" } : queued));
+        setQueue((queue) => queue.map((queued) => queued.id === entry.id ? {
+          ...queued,
+          output,
+          coverUrl: albumPage ? getTidalImageUrl(albumPage.album.cover, 1280) || queued.coverUrl : queued.coverUrl,
+          previewItems: tracks,
+          previewStatus: "ready",
+        } : queued));
       } catch {
         setQueue((queue) => queue.map((queued) => queued.id === entry.id ? { ...queued, previewStatus: "error" } : queued));
       }

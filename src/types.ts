@@ -435,6 +435,8 @@ export interface DownloadQueueEntry {
   title: string;
   subtitle?: string;
   output: string;
+  /** Downloaded beside a complete album when enabled in Settings > Downloads. */
+  coverUrl?: string;
   previewItems?: Track[];
   previewStatus?: "loading" | "ready" | "error";
 }

@@ -157,6 +157,8 @@ pub struct Settings {
     pub max_quality: String,
     #[serde(default = "defaults::download_folder")]
     pub download_folder: Option<String>,
+    #[serde(default = "defaults::yes")]
+    pub download_album_cover: bool,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
@@ -208,6 +210,7 @@ impl Default for Settings {
             gapless: true,
             max_quality: "HI_RES_LOSSLESS".to_string(),
             download_folder: defaults::download_folder(),
+            download_album_cover: true,
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
@@ -1143,6 +1146,8 @@ pub fn run() {
             commands::utility::refresh_audio_devices,
             commands::utility::get_download_folder,
             commands::utility::set_download_folder,
+            commands::utility::get_download_album_cover,
+            commands::utility::set_download_album_cover,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
             commands::utility::get_report_plays,

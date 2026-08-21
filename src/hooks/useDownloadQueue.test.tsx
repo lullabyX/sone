@@ -19,10 +19,13 @@ vi.mock("../api/tidal", () => ({
 describe("useDownloadQueue", () => {
   it("queues an album immediately and expands its tracks for display", async () => {
     const store = createStore();
-    fetchMediaTracks.mockResolvedValueOnce([
-      { id: 1, title: "First", duration: 1 },
-      { id: 2, title: "Second", duration: 1 },
-    ]);
+    getAlbumPage.mockResolvedValueOnce({ page: {
+      album: { id: 42, title: "Album", cover: "cover-id" },
+      tracks: [
+        { id: 1, title: "First", duration: 1 },
+        { id: 2, title: "Second", duration: 1 },
+      ],
+    } });
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <Provider store={store}>{children}</Provider>
     );
@@ -42,6 +45,7 @@ describe("useDownloadQueue", () => {
     });
     await waitFor(() => expect(store.get(downloadQueueAtom)[0].previewStatus).toBe("ready"));
     expect(store.get(downloadQueueAtom)[0].previewItems).toHaveLength(2);
+    expect(store.get(downloadQueueAtom)[0].coverUrl).toBe("https://resources.tidal.com/images/cover/id/1280x1280.jpg");
   });
 
   it("keeps duplicate playlist resources and their own queue IDs", () => {

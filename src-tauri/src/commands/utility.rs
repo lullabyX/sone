@@ -317,6 +317,24 @@ pub fn set_download_folder(
 }
 
 #[tauri::command]
+pub fn get_download_album_cover(state: State<'_, AppState>) -> bool {
+    state
+        .load_settings()
+        .map(|settings| settings.download_album_cover)
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_download_album_cover(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), SoneError> {
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.download_album_cover = enabled;
+    state.save_settings(&settings)
+}
+
+#[tauri::command]
 pub fn get_discord_rpc(state: State<'_, AppState>) -> bool {
     state
         .load_settings()
