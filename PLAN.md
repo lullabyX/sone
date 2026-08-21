@@ -50,6 +50,41 @@ with the downloader.
 
 ### Remaining Manual Validation
 
+#### Authenticated CLI Validation (2026-08-21)
+
+- Started `src-tauri/target/release/sone`; its home view loaded and displayed
+  the Download Queue icon in the player bar.
+- A real authenticated `tiddl` track download completed successfully using the
+  proposed album output template. Its JSONL stream included discovery, start,
+  indeterminate progress, item completion, and `job_completed(success = true)`.
+- A nonexistent numeric track emitted `job_failed(error.code = "api_error")`
+  followed by `job_completed(success = false)`, without creating media files.
+- These checks validate the installed downloader contract directly, not the
+  queue drawer interaction. This validation environment can capture the Tauri
+  window but its compositor does not expose virtual keyboard or pointer input,
+  so it cannot operate the folder picker or queue controls programmatically.
+
+#### How To Continue UI Validation
+
+1. Use the running `src-tauri/target/release/sone` instance. If it is closed,
+   start that binary from this checkout after confirming no other Sone instance
+   is running.
+2. Add a small track through its download icon or context menu, open Download
+   Queue from the player bar, and confirm the queued resource and its preview
+   are shown without starting playback or navigation.
+3. Select a disposable directory when prompted by `Download`. Confirm the
+   drawer shows `discovering`, `downloading`, and the final `success`,
+   `skipped`, or `error` state; `Clear` must remain disabled while the job is
+   running.
+4. Repeat with an album, playlist, artist, and video chosen to keep the output
+   size acceptable. Confirm albums/artists use the album layout, playlists use
+   their playlist index, and videos use the Videos layout.
+5. Exercise an item-level failure where feasible. Do not log out of `tiddl` to
+   test authentication failure. The direct validation above already verified a
+   job-level resource failure.
+6. Record the observed results here, then run `git diff --check` before
+   committing any documentation-only update.
+
 1. Use the existing Sone instance (or launch
    `src-tauri/target/release/sone` after closing it), authenticate the
    separately installed downloader with `tiddl auth login`, and download a
