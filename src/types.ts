@@ -462,7 +462,7 @@ export interface DownloadItem {
 }
 
 export interface DownloadJob {
-  status: "idle" | "checking" | "choosing-folder" | "downloading" | "complete" | "cancelled" | "failed";
+  status: "idle" | "checking" | "downloading" | "complete" | "cancelled" | "failed";
   destination?: string;
   error?: string;
 }

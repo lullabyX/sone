@@ -50,6 +50,9 @@ mod defaults {
     pub fn overlay_port() -> u16 { 5578 }
     pub fn overlay_host() -> String { "127.0.0.1".to_string() }
     pub fn max_quality() -> String { "HI_RES_LOSSLESS".to_string() }
+    pub fn download_folder() -> Option<String> {
+        dirs::home_dir().map(|home| home.join("Music").to_string_lossy().into_owned())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -152,6 +155,8 @@ pub struct Settings {
     pub gapless: bool,
     #[serde(default = "defaults::max_quality")]
     pub max_quality: String,
+    #[serde(default = "defaults::download_folder")]
+    pub download_folder: Option<String>,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
@@ -202,6 +207,7 @@ impl Default for Settings {
             bit_perfect: false,
             gapless: true,
             max_quality: "HI_RES_LOSSLESS".to_string(),
+            download_folder: defaults::download_folder(),
             scrobble: Default::default(),
             proxy: Default::default(),
             discord_rpc: true,
@@ -1135,6 +1141,8 @@ pub fn run() {
             commands::utility::set_exclusive_device,
             commands::utility::list_audio_devices,
             commands::utility::refresh_audio_devices,
+            commands::utility::get_download_folder,
+            commands::utility::set_download_folder,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
             commands::utility::get_report_plays,

@@ -302,6 +302,21 @@ pub fn refresh_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevi
 }
 
 #[tauri::command]
+pub fn get_download_folder(state: State<'_, AppState>) -> Option<String> {
+    state.load_settings().and_then(|s| s.download_folder)
+}
+
+#[tauri::command]
+pub fn set_download_folder(
+    state: State<'_, AppState>,
+    folder: Option<String>,
+) -> Result<(), SoneError> {
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.download_folder = folder.filter(|path| !path.trim().is_empty());
+    state.save_settings(&settings)
+}
+
+#[tauri::command]
 pub fn get_discord_rpc(state: State<'_, AppState>) -> bool {
     state
         .load_settings()

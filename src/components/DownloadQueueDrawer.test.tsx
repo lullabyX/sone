@@ -9,16 +9,16 @@ import {
 } from "../atoms/downloads";
 import DownloadQueueDrawer from "./DownloadQueueDrawer";
 
-const { checkTiddl, startDownloadJob, stopDownloadJob, open, listen } = vi.hoisted(() => ({
+const { checkTiddl, startDownloadJob, stopDownloadJob, invoke, listen } = vi.hoisted(() => ({
   checkTiddl: vi.fn(),
   startDownloadJob: vi.fn(),
   stopDownloadJob: vi.fn(),
-  open: vi.fn(),
+  invoke: vi.fn(),
   listen: vi.fn((_name: string, _callback: (event: { payload: Record<string, unknown> }) => void) => Promise.resolve(() => {})),
 }));
 
 vi.mock("../api/tidal", () => ({ checkTiddl, startDownloadJob, stopDownloadJob }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
 function renderDrawer(queue = false, progress = false) {
@@ -39,7 +39,7 @@ function renderDrawer(queue = false, progress = false) {
     store.set(downloadJobAtom, { status: "downloading" });
     store.set(downloadItemsAtom, {
       first: { itemInstanceId: "first", title: "First", status: "success" },
-      second: { itemInstanceId: "second", title: "Second", status: "downloading" },
+      second: { itemInstanceId: "second", title: "Second", status: "downloading", progress: 0.5, bytesDownloaded: 1024, bytesTotal: 2048 },
       third: { itemInstanceId: "third", title: "Third", status: "discovering" },
     });
   }
@@ -58,9 +58,9 @@ describe("DownloadQueueDrawer", () => {
     expect(screen.getByRole("button", { name: "Download" }).hasAttribute("disabled")).toBe(true);
   });
 
-  it("checks tiddl before opening the folder picker and starting a job", async () => {
+  it("checks tiddl and starts a job in the configured folder", async () => {
     checkTiddl.mockResolvedValueOnce(undefined);
-    open.mockResolvedValueOnce("/music");
+    invoke.mockResolvedValueOnce("/music");
     startDownloadJob.mockResolvedValueOnce(undefined);
     renderDrawer(true);
 
@@ -68,13 +68,25 @@ describe("DownloadQueueDrawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
 
     await waitFor(() => expect(checkTiddl).toHaveBeenCalledOnce());
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true }));
+    expect(invoke).toHaveBeenCalledWith("get_download_folder");
     await waitFor(() => expect(startDownloadJob).toHaveBeenCalledWith("/music", expect.any(Array)));
+  });
+
+  it("requires a configured folder without opening a picker", async () => {
+    checkTiddl.mockResolvedValueOnce(undefined);
+    invoke.mockResolvedValueOnce(null);
+    renderDrawer(true);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Download" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+
+    expect(await screen.findByText("Choose a download folder in Settings > Downloads before starting a download.")).toBeTruthy();
+    expect(startDownloadJob).not.toHaveBeenCalled();
   });
 
   it("shows a job-start failure returned by Tauri", async () => {
     checkTiddl.mockResolvedValueOnce(undefined);
-    open.mockResolvedValueOnce("/music");
+    invoke.mockResolvedValueOnce("/music");
     startDownloadJob.mockRejectedValueOnce(new Error("tiddl reported that the download job failed."));
     renderDrawer(true);
 
@@ -88,6 +100,8 @@ describe("DownloadQueueDrawer", () => {
     renderDrawer(false, true);
 
     expect(screen.getByText("1 of 3 finished · 2 remaining")).toBeTruthy();
+    expect(screen.getByText("downloading · 50%")).toBeTruthy();
+    expect(screen.getByText("1 KB / 2 KB")).toBeTruthy();
   });
 
   it("stops a running download and keeps the queue", async () => {

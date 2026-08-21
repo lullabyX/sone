@@ -8,6 +8,7 @@ import {
   AppWindow,
   Globe,
   FileText,
+  FolderDown,
   Cpu,
   Tv2,
   type LucideIcon,
@@ -15,6 +16,7 @@ import {
 import { useEscapeDismiss } from "../../hooks/useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../../lib/dismissStack";
 import PlaybackTab from "./PlaybackTab";
+import DownloadsTab from "./DownloadsTab";
 import ThemesTab from "./ThemesTab";
 import ScrobbleTab from "./ScrobbleTab";
 import DiscordTab from "./DiscordTab";
@@ -26,6 +28,7 @@ import OverlayTab from "./OverlayTab";
 
 type TabId =
   | "playback"
+  | "downloads"
   | "themes"
   | "scrobble"
   | "discord"
@@ -43,6 +46,7 @@ const GROUPS: {
     label: "Experience",
     tabs: [
       { id: "playback", label: "Playback", icon: Volume2 },
+      { id: "downloads", label: "Downloads", icon: FolderDown },
       { id: "themes", label: "Themes", icon: Palette },
     ],
   },
@@ -163,6 +167,7 @@ export default function SettingsSheet({
           <div className="flex-1 overflow-y-auto px-6 py-6">
             <div className="max-w-[600px] mx-auto">
               {active === "playback" && <PlaybackTab />}
+              {active === "downloads" && <DownloadsTab />}
               {active === "themes" && <ThemesTab />}
               {active === "scrobble" && <ScrobbleTab />}
               {active === "discord" && <DiscordTab />}

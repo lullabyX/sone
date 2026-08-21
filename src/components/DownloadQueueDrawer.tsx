@@ -1,6 +1,6 @@
 import { Download, Square, Trash2, X } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useAtom } from "jotai";
 import {
@@ -13,6 +13,13 @@ import { checkTiddl, startDownloadJob, stopDownloadJob } from "../api/tidal";
 
 type EventPayload = Record<string, any>;
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length);
+  return `${(bytes / 1024 ** exponent).toFixed(exponent === 1 ? 0 : 1)} ${units[exponent - 1]}`;
+}
+
 export default function DownloadQueueDrawer() {
   const [openDrawer, setOpenDrawer] = useAtom(downloadDrawerOpenAtom);
   const [queue, setQueue] = useAtom(downloadQueueAtom);
@@ -20,7 +27,7 @@ export default function DownloadQueueDrawer() {
   const [job, setJob] = useAtom(downloadJobAtom);
   const [error, setError] = useState<string | null>(null);
   const [eventsReady, setEventsReady] = useState(false);
-  const running = job.status === "checking" || job.status === "choosing-folder" || job.status === "downloading";
+  const running = job.status === "checking" || job.status === "downloading";
   const progressItems = Object.values(items);
   const terminalItemCount = progressItems.filter((item) => ["success", "skipped", "cancelled", "error"].includes(item.status)).length;
   const remainingItemCount = progressItems.length - terminalItemCount;
@@ -65,12 +72,8 @@ export default function DownloadQueueDrawer() {
     setJob({ status: "checking" });
     try {
       await checkTiddl();
-      setJob({ status: "choosing-folder" });
-      const destination = await open({ directory: true, multiple: false, title: "Choose download folder" });
-      if (!destination || Array.isArray(destination)) {
-        setJob({ status: "idle" });
-        return;
-      }
+      const destination = await invoke<string | null>("get_download_folder");
+      if (!destination) throw new Error("Choose a download folder in Settings > Downloads before starting a download.");
       setItems({});
       setJob({ status: "downloading", destination });
       await startDownloadJob(destination, queue);
@@ -117,7 +120,7 @@ export default function DownloadQueueDrawer() {
           <section><h3 className="text-xs font-bold uppercase tracking-wider text-th-text-muted mb-2">Queued resources</h3>
             {queue.length === 0 ? <p className="py-10 text-center text-sm text-th-text-disabled">No downloads queued</p> : queue.map((entry) => <div key={entry.id} className="py-2 border-b border-th-border-subtle"><p className="text-sm font-medium truncate">{entry.title}</p><p className="text-xs text-th-text-muted capitalize">{entry.sourceType}{entry.subtitle ? ` · ${entry.subtitle}` : ""}</p>{entry.previewStatus === "loading" && <p className="mt-1 text-xs text-th-text-disabled">Loading tracks...</p>}{entry.previewStatus === "error" && <p className="mt-1 text-xs text-th-error">Could not load the track list. tiddl will still resolve this resource.</p>}{entry.previewItems && <div className="mt-2 ml-2 border-l border-th-border-subtle pl-3 space-y-1">{entry.previewItems.map((track, index) => <p key={`${track.id}-${index}`} className="text-xs text-th-text-muted truncate">{track.title}{track.artist?.name ? ` · ${track.artist.name}` : ""}</p>)}</div>}</div>)}
           </section>
-          {progressItems.length > 0 && <section><h3 className="text-xs font-bold uppercase tracking-wider text-th-text-muted mb-2">Download progress</h3><p className="mb-2 text-xs text-th-text-muted">{terminalItemCount} of {progressItems.length} finished{running && ` · ${remainingItemCount} remaining`}</p>{progressItems.map((item) => <div key={item.itemInstanceId} className="py-2 border-b border-th-border-subtle"><div className="flex justify-between gap-3"><p className="text-sm truncate">{item.title}</p><span className="text-xs capitalize text-th-text-muted">{item.status}</span></div>{item.progress != null && <div className="mt-1 h-1 rounded bg-th-slider-track"><div className="h-full rounded bg-th-accent" style={{ width: `${item.progress * 100}%` }} /></div>}{item.outputPath && <p className="mt-1 text-xs text-th-text-muted break-all">{item.outputPath}</p>}{item.error && <p className="text-xs text-th-error mt-1">{item.error}</p>}</div>)}</section>}
+          {progressItems.length > 0 && <section><h3 className="text-xs font-bold uppercase tracking-wider text-th-text-muted mb-2">Download progress</h3><p className="mb-2 text-xs text-th-text-muted">{terminalItemCount} of {progressItems.length} finished{running && ` · ${remainingItemCount} remaining`}</p>{progressItems.map((item) => <div key={item.itemInstanceId} className="py-2 border-b border-th-border-subtle"><div className="flex justify-between gap-3"><p className="text-sm truncate">{item.title}</p><span className="text-xs capitalize text-th-text-muted">{item.status}{item.progress != null && ` · ${Math.round(item.progress * 100)}%`}</span></div>{item.progress != null && <div className="mt-1 h-1 rounded bg-th-slider-track"><div className="h-full rounded bg-th-accent" style={{ width: `${item.progress * 100}%` }} /></div>}{item.bytesDownloaded != null && <p className="mt-1 text-xs text-th-text-muted">{formatBytes(item.bytesDownloaded)}{item.bytesTotal != null && ` / ${formatBytes(item.bytesTotal)}`}</p>}{item.outputPath && <p className="mt-1 text-xs text-th-text-muted break-all">{item.outputPath}</p>}{item.error && <p className="text-xs text-th-error mt-1">{item.error}</p>}</div>)}</section>}
         </div>
         <footer className="px-6 py-4 border-t border-th-border-subtle flex gap-3">
           <button onClick={start} disabled={queue.length === 0 || running || !eventsReady} className="flex-1 flex items-center justify-center gap-2 rounded-full bg-th-accent text-th-on-accent py-2.5 text-sm font-bold disabled:opacity-50"><Download size={16} />{running ? "Downloading..." : "Download"}</button>
