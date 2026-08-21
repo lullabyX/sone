@@ -39,12 +39,16 @@ with the downloader.
 
 - `tiddl` was found at `/home/mikele/.local/bin/tiddl`.
 - The non-destructive capability command completed successfully.
-- `pnpm test`: 198 tests passed.
+- `pnpm test`: 201 tests passed.
 - `pnpm build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml --lib`: passed.
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 124 tests passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 125 tests passed.
 - A release Tauri build passed with `pnpm tauri build --no-bundle`; the runnable
   binary is `src-tauri/target/release/sone`.
+- A follow-up verification after the selected `--scan-path` fix passed:
+  `tiddl download --events jsonl url --help`, `pnpm test`, `pnpm build`,
+  `cargo check --manifest-path src-tauri/Cargo.toml --lib`, and
+  `cargo test --manifest-path src-tauri/Cargo.toml --lib` (125 Rust tests).
 - The validation pass left the worktree clean. An existing Sone process was
   already running, so no second application instance was started.
 
@@ -78,6 +82,12 @@ with the downloader.
   scan folder and skipping a requested copy in the selected folder.
 - A real authenticated non-Atmos track was downloaded successfully to the
   selected folder. The drawer and terminal report the final output path.
+- A real authenticated album download completed successfully. The drawer kept
+  its `Downloading...` state throughout the job.
+- Download progress now renders live item rows and completed/remaining counts
+  during an authenticated download.
+- `Clear download queue` now also clears the completed download rows and
+  in-memory job state; it never deletes downloaded files.
 - A Dolby Atmos track completed without a new file because the installed
   tiddl configuration filters Atmos media. This is a tiddl `skipped` outcome,
   not an Sone path or process failure.

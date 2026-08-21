@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   downloadDrawerOpenAtom,
+  downloadItemsAtom,
+  downloadJobAtom,
   downloadQueueAtom,
 } from "../atoms/downloads";
 import DownloadQueueDrawer from "./DownloadQueueDrawer";
@@ -18,7 +20,7 @@ vi.mock("../api/tidal", () => ({ checkTiddl, startDownloadJob }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
-function renderDrawer(queue = false) {
+function renderDrawer(queue = false, progress = false) {
   const store = createStore();
   store.set(downloadDrawerOpenAtom, true);
   if (queue) {
@@ -32,7 +34,16 @@ function renderDrawer(queue = false) {
       previewItems: [],
     }]);
   }
+  if (progress) {
+    store.set(downloadJobAtom, { status: "downloading" });
+    store.set(downloadItemsAtom, {
+      first: { itemInstanceId: "first", title: "First", status: "success" },
+      second: { itemInstanceId: "second", title: "Second", status: "downloading" },
+      third: { itemInstanceId: "third", title: "Third", status: "discovering" },
+    });
+  }
   render(<Provider store={store}><DownloadQueueDrawer /></Provider>);
+  return store;
 }
 
 describe("DownloadQueueDrawer", () => {
@@ -70,5 +81,22 @@ describe("DownloadQueueDrawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
 
     expect(await screen.findByText("tiddl reported that the download job failed.")).toBeTruthy();
+  });
+
+  it("shows completed and remaining discovered items while downloading", () => {
+    renderDrawer(false, true);
+
+    expect(screen.getByText("1 of 3 complete · 2 remaining")).toBeTruthy();
+  });
+
+  it("clears completed download history with the queue", () => {
+    const store = renderDrawer(true, true);
+    act(() => store.set(downloadJobAtom, { status: "complete" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(store.get(downloadQueueAtom)).toEqual([]);
+    expect(store.get(downloadItemsAtom)).toEqual({});
+    expect(store.get(downloadJobAtom)).toEqual({ status: "idle" });
   });
 });

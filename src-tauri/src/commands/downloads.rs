@@ -46,6 +46,10 @@ fn emit(app: &AppHandle, event: &str, payload: Value) {
     }
 }
 
+fn frontend_event_name(event: &str) -> String {
+    format!("download:{}", event.replace('_', "-"))
+}
+
 fn emit_failure(app: &AppHandle, message: &str) {
     emit(
         app,
@@ -141,7 +145,7 @@ async fn run_invocation(
                         log::debug!("tiddl {event}: {output_path}");
                     }
                 }
-                emit(app, &format!("download:{event}"), value.clone());
+                emit(app, &frontend_event_name(event), value.clone());
             }
             "job_completed" => {
                 completed = value.get("success").and_then(Value::as_bool) == Some(true);
@@ -169,6 +173,20 @@ async fn run_invocation(
         return Err("tiddl reported that the download job failed.".to_string());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frontend_event_name;
+
+    #[test]
+    fn converts_downloader_event_names_to_frontend_event_names() {
+        assert_eq!(
+            frontend_event_name("item_discovered"),
+            "download:item-discovered"
+        );
+        assert_eq!(frontend_event_name("job_failed"), "download:job-failed");
+    }
 }
 
 #[tauri::command]
