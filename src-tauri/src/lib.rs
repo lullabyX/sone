@@ -952,6 +952,8 @@ pub fn run() {
             commands::pages::get_artist_top_tracks_all,
             commands::pages::get_artist_view_all,
             commands::pages::debug_home_page_raw,
+            // feed
+            commands::feed::get_feed,
             // search
             commands::search::search_tidal,
             commands::search::get_suggestions,
