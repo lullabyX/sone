@@ -43,12 +43,17 @@ with the downloader.
 - `pnpm build`: passed.
 - `cargo check --manifest-path src-tauri/Cargo.toml --lib`: passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 124 tests passed.
+- A release Tauri build passed with `pnpm tauri build --no-bundle`; the runnable
+  binary is `src-tauri/target/release/sone`.
+- The validation pass left the worktree clean. An existing Sone process was
+  already running, so no second application instance was started.
 
 ### Remaining Manual Validation
 
-1. Launch Sone with a Tauri build, authenticate the separately installed
-   downloader with `tiddl auth login`, and download a track, album, playlist,
-   artist, and video to a disposable directory.
+1. Use the existing Sone instance (or launch
+   `src-tauri/target/release/sone` after closing it), authenticate the
+   separately installed downloader with `tiddl auth login`, and download a
+   track, album, playlist, artist, and video to a disposable directory.
 2. Confirm each JSONL terminal state renders correctly: success, skipped,
    item error, authentication failure, resource failure, and incompatible
    JSONL/schema failure.
@@ -57,6 +62,9 @@ with the downloader.
 4. If this becomes an upstream PR, inspect
    `git diff upstream/master...HEAD` and keep generated build artifacts out of
    the PR.
+
+The remaining steps require an authenticated user account and create real files;
+they were intentionally not run during the automated validation pass.
 
 The user must install and authenticate the downloader separately:
 
