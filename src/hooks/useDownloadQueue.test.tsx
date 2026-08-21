@@ -63,4 +63,23 @@ describe("useDownloadQueue", () => {
     expect(queue[0].id).not.toBe(queue[1].id);
     expect(queue[0].url).toBe(queue[1].url);
   });
+
+  it.each([
+    [9, 2],
+    [99, 2],
+    [100, 3],
+    [999, 3],
+  ])("pads a %i-track playlist number to %s digits", async (trackCount, width) => {
+    const store = createStore();
+    fetchMediaTracks.mockResolvedValueOnce(Array.from({ length: trackCount }, (_, id) => ({ id, title: `Track ${id}`, duration: 1 })));
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result } = renderHook(() => useDownloadQueue(), { wrapper });
+
+    act(() => result.current.addMediaToDownloads({ type: "playlist", uuid: "playlist-id", title: "Playlist" }));
+
+    await waitFor(() => expect(store.get(downloadQueueAtom)[0].previewStatus).toBe("ready"));
+    expect(store.get(downloadQueueAtom)[0].output).toContain(`{playlist.index:0${width}d}`);
+  });
 });

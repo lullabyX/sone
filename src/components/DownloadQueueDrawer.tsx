@@ -67,7 +67,7 @@ export default function DownloadQueueDrawer() {
   }, [openDrawer, setItems, setJob]);
 
   const start = async () => {
-    if (queue.length === 0 || running || !eventsReady) return;
+    if (queue.length === 0 || queue.some((entry) => entry.previewStatus === "loading") || running || !eventsReady) return;
     setError(null);
     setJob({ status: "checking" });
     try {
@@ -123,7 +123,7 @@ export default function DownloadQueueDrawer() {
           {progressItems.length > 0 && <section><h3 className="text-xs font-bold uppercase tracking-wider text-th-text-muted mb-2">Download progress</h3><p className="mb-2 text-xs text-th-text-muted">{terminalItemCount} of {progressItems.length} finished{running && ` · ${remainingItemCount} remaining`}</p>{progressItems.map((item) => <div key={item.itemInstanceId} className="py-2 border-b border-th-border-subtle"><div className="flex justify-between gap-3"><p className="text-sm truncate">{item.title}</p><span className="text-xs capitalize text-th-text-muted">{item.status}{item.progress != null && ` · ${Math.round(item.progress * 100)}%`}</span></div>{item.progress != null && <div className="mt-1 h-1 rounded bg-th-slider-track"><div className="h-full rounded bg-th-accent" style={{ width: `${item.progress * 100}%` }} /></div>}{item.bytesDownloaded != null && <p className="mt-1 text-xs text-th-text-muted">{formatBytes(item.bytesDownloaded)}{item.bytesTotal != null && ` / ${formatBytes(item.bytesTotal)}`}</p>}{item.outputPath && <p className="mt-1 text-xs text-th-text-muted break-all">{item.outputPath}</p>}{item.error && <p className="text-xs text-th-error mt-1">{item.error}</p>}</div>)}</section>}
         </div>
         <footer className="px-6 py-4 border-t border-th-border-subtle flex gap-3">
-          <button onClick={start} disabled={queue.length === 0 || running || !eventsReady} className="flex-1 flex items-center justify-center gap-2 rounded-full bg-th-accent text-th-on-accent py-2.5 text-sm font-bold disabled:opacity-50"><Download size={16} />{running ? "Downloading..." : "Download"}</button>
+          <button onClick={start} disabled={queue.length === 0 || queue.some((entry) => entry.previewStatus === "loading") || running || !eventsReady} className="flex-1 flex items-center justify-center gap-2 rounded-full bg-th-accent text-th-on-accent py-2.5 text-sm font-bold disabled:opacity-50"><Download size={16} />{running ? "Downloading..." : "Download"}</button>
           {job.status === "downloading" && <button onClick={stop} className="flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm text-th-error hover:bg-th-error/10" title="Stop downloads"><Square size={16} />Stop</button>}
           <button onClick={clear} disabled={running || queue.length === 0} className="flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm text-th-text-secondary hover:bg-th-hl-med disabled:opacity-50" title="Clear download queue"><Trash2 size={16} />Clear</button>
         </footer>
