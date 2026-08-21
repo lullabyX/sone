@@ -63,6 +63,24 @@ with the downloader.
   queue drawer interaction. This validation environment can capture the Tauri
   window but its compositor does not expose virtual keyboard or pointer input,
   so it cannot operate the folder picker or queue controls programmatically.
+- Re-launching the release binary on the same compositor confirmed that Sone
+  restores its authenticated home session. Plasma's window-information API
+  requires a manual selection and the environment has no pointer-injection
+  tool, so queue controls were not activated blindly and no additional files
+  were created.
+- Follow-up drawer validation exposed a missing Tauri dialog ACL permission,
+  which is now granted with `dialog:allow-open`.
+- The drawer now waits for all download-event listeners before enabling
+  `Download`. Backend job failures also reject the IPC call, so an error is
+  shown even if an event cannot be delivered.
+- The selected folder is passed to both `tiddl --path` and `--scan-path`.
+  This prevents tiddl from finding an existing file in its configured default
+  scan folder and skipping a requested copy in the selected folder.
+- A real authenticated non-Atmos track was downloaded successfully to the
+  selected folder. The drawer and terminal report the final output path.
+- A Dolby Atmos track completed without a new file because the installed
+  tiddl configuration filters Atmos media. This is a tiddl `skipped` outcome,
+  not an Sone path or process failure.
 
 #### How To Continue UI Validation
 
@@ -84,6 +102,16 @@ with the downloader.
    job-level resource failure.
 6. Record the observed results here, then run `git diff --check` before
    committing any documentation-only update.
+
+For terminal diagnostics during further validation, start the release binary
+from this checkout with:
+
+```sh
+RUST_LOG=tauri_app_lib::commands::downloads=debug ./src-tauri/target/release/sone
+```
+
+The logs include invocation counts, terminal item output paths, and safe
+job-level errors, but not downloader diagnostics, credentials, or signed URLs.
 
 1. Use the existing Sone instance (or launch
    `src-tauri/target/release/sone` after closing it), authenticate the

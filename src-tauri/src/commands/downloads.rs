@@ -2,7 +2,7 @@ use crate::{AppState, SoneError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -64,6 +64,7 @@ async fn run_invocation(
         return Ok(());
     }
 
+    log::debug!("Starting tiddl download invocation for {} resource(s)", group.urls.len());
     let mut command = Command::new("tiddl");
     command
         .args([
@@ -71,6 +72,8 @@ async fn run_invocation(
             "--events",
             "jsonl",
             "--path",
+            destination,
+            "--scan-path",
             destination,
             "--output",
             &group.output,
@@ -82,6 +85,7 @@ async fn run_invocation(
     let mut child = command
         .spawn()
         .map_err(|error| format!("Could not start tiddl: {error}"))?;
+    log::debug!("tiddl download invocation started");
     let stdout = child
         .stdout
         .take()
@@ -132,6 +136,11 @@ async fn run_invocation(
         match event {
             "job_started" | "item_discovered" | "item_started" | "item_progress"
             | "item_completed" | "item_skipped" | "item_failed" | "job_failed" => {
+                if matches!(event, "item_completed" | "item_skipped") {
+                    if let Some(output_path) = value.get("output_path").and_then(Value::as_str) {
+                        log::debug!("tiddl {event}: {output_path}");
+                    }
+                }
                 emit(app, &format!("download:{event}"), value.clone());
             }
             "job_completed" => {
@@ -169,6 +178,7 @@ pub async fn start_download_job(
     destination: String,
     groups: Vec<DownloadInvocation>,
 ) -> Result<(), SoneError> {
+    log::debug!("Received download job with {} invocation group(s)", groups.len());
     if destination.trim().is_empty() || groups.is_empty() {
         return Err(dependency_error(
             "A destination and at least one queued resource are required.",
@@ -177,20 +187,21 @@ pub async fn start_download_job(
     if state.download_active.swap(true, Ordering::AcqRel) {
         return Err(dependency_error("A download job is already running."));
     }
-    tauri::async_runtime::spawn(async move {
+    let result = async {
         for group in groups {
-            if let Err(message) = run_invocation(&app, &destination, group).await {
-                emit_failure(&app, &message);
-                app.state::<AppState>()
-                    .download_active
-                    .store(false, Ordering::Release);
-                return;
-            }
+            run_invocation(&app, &destination, group).await?;
         }
         emit(&app, "download:job-completed", json!({ "success": true }));
-        app.state::<AppState>()
-            .download_active
-            .store(false, Ordering::Release);
-    });
+        Ok::<(), String>(())
+    }
+    .await;
+    state.download_active.store(false, Ordering::Release);
+
+    result.map_err(|message| {
+        log::warn!("tiddl download job failed: {message}");
+        emit_failure(&app, &message);
+        dependency_error(message)
+    })?;
+    log::debug!("tiddl download job completed successfully");
     Ok(())
 }

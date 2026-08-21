@@ -20,6 +20,7 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "opener:default",
+    "dialog:allow-open",
     "global-shortcut:allow-register",
     "deep-link:default"
   ]

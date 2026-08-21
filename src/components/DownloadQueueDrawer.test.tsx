@@ -52,10 +52,23 @@ describe("DownloadQueueDrawer", () => {
     startDownloadJob.mockResolvedValueOnce(undefined);
     renderDrawer(true);
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "Download" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
 
     await waitFor(() => expect(checkTiddl).toHaveBeenCalledOnce());
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true }));
     await waitFor(() => expect(startDownloadJob).toHaveBeenCalledWith("/music", expect.any(Array)));
+  });
+
+  it("shows a job-start failure returned by Tauri", async () => {
+    checkTiddl.mockResolvedValueOnce(undefined);
+    open.mockResolvedValueOnce("/music");
+    startDownloadJob.mockRejectedValueOnce(new Error("tiddl reported that the download job failed."));
+    renderDrawer(true);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Download" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+
+    expect(await screen.findByText("tiddl reported that the download job failed.")).toBeTruthy();
   });
 });
