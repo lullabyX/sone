@@ -70,6 +70,7 @@ import {
   saveOffset,
   scrollKey,
 } from "../lib/scrollMemory";
+import { usePageScrollElement } from "../contexts/PageScrollContext";
 
 function renderLayout(children: ReactNode = null, store = createStore()) {
   const view = render(
@@ -145,5 +146,17 @@ describe("Layout", () => {
 
     const scroller = container.querySelector(".custom-scrollbar")!;
     expect(scroller.scrollTop).toBe(250);
+  });
+  it("publishes the scroll container to descendants", () => {
+    let seen: HTMLElement | null = null;
+    function Probe({ onRead }: { onRead: (el: HTMLElement | null) => void }) {
+      onRead(usePageScrollElement());
+      return null;
+    }
+
+    renderLayout(<Probe onRead={(el) => (seen = el)} />);
+
+    expect(seen).not.toBe(null);
+    expect(seen!.classList.contains("custom-scrollbar")).toBe(true);
   });
 });
