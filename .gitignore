@@ -58,3 +58,9 @@ sone.code-workspace
 
 # Snap build artifacts
 *.snap
+
+# Generated package artifacts
+/build-scripts/build/pkg/
+/build-scripts/build/src/
+/build-scripts/build/*.deb
+/build-scripts/build/*.pkg.tar.zst
