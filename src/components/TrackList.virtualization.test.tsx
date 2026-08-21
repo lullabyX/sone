@@ -63,36 +63,16 @@ function track(id: number): Track {
   } as unknown as Track;
 }
 
-/** Both virtualized callers pass showCover, so 60px is the shipping row. */
-const ROW_HEIGHT = 60;
-
-const nativeOffsetHeight = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  "offsetHeight",
-);
-
 describe("TrackList virtualization", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
-    // The virtualizer re-measures each mounted row from its offsetHeight. jsdom
-    // answers 0, which would collapse every row and grow the window to the
-    // whole list, so rows report the height the real stylesheet gives them.
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get: () => ROW_HEIGHT,
-    });
+    // No per-row offsetHeight stub: rows are deliberately unmeasured, so jsdom's
+    // 0 boxes cannot collapse them. Reinstating measurement breaks this file.
   });
 
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
-    if (nativeOffsetHeight) {
-      Object.defineProperty(
-        HTMLElement.prototype,
-        "offsetHeight",
-        nativeOffsetHeight,
-      );
-    }
   });
 
   it("windows the rows against the provided scroll element", () => {

@@ -564,9 +564,11 @@ function VirtualTrackRows({
           const track = tracks[v.index];
           if (!track) return null;
           return (
+            // Deliberately unmeasured: estimateSize is exact for a fixed-height
+            // row, and a hidden list would measure every row as 0 and make the
+            // virtualizer scroll-adjust the shared container.
             <div
               key={v.key}
-              ref={virtualizer.measureElement}
               data-index={v.index}
               style={{
                 position: "absolute",
