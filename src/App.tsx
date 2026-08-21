@@ -15,6 +15,7 @@ import ProfilePlaylistsPage from "./components/ProfilePlaylistsPage";
 import MixPage from "./components/MixPage";
 import ExplorePage from "./components/ExplorePage";
 import ExploreSubPage from "./components/ExploreSubPage";
+import FeedPage from "./components/FeedPage";
 import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
@@ -187,6 +188,8 @@ function AppContent() {
         );
       case "explore":
         return <ExplorePage />;
+      case "feed":
+        return <FeedPage />;
       case "explorePage":
         return (
           <ExploreSubPage

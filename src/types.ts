@@ -257,6 +257,7 @@ type ViewTarget =
       };
     }
   | { type: "explore" }
+  | { type: "feed" }
   | { type: "explorePage"; apiPath: string; title: string }
   | {
       type: "artistTracks";

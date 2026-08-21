@@ -132,6 +132,10 @@ export function useNavigation() {
     [navigate],
   );
 
+  const navigateToFeed = useCallback(() => {
+    navigate({ type: "feed" });
+  }, [navigate]);
+
   const navigateToLibraryViewAll = useCallback(
     (libraryType: "playlists" | "albums" | "artists" | "mixes") => {
       navigate({ type: "libraryViewAll", libraryType });
@@ -165,6 +169,7 @@ export function useNavigation() {
     navigateToProfilePlaylists,
     navigateToExplore,
     navigateToExplorePage,
+    navigateToFeed,
     navigateToLibraryViewAll,
     navigateToPlaylistFolder,
   };
