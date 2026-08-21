@@ -25,9 +25,31 @@ fn dependency_error(message: impl Into<String>) -> SoneError {
     ))
 }
 
+fn tiddl_executable() -> PathBuf {
+    if let Some(path) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&path) {
+            let candidate = directory.join("tiddl");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    // Desktop launchers commonly inherit systemd's minimal PATH, which omits
+    // the standard user-local location used by pipx and similar installers.
+    if let Some(home) = std::env::var_os("HOME") {
+        let candidate = PathBuf::from(home).join(".local/bin/tiddl");
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+
+    PathBuf::from("tiddl")
+}
+
 #[tauri::command]
 pub async fn check_tiddl() -> Result<(), SoneError> {
-    let output = Command::new("tiddl")
+    let output = Command::new(tiddl_executable())
         .args(["download", "--events", "jsonl", "url", "--help"])
         .output()
         .await
@@ -111,7 +133,7 @@ async fn run_invocation(
     }
 
     log::debug!("Starting tiddl download invocation for {} resource(s)", group.urls.len());
-    let mut command = Command::new("tiddl");
+    let mut command = Command::new(tiddl_executable());
     command
         .args([
             "download",
