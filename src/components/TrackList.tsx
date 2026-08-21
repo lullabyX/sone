@@ -504,6 +504,8 @@ function VirtualTrackRows({
     return () => ro.disconnect();
   }, [scrollEl]);
 
+  // Load-bearing for the page's scrollHeight: 60 = a 40px cover + 20px py-2.5.
+  // If this drifts from a real row's height the scrollbar shifts under a restore.
   const rowHeight = showCover ? 60 : 48;
 
   const virtualizer = useVirtualizer({
@@ -512,6 +514,9 @@ function VirtualTrackRows({
     estimateSize: () => rowHeight,
     overscan: 8,
     scrollMargin,
+    // The virtualizer scrolls its element to initialOffset once on attach, and
+    // the default 0 would wipe a restored offset the moment this list mounts.
+    initialOffset: () => scrollEl?.scrollTop ?? 0,
     getItemKey: (i) => tracks[i]?.id ?? i,
   });
 
@@ -559,7 +564,6 @@ function VirtualTrackRows({
               key={v.key}
               ref={virtualizer.measureElement}
               data-index={v.index}
-              data-track-row="true"
               style={{
                 position: "absolute",
                 top: 0,

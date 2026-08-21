@@ -63,7 +63,8 @@ function track(id: number): Track {
   } as unknown as Track;
 }
 
-const ROW_HEIGHT = 48;
+/** Both virtualized callers pass showCover, so 60px is the shipping row. */
+const ROW_HEIGHT = 60;
 
 const nativeOffsetHeight = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
@@ -105,16 +106,51 @@ describe("TrackList virtualization", () => {
     const { container } = render(
       <Provider store={store}>
         <PageScrollProvider element={scroller}>
-          <TrackList tracks={tracks} onPlay={vi.fn()} virtualize />
+          <TrackList tracks={tracks} onPlay={vi.fn()} showCover virtualize />
         </PageScrollProvider>
       </Provider>,
     );
 
-    // 480px of viewport at 48px per row is ~10 rows plus overscan 8 — far fewer
+    // 480px of viewport at 60px per row is 8 rows plus overscan 8 — far fewer
     // than 500. Before the context change every row rendered, because the
     // virtualizer measured a height-auto page root as its own viewport.
-    const rendered = container.querySelectorAll('[data-track-row="true"]');
+    const rendered = container.querySelectorAll("[data-index]");
     expect(rendered.length).toBeGreaterThan(0);
     expect(rendered.length).toBeLessThan(60);
+
+    scroller.remove();
+  });
+
+  // The virtualizer scrolls its element to initialOffset when it attaches. The
+  // default is 0, so a list mounting after a scroll restore would throw the
+  // page back to the top and the recorder would save that 0.
+  it("leaves the container's restored offset alone on mount", () => {
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    fakeViewport(scroller, 480);
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => 1200,
+    });
+    const scrollTo = vi.fn();
+    scroller.scrollTo = scrollTo;
+
+    const tracks = Array.from({ length: 500 }, (_, i) => track(i + 1));
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <PageScrollProvider element={scroller}>
+          <TrackList tracks={tracks} onPlay={vi.fn()} showCover virtualize />
+        </PageScrollProvider>
+      </Provider>,
+    );
+
+    expect(scrollTo).toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalledWith(
+      expect.objectContaining({ top: 0 }),
+    );
+
+    scroller.remove();
   });
 });
