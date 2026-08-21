@@ -9,6 +9,7 @@ import {
   Radio,
   Share,
   MoreHorizontal,
+  Download,
 } from "lucide-react";
 import {
   useEffect,
@@ -49,6 +50,7 @@ import {
 import BioText, { stripBio } from "./BioText";
 import CardScrollSection from "./CardScrollSection";
 import PageContainer from "./PageContainer";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 // Fades the stitched banner into the page background at its bottom edge.
 const HERO_FADE =
@@ -92,6 +94,7 @@ export default function ArtistPage({
   artistInfo,
   onBack,
 }: ArtistPageProps) {
+  const { addMediaToDownloads } = useDownloadQueue();
   const store = useStore();
   const {
     playTrack,
@@ -642,6 +645,11 @@ export default function ArtistPage({
                 </button>
               </div>
               <div className="flex items-center gap-7">
+                <HeaderAction
+                  icon={<Download size={22} />}
+                  label="Download"
+                  onClick={() => addMediaToDownloads({ type: "artist", id: artistId, name: displayName, picture: avatarSrc })}
+                />
                 <HeaderAction
                   icon={isFollowed ? <Check size={22} /> : <Plus size={22} />}
                   label={isFollowed ? "Following" : "Follow"}

@@ -1,0 +1,52 @@
+import { useCallback } from "react";
+import { useSetAtom } from "jotai";
+import { downloadDrawerOpenAtom, downloadQueueAtom } from "../atoms/downloads";
+import type { MediaItemType, Track } from "../types";
+
+const albumOutput = "{album.artist}/{album.title}/{item.number} - {item.title}";
+const playlistOutput = "{playlist.title}/{playlist.index} - {item.artist} - {item.title}";
+const videoOutput = "{item.artist}/Videos/{item.artist} - {item.title}";
+const looseTrackOutput = "{item.artist}/{item.title}";
+
+function entryFromTrack(track: Track) {
+  const isVideo = track.itemType === "video";
+  const sourceType = isVideo ? "video" : "track";
+  return {
+    id: crypto.randomUUID(),
+    sourceType,
+    url: `https://tidal.com/${sourceType}/${track.id}`,
+    title: track.title,
+    subtitle: track.artist?.name ?? track.artists?.[0]?.name,
+    output: isVideo ? videoOutput : track.album ? albumOutput : looseTrackOutput,
+  } as const;
+}
+
+function entryFromMedia(item: MediaItemType) {
+  switch (item.type) {
+    case "album":
+      return { id: crypto.randomUUID(), sourceType: "album" as const, url: `https://tidal.com/album/${item.id}`, title: item.title, subtitle: item.artistName, output: albumOutput };
+    case "playlist":
+      return { id: crypto.randomUUID(), sourceType: "playlist" as const, url: `https://tidal.com/playlist/${item.uuid}`, title: item.title, subtitle: item.creatorName, output: playlistOutput };
+    case "artist":
+      return { id: crypto.randomUUID(), sourceType: "artist" as const, url: `https://tidal.com/artist/${item.id}`, title: item.name, output: albumOutput };
+    case "video":
+      return { id: crypto.randomUUID(), sourceType: "video" as const, url: `https://tidal.com/video/${item.id}`, title: item.title, subtitle: item.artist, output: videoOutput };
+    case "mix":
+      return null;
+  }
+}
+
+export function useDownloadQueue() {
+  const setQueue = useSetAtom(downloadQueueAtom);
+  const setDrawerOpen = useSetAtom(downloadDrawerOpenAtom);
+  const addTrackToDownloads = useCallback((track: Track) => {
+    const entry = entryFromTrack(track);
+    setQueue((queue) => [...queue, entry]);
+  }, [setQueue]);
+  const addMediaToDownloads = useCallback((item: MediaItemType) => {
+    const entry = entryFromMedia(item);
+    if (!entry) return;
+    setQueue((queue) => [...queue, entry]);
+  }, [setQueue]);
+  return { addTrackToDownloads, addMediaToDownloads, openDownloadQueue: () => setDrawerOpen(true) };
+}

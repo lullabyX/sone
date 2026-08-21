@@ -11,6 +11,7 @@ import {
   Maximize2,
   MoreHorizontal,
   PictureInPicture2,
+  Download,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
@@ -47,6 +48,7 @@ import QualityBadge from "./QualityBadge";
 import SignalPathPanel from "./SignalPathPanel";
 import VolumeSlider from "./VolumeSlider";
 import TrackContextMenu from "./TrackContextMenu";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 /** Build a video-session input from a restored/queued video-typed track. */
 function videoInputFromTrack(t: Track) {
@@ -732,6 +734,11 @@ const MiniPlayerButton = memo(function MiniPlayerButton() {
   );
 });
 
+const DownloadQueueButton = memo(function DownloadQueueButton() {
+  const { openDownloadQueue } = useDownloadQueue();
+  return <button onClick={openDownloadQueue} className="text-th-text-faint hover:text-th-text-primary transition-colors duration-150" title="Download queue"><Download size={16} strokeWidth={2} /></button>;
+});
+
 // ─── PlayerBar (shell) ─────────────────────────────────────────────────────
 
 export default function PlayerBar() {
@@ -756,6 +763,7 @@ export default function PlayerBar() {
       <div className="flex items-center justify-end gap-4 w-[30%] min-w-[180px]">
         <QualityBadge onClick={() => setSignalPathOpen(true)} />
         <DrawerButtons />
+        <DownloadQueueButton />
         <MiniPlayerButton />
         <MaximizeButton />
       </div>

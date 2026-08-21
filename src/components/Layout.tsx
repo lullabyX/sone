@@ -2,6 +2,7 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import PlayerBar from "./PlayerBar";
 import NowPlayingDrawer from "./NowPlayingDrawer";
+import DownloadQueueDrawer from "./DownloadQueueDrawer";
 import TitleBar from "./TitleBar";
 import ResizeEdges from "./ResizeEdges";
 import { ReactNode, useRef, useEffect, useCallback } from "react";
@@ -135,6 +136,7 @@ export default function Layout({ children }: LayoutProps) {
       </div>
       <div className={overlayShowing ? "hidden" : "contents"}>
         <NowPlayingDrawer />
+        <DownloadQueueDrawer />
         {maximized && <MaximizedPlayer />}
         <PlayerBar />
       </div>

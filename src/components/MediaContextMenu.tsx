@@ -10,6 +10,7 @@ import {
   Trash2,
   FolderInput,
   Link,
+  Download,
 } from "lucide-react";
 import {
   useState,
@@ -32,6 +33,7 @@ import { getShareUrl } from "../utils/itemHelpers";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MoveToFolderMenu from "./MoveToFolderMenu";
 import MenuPortal from "./MenuPortal";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 interface MediaContextMenuProps {
   item: MediaItemType;
@@ -67,6 +69,7 @@ export default function MediaContextMenu({
   const currentView = useAtomValue(currentViewAtom);
   const setCurrentView = useSetAtom(currentViewAtom);
   const userPlaylists = useAtomValue(userPlaylistsAtom);
+  const { addMediaToDownloads } = useDownloadQueue();
 
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
@@ -247,6 +250,11 @@ export default function MediaContextMenu({
       `Added "${itemLabel}" to queue`,
     );
   }, [withTracks, addToQueue, itemLabel, manualSource]);
+
+  const handleAddToDownloads = useCallback(() => {
+    addMediaToDownloads(item);
+    onClose();
+  }, [addMediaToDownloads, item, onClose]);
 
   const handleAddToPlaylist = useCallback(async () => {
     if (playlistTrackIds) {
@@ -443,6 +451,12 @@ export default function MediaContextMenu({
           )}
           <span>Add to play queue</span>
         </button>
+        {item.type !== "mix" && (
+          <button className={menuItemClass} onClick={handleAddToDownloads}>
+            <Download size={18} className="shrink-0 text-th-text-muted" />
+            <span>Add to download queue</span>
+          </button>
+        )}
 
         {/* Divider */}
         <div className="my-1 border-t border-th-inset" />

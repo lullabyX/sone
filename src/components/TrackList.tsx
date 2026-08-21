@@ -7,6 +7,7 @@ import {
   ChevronUp,
   ChevronDown,
   Video,
+  Download,
 } from "lucide-react";
 import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
@@ -34,6 +35,7 @@ import { useFavorites } from "../hooks/useFavorites";
 import { useToast } from "../contexts/ToastContext";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import { TrackArtists } from "./TrackArtists";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 interface TrackListProps {
   tracks: Track[];
@@ -143,6 +145,7 @@ const TrackRow = memo(function TrackRow({
     removeFavoriteVideo,
   } = useFavorites();
   const { showToast } = useToast();
+  const { addTrackToDownloads } = useDownloadQueue();
 
   const isVideo = track.itemType === "video";
 
@@ -375,6 +378,16 @@ const TrackRow = memo(function TrackRow({
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-2">
+        <button
+          className="p-1.5 rounded-full transition-colors text-th-text-muted hover:text-th-text-primary opacity-0 group-hover:opacity-100"
+          title="Add to download queue"
+          onClick={(e) => {
+            e.stopPropagation();
+            addTrackToDownloads(track);
+          }}
+        >
+          <Download size={18} />
+        </button>
         <button
           ref={dotsButtonRef}
           className={`p-1.5 rounded-full transition-colors ${
@@ -734,7 +747,7 @@ export default memo(function TrackList({
         ...(showAlbum ? ["minmax(120px, 2fr)"] : []),
         ...(showDateAdded ? ["minmax(100px, 1fr)"] : []),
         "72px", // Time
-        "100px", // Actions (always present for + and heart)
+        "132px", // Actions (download, menu, playlist, and favorite)
       ].join(" "),
     [showCover, showArtist, showAlbum, showDateAdded],
   );

@@ -286,6 +286,7 @@ pub struct AppState {
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
     pub gapless: AtomicBool,
+    pub download_active: AtomicBool,
     pub max_quality: std::sync::Mutex<String>,
     pub alsa_device_override: Option<String>,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
@@ -499,6 +500,7 @@ impl AppState {
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
             gapless: AtomicBool::new(gapless),
+            download_active: AtomicBool::new(false),
             max_quality: std::sync::Mutex::new(max_quality),
             alsa_device_override,
             exclusive_device: std::sync::Mutex::new(exclusive_device),
@@ -640,6 +642,7 @@ pub fn run() {
     // the handle must outlive the Tauri event loop.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
@@ -1157,6 +1160,9 @@ pub fn run() {
             commands::utility::refresh_signal_path,
             // updates
             commands::updates::check_for_update,
+            // downloads
+            commands::downloads::check_tiddl,
+            commands::downloads::start_download_job,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

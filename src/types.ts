@@ -426,6 +426,44 @@ export interface TidalVideo {
   artists?: { id: number; name: string; picture?: string }[];
 }
 
+export type DownloadSourceType = "track" | "album" | "playlist" | "artist" | "video";
+
+export interface DownloadQueueEntry {
+  id: string;
+  sourceType: DownloadSourceType;
+  url: string;
+  title: string;
+  subtitle?: string;
+  output: string;
+}
+
+export type DownloadItemStatus =
+  | "queued"
+  | "discovering"
+  | "downloading"
+  | "success"
+  | "skipped"
+  | "error";
+
+export interface DownloadItem {
+  itemInstanceId: string;
+  title: string;
+  artist?: string;
+  itemType?: string;
+  status: DownloadItemStatus;
+  outputPath?: string;
+  bytesDownloaded?: number;
+  bytesTotal?: number | null;
+  progress?: number | null;
+  error?: string;
+}
+
+export interface DownloadJob {
+  status: "idle" | "checking" | "choosing-folder" | "downloading" | "complete" | "failed";
+  destination?: string;
+  error?: string;
+}
+
 // ==================== v2 Home Feed MIX types ====================
 
 /** @public */

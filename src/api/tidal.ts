@@ -24,6 +24,7 @@ import type {
   SuggestionsResponse,
   TidalVideo,
   Track,
+  DownloadQueueEntry,
 } from "../types";
 
 // ==================== In-memory cache (size-based LRU + TTL + hashed keys) ====================
@@ -1242,4 +1243,21 @@ export async function loadPlaybackQueue(): Promise<string | null> {
 
 export async function getSignalPath(): Promise<SignalPath> {
   return invoke<SignalPath>("get_signal_path");
+}
+
+export async function checkTiddl(): Promise<void> {
+  return invoke("check_tiddl");
+}
+
+export async function startDownloadJob(
+  destination: string,
+  queue: DownloadQueueEntry[],
+): Promise<void> {
+  const groups = queue.reduce<{ urls: string[]; output: string }[]>((groups, entry) => {
+    const existing = groups.find((group) => group.output === entry.output);
+    if (existing) existing.urls.push(entry.url);
+    else groups.push({ urls: [entry.url], output: entry.output });
+    return groups;
+  }, []);
+  return invoke("start_download_job", { destination, groups });
 }

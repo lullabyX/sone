@@ -9,6 +9,7 @@ import {
   Lock,
   Unlock,
   Share,
+  Download,
 } from "lucide-react";
 import {
   useEffect,
@@ -44,6 +45,7 @@ import PageContainer from "./PageContainer";
 import { EditPlaylistModal } from "./AddToPlaylistMenu";
 import { DetailPageSkeleton } from "./PageSkeleton";
 import SourcePlayButton from "./SourcePlayButton";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 interface PlaylistViewProps {
   playlistId: string;
@@ -64,6 +66,7 @@ export default function PlaylistView({
   playlistInfo,
   onBack,
 }: PlaylistViewProps) {
+  const { addMediaToDownloads } = useDownloadQueue();
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const userName = useAtomValue(userNameAtom);
   const userId = useAtomValue(authTokensAtom)?.user_id;
@@ -720,6 +723,15 @@ export default function PlaylistView({
             </div>
             {/* Right — labelled action buttons */}
             <div className="flex items-end gap-6 relative">
+              <button
+                onClick={() => addMediaToDownloads(playlistMediaItem)}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="Add to download queue"
+                aria-label="Download playlist"
+              >
+                <Download size={22} />
+                <span className="text-[11px] font-medium">Download</span>
+              </button>
               {!effectiveInfo?.isUserPlaylist && (
                 <button
                   onClick={handleToggleFavorite}

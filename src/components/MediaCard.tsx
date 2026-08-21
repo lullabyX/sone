@@ -1,10 +1,12 @@
-import { Play, User, Music, Heart, MoreHorizontal } from "lucide-react";
+import { Play, User, Music, Heart, MoreHorizontal, Download } from "lucide-react";
 import { getTidalImageUrl } from "../types";
 import {
   getItemImage,
   getItemTitle,
   getItemSubtitle,
+  buildMediaItem,
 } from "../utils/itemHelpers";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 interface MediaCardProps {
   item: any;
@@ -50,6 +52,7 @@ export default function MediaCard({
   eyebrow,
   imageOverride,
 }: MediaCardProps) {
+  const { addMediaToDownloads } = useDownloadQueue();
   const isVideo = aspect === "video";
   const aspectClass =
     aspect === "video"
@@ -60,6 +63,7 @@ export default function MediaCard({
   const image = isVideo ? getTidalImageUrl(item.imageId, 640) : getItemImage(item);
   const title = titleOverride || getItemTitle(item);
   const subtitle = subtitleOverride ?? getItemSubtitle(item, userId);
+  const mediaItem = buildMediaItem(item);
 
   return (
     <div
@@ -137,9 +141,20 @@ export default function MediaCard({
                 </button>
               </>
             )}
-            {/* Right side icons — non-artist only */}
-            {!isArtist && (
-              <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform,translate] duration-300">
+            {/* Right side icons */}
+            <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform,translate] duration-300">
+                {mediaItem && mediaItem.type !== "mix" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addMediaToDownloads(mediaItem);
+                    }}
+                    className="w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
+                    title="Add to download queue"
+                  >
+                    <Download size={16} className="text-white" />
+                  </button>
+                )}
                 {onMoreClick && (
                   <button
                     onClick={(e) => {
@@ -151,7 +166,7 @@ export default function MediaCard({
                     <MoreHorizontal size={16} className="text-white" />
                   </button>
                 )}
-                <button
+                {!isArtist && <button
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onFavoriteToggle) onFavoriteToggle(e);
@@ -164,9 +179,8 @@ export default function MediaCard({
                     fill={isFavorited ? "currentColor" : "none"}
                     strokeWidth={isFavorited ? 0 : 2}
                   />
-                </button>
-              </div>
-            )}
+                </button>}
+            </div>
           </>
         )}
       </div>

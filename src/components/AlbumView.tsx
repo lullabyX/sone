@@ -5,6 +5,7 @@ import {
   Shuffle,
   MoreHorizontal,
   Share,
+  Download,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useToast } from "../contexts/ToastContext";
@@ -29,6 +30,7 @@ import MediaContextMenu from "./MediaContextMenu";
 import { DetailPageSkeleton } from "./PageSkeleton";
 import CardScrollSection from "./CardScrollSection";
 import PageContainer from "./PageContainer";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 import {
   getItemTitle,
   getItemSubtitle,
@@ -65,6 +67,7 @@ export default function AlbumView({
   albumInfo,
   onBack,
 }: AlbumViewProps) {
+  const { addMediaToDownloads } = useDownloadQueue();
   const { playTrack, setShuffledQueue, playFromSource, playAllFromSource } =
     usePlaybackActions();
   const {
@@ -466,6 +469,15 @@ export default function AlbumView({
               </button>
             </div>
             <div className="flex items-end gap-6 relative">
+              <button
+                onClick={() => addMediaToDownloads(albumMediaItem)}
+                className="flex flex-col items-center gap-1.5 text-th-text-muted hover:text-th-text-primary transition-colors"
+                title="Add to download queue"
+                aria-label="Download album"
+              >
+                <Download size={22} />
+                <span className="text-[11px] font-medium">Download</span>
+              </button>
               <button
                 onClick={handleToggleFavorite}
                 disabled={favoritePending}

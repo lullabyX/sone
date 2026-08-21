@@ -6,6 +6,7 @@ import {
   Trash2,
   ListMusic,
   Link,
+  Download,
 } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import { useToast } from "../contexts/ToastContext";
@@ -20,6 +21,7 @@ import { isTrackUnavailable } from "../lib/trackAvailability";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
 import { getTrack } from "../api/tidal";
+import { useDownloadQueue } from "../hooks/useDownloadQueue";
 
 interface TrackContextMenuProps {
   track: Track;
@@ -50,6 +52,7 @@ export default function TrackContextMenu({
   const { navigateToMix } = useNavigation();
   const { removeTrackFromPlaylist } = usePlaylists();
   const { showToast } = useToast();
+  const { addTrackToDownloads } = useDownloadQueue();
 
   const [showPlaylistSubmenu, setShowPlaylistSubmenu] = useState(false);
   const [radioLoading, setRadioLoading] = useState(false);
@@ -92,6 +95,11 @@ export default function TrackContextMenu({
     showToast(`Added "${trackLabel}" to queue`);
     onClose();
   }, [track, trackLabel, trackSource, addToQueue, showToast, onClose]);
+
+  const handleAddToDownloads = useCallback(() => {
+    addTrackToDownloads(track);
+    onClose();
+  }, [addTrackToDownloads, track, onClose]);
 
   const handleToggleFavorite = useCallback(async () => {
     try {
@@ -216,6 +224,10 @@ export default function TrackContextMenu({
         >
           <ListPlus size={18} className="shrink-0 text-th-text-muted" />
           <span>Add to play queue</span>
+        </button>
+        <button className={menuItemClass} onClick={handleAddToDownloads}>
+          <Download size={18} className="shrink-0 text-th-text-muted" />
+          <span>Add to download queue</span>
         </button>
 
         {/* Divider */}
