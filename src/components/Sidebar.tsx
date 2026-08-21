@@ -467,7 +467,7 @@ export default function Sidebar() {
           <span className="relative">
             <Bell size={20} strokeWidth={2} />
             {feedUnseenCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-th-accent ring-2 ring-th-base" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-th-accent ring-2 ring-th-sidebar" />
             )}
           </span>
           {!isCollapsed && <span className="font-semibold text-sm">Feed</span>}
