@@ -1,12 +1,190 @@
+import { useState, useEffect, useMemo, type MouseEvent } from "react";
+import { useAtomValue } from "jotai";
+import { Music, Play } from "lucide-react";
+import { getFeed } from "../api/tidal";
+import { authTokensAtom } from "../atoms/auth";
+import { safeErrorMessage } from "../lib/errorUtils";
+import { groupFeedByPeriod } from "../lib/feedGrouping";
+import {
+  buildMediaItem,
+  getItemImage,
+  getItemSubtitle,
+  getItemTitle,
+} from "../utils/itemHelpers";
+import { useMediaPlay } from "../hooks/useMediaPlay";
+import { useNavigation } from "../hooks/useNavigation";
+import type { FeedItem } from "../types";
+import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
 import PageContainer from "./PageContainer";
 
+/** Album rows read "Single by Artist" / "Album by Artist"; everything else
+ *  falls back to the shared subtitle helper. */
+function feedSubtitle(entry: FeedItem): string {
+  if (entry.kind === "album") {
+    const artists = Array.isArray(entry.item?.artists)
+      ? (entry.item.artists as Array<{ name?: string }>)
+          .map((a) => a.name)
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    const rawType = typeof entry.item?.type === "string" ? entry.item.type : "";
+    const label = rawType
+      ? rawType.charAt(0) + rawType.slice(1).toLowerCase()
+      : "";
+    if (label && artists) return `${label} by ${artists}`;
+    if (artists) return artists;
+  }
+  return getItemSubtitle(entry.item);
+}
+
+function FeedRow({ entry }: { entry: FeedItem }) {
+  const { navigateToMix, navigateToAlbum } = useNavigation();
+  const playMedia = useMediaPlay();
+
+  const image = getItemImage(entry.item, 160);
+  const title = getItemTitle(entry.item);
+  const subtitle = feedSubtitle(entry);
+  const isInert = entry.kind === "unknown";
+
+  const handleOpen = () => {
+    if (entry.kind === "mix") {
+      navigateToMix(String(entry.item.id), {
+        title,
+        image: image || undefined,
+        subtitle,
+        mixType: entry.item.mixType,
+      });
+    } else if (entry.kind === "album") {
+      navigateToAlbum(Number(entry.item.id), {
+        title,
+        cover: entry.item.cover,
+      });
+    }
+  };
+
+  const handlePlay = (e: MouseEvent) => {
+    e.stopPropagation();
+    const media = buildMediaItem(entry.item);
+    if (media) playMedia(media);
+  };
+
+  return (
+    <div
+      onClick={isInert ? undefined : handleOpen}
+      className={`group flex items-center gap-4 px-2 py-2 rounded-md transition-colors duration-150 ${
+        isInert ? "" : "cursor-pointer hover:bg-th-surface-hover"
+      }`}
+    >
+      <div className="relative w-14 h-14 shrink-0 rounded-md overflow-hidden bg-th-surface-hover shadow">
+        {image ? (
+          <img
+            src={image}
+            alt={title}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-th-button to-th-surface">
+            <Music size={20} className="text-th-text-faint" />
+          </div>
+        )}
+        {!isInert && (
+          <>
+            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+            <button
+              onClick={handlePlay}
+              aria-label={`Play ${title}`}
+              className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer"
+            >
+              <Play size={20} fill="white" className="text-white ml-0.5" />
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-th-text-primary truncate">
+          {title}
+        </div>
+        {subtitle && (
+          <div className="text-sm text-th-text-secondary truncate">
+            {subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FeedPage() {
+  const userId = useAtomValue(authTokensAtom)?.user_id;
+
+  const [items, setItems] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let active = true;
+
+    getFeed(userId)
+      .then((feed) => {
+        if (!active) return;
+        setItems(feed.items);
+        setError(null);
+      })
+      .catch((err) => {
+        console.error("[FeedPage] Failed:", err);
+        if (!active) return;
+        setError(safeErrorMessage(err, "Failed to load feed"));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const groups = useMemo(() => groupFeedByPeriod(items, new Date()), [items]);
+
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <PageContainer className="px-8 py-10">
         <h1 className="text-[32px] font-bold text-th-text-primary tracking-tight mb-10">
           Feed
         </h1>
+
+        {error && <MediaGridError error={error} />}
+
+        {!loading && !error && groups.length === 0 && (
+          <MediaGridEmpty message="Nothing here yet" />
+        )}
+
+        {!error && groups.length > 0 && (
+          <div className="space-y-8">
+            {groups.map((group) => (
+              <section key={group.label}>
+                <h2 className="text-sm font-semibold text-th-text-secondary mb-3">
+                  {group.label}
+                </h2>
+                <div className="space-y-1">
+                  {group.items.map((entry, idx) => (
+                    <FeedRow
+                      key={`${entry.occurredAt}-${entry.kind}-${idx}`}
+                      entry={entry}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </PageContainer>
     </div>
   );
