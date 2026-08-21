@@ -8,6 +8,7 @@ import type {
   ArtistPageData,
   Credit,
   FavoriteMix,
+  FeedResponse,
   HomePageCached,
   HomePageResponse,
   Lyrics,
@@ -1117,6 +1118,16 @@ export async function getAllFavoriteIds(
   userId: number,
 ): Promise<AllFavoriteIds> {
   return invoke<AllFavoriteIds>("get_all_favorite_ids", { userId });
+}
+
+// ==================== Feed ====================
+
+/**
+ * Activity feed. Deliberately uncached on this side — `get_feed` owns the
+ * cache, and a second TTL layer here would mask backend invalidation.
+ */
+export async function getFeed(userId: number): Promise<FeedResponse> {
+  return invoke<FeedResponse>("get_feed", { userId });
 }
 
 // ==================== Profile ====================

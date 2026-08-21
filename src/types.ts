@@ -736,6 +736,27 @@ export interface AlbumPageCached {
   isStale: boolean;
 }
 
+// ==================== Feed ====================
+
+/** @public */
+export type FeedItemKind = "mix" | "album" | "unknown";
+
+export interface FeedItem {
+  kind: FeedItemKind;
+  activityType: string;
+  /** ISO-8601 with milliseconds and a Z suffix, e.g. "2026-08-01T00:00:00.000Z". */
+  occurredAt: string;
+  seen: boolean;
+  /** Raw payload — feed rows render it through the existing item helpers. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  item: any;
+}
+
+export interface FeedResponse {
+  items: FeedItem[];
+  unseenCount: number;
+}
+
 // ==================== Playlist Folders (v2/my-collection/playlists/folders) ====================
 
 export interface PlaylistFoldersResponse {
