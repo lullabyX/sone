@@ -437,11 +437,12 @@ export interface DownloadQueueEntry {
   output: string;
   /** Downloaded beside a complete album when enabled in Settings > Downloads. */
   coverUrl?: string;
-  previewItems?: Track[];
-  previewStatus?: "loading" | "ready" | "error";
+  resolvedItems?: Track[];
+  resolutionStatus?: "loading" | "ready" | "error";
 }
 
 export type DownloadItemStatus =
+  | "pending"
   | "queued"
   | "discovering"
   | "downloading"

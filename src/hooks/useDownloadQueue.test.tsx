@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { describe, expect, it, vi } from "vitest";
-import { downloadQueueAtom } from "../atoms/downloads";
+import { downloadItemsAtom, downloadQueueAtom } from "../atoms/downloads";
 import { useDownloadQueue } from "./useDownloadQueue";
 
 const { fetchMediaTracks, getArtistAlbums, getAlbumPage } = vi.hoisted(() => ({
@@ -30,13 +30,14 @@ describe("useDownloadQueue", () => {
     expect(store.get(downloadQueueAtom)[0]).toMatchObject({
       sourceType: "track",
       url: "https://tidal.com/track/1",
-      previewItems: [track],
-      previewStatus: "ready",
+      resolvedItems: [track],
+      resolutionStatus: "ready",
     });
+    expect(Object.values(store.get(downloadItemsAtom))).toMatchObject([{ title: "Selected", status: "pending" }]);
     expect(getAlbumPage).not.toHaveBeenCalled();
   });
 
-  it("queues an album immediately and expands its tracks for display", async () => {
+  it("queues an album immediately and adds its resolved tracks as pending", async () => {
     const store = createStore();
     getAlbumPage.mockResolvedValueOnce({ page: {
       album: { id: 42, title: "Album", cover: "cover-id" },
@@ -60,10 +61,14 @@ describe("useDownloadQueue", () => {
     expect(store.get(downloadQueueAtom)[0]).toMatchObject({
       sourceType: "album",
       url: "https://tidal.com/album/42",
-      previewStatus: "loading",
+      resolutionStatus: "loading",
     });
-    await waitFor(() => expect(store.get(downloadQueueAtom)[0].previewStatus).toBe("ready"));
-    expect(store.get(downloadQueueAtom)[0].previewItems).toHaveLength(2);
+    await waitFor(() => expect(store.get(downloadQueueAtom)[0].resolutionStatus).toBe("ready"));
+    expect(store.get(downloadQueueAtom)[0].resolvedItems).toHaveLength(2);
+    expect(Object.values(store.get(downloadItemsAtom))).toMatchObject([
+      { title: "First", status: "pending" },
+      { title: "Second", status: "pending" },
+    ]);
     expect(store.get(downloadQueueAtom)[0].coverUrl).toBe("https://resources.tidal.com/images/cover/id/1280x1280.jpg");
   });
 
@@ -102,7 +107,7 @@ describe("useDownloadQueue", () => {
 
     act(() => result.current.addMediaToDownloads({ type: "playlist", uuid: "playlist-id", title: "Playlist" }));
 
-    await waitFor(() => expect(store.get(downloadQueueAtom)[0].previewStatus).toBe("ready"));
+    await waitFor(() => expect(store.get(downloadQueueAtom)[0].resolutionStatus).toBe("ready"));
     expect(store.get(downloadQueueAtom)[0].output).toContain(`{playlist.index:0${width}d}`);
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useSetAtom } from "jotai";
-import { downloadDrawerOpenAtom, downloadQueueAtom } from "../atoms/downloads";
-import { getTidalImageUrl, type DownloadQueueEntry, type MediaItemType, type Track } from "../types";
+import { downloadDrawerOpenAtom, downloadItemsAtom, downloadQueueAtom } from "../atoms/downloads";
+import { getTidalImageUrl, type DownloadItem, type DownloadQueueEntry, type MediaItemType, type Track } from "../types";
 import { fetchMediaTracks, getAlbumPage, getArtistAlbums } from "../api/tidal";
 
 function numberingWidth(trackCount: number): number {
@@ -19,6 +19,16 @@ function playlistOutput(trackCount = 0): string {
 const videoOutput = "{item.artist}/Videos/{item.artist} - {item.title}";
 const looseTrackOutput = "{item.artist}/{item.title}";
 
+function pendingItem(entryId: string, track: Track, index: number): DownloadItem {
+  return {
+    itemInstanceId: `${entryId}-${track.id}-${index}`,
+    title: track.title,
+    artist: track.artist?.name ?? track.artists?.[0]?.name,
+    itemType: track.itemType,
+    status: "pending",
+  };
+}
+
 function entryFromTrack(track: Track): DownloadQueueEntry {
   const isVideo = track.itemType === "video";
   const sourceType = isVideo ? "video" : "track";
@@ -29,8 +39,8 @@ function entryFromTrack(track: Track): DownloadQueueEntry {
     title: track.title,
     subtitle: track.artist?.name ?? track.artists?.[0]?.name,
     output: isVideo ? videoOutput : track.album ? albumOutput() : looseTrackOutput,
-    previewItems: [track],
-    previewStatus: "ready" as const,
+    resolvedItems: [track],
+    resolutionStatus: "ready" as const,
   };
 }
 
@@ -51,16 +61,19 @@ function entryFromMedia(item: MediaItemType): DownloadQueueEntry | null {
 
 export function useDownloadQueue() {
   const setQueue = useSetAtom(downloadQueueAtom);
+  const setItems = useSetAtom(downloadItemsAtom);
   const setDrawerOpen = useSetAtom(downloadDrawerOpenAtom);
   const addTrackToDownloads = useCallback((track: Track) => {
     const entry = entryFromTrack(track);
+    const pending = pendingItem(entry.id, track, 0);
     setQueue((queue) => [...queue, entry]);
-  }, [setQueue]);
+    setItems((items) => ({ ...items, [pending.itemInstanceId]: pending }));
+  }, [setItems, setQueue]);
   const addMediaToDownloads = useCallback((item: MediaItemType) => {
     const entry = entryFromMedia(item);
     if (!entry) return;
-    setQueue((queue) => [...queue, { ...entry, previewStatus: "loading" }]);
-    const loadPreview = async () => {
+    setQueue((queue) => [...queue, { ...entry, resolutionStatus: "loading" }]);
+    const resolveItems = async () => {
       try {
         const albumPage = item.type === "album" ? (await getAlbumPage(item.id)).page : undefined;
         const tracks = item.type === "artist"
@@ -71,14 +84,21 @@ export function useDownloadQueue() {
           ...queued,
           output,
           coverUrl: albumPage ? getTidalImageUrl(albumPage.album.cover, 1280) || queued.coverUrl : queued.coverUrl,
-          previewItems: tracks,
-          previewStatus: "ready",
+          resolvedItems: tracks,
+          resolutionStatus: "ready",
         } : queued));
+        setItems((items) => ({
+          ...items,
+          ...Object.fromEntries(tracks.map((track, index) => {
+            const pending = pendingItem(entry.id, track, index);
+            return [pending.itemInstanceId, pending];
+          })),
+        }));
       } catch {
-        setQueue((queue) => queue.map((queued) => queued.id === entry.id ? { ...queued, previewStatus: "error" } : queued));
+        setQueue((queue) => queue.map((queued) => queued.id === entry.id ? { ...queued, resolutionStatus: "error" } : queued));
       }
     };
-    void loadPreview();
-  }, [setQueue]);
+    void resolveItems();
+  }, [setItems, setQueue]);
   return { addTrackToDownloads, addMediaToDownloads, openDownloadQueue: () => setDrawerOpen(true) };
 }

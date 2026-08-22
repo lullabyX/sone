@@ -31,8 +31,8 @@ function renderDrawer(queue = false, progress = false) {
       url: "https://tidal.com/track/1",
       title: "Track",
       output: "{item.artist}/{item.title}",
-      previewStatus: "ready",
-      previewItems: [],
+      resolutionStatus: "ready",
+      resolvedItems: [],
     }]);
   }
   if (progress) {
@@ -102,6 +102,36 @@ describe("DownloadQueueDrawer", () => {
     expect(screen.getByText("1 of 3 finished · 2 remaining")).toBeTruthy();
     expect(screen.getByText("downloading · 50%")).toBeTruthy();
     expect(screen.getByText("1 KB / 2 KB")).toBeTruthy();
+  });
+
+  it("shows pending items in the download list before starting", () => {
+    const store = renderDrawer(true);
+    act(() => store.set(downloadItemsAtom, {
+      pending: { itemInstanceId: "pending", title: "Queued track", artist: "Artist", status: "pending" },
+    }));
+
+    expect(screen.getByText("Queued track")).toBeTruthy();
+    expect(screen.getByText("pending")).toBeTruthy();
+    expect(screen.getByText("Artist")).toBeTruthy();
+  });
+
+  it("replaces a matching pending item when the downloader discovers it", async () => {
+    let discovered: ((event: { payload: Record<string, unknown> }) => void) | undefined;
+    listen.mockImplementation((name, callback) => {
+      if (name === "download:item-discovered") discovered = callback;
+      return Promise.resolve(() => {});
+    });
+    const store = renderDrawer(true);
+    act(() => store.set(downloadItemsAtom, {
+      pending: { itemInstanceId: "pending", title: "Queued track", artist: "Artist", status: "pending" },
+    }));
+
+    await waitFor(() => expect(discovered).toBeDefined());
+    act(() => discovered?.({ payload: { item: { item_instance_id: "helper-id", title: "Queued track", artist: "Artist", type: "track" } } }));
+
+    expect(store.get(downloadItemsAtom)).toEqual({
+      "helper-id": { itemInstanceId: "helper-id", title: "Queued track", artist: "Artist", itemType: "track", status: "discovering" },
+    });
   });
 
   it("stops a running download and keeps the queue", async () => {
