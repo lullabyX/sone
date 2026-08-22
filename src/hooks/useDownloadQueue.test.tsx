@@ -17,6 +17,25 @@ vi.mock("../api/tidal", () => ({
 }));
 
 describe("useDownloadQueue", () => {
+  it("shows only the selected track when queuing a track from an album", () => {
+    const store = createStore();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result } = renderHook(() => useDownloadQueue(), { wrapper });
+    const track = { id: 1, title: "Selected", duration: 1, album: { id: 42, title: "Album" } };
+
+    act(() => result.current.addTrackToDownloads(track));
+
+    expect(store.get(downloadQueueAtom)[0]).toMatchObject({
+      sourceType: "track",
+      url: "https://tidal.com/track/1",
+      previewItems: [track],
+      previewStatus: "ready",
+    });
+    expect(getAlbumPage).not.toHaveBeenCalled();
+  });
+
   it("queues an album immediately and expands its tracks for display", async () => {
     const store = createStore();
     getAlbumPage.mockResolvedValueOnce({ page: {

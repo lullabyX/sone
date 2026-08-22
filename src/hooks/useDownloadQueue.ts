@@ -30,7 +30,7 @@ function entryFromTrack(track: Track): DownloadQueueEntry {
     subtitle: track.artist?.name ?? track.artists?.[0]?.name,
     output: isVideo ? videoOutput : track.album ? albumOutput() : looseTrackOutput,
     previewItems: [track],
-    previewStatus: track.album ? "loading" as const : "ready" as const,
+    previewStatus: "ready" as const,
   };
 }
 
@@ -55,16 +55,6 @@ export function useDownloadQueue() {
   const addTrackToDownloads = useCallback((track: Track) => {
     const entry = entryFromTrack(track);
     setQueue((queue) => [...queue, entry]);
-    if (!track.album) return;
-    void getAlbumPage(track.album.id).then(({ page }) => {
-      setQueue((queue) => queue.map((queued) => queued.id === entry.id
-        ? { ...queued, output: albumOutput(page.tracks.length), previewItems: page.tracks, previewStatus: "ready" }
-        : queued));
-    }).catch(() => {
-      setQueue((queue) => queue.map((queued) => queued.id === entry.id
-        ? { ...queued, previewStatus: "error" }
-        : queued));
-    });
   }, [setQueue]);
   const addMediaToDownloads = useCallback((item: MediaItemType) => {
     const entry = entryFromMedia(item);
