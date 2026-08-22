@@ -1,0 +1,198 @@
+from typing import List, Literal, Optional, Union
+
+from pydantic import BaseModel
+
+from .resources import (
+    Album,
+    Playlist,
+    StreamVideoQuality,
+    Track,
+    TrackQuality,
+    Video,
+)
+
+
+class SessionResponse(BaseModel):
+    class Client(BaseModel):
+        id: int
+        name: str
+        authorizedForOffline: bool
+        authorizedForOfflineDate: Optional[str]
+
+    sessionId: str
+    userId: int
+    countryCode: str
+    channelId: int
+    partnerId: int
+    client: Client
+
+
+class Items(BaseModel):
+    limit: int
+    offset: int
+    totalNumberOfItems: int
+
+
+class ArtistAlbumsItems(Items):
+    items: List[Album]
+
+
+class ArtistVideosItems(Items):
+    items: List[Video]
+
+
+ItemType = Literal["track", "video"]
+
+
+class AlbumItems(Items):
+    class VideoItem(BaseModel):
+        item: Video
+        type: ItemType = "video"
+
+    class TrackItem(BaseModel):
+        item: Track
+        type: ItemType = "track"
+
+    items: List[Union[TrackItem, VideoItem]]
+
+
+class AlbumItemsCredits(Items):
+    class ItemWithCredits(BaseModel):
+        class CreditsEntry(BaseModel):
+            class Contributor(BaseModel):
+                name: str
+                id: Optional[int] = None
+
+            type: str
+            contributors: List[Contributor]
+
+        credits: List[CreditsEntry]
+
+    class VideoItem(ItemWithCredits):
+        item: Video
+        type: ItemType = "video"
+
+    class TrackItem(ItemWithCredits):
+        item: Track
+        type: ItemType = "track"
+
+    items: List[Union[TrackItem, VideoItem]]
+
+
+class PlaylistItems(Items):
+    class PlaylistVideoItem(BaseModel):
+        class PlaylistVideo(Video):
+            dateAdded: str
+            index: int
+            itemUuid: str
+
+        item: PlaylistVideo
+        type: ItemType = "video"
+        cut: None
+
+    class PlaylistTrackItem(BaseModel):
+        class PlaylistTrack(Track):
+            dateAdded: str
+            index: int
+            itemUuid: str
+            # playlist tracks albums have releasedate,
+            # but tracks alone do not lol
+
+        item: PlaylistTrack
+        type: ItemType = "track"
+        cut: None
+
+    items: List[Union[PlaylistTrackItem, PlaylistVideoItem]]
+
+
+class MixItems(Items):
+    class MixItem(BaseModel):
+        item: Track
+        type: ItemType = "track"
+
+    items: List[MixItem]
+
+
+class Favorites(BaseModel):
+    PLAYLIST: List[str]
+    ALBUM: List[str]
+    VIDEO: List[str]
+    TRACK: List[str]
+    ARTIST: List[str]
+
+
+class TrackStream(BaseModel):
+    trackId: int
+    assetPresentation: Literal["FULL"]
+    audioMode: Literal["STEREO", "DOLBY_ATMOS"]
+    audioQuality: TrackQuality
+    manifestMimeType: Literal["application/dash+xml", "application/vnd.tidal.bts"]
+    manifestHash: str
+    manifest: str
+    albumReplayGain: Optional[float] = None
+    albumPeakAmplitude: Optional[float] = None
+    trackReplayGain: Optional[float] = None
+    trackPeakAmplitude: Optional[float] = None
+    bitDepth: Optional[int] = None
+    sampleRate: Optional[int] = None
+
+
+class VideoStream(BaseModel):
+    videoId: int
+    streamType: Literal["ON_DEMAND"]
+    assetPresentation: Literal["FULL"]
+    videoQuality: StreamVideoQuality
+    # streamingSessionId: str  # only in web?
+    manifestMimeType: Literal["application/dash+xml", "application/vnd.tidal.emu"]
+    manifestHash: str
+    manifest: str
+
+
+# It seemed like the search API doesn't return `artist.type`, so this is used instead of resources.Artist for search results to avoid validation errors.
+# FIXME: This can be discarded if we are okay with making the `type` field optional in resources.Artist, but I don't think it's my decision to make lol
+class SearchArtist(BaseModel):  # search-specific, fewer required fields
+    id: int
+    name: str
+    type: Optional[Literal["MAIN", "FEATURED"]] = None
+    url: Optional[str] = None
+    picture: Optional[str] = None
+    popularity: Optional[int] = None
+
+class Search(BaseModel):
+
+
+    class Artists(Items):
+        items: List[SearchArtist]  # ← uses the inner model, not resources.Artist
+
+    class Albums(Items):
+        items: List[Album]
+
+    class Playlists(Items):
+        items: List[Playlist]
+
+    class Tracks(Items):
+        items: List[Track]
+
+    class Videos(Items):
+        items: List[Video]
+
+    class TopHit(BaseModel):
+        value: Union[SearchArtist, Track, Playlist, Album]
+        type: Literal["ARTISTS", "TRACKS", "PLAYLISTS", "ALBUMS"]
+
+    artists: Artists
+    albums: Albums
+    playlists: Playlists
+    tracks: Tracks
+    videos: Videos
+    topHit: Optional[TopHit] = None
+
+
+class TrackLyrics(BaseModel):
+    isRightToLeft: bool
+    lyrics: str
+    lyricsProvider: str
+    providerCommontrackId: str
+    providerLyricsId: str
+    subtitles: str
+    trackId: int
