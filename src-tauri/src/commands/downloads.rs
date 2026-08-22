@@ -308,6 +308,10 @@ async fn run_invocation(
             "--output",
             &group.output,
         ])
+        // tiddl treats Low/Normal and High/Max files as interchangeable based
+        // on their shared extension, so an existing download can otherwise
+        // silently bypass the quality selected in Sone.
+        .arg("--no-skip")
         .arg("--track-quality")
         .arg(quality)
         .arg("url")

@@ -20,7 +20,6 @@ from tiddl.core.utils.const import (
     track_qualities,
     video_qualities,
 )
-from tiddl.core.utils.ffmpeg import convert_to_mp4, extract_flac
 
 from .output import DownloadEventSink
 
@@ -140,7 +139,7 @@ class Downloader:
             vibrant_color = item.album.vibrantColor
 
         elif isinstance(item, Video):
-            filename = file_path.with_suffix(".mp4")
+            filename = file_path.with_suffix(".ts")
             existing_file_path = self.get_path(self.scan_path, filename)
             vibrant_color = item.vibrantColor
 
@@ -166,8 +165,6 @@ class Downloader:
                 item_instance_id=item_instance_id, title=item.title, reason="video_filter", output_path=None,
             )
             return DownloadResult(None, False, "skipped")
-
-        should_extract_flac = False
 
         async with self.semaphore:
             if isinstance(item, Track):
@@ -201,8 +198,10 @@ class Downloader:
                     )
                     return DownloadResult(None, False, "failed")
 
-                urls, _ = parse_track_stream(stream)
-                download_path = self.get_path(self.download_path, filename)
+                urls, extension = parse_track_stream(stream)
+                # Preserve TIDAL's original container and encoded bytes. In
+                # particular, Hi-Res streams may be FLAC in an MP4 container.
+                download_path = self.get_path(self.download_path, filename).with_suffix(extension)
 
                 quality_string = track_qualities_color[stream.audioQuality]
 
@@ -211,12 +210,8 @@ class Downloader:
                     and stream.audioMode == "STEREO"
                 ):
                     quality_string = f"{quality_string} {stream.bitDepth}-bit, {(stream.sampleRate or 0) / 1000:.1f} kHz"
-                    should_extract_flac = True
-                else:
-                    download_path = download_path.with_suffix(".m4a")
-
-                    if stream.audioMode == "DOLBY_ATMOS":
-                        quality_string = "[blue]Dolby Atmos[/]"
+                elif stream.audioMode == "DOLBY_ATMOS":
+                    quality_string = "[blue]Dolby Atmos[/]"
 
             elif isinstance(item, Video):
                 stream = self.api.get_video_stream(
@@ -287,29 +282,6 @@ class Downloader:
                 download_path.chmod(0o644)
             except OSError:
                 pass
-
-            conversion_complete = False
-            try:
-                if isinstance(item, Track) and should_extract_flac:
-                    download_path = extract_flac(download_path)
-                elif isinstance(item, Video):
-                    download_path = convert_to_mp4(download_path)
-                conversion_complete = True
-            except FileNotFoundError as exc:
-                log.error(f"{should_extract_flac=}, {exc=}")
-                self.output.item_failed(item_id=str(item.id), item_type=item_type,
-                    item_instance_id=item_instance_id, title=item.title, stage="conversion",
-                    error={"code": "ffmpeg_not_found", "message": "ffmpeg is not available"})
-                return DownloadResult(None, False, "failed")
-            except Exception as exc:
-                log.error(f"{should_extract_flac=}, {exc=}")
-                self.output.item_failed(item_id=str(item.id), item_type=item_type,
-                    item_instance_id=item_instance_id, title=item.title, stage="conversion",
-                    error={"code": "ffmpeg_failed", "message": "Media conversion failed"})
-                return DownloadResult(None, False, "failed")
-            finally:
-                if not conversion_complete:
-                    download_path.unlink(missing_ok=True)
 
             self.output.item_progress(task_id, item_id=str(item.id), item_type=item_type,
                 item_instance_id=item_instance_id, bytes_downloaded=bytes_downloaded, bytes_total=bytes_total,
