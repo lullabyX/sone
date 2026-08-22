@@ -235,6 +235,7 @@ class JsonlOutput:
     def diagnostic(self, message: str) -> None:
         # Signed manifest URLs must never escape through structured-mode diagnostics.
         safe_message = re.sub(r"https?://\S+", "[redacted URL]", message)
+        safe_message = re.sub(r"(?i)\b(?:authorization\s*:\s*)?bearer\s+\S+", "[redacted credential]", safe_message)
         print(safe_message, file=sys.stderr, flush=True)
 
     def total_increment(self, count: float = 1) -> None:

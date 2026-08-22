@@ -5,6 +5,7 @@ FROM opensuse/tumbleweed
 RUN zypper --non-interactive refresh && \
     zypper --non-interactive install \
     gcc gcc-c++ make pkgconf-pkg-config \
+    python313 python313-devel python313-pip \
     curl file wget \
     webkitgtk3-devel \
     gtk3-devel \
@@ -57,6 +58,7 @@ RUN sed -i 's/"webkit2gtk4\.1"/"libwebkit2gtk-4_1-0"/' src-tauri/tauri.conf.json
 RUN --mount=type=cache,id=sone-opensuse-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=sone-opensuse-git,target=/root/.cargo/git \
     --mount=type=cache,id=sone-opensuse-target,target=/app/src-tauri/target \
-    pnpm tauri build --bundles rpm \
+    ./build-scripts/tiddl/build.sh \
+    && pnpm tauri build --bundles rpm \
     && mkdir -p /output \
     && cp src-tauri/target/release/bundle/rpm/SONE-*.rpm /output/

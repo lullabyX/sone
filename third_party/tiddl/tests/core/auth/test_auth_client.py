@@ -24,6 +24,16 @@ def test_get_device_auth_calls_request(mocker: MockerFixture):
     assert result == data
 
 
+def test_explicit_credentials_do_not_read_environment_defaults(mocker: MockerFixture):
+    defaults = mocker.patch("tiddl.core.auth.client.get_auth_credentials")
+
+    client = AuthClient("sone-client", "sone-secret")
+
+    assert client.client_id == "sone-client"
+    assert client.client_secret == "sone-secret"
+    defaults.assert_not_called()
+
+
 def test_get_auth_returns_json_on_200(mocker: MockerFixture):
     mock_request = mocker.patch("tiddl.core.auth.client.request")
     mock_response = mocker.Mock()

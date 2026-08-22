@@ -35,16 +35,22 @@ class TidalClient:
     def __init__(
         self,
         token: str,
-        cache_name: StrOrPath,
+        cache_name: StrOrPath | None,
         omit_cache: bool = False,
         debug_path: Path | None = None,
         on_token_expiry: Optional[Callable[[], str | None]] = None,
+        proxies: dict[str, str] | None = None,
     ) -> None:
         self.on_token_expiry = on_token_expiry
         self.debug_path = debug_path
-        self.session = CachedSession(
-            cache_name=cache_name, always_revalidate=omit_cache
-        )
+        if cache_name is None:
+            self.session = CachedSession(backend="memory", always_revalidate=True)
+        else:
+            self.session = CachedSession(
+                cache_name=cache_name, always_revalidate=omit_cache
+            )
+        if proxies:
+            self.session.proxies.update(proxies)
         self.session.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",

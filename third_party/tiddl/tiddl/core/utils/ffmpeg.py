@@ -14,7 +14,9 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess:
         capture_output=True, 
         text=True, 
         encoding="utf-8", 
-        errors="replace"  # Added as a safety net
+        errors="replace",  # Added as a safety net
+        # The Sone credential socket is inherited only by this process.
+        close_fds=True,
     )
     if r.returncode != 0:
         raise FFmpegError(

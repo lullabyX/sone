@@ -20,18 +20,24 @@ class ContextObject:
     debug_path: Path | None
 
     def __init__(
-        self, api_omit_cache: bool, debug_path: Path | None, console: Console
+        self, api_omit_cache: bool, debug_path: Path | None, console: Console,
+        auth_provider=None,
     ) -> None:
         self.console = console
         self.resources = []
-        self.auth_api = AuthAPI()
+        self.auth_api = AuthAPI() if auth_provider is None else None
         self._api = None
         self.api_omit_cache = api_omit_cache
         self.debug_path = debug_path
+        self.auth_provider = auth_provider
 
     @property
     def api(self):
         if self._api is not None:
+            return self._api
+
+        if self.auth_provider is not None:
+            self._api = self.auth_provider.create_api()
             return self._api
 
         auth_data = load_auth_data()
@@ -44,6 +50,7 @@ class ContextObject:
         assert refresh_token, "Refresh Token is missing. Use `tiddl auth login`"
 
         def on_token_expiry() -> str | None:
+            assert self.auth_api is not None
             auth_response = self.auth_api.refresh_token(refresh_token)
             auth_data.token = auth_response.access_token
             auth_data.expires_at = auth_response.expires_in + int(time())

@@ -1,434 +1,329 @@
-# Sone Download Queue Via tiddl-headless
+# sone-tiddl Plan
 
 ## Goal
 
-Add a download queue to Sone for TIDAL tracks, albums, playlists, artists, and
-videos. Sone delegates actual downloading to the user-installed, modified
-`tiddl-headless` CLI. Sone never stores or shares its own TIDAL credentials
-with the downloader.
-
-## Implementation Status (2026-08-21)
-
-### Completed
-
-- Commit `968b3a4` adds the initial end-to-end queue integration.
-- Sone resolves `tiddl` from the user `PATH` and runs the JSONL capability
-  check `tiddl download --events jsonl url --help` before showing the folder
-  picker.
-- The official Tauri dialog plugin provides the directory picker. Sone passes
-  the selected path with `--path` and the source-specific template with
-  `--output`; it does not edit `~/.tiddl/config.toml`.
-- Rust allows one active process, reads JSONL stdout and stderr concurrently,
-  validates schema version 1 and known event names, emits dedicated download
-  events, terminates incompatible children, and never emits stderr diagnostics
-  to the frontend.
-- The independent Jotai download queue/drawer works without a playing track.
-  It has a player-bar button, `Download`, and a disabled-while-running
-  `Clear download queue` action.
-- Tracks, albums, playlists, artists, and videos can be added through shared
-  card/row controls, page headers, and context menus. Playlist resources stay
-  playlist URLs when invoking tiddl.
-- Queue entries now expand before downloading: tracks/videos are immediate;
-  albums and playlists use their media tracks; artists load their albums and
-  album tracks. A preview-load failure does not prevent tiddl from resolving
-  the queued resource.
-- Frontend tests cover preview expansion, duplicate playlist queue entries,
-  empty-queue state, and `check_tiddl -> folder picker -> start_download_job`.
-
-### Verification Completed
-
-- `tiddl` was found at `/home/mikele/.local/bin/tiddl`.
-- The non-destructive capability command completed successfully.
-- `pnpm test`: 203 tests passed.
-- `pnpm build`: passed.
-- `cargo check --manifest-path src-tauri/Cargo.toml --lib`: passed.
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 125 tests passed.
-- A release Tauri build passed with `pnpm tauri build --no-bundle`; the runnable
-  binary is `src-tauri/target/release/sone`.
-- A follow-up verification after the selected `--scan-path` fix passed:
-  `tiddl download --events jsonl url --help`, `pnpm test`, `pnpm build`,
-  `cargo check --manifest-path src-tauri/Cargo.toml --lib`, and
-  `cargo test --manifest-path src-tauri/Cargo.toml --lib` (125 Rust tests).
-- The validation pass left the worktree clean. An existing Sone process was
-  already running, so no second application instance was started.
-
-### Remaining Manual Validation
-
-#### Authenticated CLI Validation (2026-08-21)
-
-- Started `src-tauri/target/release/sone`; its home view loaded and displayed
-  the Download Queue icon in the player bar.
-- A real authenticated `tiddl` track download completed successfully using the
-  proposed album output template. Its JSONL stream included discovery, start,
-  indeterminate progress, item completion, and `job_completed(success = true)`.
-- A nonexistent numeric track emitted `job_failed(error.code = "api_error")`
-  followed by `job_completed(success = false)`, without creating media files.
-- These checks validate the installed downloader contract directly, not the
-  queue drawer interaction. This validation environment can capture the Tauri
-  window but its compositor does not expose virtual keyboard or pointer input,
-  so it cannot operate the folder picker or queue controls programmatically.
-- Re-launching the release binary on the same compositor confirmed that Sone
-  restores its authenticated home session. Plasma's window-information API
-  requires a manual selection and the environment has no pointer-injection
-  tool, so queue controls were not activated blindly and no additional files
-  were created.
-- Follow-up drawer validation exposed a missing Tauri dialog ACL permission,
-  which is now granted with `dialog:allow-open`.
-- The drawer now waits for all download-event listeners before enabling
-  `Download`. Backend job failures also reject the IPC call, so an error is
-  shown even if an event cannot be delivered.
-- The selected folder is passed to both `tiddl --path` and `--scan-path`.
-  This prevents tiddl from finding an existing file in its configured default
-  scan folder and skipping a requested copy in the selected folder.
-- A real authenticated non-Atmos track was downloaded successfully to the
-  selected folder. The drawer and terminal report the final output path.
-- A real authenticated album download completed successfully. The drawer kept
-  its `Downloading...` state throughout the job.
-- Download progress now renders live item rows and completed/remaining counts
-  during an authenticated download.
-- `Clear download queue` now also clears the completed download rows and
-  in-memory job state; it never deletes downloaded files.
-- `Stop` cancels all active downloader invocations. Interrupted rows remain
-  visible as `cancelled`, the queue is preserved, and a later `Download`
-  restarts the full queue so tiddl skips completed files.
-- A Dolby Atmos track completed without a new file because the installed
-  tiddl configuration filters Atmos media. This is a tiddl `skipped` outcome,
-  not an Sone path or process failure.
-
-#### How To Continue UI Validation
-
-1. Use the running `src-tauri/target/release/sone` instance. If it is closed,
-   start that binary from this checkout after confirming no other Sone instance
-   is running.
-2. Add a small track through its download icon or context menu, open Download
-   Queue from the player bar, and confirm the queued resource and its preview
-   are shown without starting playback or navigation.
-3. Select a disposable directory when prompted by `Download`. Confirm the
-   drawer shows `discovering`, `downloading`, and the final `success`,
-   `skipped`, or `error` state; `Clear` must remain disabled while the job is
-   running.
-4. Repeat with an album, playlist, artist, and video chosen to keep the output
-   size acceptable. Confirm albums/artists use the album layout, playlists use
-   their playlist index, and videos use the Videos layout.
-5. Exercise an item-level failure where feasible. Do not log out of `tiddl` to
-   test authentication failure. The direct validation above already verified a
-   job-level resource failure.
-6. Record the observed results here, then run `git diff --check` before
-   committing any documentation-only update.
-
-For terminal diagnostics during further validation, start the release binary
-from this checkout with:
-
-```sh
-RUST_LOG=tauri_app_lib::commands::downloads=debug ./src-tauri/target/release/sone
-```
-
-The logs include invocation counts, terminal item output paths, and safe
-job-level errors, but not downloader diagnostics, credentials, or signed URLs.
-
-1. Use the existing Sone instance (or launch
-   `src-tauri/target/release/sone` after closing it), authenticate the
-   separately installed downloader with `tiddl auth login`, and download a
-   track, album, playlist, artist, and video to a disposable directory.
-2. Confirm each JSONL terminal state renders correctly: success, skipped,
-   item error, authentication failure, resource failure, and incompatible
-   JSONL/schema failure.
-3. Check dense card and virtualized-row layouts at desktop and narrow window
-   widths to confirm download controls neither trigger playback nor navigation.
-4. If this becomes an upstream PR, inspect
-   `git diff upstream/master...HEAD` and keep generated build artifacts out of
-   the PR.
-
-The remaining steps require an authenticated user account and create real files;
-they were intentionally not run during the automated validation pass.
-
-The user must install and authenticate the downloader separately:
-
-```sh
-tiddl auth login
-```
-
-At development time the modified downloader lives at:
-
-```text
-/opt/tiddl-headless/tiddl
-```
-
-Its executable is:
-
-```text
-/opt/tiddl-headless/tiddl/.venv/bin/tiddl
-```
-
-For Sone releases, do not hard-code this development path. The integration
-should launch the `tiddl` executable found in the user process `PATH` unless a
-future downloader-command setting is explicitly added.
-
-## User-Facing Requirements
-
-- Every artist, album, track, playlist, and video exposes an icon button to
-  add it to the download queue. Include the same action in existing context
-  menus for accessibility and surfaces where an icon cannot fit.
-- Add a global Download Queue button in the player bar, between Play Queue and
-  Open Miniplayer.
-- The button opens a dedicated queue view visually consistent with the current
-  Play Queue drawer. It must work even when no track is playing; the current
-  `NowPlayingDrawer` returns `null` without a playing track, so download queue
-  cannot simply be another tab in that component without restructuring it.
-- The view shows queued entries and their expanded tracks/videos, plus
-  `Download` and `Clear download queue` buttons.
-- `Download` opens a folder picker before creating a job.
-- During a job, each discovered track/video updates live to `downloading`,
-  `success`, `skipped`, or `error` according to `tiddl` JSONL events.
-- If `tiddl` is missing, is too old to support JSONL, lacks authentication,
-  exits unsuccessfully, or emits malformed JSONL, show a clear error prompt.
-
-## tiddl-headless Contract
-
-The modified downloader implements:
-
-```sh
-tiddl download --events jsonl [download options] url <tidal-url>...
-```
-
-`stdout` in JSONL mode is one UTF-8 JSON record per line. It must not contain
-Rich output or ANSI escape sequences. Diagnostics are on `stderr`.
-
-Read the complete contract before integrating:
-
-```text
-/opt/tiddl-headless/tiddl/docs/events.md
-```
-
-Relevant events, each with `schema_version`, `timestamp`, and `job_id`:
-
-- `job_started`: accepted resources and effective options.
-- `item_discovered`: full metadata for each track/video, including
-  `item_instance_id`. This is the stable row key because a playlist may
-  contain the same track more than once.
-- `item_started`: resolved output path and requested quality.
-- `item_progress`: downloaded byte count. `bytes_total` and `progress` may be
-  `null` for segmented streams; do not manufacture a percentage in Sone.
-- `item_completed`: final output path and negotiated quality data.
-- `item_skipped`: terminal successful skip, including `already_exists`.
-- `item_failed`: terminal failure for one discovered item.
-- `job_failed`: authentication, resource enumeration, or invalid-template
-  failure that cannot be attached to an individual item.
-- `job_completed`: always the final event. Use `success`, not merely summary
-  counts, to determine whether the process succeeded.
-
-Important observed behavior after the local tiddl-headless changes:
-
-- Missing authentication emits `job_started`,
-  `job_failed(error.code = "authentication_required")`, and
-  `job_completed(success = false)`, then exits with code 1.
-- `tiddl download --events jsonl url --help` does not create an empty job.
-- A resource failure makes `job_completed.success` false even when no item was
-  discovered.
-
-Sone must validate `schema_version === 1`. An unknown schema or malformed
-event is a job-level error: terminate/await the process and explain that an
-incompatible tiddl-headless version is installed.
-
-## Required Output Templates
-
-Pass `--path <folder selected by the user>` and `--output <template>` for each
-job. Do not edit `~/.tiddl/config.toml`.
-
-Tiddl templates omit the file extension; tiddl chooses it from the negotiated
-stream (`.flac`, `.m4a`, or `.mp4`).
-
-| Queue source | tiddl output template |
-| --- | --- |
-| Album | `{album.artist}/{album.title}/{item.number} - {item.title}` |
-| Artist album tracks | `{album.artist}/{album.title}/{item.number} - {item.title}` |
-| Playlist | `{playlist.title}/{playlist.index} - {item.artist} - {item.title}` |
-| Video | `{item.artist}/Videos/{item.artist} - {item.title}` |
-
-The individual-track convention remains unresolved. Proposed default, when
-the item belongs to an album:
-
-```text
-{album.artist}/{album.title}/{item.number} - {item.title}
-```
-
-Run distinct tiddl invocations by source/template where necessary. A playlist
-must be downloaded as a playlist resource so tiddl can populate
-`playlist.index`; converting it to individual track URLs loses this context.
-
-## Existing Sone Integration Points
-
-Frontend:
-
-- `src/components/PlayerBar.tsx`: player-bar right-side controls. Add the
-  Download Queue button between `DrawerButtons` (Play Queue) and
-  `MiniPlayerButton`.
-- `src/components/NowPlayingDrawer.tsx`: reference for the queue UI, rows,
-  virtualizer, theme classes, dismissal behavior, and track navigation. Do
-  not make Download Queue dependent on `currentTrack`.
-- `src/components/TrackContextMenu.tsx`: add `Add to download queue` for
-  tracks and videos.
-- `src/components/MediaContextMenu.tsx`: add the same action for albums,
-  playlists, artists, and videos. Its existing `fetchMediaTracks` behavior is
-  useful for display, but retain original resource URLs for invoking tiddl.
-- `src/components/MediaCard.tsx`, `src/components/TrackList.tsx`, and page
-  headers/views: add a visible download icon button. Reuse their established
-  event-stop propagation conventions so the download action does not play or
-  navigate the item.
-- `src/atoms/ui.ts`: add independent download drawer/modal state; do not
-  overload the stringly typed playback drawer state.
-- `src/types.ts`: add download queue entry, expanded item, status, and parsed
-  event types.
-- `src/api/tidal.ts`: conventional home for typed Tauri `invoke` wrappers.
-
-Backend:
-
-- `src-tauri/src/commands/mod.rs`: register a new `downloads` command module.
-- `src-tauri/src/lib.rs`: register its Tauri commands in
-  `tauri::generate_handler!`.
-- Existing commands use `SoneError` in `src-tauri/src/error.rs`; add a
-  downloader-appropriate variant only if a structured IPC error needs one.
-- Existing Tauri events provide the project pattern for streaming backend state
-  to React. Emit dedicated names such as `download:job-started`,
-  `download:item-discovered`, `download:item-started`,
-   `download:item-progress`, `download:item-completed`,
-   `download:item-skipped`, `download:item-failed`, `download:job-failed`,
-   `download:job-cancelled`, and `download:job-completed`.
-- The project does not currently have a filesystem picker plugin. Add the
-  official Tauri dialog plugin and use its frontend directory picker. The
-  selected absolute path is passed to the backend download command.
-
-## Backend Design
-
-1. Implement `check_tiddl`:
-   - Resolve `tiddl` using `std::process::Command` without a shell.
-   - Invoke a harmless capability check such as
-     `tiddl download --events jsonl url --help` and validate it exits zero.
-   - Treat a missing executable, nonzero exit, absent JSONL support, or a help
-     output incompatible with the expected CLI as a user-facing dependency
-     error.
-
-2. Implement one active download job at a time:
-   - Prevent concurrent `tiddl` processes to avoid duplicate writes and
-     ambiguous queue status.
-   - Receive a queue snapshot, selected destination, and a list of invocation
-     groups containing TIDAL URLs plus output options/templates.
-   - Spawn with `tokio::process::Command`, args only, and piped `stdout` /
-     `stderr`; never concatenate a shell command.
-   - Read stdout line by line, parse JSON, validate `schema_version`, and emit
-     the matching Tauri event immediately.
-   - Read stderr concurrently, redact/log it, and preserve a short safe tail
-     for the error prompt. Never expose signed stream URLs or credentials.
-   - If a child exits without `job_completed`, emit a synthesized job failure.
-   - Do not call the TIDAL API or open media streams from Rust solely for
-     downloading; tiddl owns its own authenticated TIDAL interaction.
-
-3. Do not make native file existence the source of truth. Tiddl emits final
-   paths and skip/failure states. Sone displays those events.
-
-4. `Stop` cancels an active job. Run each tiddl invocation in a dedicated
-   process group, send `SIGINT`, wait briefly, and fall back to `SIGKILL` so a
-   child `ffmpeg` cannot outlive tiddl. Emit `download:job-cancelled` rather
-   than treating cancellation as a failed job. The downloader owns cleanup of
-   its clearly named `.tiddl-part-*` files; Sone must not scan or delete user
-   files in the selected directory.
-
-## Frontend State Design
-
-Use a separate atom family/module, for example `src/atoms/downloads.ts`:
-
-- `downloadQueueAtom`: user-enqueued source resources, preserving insertion
-  order and duplicate entries.
-- `downloadJobAtom`: `idle | choosing-folder | checking | downloading |
-  complete | cancelled | failed` plus destination, job ID, diagnostics, and
-  started time.
-- `downloadItemsAtom`: keyed by `item_instance_id`, with source reference,
-  metadata, output path, byte count, and terminal status.
-
-Suggested statuses:
-
-```ts
-type DownloadItemStatus =
-  | "queued"
-  | "discovering"
-  | "downloading"
-  | "success"
-  | "skipped"
-  | "cancelled"
-  | "error";
-```
-
-Queue additions should be optimistic and deduplicate only if the product
-decision calls for it. Do not reuse playback IDs such as `_qid`; download and
-play queues have independent lifetimes and semantics.
-
-On `Download`:
-
-1. Reject an empty queue locally.
-2. Call `check_tiddl`; show a modal/prompt with installation and
-   `tiddl auth login` guidance if it fails.
-3. Open the folder picker only after dependency validation succeeds.
-4. Build invocation groups using original TIDAL resource URLs and the required
-   templates.
-5. Subscribe to download events before calling `start_download_job` to avoid
-   losing early events.
-6. Start the job and update state from Tauri events.
-7. Clear only the completed job's transient expanded rows after an explicit
-   user action; preserve results long enough for inspection.
-
-`Clear download queue` must be disabled while a job runs. `Stop` must preserve
-the queue and mark incomplete rows as `cancelled`. Clearing must never delete
-files already downloaded.
-
-## Tests And Verification
-
-Sone tests should mock Tauri `invoke`, directory picker, and `listen` events.
-
-- Unit-test queue addition for every supported entity type.
-- Test duplicate playlist tracks use distinct `item_instance_id` rows.
-- Test all JSONL terminal states and job-level authentication/resource errors.
-- Test malformed/unknown-schema events show a compatibility failure.
-- Test the picker is opened only after `check_tiddl` passes.
-- Test empty queue and active-job button states.
-- Test the global button position and a download queue view with no playback.
-- Test that visible icon buttons do not trigger card navigation/playback.
-
-Run after implementation:
-
-```sh
-pnpm test
-pnpm build
-cargo check --manifest-path src-tauri/Cargo.toml --lib
-cargo test --manifest-path src-tauri/Cargo.toml --lib
-```
-
-## Decisions Still Required
-
-Do not silently choose these in the implementation session:
-
-1. Which executable is the release dependency: `tiddl` in `PATH`, a specific
-   `tiddl-headless` binary name, or a configurable path?
-2. Required minimum tiddl-headless version/capability check beyond JSONL.
-3. Individual-track output convention. The proposed album-based layout is
-   above.
-4. Artist scope: albums only, albums + EPs/singles, and whether to include
-   videos. Tiddl defaults to albums only; `--singles include` and
-   `--videos allow` change this.
-5. Audio/video quality: use the user's tiddl config or expose Sone controls
-   that pass `--track-quality` and `--video-quality`.
-6. Remember the last selected destination or require a folder picker for every
-   job.
-7. Persist the queue and completed statuses across Sone restarts.
-8. Allow individual removal, retry, and cancellation. Only `Download` and
-   `Clear download queue` are required now.
-9. Exact visible-button coverage on dense list rows versus only headers/cards
-   plus context menus. The original requirement asks for every entity.
+Ship the local `tiddl-headless` fork as Sone's private download helper. The
+installed helper is named `sone-tiddl`, is not a standalone user application,
+and uses Sone's existing TIDAL authentication automatically.
+
+This plan intentionally does not use the upstream `oskvr37/tiddl` project as
+the shipped source. The starting source is `/opt/tiddl-headless/tiddl`, at
+commit `ce236b7`, which contains the Sone-specific JSONL event protocol,
+byte-level progress reporting, and cancellation-safe temporary-file handling.
+Upstream remains a source for later merges only.
 
 ## Non-Goals
 
-- Do not install, update, authenticate, or configure tiddl on the user's
-  behalf.
-- Do not rewrite `~/.tiddl/config.toml`.
-- Do not download through Sone's streaming pipeline.
-- Do not claim downloaded media is playable offline in Sone; that is a
-  separate local-library feature.
+- Do not implement a Rust downloader in this work.
+- Do not expose `sone-tiddl` in `PATH` or document it as a user-facing CLI.
+- Do not support `sone-tiddl auth login`, a separate TIDAL account, or
+  standalone configuration.
+- Do not write Sone credentials to `~/.tiddl`, environment variables,
+  command-line arguments, logs, JSONL events, or temporary files.
+- Do not bundle `ffmpeg` or `ffprobe`; declare and validate them as package
+  dependencies instead.
+
+## Source Ownership
+
+1. [x] Import the `tiddl-headless` fork into this repository using `git subtree`:
+
+   ```text
+   third_party/tiddl/
+   ```
+
+2. Import from the `mikelexp/tiddl` fork's `sone-integration` branch, pinned
+   initially to `ce236b7`.
+
+3. Keep the Python project structure intact inside the subtree, including its
+   own tests and `pyproject.toml`. Do not place it under `src-tauri`.
+
+4. [x] Add `third_party/tiddl/UPSTREAM.md` containing:
+
+   - The fork URL, branch, and imported commit.
+   - The upstream base, initially `oskvr37/tiddl` `v3.4.4`.
+   - A summary of Sone-specific behavior: JSONL schema v1, progress byte
+     totals, process-group cancellation, and temporary-file cleanup.
+   - The exact subtree update procedure.
+
+5. Update the fork in a temporary integration branch first. Merge upstream
+   changes there, retain the Sone patches, run its tests, and only then import
+   the verified result into Sone's subtree.
+
+## Private Helper Contract
+
+Sone owns the outer download job, UI events, settings, cancellation request,
+and persistent authentication. `sone-tiddl` owns TIDAL resource expansion,
+manifest handling, file transfer, conversion, tagging, and its own temporary
+files.
+
+The process boundary remains JSONL on stdout:
+
+```text
+sone-tiddl download --events jsonl [non-secret download options]
+```
+
+The existing JSONL schema v1 in `third_party/tiddl/docs/events.md` is the
+compatibility contract. It must retain its event names, ordering, terminal
+semantics, safe error codes, and rule that no credential, request header, or
+signed media URL is emitted.
+
+Sone continues to validate `schema_version == 1`, reject malformed or unknown
+events, and relay the existing `download:*` Tauri events without changing the
+React queue model.
+
+## Authentication Boundary
+
+`sone-tiddl` is launched only by Sone in an integrated mode.
+
+1. Sone refreshes or validates its TIDAL token before spawning the helper.
+
+2. Sone creates a bidirectional Unix socket pair or equivalent inherited file
+   descriptor. It passes the child descriptor only to `sone-tiddl`.
+
+3. The private channel transfers a credential snapshot containing the access
+   token, refresh token, OAuth client ID, client secret when required, user ID,
+   country code, and non-secret proxy configuration.
+
+4. [x] `sone-tiddl` keeps this snapshot in memory. It must not initialize or read
+   `~/.tiddl`, `auth.json`, `config.toml`, API cache directories, or the
+   embedded tiddl OAuth credential path in integrated mode.
+
+5. If the helper refreshes credentials, it sends the refreshed state over the
+   same private channel. Sone persists it through its existing encrypted
+   settings/keyring flow. JSONL remains credential-free.
+
+6. Close the inherited credential descriptor before launching `ffmpeg` or any
+   other subprocess so media tools cannot inherit it.
+
+7. [x] Add an internal `SoneAuthProvider` in the Python subtree. Keep the existing
+   file/device-code authentication implementation untouched initially but make
+   it unreachable from Sone's packaged entrypoint. Remove dead standalone code
+   only after the integrated path is stable and its upstream impact is known.
+
+## Python Entrypoint and Scope Reduction
+
+- [x] Create a dedicated internal entrypoint, `sone_tiddl.bridge`, that
+only accepts Sone's private launch protocol and JSONL download mode.
+
+The integrated entrypoint must not expose:
+
+- Human Rich output.
+- Interactive search or favorites commands.
+- Device-code login, logout, or browser launch.
+- User-owned config files, default download locations, or API cache settings.
+
+Operational settings are passed by Sone: resource URLs, destination, output
+template, quality, filters, skip policy, and proxy behavior. Preserve the
+current tiddl-headless download engine and JSONL renderer until a later change
+can remove unused CLI/config code without changing download behavior.
+
+## Nuitka Build
+
+1. [x] Add reproducible helper build scripts under:
+
+   ```text
+   build-scripts/tiddl/
+   ```
+
+2. [x] Build with Python 3.13, required by the imported fork, and pin Nuitka plus
+   all Python dependencies used for the release build.
+
+3. [x] Use Nuitka `standalone` mode, not `onefile`. A standalone directory avoids
+   extraction into a temporary directory for every download invocation and is
+   easier to inspect when a dependency is missing.
+
+4. [x] Compile the private entrypoint as `sone-tiddl`. Include required Python
+   extension modules and dependencies such as `aiohttp`, `aiofiles`,
+   `pydantic`, `mutagen`, `m3u8`, and the libraries still used after the
+   integrated-mode reduction.
+
+5. Build the helper in the package build environment. Verify the resulting
+   Debian artifact in the Debian container and the derived Arch artifact in the
+   Arch container. Do not assume ABI compatibility without those tests.
+
+6. [x] Install the standalone directory in the package payload at:
+
+   ```text
+   /usr/lib/sone/sone-tiddl/
+   ```
+
+   The executable is:
+
+   ```text
+   /usr/lib/sone/sone-tiddl/sone-tiddl
+   ```
+
+7. Add `ffmpeg` and `ffprobe` to Debian, Arch, and RPM package dependencies as
+   appropriate. The helper must report a safe structured conversion failure if
+   either binary is unavailable.
+
+## Rust Integration
+
+1. Refactor `src-tauri/src/commands/downloads.rs` so executable resolution
+   prefers the installed absolute helper path.
+
+2. Keep `SONE_TIDDL_EXECUTABLE` as a development/test override. It is not a
+   user-facing compatibility guarantee.
+
+3. Remove the normal dependency check that asks users to install and manually
+   authenticate `tiddl-headless`. A missing bundled helper is a packaging error;
+   missing Sone authentication is handled by Sone's normal login flow.
+
+4. Preserve one active job, invocation grouping, stdout JSONL parsing, stderr
+   redaction, process-group cancellation, and post-download album-cover logic.
+
+5. Add the private credential socket to the spawned child. Never use argv,
+   environment variables, standard output, standard error, or disk for secrets.
+
+6. Ensure cleanup closes all parent/child descriptors on normal completion,
+   malformed JSONL, spawn failure, cancellation, SIGINT, and SIGKILL fallback.
+
+## Packaging
+
+1. [x] Include the Nuitka output in the Tauri Debian bundle.
+
+2. Verify that the existing Arch packaging flow, which repackages the Debian
+   payload, includes the helper and declares its dependencies.
+
+3. [x] Extend RPM packaging with the same helper directory and dependencies.
+
+4. [x] Add Apache-2.0 attribution for the imported tiddl source to Sone's shipped
+   notices while preserving Sone's GPL-3.0-only license for Sone code.
+
+5. [x] Do not commit generated packages, Nuitka work directories, compiled helper
+   output, or existing build artifacts.
+
+## Tests
+
+### Python
+
+- Preserve and run the imported tiddl-headless test suite.
+- Add tests for `SoneAuthProvider` receiving initial state, refreshing state,
+  and never reading/writing `~/.tiddl` in integrated mode.
+- Add tests proving no secret is written to JSONL, stderr, logs, or temporary
+  files.
+- Keep tests for JSONL event ordering, byte totals, malformed events, error
+  codes, and temporary-file cleanup on interruption.
+- Add fixture-based tests for BTS, DASH, and HLS manifest paths used by the
+  download engine.
+
+### Rust
+
+- Test packaged-helper resolution and `SONE_TIDDL_EXECUTABLE` override.
+- Test the private credential channel without printing its payload.
+- Test token-refresh propagation back into Sone's encrypted persistence path.
+- Test malformed JSONL, unexpected schema/event, child failure, cancellation,
+  and descriptor cleanup.
+- Preserve frontend tests for queue construction, event mapping, failures,
+  cancellation, and download settings.
+
+### Package Smoke Tests
+
+- Verify the installed helper can execute its non-interactive capability check.
+- Verify a Sone-authenticated fixture reaches JSONL startup without a
+  `~/.tiddl/auth.json` file.
+- Verify missing `ffmpeg` becomes a safe structured error.
+- Verify SIGINT cancellation removes only the helper's `.tiddl-part-*` files.
+- Verify Debian, Arch, and RPM artifact contents, permissions, and dynamic
+  library dependencies.
+
+## Documentation and UX
+
+1. Update download settings and error messages to say that downloads use the
+   bundled Sone helper and the active Sone account.
+
+2. Remove instructions telling users to install `tiddl-headless` or run
+   `tiddl auth login`.
+
+3. Document that `ffmpeg` is required by the package and that Sone-tiddl is an
+   internal implementation detail, not a separately supported CLI.
+
+4. Retain clear notices about TIDAL terms, copyright, and personal-use
+    responsibility.
+
+## Remaining Work
+
+### Rust Integration
+
+- [x] Resolve `/usr/lib/sone/sone-tiddl/sone-tiddl` by default in
+  `src-tauri/src/commands/downloads.rs`.
+- [x] Retain `SONE_TIDDL_EXECUTABLE` only as a development and test override.
+- [x] Remove external `tiddl-headless` discovery and instructions to run
+  `tiddl auth login`; report a missing bundled helper as a packaging error.
+- [x] Create the inherited private credential socket, send the Sone credential
+  snapshot, receive refreshed state, and persist it through Sone's encrypted
+  settings flow.
+- [x] Close parent and child credential descriptors on every completion,
+  malformed-event, spawn-failure, cancellation, SIGINT, and SIGKILL path.
+- [x] Preserve JSONL schema validation, event relay, stderr redaction,
+  process-group cancellation, invocation grouping, and cover handling.
+
+### Tests
+
+- [x] Run the complete imported `tiddl-headless` Python suite.
+- [x] Add Python coverage that proves secrets never reach JSONL, stderr, logs,
+  or temporary files.
+- [x] Add Python fixture coverage for BTS, DASH, and HLS manifests, JSONL
+  errors and ordering, byte totals, and interruption cleanup.
+- [ ] Add Rust tests for helper resolution, the executable override, private
+  credential transfer, refresh persistence, malformed JSONL, child failures,
+  cancellation, and descriptor cleanup.
+- [x] Preserve or add frontend tests for queue construction, event mapping,
+  failures, cancellation, and download settings.
+- [ ] Add installed-package smoke tests for capabilities, authenticated startup
+  without `~/.tiddl/auth.json`, missing `ffmpeg`/`ffprobe`, and SIGINT cleanup
+  of only `.tiddl-part-*` files.
+
+### Package Verification
+
+- [x] Build the helper and Debian artifact inside the Debian build container.
+- [x] Build the derived Arch artifact inside the Arch container and verify it
+  contains the helper and declares `ffmpeg`.
+- [x] Build and inspect the Fedora RPM artifact.
+- [x] Build and inspect the openSUSE RPM artifact.
+- [ ] Verify Debian, Arch, and RPM artifact contents, permissions, and dynamic
+  library dependencies.
+- [ ] Verify missing `ffmpeg` or `ffprobe` is reported as a safe structured
+  conversion error.
+
+### Documentation and UX
+
+- [x] Update download settings and errors to identify the bundled helper and
+  the active Sone account.
+- [x] Remove user documentation that asks users to install `tiddl-headless` or
+  authenticate it separately.
+- [x] Document `ffmpeg`/`ffprobe` as package requirements and `sone-tiddl` as
+  an unsupported internal implementation detail.
+- [x] Retain TIDAL terms, copyright, and personal-use notices.
+
+### Verified
+
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 132 passed.
+- `third_party/tiddl/.venv/bin/python -m pytest`: 120 passed.
+- `pnpm test`: 209 passed.
+- `pnpm build`: passed.
+
+## Commit Sequence
+
+1. Import `tiddl-headless` subtree, upstream metadata, and license notices.
+2. Add the internal Sone authentication provider and private entrypoint with
+   Python tests.
+3. Add reproducible Nuitka standalone build and package smoke tests.
+4. Include the helper and `ffmpeg` dependencies in Debian, Arch, and RPM
+   packaging.
+5. Integrate packaged helper resolution and the private credential channel in
+   Rust with tests.
+6. Update frontend/backend messaging and documentation.
+
+## Acceptance Criteria
+
+- A normal official Sone package downloads without an external Python install,
+  a `tiddl` PATH entry, or a second TIDAL login.
+- The package executes only the bundled `sone-tiddl` helper by default.
+- No Sone credential is persisted in plaintext or exposed through command-line
+  arguments, environment variables, logs, JSONL, or child media processes.
+- Download queue behavior, JSONL schema v1 validation, progress updates,
+  cancellation, tagging, conversion, and cover handling retain their current
+  behavior.
+- The `tiddl-headless` source can be updated from its upstream lineage through
+  a documented and tested subtree workflow.

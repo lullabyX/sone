@@ -30,9 +30,13 @@ homepage = "https://github.com/oskvr37/tiddl"
 
 [project.scripts]
 tiddl = "tiddl.cli.app:app"
+sone-tiddl = "tiddl.sone_tiddl.bridge:app"
 
 [tool.coverage.run]
 omit = ["*/models/*", "*/models.py"]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
 
 [dependency-groups]
 dev = [

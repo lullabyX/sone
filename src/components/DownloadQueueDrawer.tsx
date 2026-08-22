@@ -82,7 +82,7 @@ export default function DownloadQueueDrawer() {
         ? reason.message
         : typeof reason === "string"
           ? reason
-          : "Could not start tiddl. Install tiddl-headless and run `tiddl auth login`.";
+          : "Could not start the bundled Sone download helper. Reinstall Sone and try again.";
       setError(message);
       setJob({ status: "failed", error: message });
     }
@@ -111,14 +111,14 @@ export default function DownloadQueueDrawer() {
       <div className="absolute inset-0 bg-black/80" onClick={() => setOpenDrawer(false)} />
       <aside className="relative w-full max-w-[480px] bg-th-base border-l border-th-border-subtle shadow-2xl flex flex-col">
         <header className="px-6 py-5 flex items-center justify-between border-b border-th-border-subtle">
-          <div><h2 className="text-lg font-bold">Download queue</h2><p className="text-xs text-th-text-muted">tiddl-headless downloads to your selected folder</p></div>
+          <div><h2 className="text-lg font-bold">Download queue</h2><p className="text-xs text-th-text-muted">Downloads use your active Sone account and selected folder</p></div>
           <button onClick={() => setOpenDrawer(false)} className="text-th-text-muted hover:text-th-text-primary" title="Close download queue"><X size={20} /></button>
         </header>
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 custom-scrollbar">
           {error && <p className="rounded-md bg-th-error/15 text-th-error px-3 py-2 text-sm">{error}</p>}
           {job.error && job.error !== error && <p className="rounded-md bg-th-error/15 text-th-error px-3 py-2 text-sm">{job.error}</p>}
           <section><h3 className="text-xs font-bold uppercase tracking-wider text-th-text-muted mb-2">Queued resources</h3>
-            {queue.length === 0 ? <p className="py-10 text-center text-sm text-th-text-disabled">No downloads queued</p> : queue.map((entry) => <div key={entry.id} className="py-2 border-b border-th-border-subtle"><p className="text-sm font-medium truncate">{entry.title}</p><p className="text-xs text-th-text-muted capitalize">{entry.sourceType}{entry.subtitle ? ` · ${entry.subtitle}` : ""}</p>{entry.previewStatus === "loading" && <p className="mt-1 text-xs text-th-text-disabled">Loading tracks...</p>}{entry.previewStatus === "error" && <p className="mt-1 text-xs text-th-error">Could not load the track list. tiddl will still resolve this resource.</p>}{entry.previewItems && <div className="mt-2 ml-2 border-l border-th-border-subtle pl-3 space-y-1">{entry.previewItems.map((track, index) => <p key={`${track.id}-${index}`} className="text-xs text-th-text-muted truncate">{track.title}{track.artist?.name ? ` · ${track.artist.name}` : ""}</p>)}</div>}</div>)}
+            {queue.length === 0 ? <p className="py-10 text-center text-sm text-th-text-disabled">No downloads queued</p> : queue.map((entry) => <div key={entry.id} className="py-2 border-b border-th-border-subtle"><p className="text-sm font-medium truncate">{entry.title}</p><p className="text-xs text-th-text-muted capitalize">{entry.sourceType}{entry.subtitle ? ` · ${entry.subtitle}` : ""}</p>{entry.previewStatus === "loading" && <p className="mt-1 text-xs text-th-text-disabled">Loading tracks...</p>}{entry.previewStatus === "error" && <p className="mt-1 text-xs text-th-error">Could not load the track list. Sone will still resolve this resource.</p>}{entry.previewItems && <div className="mt-2 ml-2 border-l border-th-border-subtle pl-3 space-y-1">{entry.previewItems.map((track, index) => <p key={`${track.id}-${index}`} className="text-xs text-th-text-muted truncate">{track.title}{track.artist?.name ? ` · ${track.artist.name}` : ""}</p>)}</div>}</div>)}
           </section>
           {progressItems.length > 0 && <section><h3 className="text-xs font-bold uppercase tracking-wider text-th-text-muted mb-2">Download progress</h3><p className="mb-2 text-xs text-th-text-muted">{terminalItemCount} of {progressItems.length} finished{running && ` · ${remainingItemCount} remaining`}</p>{progressItems.map((item) => <div key={item.itemInstanceId} className="py-2 border-b border-th-border-subtle"><div className="flex justify-between gap-3"><p className="text-sm truncate">{item.title}</p><span className="text-xs capitalize text-th-text-muted">{item.status}{item.progress != null && ` · ${Math.round(item.progress * 100)}%`}</span></div>{item.progress != null && <div className="mt-1 h-1 rounded bg-th-slider-track"><div className="h-full rounded bg-th-accent" style={{ width: `${item.progress * 100}%` }} /></div>}{item.bytesDownloaded != null && <p className="mt-1 text-xs text-th-text-muted">{formatBytes(item.bytesDownloaded)}{item.bytesTotal != null && ` / ${formatBytes(item.bytesTotal)}`}</p>}{item.outputPath && <p className="mt-1 text-xs text-th-text-muted break-all">{item.outputPath}</p>}{item.error && <p className="text-xs text-th-error mt-1">{item.error}</p>}</div>)}</section>}
         </div>

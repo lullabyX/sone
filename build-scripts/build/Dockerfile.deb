@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Same as AppImage minus patchelf/libfuse2 (not bundling GStreamer).
 RUN apt-get update && apt-get install -y \
     build-essential \
+    software-properties-common \
     pkg-config \
     curl \
     file \
@@ -27,7 +28,13 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-alsa \
     libsecret-1-dev \
     libasound2-dev \
+    patchelf \
     xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Nuitka must compile against the same glibc baseline as the Debian package.
+RUN add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y python3.13 python3.13-dev python3.13-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Layer 2: Rust stable via rustup ──────────────────────────────────────────
@@ -50,6 +57,7 @@ COPY . .
 RUN --mount=type=cache,id=sone-deb-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=sone-deb-git,target=/root/.cargo/git \
     --mount=type=cache,id=sone-deb-target,target=/app/src-tauri/target \
-    pnpm tauri build --bundles deb \
+    ./build-scripts/tiddl/build.sh \
+    && pnpm tauri build --bundles deb \
     && mkdir -p /output \
     && cp src-tauri/target/release/bundle/deb/SONE_*.deb /output/

@@ -45,7 +45,11 @@ def parse_manifest_XML(xml_content: str):
         if count is not None:
             total += int(count)
 
-    urls = [url_template.replace("$Number$", str(i)) for i in range(0, total + 1)]
+    start_number = int(segmentElement.get("startNumber", "1"))
+    urls = [
+        url_template.replace("$Number$", str(i))
+        for i in range(start_number, start_number + total)
+    ]
 
     return urls, codecs
 

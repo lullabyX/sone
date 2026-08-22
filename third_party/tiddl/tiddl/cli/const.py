@@ -20,4 +20,4 @@ def create_app_path() -> Path:
     return app_path
 
 
-APP_PATH = create_app_path()
+APP_PATH = get_app_path()

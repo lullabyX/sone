@@ -5,6 +5,7 @@ from tomllib import loads as parse_toml
 from typing import Literal
 
 from tiddl.cli.const import APP_PATH
+from tiddl.sone_tiddl.runtime import is_enabled
 from tiddl.core.utils.const import TRACK_QUALITY_LITERAL, VIDEO_QUALITY_LITERAL
 
 CONFIG_FILENAME = "config.toml"
@@ -120,5 +121,5 @@ def load_config_file(config_file: Path) -> Config:
     return config
 
 
-CONFIG = load_config_file(APP_PATH / CONFIG_FILENAME)
+CONFIG = Config() if is_enabled() else load_config_file(APP_PATH / CONFIG_FILENAME)
 log.debug(f"{CONFIG=}")

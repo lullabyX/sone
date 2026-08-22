@@ -64,3 +64,6 @@ sone.code-workspace
 /build-scripts/build/src/
 /build-scripts/build/*.deb
 /build-scripts/build/*.pkg.tar.zst
+
+# Generated standalone sone-tiddl helper
+/src-tauri/resources/sone-tiddl/

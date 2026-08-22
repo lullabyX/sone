@@ -59,6 +59,11 @@ build_rpm() {
     echo "Package requires:"
     docker run --rm -v "$PWD/$RPM:/tmp/pkg.rpm:ro" "$image" rpm -qpR /tmp/pkg.rpm | head -20
 
+    docker run --rm -v "$PWD/$RPM:/tmp/pkg.rpm:ro" "$image" sh -ceu '
+        rpm -qpR /tmp/pkg.rpm | grep -Fx ffmpeg
+        rpm -qpl /tmp/pkg.rpm | grep -Fx /usr/lib/sone/sone-tiddl/sone-tiddl
+    '
+
     echo ""
     echo "=== $label build complete ==="
     ls -lh "$RPM"

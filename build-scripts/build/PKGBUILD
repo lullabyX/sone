@@ -19,6 +19,7 @@ depends=(
     'librsvg'
     'libayatana-appindicator'
     'libpulse'
+    'ffmpeg'
 )
 
 # The .deb is built by Tauri and copied alongside this PKGBUILD before makepkg runs.

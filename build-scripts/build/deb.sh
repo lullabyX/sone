@@ -37,7 +37,8 @@ if [[ -z "$DEB" ]]; then
 fi
 
 echo "Package info:"
-dpkg-deb -I "$DEB" | grep -E '(Package|Version|Depends|Section|Priority)'
+docker run --rm -v "$PWD/$DEB:/tmp/sone.deb:ro" "$IMAGE" \
+    dpkg-deb -I /tmp/sone.deb | grep -E '(Package|Version|Depends|Section|Priority)'
 
 echo ""
 echo "=== Build complete ==="

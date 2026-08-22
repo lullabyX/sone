@@ -29,7 +29,7 @@ fn are_embedded_pkce_defaults(id: &str, secret: &str) -> bool {
 
 /// Resolve credentials from saved settings, falling back to embedded defaults
 /// matching the saved auth_method (LoginCode → device-code pair, Pkce → PKCE pair).
-fn resolve_credentials(settings: &Settings) -> (String, String) {
+pub(crate) fn resolve_credentials(settings: &Settings) -> (String, String) {
     if !settings.client_id.is_empty() {
         return (settings.client_id.clone(), settings.client_secret.clone());
     }

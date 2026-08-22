@@ -157,7 +157,8 @@ def download_callback(
 
     output = JsonlOutput() if EVENTS == "jsonl" else RichOutput(ctx.obj.console)
     try:
-        ctx.invoke(refresh, EARLY_EXPIRE_TIME=600, SILENT=EVENTS == "jsonl")
+        if ctx.obj.auth_provider is None:
+            ctx.invoke(refresh, EARLY_EXPIRE_TIME=600, SILENT=EVENTS == "jsonl")
     except typer.Exit:
         if EVENTS == "jsonl":
             output.job_started(

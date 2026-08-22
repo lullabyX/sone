@@ -5,7 +5,7 @@ FROM archlinux:latest
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm \
     base-devel \
     pkgconf \
-    curl file wget \
+    curl file wget patchelf \
     webkit2gtk-4.1 \
     gtk3 \
     libayatana-appindicator \
@@ -21,6 +21,7 @@ RUN pacman -Syu --noconfirm && pacman -S --noconfirm \
     alsa-lib \
     xdg-utils \
     nodejs npm \
+    uv \
     && pacman -Scc --noconfirm
 
 # ── Layer 2: Rust stable via rustup ──────────────────────────────────────────
@@ -38,7 +39,9 @@ COPY . .
 RUN --mount=type=cache,id=sone-pacman-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=sone-pacman-git,target=/root/.cargo/git \
     --mount=type=cache,id=sone-pacman-target,target=/app/src-tauri/target \
-    rm -f src-tauri/target/release/bundle/deb/SONE_*.deb \
+    uv python install 3.13 \
+    && PYTHON="$(uv python find 3.13)" ./build-scripts/tiddl/build.sh \
+    && rm -f src-tauri/target/release/bundle/deb/SONE_*.deb \
     && pnpm tauri build --bundles deb \
     && mkdir -p /build \
     && cp src-tauri/target/release/bundle/deb/SONE_*.deb /build/sone.deb

@@ -39,3 +39,10 @@ fi
 echo ""
 echo "=== Build complete ==="
 ls -lh "$PKG"
+
+echo ""
+echo "Package helper and dependency checks:"
+docker run --rm -v "$PWD/$PKG:/tmp/pkg.tar.zst:ro" "$IMAGE" sh -ceu '
+    pacman -Qip /tmp/pkg.tar.zst | grep -Eq "Depends On.*ffmpeg"
+    pacman -Qlp /tmp/pkg.tar.zst | grep -Fx "usr/lib/sone/sone-tiddl/sone-tiddl"
+'

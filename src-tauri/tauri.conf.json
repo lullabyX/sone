@@ -50,8 +50,14 @@
           "libsecret-1-0",
           "libasound2 | libasound2t64",
           "librsvg2-common",
-          "pulseaudio-utils"
+          "pulseaudio-utils",
+          "ffmpeg"
         ],
+        "files": {
+          "/usr/lib/sone/sone-tiddl": "resources/sone-tiddl/",
+          "/usr/share/doc/sone/tiddl/LICENSE": "../third_party/tiddl/LICENSE",
+          "/usr/share/doc/sone/THIRD_PARTY_NOTICES.md": "../THIRD_PARTY_NOTICES.md"
+        },
         "section": "sound",
         "priority": "optional"
       },
@@ -68,8 +74,14 @@
           "alsa-lib",
           "libsecret",
           "librsvg2",
-          "pulseaudio-utils"
+          "pulseaudio-utils",
+          "ffmpeg"
         ],
+        "files": {
+          "/usr/lib/sone/sone-tiddl": "resources/sone-tiddl/",
+          "/usr/share/doc/sone/tiddl/LICENSE": "../third_party/tiddl/LICENSE",
+          "/usr/share/doc/sone/THIRD_PARTY_NOTICES.md": "../THIRD_PARTY_NOTICES.md"
+        },
         "release": "1"
       },
       "appimage": {

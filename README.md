@@ -449,7 +449,9 @@ Any modern Linux distribution. SONE is on Flathub (works everywhere), and ships 
 <details>
 <summary>Does SONE support offline downloads?</summary>
 
-No. SONE is a streaming client only — it streams directly from TIDAL and does not download tracks for offline playback.
+Yes. Downloads use the bundled Sone helper and your active Sone TIDAL account; no separate helper installation or login is needed. Official packages require `ffmpeg` and `ffprobe` for media conversion. The helper is an internal implementation detail and is not a supported standalone command.
+
+You are responsible for complying with TIDAL's terms, copyright law, and any applicable limits on personal use.
 
 </details>
 
@@ -497,7 +499,7 @@ If you enjoy using SONE, consider giving the project a star to help others find 
 
 ## Disclaimer
 
-SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content. As with any third-party client, please be aware of TIDAL's terms of use.
+SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. Access to TIDAL content requires a valid paid subscription. Downloads are for personal use only; you are responsible for complying with TIDAL's terms of use, copyright law, and all applicable restrictions. SONE does not redistribute or circumvent protection of any content.
 
 All trademarks belong to their respective owners.
 

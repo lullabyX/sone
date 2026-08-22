@@ -70,6 +70,21 @@ def test_jsonl_output_counts_skips_and_failures_without_secrets(capsys):
     assert "https://stream.example/token" not in captured.err
 
 
+def test_jsonl_diagnostics_do_not_expose_credentials_or_signed_urls(capsys):
+    output = JsonlOutput()
+    access_token = "access-token-not-for-output"
+    output.diagnostic(
+        f"Authorization: Bearer {access_token}; request failed: "
+        f"https://stream.example/media?token={access_token}&signature=signed-value"
+    )
+
+    captured = capsys.readouterr()
+    assert access_token not in captured.out
+    assert access_token not in captured.err
+    assert "signed-value" not in captured.out
+    assert "signed-value" not in captured.err
+
+
 def test_jsonl_output_marks_job_failures_unsuccessful(capsys):
     output = JsonlOutput()
     output.job_started(resources=[], options={})
