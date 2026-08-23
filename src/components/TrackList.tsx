@@ -483,15 +483,21 @@ function VirtualTrackRows({
   const [scrollMargin, setScrollMargin] = useState(0);
 
   // Maintain scrollMargin: the list's offset within the scroll container.
-  // Re-measures when own list, page content above, or scroll element resizes.
+  // Summed from the offsetParent chain rather than from rects plus scrollTop:
+  // the rows this value positions, and the overflow they create, feed back into
+  // the parent's rect, so a rect-derived margin diverges as the user scrolls
+  // (736 -> 503 -> -1311 -> -3689 was the observed decay, which translated every
+  // row thousands of pixels off-screen). offsetTop excludes scroll entirely.
+  // Relies on Layout's container being a positioned ancestor, which it is.
   useLayoutEffect(() => {
     if (!parentRef.current || !scrollEl) return;
     const measure = () => {
-      if (!parentRef.current) return;
-      const top =
-        parentRef.current.getBoundingClientRect().top -
-        scrollEl.getBoundingClientRect().top +
-        scrollEl.scrollTop;
+      let node: HTMLElement | null = parentRef.current;
+      let top = 0;
+      for (let hops = 0; node && node !== scrollEl && hops < 32; hops++) {
+        top += node.offsetTop;
+        node = node.offsetParent as HTMLElement | null;
+      }
       setScrollMargin(top);
     };
     measure();
