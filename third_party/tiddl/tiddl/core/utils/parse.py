@@ -67,7 +67,7 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
     | LOW             | m4a        | application/vnd.tidal.bts | audio/mp4  |
     | HIGH            | m4a        | application/vnd.tidal.bts | audio/mp4  |
     | LOSSLESS        | flac       | application/vnd.tidal.bts | audio/flac |
-    | HI_RES_LOSSLESS | flac or m4a| application/dash+xml      | varies     |
+    | HI_RES_LOSSLESS | m4a        | application/dash+xml      | audio/mp4  |
     """
 
     class TrackManifest(BaseModel):
@@ -86,7 +86,11 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
         case "application/dash+xml":
             urls, codecs = parse_manifest_XML(decoded_manifest)
 
-    if codecs == "flac":
+    # DASH delivers a fragmented MP4 stream, including when its audio codec is
+    # FLAC. The filename must select the matching Mutagen metadata handler.
+    if track_stream.manifestMimeType == "application/dash+xml":
+        file_extension = ".m4a"
+    elif codecs == "flac":
         file_extension = ".flac"
     elif codecs.startswith("mp4") or codecs in DOLBY_CODECS:
         file_extension = ".m4a"

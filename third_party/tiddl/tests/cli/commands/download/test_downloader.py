@@ -32,11 +32,16 @@ class Api:
 
 
 @pytest.mark.parametrize(
-    ("container_extension", "expected_filename"),
-    [(".flac", "song.flac"), (".m4a", "song.m4a")],
+    ("container_extension", "stream_quality", "expected_filename", "extract"),
+    [
+        (".flac", "HI_RES_LOSSLESS", "song.flac", False),
+        (".m4a", "HI_RES_LOSSLESS", "song.flac", True),
+        (".m4a", "HIGH", "song.m4a", False),
+    ],
 )
-def test_download_preserves_the_manifest_container(
-    tmp_path: Path, monkeypatch, container_extension: str, expected_filename: str
+def test_download_uses_the_audio_container_and_codec(
+    tmp_path: Path, monkeypatch, container_extension: str, stream_quality: str,
+    expected_filename: str, extract: bool,
 ):
     downloader = Downloader(
         tidal_api=Api(),
@@ -58,7 +63,7 @@ def test_download_preserves_the_manifest_container(
     )
     downloader.api.get_track_stream = lambda **_: TrackStream.model_construct(
         trackId=1,
-        audioQuality="HI_RES_LOSSLESS",
+        audioQuality=stream_quality,
         audioMode="STEREO",
         bitDepth=24,
         sampleRate=96000,
@@ -95,11 +100,21 @@ def test_download_preserves_the_manifest_container(
     monkeypatch.setattr("tiddl.cli.commands.download.downloader.parse_track_stream", lambda _: (["https://media.invalid/track"], container_extension))
     monkeypatch.setattr("tiddl.cli.commands.download.downloader.aiohttp.ClientSession", lambda **_: Session())
     monkeypatch.setattr(downloader, "get_total_bytes", no_total)
+    extracted = []
+
+    def extract_flac(path: Path) -> Path:
+        extracted.append(path)
+        target = path.with_suffix(".flac")
+        path.replace(target)
+        return target
+
+    monkeypatch.setattr("tiddl.cli.commands.download.downloader.extract_flac", extract_flac)
 
     result = asyncio.run(downloader.download(track, Path("song.flac"), "item-1"))
 
     assert result.path == tmp_path / expected_filename
     assert result.path.read_bytes() == b"source-container-bytes"
+    assert bool(extracted) is extract
 
 
 def test_interrupted_download_removes_only_its_temporary_file(tmp_path: Path, monkeypatch):

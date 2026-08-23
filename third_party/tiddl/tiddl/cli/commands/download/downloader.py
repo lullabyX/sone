@@ -20,6 +20,7 @@ from tiddl.core.utils.const import (
     track_qualities,
     video_qualities,
 )
+from tiddl.core.utils.ffmpeg import extract_flac
 
 from .output import DownloadEventSink
 
@@ -282,6 +283,26 @@ class Downloader:
                 download_path.chmod(0o644)
             except OSError:
                 pass
+
+            if (
+                isinstance(item, Track)
+                and stream.audioQuality in ["HI_RES_LOSSLESS", "LOSSLESS"]
+                and stream.audioMode == "STEREO"
+                and download_path.suffix == ".m4a"
+            ):
+                try:
+                    download_path = extract_flac(download_path)
+                except FileNotFoundError:
+                    self.output.item_failed(item_id=str(item.id), item_type=item_type,
+                        item_instance_id=item_instance_id, title=item.title, stage="conversion",
+                        error={"code": "ffmpeg_not_found", "message": "ffmpeg is not available"})
+                    return DownloadResult(None, False, "failed")
+                except Exception:
+                    log.exception("could not extract FLAC from MP4 container")
+                    self.output.item_failed(item_id=str(item.id), item_type=item_type,
+                        item_instance_id=item_instance_id, title=item.title, stage="conversion",
+                        error={"code": "ffmpeg_failed", "message": "Could not extract FLAC audio"})
+                    return DownloadResult(None, False, "failed")
 
             self.output.item_progress(task_id, item_id=str(item.id), item_type=item_type,
                 item_instance_id=item_instance_id, bytes_downloaded=bytes_downloaded, bytes_total=bytes_total,
