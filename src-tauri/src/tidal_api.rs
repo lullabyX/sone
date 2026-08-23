@@ -831,6 +831,16 @@ pub struct DirectHitItem {
     pub duration: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_tracks: Option<u32>,
+    /// The complete track entity for TRACKS hits. The payload is a full track —
+    /// `artists[]`, `explicit`, `album.vibrantColor`, `mediaMetadata`, `mixes` —
+    /// so carry it whole rather than re-projecting it onto the flat fields above
+    /// and losing everything they have no room for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track: Option<TidalTrack>,
+    /// The complete video entity for VIDEOS hits, for the same reason as `track`:
+    /// the flat fields cannot express `explicit` or more than one artist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video: Option<TidalVideo>,
 }
 
 impl DirectHitItem {
@@ -871,6 +881,8 @@ impl DirectHitItem {
                 album_cover: None,
                 duration: None,
                 number_of_tracks: None,
+                track: None,
+                video: None,
             }),
             "ALBUMS" => {
                 let artist_name = val
@@ -906,6 +918,8 @@ impl DirectHitItem {
                         .get("numberOfTracks")
                         .and_then(|v| v.as_u64())
                         .map(|n| n as u32),
+                    track: None,
+                    video: None,
                 })
             }
             "TRACKS" => {
@@ -920,6 +934,14 @@ impl DirectHitItem {
                     })
                     .map(String::from);
                 let album = val.get("album");
+                // Deserialize the whole entity; the flat fields below stay as a
+                // fallback for a payload too partial to satisfy TidalTrack.
+                let track = serde_json::from_value::<TidalTrack>(val.clone())
+                    .ok()
+                    .map(|mut t| {
+                        t.backfill_artist();
+                        t
+                    });
                 Some(DirectHitItem {
                     hit_type,
                     id: val.get("id").and_then(|v| v.as_u64()),
@@ -944,6 +966,8 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    track,
+                    video: None,
                 })
             }
             "VIDEOS" => {
@@ -957,6 +981,9 @@ impl DirectHitItem {
                             .and_then(|a| a.get("name").and_then(|v| v.as_str()))
                     })
                     .map(String::from);
+                // Deserialize the whole entity; the flat fields below stay as a
+                // fallback for a payload too partial to satisfy TidalVideo.
+                let video = serde_json::from_value::<TidalVideo>(val.clone()).ok();
                 Some(DirectHitItem {
                     hit_type,
                     id: val.get("id").and_then(|v| v.as_u64()),
@@ -981,6 +1008,8 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    track: None,
+                    video,
                 })
             }
             "PLAYLISTS" => Some(DirectHitItem {
@@ -1007,6 +1036,8 @@ impl DirectHitItem {
                     .get("numberOfTracks")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as u32),
+                track: None,
+                video: None,
             }),
             _ => None,
         }
@@ -6545,5 +6576,256 @@ mod sub_status_tests {
         let body = r#"{"status":401,"subStatus":4005.0}"#;
         assert!(is_terminal_sub_status(body));
         assert!(is_playbackinfo_sub_status(body));
+    }
+}
+
+#[cfg(test)]
+mod direct_hit_tests {
+    use super::*;
+
+    /// A real `directHits` entry captured from the suggestions endpoint. The
+    /// value is a complete track entity, which is why the flat projection alone
+    /// silently dropped the second artist, the explicit flag and the album's
+    /// vibrant color.
+    fn tv_off_hit() -> serde_json::Value {
+        serde_json::json!({
+            "type": "TRACKS",
+            "value": {
+                "id": 401317294,
+                "title": "tv off",
+                "duration": 221,
+                "explicit": true,
+                "artists": [
+                    { "id": 3816041, "name": "Kendrick Lamar", "type": "MAIN",
+                      "picture": "84d81b7a-a12e-4a3e-bda4-d0527cb1c8cf" },
+                    { "id": 40179705, "name": "Lefty Gunplay", "type": "FEATURED",
+                      "picture": null }
+                ],
+                "album": {
+                    "id": 401317276,
+                    "title": "GNX",
+                    "cover": "faef7f4f-e362-484b-a46b-4e633c2a1ca3",
+                    "vibrantColor": "#FFFFFF",
+                    "releaseDate": "2024-11-22"
+                },
+                "audioQuality": "LOSSLESS",
+                "mediaMetadata": { "tags": ["LOSSLESS", "HIRES_LOSSLESS"] },
+                "mixes": { "TRACK_MIX": "001d13d399e86e948d03c21bcd15db" },
+                "replayGain": -7.92,
+                "peak": 0.959098,
+                "trackNumber": 7,
+                "volumeNumber": 1,
+                "isrc": "USUG12408493"
+            }
+        })
+    }
+
+    #[test]
+    fn track_hit_carries_every_artist() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let artists = hit
+            .track
+            .as_ref()
+            .and_then(|t| t.artists.as_ref())
+            .expect("full track must carry artists[]");
+        let names: Vec<&str> = artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["Kendrick Lamar", "Lefty Gunplay"]);
+        assert_eq!(artists[1].artist_type.as_deref(), Some("FEATURED"));
+    }
+
+    #[test]
+    fn track_hit_carries_explicit_flag() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        assert_eq!(hit.track.and_then(|t| t.explicit), Some(true));
+    }
+
+    #[test]
+    fn track_hit_carries_album_vibrant_color() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let album = hit
+            .track
+            .and_then(|t| t.album)
+            .expect("full track must carry its album");
+        assert_eq!(album.vibrant_color.as_deref(), Some("#FFFFFF"));
+    }
+
+    /// The payload has no singular `artist`, so it must be backfilled the same
+    /// way every other track parse path does it.
+    #[test]
+    fn track_hit_backfills_the_singular_artist() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let artist = hit
+            .track
+            .and_then(|t| t.artist)
+            .expect("artist must be backfilled from artists[0]");
+        assert_eq!(artist.name, "Kendrick Lamar");
+    }
+
+    /// The flat fields stay populated so the frontend fallback keeps working.
+    #[test]
+    fn track_hit_still_populates_the_flat_projection() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        assert_eq!(hit.artist_name.as_deref(), Some("Kendrick Lamar"));
+        assert_eq!(hit.album_id, Some(401317276));
+        assert_eq!(hit.album_title.as_deref(), Some("GNX"));
+        assert_eq!(hit.duration, Some(221));
+    }
+
+    /// A value too partial to satisfy TidalTrack must not abort the hit — the
+    /// flat projection is the fallback.
+    #[test]
+    fn partial_track_value_falls_back_to_the_flat_projection() {
+        let partial = serde_json::json!({
+            "type": "TRACKS",
+            "value": { "id": 1, "title": "No Duration Here" }
+        });
+        let hit = DirectHitItem::from_typed_value(&partial).expect("hit must still parse");
+        assert!(hit.track.is_none(), "TidalTrack needs a duration");
+        assert_eq!(hit.title.as_deref(), Some("No Duration Here"));
+    }
+
+    /// The wire contract src/types.ts DirectHitItem.track relies on: the
+    /// serialized hit must actually expose the three fields the flat projection
+    /// dropped, under the camelCase names the frontend reads.
+    #[test]
+    fn serialized_hit_exposes_the_recovered_fields_to_the_frontend() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let wire: serde_json::Value =
+            serde_json::to_value(&hit).expect("hit must serialize for the frontend");
+
+        let track = &wire["track"];
+        assert_eq!(track["explicit"], serde_json::json!(true));
+        assert_eq!(track["album"]["vibrantColor"], serde_json::json!("#FFFFFF"));
+        let artists = track["artists"]
+            .as_array()
+            .expect("artists[] must survive to the wire");
+        assert_eq!(artists.len(), 2);
+        assert_eq!(artists[1]["name"], serde_json::json!("Lefty Gunplay"));
+        // TidalArtist renames artist_type to `type`, so the wire carries `type`
+        // (not `artistType`) — matching every other track path in the app.
+        assert_eq!(artists[1]["type"], serde_json::json!("FEATURED"));
+    }
+
+    /// Non-track hits must not pay for a `track` key on the wire.
+    #[test]
+    fn serialized_non_track_hit_omits_the_track_key() {
+        let album = serde_json::json!({
+            "type": "ALBUMS",
+            "value": { "id": 401317276, "title": "GNX", "cover": "faef7f4f" }
+        });
+        let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
+        let wire: serde_json::Value = serde_json::to_value(&hit).expect("must serialize");
+        assert!(wire.get("track").is_none());
+    }
+
+    /// Shape recorded in docs/superpowers/plans/2026-07-13-video-search.md. Only
+    /// `id`/`title` are required by TidalVideo, so a leaner payload still parses.
+    fn video_hit(extra: serde_json::Value) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "id": 12345678,
+            "title": "Not Like Us",
+            "duration": 274,
+            "imageId": "aabbccdd-1122-3344-5566-778899aabbcc",
+            "artists": [
+                { "id": 3816041, "name": "Kendrick Lamar", "type": "MAIN" },
+                { "id": 40179705, "name": "Someone Else", "type": "FEATURED" }
+            ]
+        });
+        if let (Some(base), Some(more)) = (value.as_object_mut(), extra.as_object()) {
+            for (k, v) in more {
+                base.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::json!({ "type": "VIDEOS", "value": value })
+    }
+
+    #[test]
+    fn video_hit_carries_every_artist() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({})))
+            .expect("VIDEOS hit must parse");
+        let artists = hit
+            .video
+            .as_ref()
+            .and_then(|v| v.artists.as_ref())
+            .expect("full video must carry artists[]");
+        let names: Vec<&str> = artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["Kendrick Lamar", "Someone Else"]);
+    }
+
+    /// The plan doc lists `artists` but not `explicit` for VIDEOS top-hits, so
+    /// both cases must behave: present means carried, absent means simply None.
+    #[test]
+    fn video_hit_carries_explicit_when_the_payload_has_it() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({
+            "explicit": true
+        })))
+        .expect("VIDEOS hit must parse");
+        assert_eq!(hit.video.and_then(|v| v.explicit), Some(true));
+    }
+
+    #[test]
+    fn video_hit_without_explicit_still_parses() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({})))
+            .expect("VIDEOS hit must parse");
+        let video = hit.video.expect("video entity must still be carried");
+        assert!(video.explicit.is_none());
+        assert_eq!(video.title, "Not Like Us");
+    }
+
+    #[test]
+    fn video_hit_still_populates_the_flat_projection() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({})))
+            .expect("VIDEOS hit must parse");
+        assert_eq!(hit.hit_type, "VIDEOS");
+        assert_eq!(hit.artist_name.as_deref(), Some("Kendrick Lamar"));
+        assert_eq!(
+            hit.image.as_deref(),
+            Some("aabbccdd-1122-3344-5566-778899aabbcc")
+        );
+        assert_eq!(hit.duration, Some(274));
+        assert!(hit.track.is_none(), "a video is not a track");
+    }
+
+    /// The wire contract src/types.ts DirectHitItem.video relies on.
+    #[test]
+    fn serialized_video_hit_exposes_artists_and_explicit() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({
+            "explicit": true
+        })))
+        .expect("VIDEOS hit must parse");
+        let wire: serde_json::Value = serde_json::to_value(&hit).expect("must serialize");
+        let video = &wire["video"];
+        assert_eq!(video["explicit"], serde_json::json!(true));
+        assert_eq!(
+            video["imageId"],
+            serde_json::json!("aabbccdd-1122-3344-5566-778899aabbcc")
+        );
+        let artists = video["artists"].as_array().expect("artists[] on the wire");
+        assert_eq!(artists.len(), 2);
+        assert_eq!(artists[1]["name"], serde_json::json!("Someone Else"));
+        assert!(wire.get("track").is_none(), "a video carries no track key");
+    }
+
+    /// A value too partial to satisfy TidalVideo must not abort the hit.
+    #[test]
+    fn partial_video_value_falls_back_to_the_flat_projection() {
+        let partial = serde_json::json!({
+            "type": "VIDEOS",
+            "value": { "title": "No Id Here", "artists": [{ "id": 1, "name": "A" }] }
+        });
+        let hit = DirectHitItem::from_typed_value(&partial).expect("hit must still parse");
+        assert!(hit.video.is_none(), "TidalVideo needs an id");
+        assert_eq!(hit.artist_name.as_deref(), Some("A"));
+    }
+
+    /// Non-track hit types have no track entity to carry.
+    #[test]
+    fn non_track_hits_carry_no_track() {
+        let album = serde_json::json!({
+            "type": "ALBUMS",
+            "value": { "id": 401317276, "title": "GNX", "cover": "faef7f4f" }
+        });
+        let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
+        assert!(hit.track.is_none());
     }
 }

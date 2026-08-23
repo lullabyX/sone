@@ -5,6 +5,7 @@ import {
   getItemTitle,
   getItemSubtitle,
 } from "../utils/itemHelpers";
+import ExplicitBadge from "./ExplicitBadge";
 
 interface MediaCardProps {
   item: any;
@@ -18,6 +19,10 @@ interface MediaCardProps {
   /** Thumbnail aspect — "square" (default), "video" (16:9), or "promo" (a bit taller, for Featured cards). */
   aspect?: "square" | "video" | "promo";
   showPlayButton?: boolean;
+  /** Show an explicit badge beside the title when `item.explicit` is set.
+   *  Off by default: badges are otherwise a list-row convention here, and most
+   *  card surfaces (home rows, favorites, library) deliberately go without. */
+  showExplicit?: boolean;
   /** Card width class — defaults to full-width (grid-controlled). Use "card-scroll-item" for horizontal scroll rows. */
   widthClass?: string;
   /** Pass current user ID to show "By You" for own playlists */
@@ -43,6 +48,7 @@ export default function MediaCard({
   isArtist = false,
   aspect = "square",
   showPlayButton = true,
+  showExplicit = false,
   widthClass,
   userId,
   titleOverride,
@@ -177,13 +183,26 @@ export default function MediaCard({
         </p>
       )}
       {/* Title */}
-      <h4
-        className={`font-bold text-[14px] text-th-text-primary truncate mb-1 ${
-          isArtist ? "text-center" : ""
-        }`}
-      >
-        {title}
-      </h4>
+      {showExplicit && item.explicit ? (
+        <div
+          className={`flex items-center gap-1.5 min-w-0 mb-1 ${
+            isArtist ? "justify-center" : ""
+          }`}
+        >
+          <h4 className="font-bold text-[14px] text-th-text-primary truncate">
+            {title}
+          </h4>
+          <ExplicitBadge />
+        </div>
+      ) : (
+        <h4
+          className={`font-bold text-[14px] text-th-text-primary truncate mb-1 ${
+            isArtist ? "text-center" : ""
+          }`}
+        >
+          {title}
+        </h4>
+      )}
       {/* Subtitle */}
       {subtitle && (
         <p
