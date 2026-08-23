@@ -9,7 +9,7 @@ function numberingWidth(trackCount: number): number {
 }
 
 function albumOutput(trackCount = 0): string {
-  return `{album.artist}/{album.title}/{item.number:0${numberingWidth(trackCount)}d} - {item.title}`;
+  return `{album.artist}/{album.title} ({album.date:%Y})/{item.number:0${numberingWidth(trackCount)}d} - {item.title}`;
 }
 
 function playlistOutput(trackCount = 0): string {

@@ -65,6 +65,9 @@ describe("useDownloadQueue", () => {
     });
     await waitFor(() => expect(store.get(downloadQueueAtom)[0].resolutionStatus).toBe("ready"));
     expect(store.get(downloadQueueAtom)[0].resolvedItems).toHaveLength(2);
+    expect(store.get(downloadQueueAtom)[0].output).toBe(
+      "{album.artist}/{album.title} ({album.date:%Y})/{item.number:02d} - {item.title}",
+    );
     expect(Object.values(store.get(downloadItemsAtom))).toMatchObject([
       { title: "First", status: "pending" },
       { title: "Second", status: "pending" },

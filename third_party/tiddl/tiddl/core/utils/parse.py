@@ -46,10 +46,14 @@ def parse_manifest_XML(xml_content: str):
             total += int(count)
 
     start_number = int(segmentElement.get("startNumber", "1"))
-    urls = [
+    urls = []
+    initialization_url = segmentElement.get("initialization")
+    if initialization_url:
+        urls.append(initialization_url)
+    urls.extend(
         url_template.replace("$Number$", str(i))
         for i in range(start_number, start_number + total)
-    ]
+    )
 
     return urls, codecs
 
