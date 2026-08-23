@@ -18,11 +18,24 @@ def parse_manifest_XML(xml_content: str):
 
     tree = fromstring(xml_content)
 
-    representationElement = tree.find(
-        f"{NS}Period/{NS}AdaptationSet/{NS}Representation"
-    )
-    if representationElement is None:
+    adaptation_set = tree.find(f"{NS}Period/{NS}AdaptationSet")
+    if adaptation_set is None:
         raise ValueError("Representation element not found")
+
+    representations = adaptation_set.findall(f"{NS}Representation")
+    if not representations:
+        raise ValueError("Representation element not found")
+
+    # TIDAL can include an AAC fallback before the lossless representation.
+    # Prefer FLAC so a lossless DASH response is not silently saved as AAC.
+    representationElement = next(
+        (
+            representation
+            for representation in representations
+            if representation.get("codecs", "").lower().startswith("flac")
+        ),
+        representations[0],
+    )
 
     codecs = representationElement.get("codecs", "")
 

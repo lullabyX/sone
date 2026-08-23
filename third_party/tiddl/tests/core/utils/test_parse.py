@@ -65,6 +65,19 @@ def test_parses_dash_flac_track_manifest_as_m4a_container():
     )
 
 
+def test_parses_lossless_dash_representation_after_aac_fallback():
+    stream = track_stream(
+        """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><Period><AdaptationSet><Representation codecs="mp4a.40.2"><SegmentTemplate initialization="https://media.invalid/aac-init.mp4" media="https://media.invalid/aac-$Number$.m4s"><SegmentTimeline><S d="1" /></SegmentTimeline></SegmentTemplate></Representation><Representation codecs="flac"><SegmentTemplate initialization="https://media.invalid/flac-init.mp4" media="https://media.invalid/flac-$Number$.m4s"><SegmentTimeline><S d="1" /></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>""",
+        "application/dash+xml",
+        "HI_RES_LOSSLESS",
+    )
+
+    assert parse.parse_track_stream(stream) == (
+        ["https://media.invalid/flac-init.mp4", "https://media.invalid/flac-1.m4s"],
+        ".m4a",
+    )
+
+
 def test_parses_dash_track_manifest_with_the_declared_segment_numbers():
     stream = track_stream(
         """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><Period><AdaptationSet><Representation codecs="mp4a.40.2"><SegmentTemplate initialization="https://media.invalid/init.mp4" startNumber="7" media="https://media.invalid/$Number$.m4s"><SegmentTimeline><S d="1" r="1" /></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>""",
