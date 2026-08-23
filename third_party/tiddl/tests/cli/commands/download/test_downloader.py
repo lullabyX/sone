@@ -31,7 +31,13 @@ class Api:
         )
 
 
-def test_download_preserves_the_source_container(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize(
+    ("container_extension", "expected_filename"),
+    [(".flac", "song.flac"), (".m4a", "song.m4a")],
+)
+def test_download_preserves_the_manifest_container(
+    tmp_path: Path, monkeypatch, container_extension: str, expected_filename: str
+):
     downloader = Downloader(
         tidal_api=Api(),
         threads_count=1,
@@ -86,13 +92,13 @@ def test_download_preserves_the_source_container(tmp_path: Path, monkeypatch):
     async def no_total(*_):
         return None
 
-    monkeypatch.setattr("tiddl.cli.commands.download.downloader.parse_track_stream", lambda _: (["https://media.invalid/track"], ".m4a"))
+    monkeypatch.setattr("tiddl.cli.commands.download.downloader.parse_track_stream", lambda _: (["https://media.invalid/track"], container_extension))
     monkeypatch.setattr("tiddl.cli.commands.download.downloader.aiohttp.ClientSession", lambda **_: Session())
     monkeypatch.setattr(downloader, "get_total_bytes", no_total)
 
     result = asyncio.run(downloader.download(track, Path("song.flac"), "item-1"))
 
-    assert result.path == tmp_path / "song.m4a"
+    assert result.path == tmp_path / expected_filename
     assert result.path.read_bytes() == b"source-container-bytes"
 
 

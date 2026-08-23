@@ -67,7 +67,7 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
     | LOW             | m4a        | application/vnd.tidal.bts | audio/mp4  |
     | HIGH            | m4a        | application/vnd.tidal.bts | audio/mp4  |
     | LOSSLESS        | flac       | application/vnd.tidal.bts | audio/flac |
-    | HI_RES_LOSSLESS | m4a        | application/dash+xml      | audio/mp4  |
+    | HI_RES_LOSSLESS | flac or m4a| application/dash+xml      | varies     |
     """
 
     class TrackManifest(BaseModel):
@@ -88,8 +88,6 @@ def parse_track_stream(track_stream: TrackStream) -> tuple[list[str], str]:
 
     if codecs == "flac":
         file_extension = ".flac"
-        if track_stream.audioQuality == "HI_RES_LOSSLESS":
-            file_extension = ".m4a"
     elif codecs.startswith("mp4") or codecs in DOLBY_CODECS:
         file_extension = ".m4a"
     else:

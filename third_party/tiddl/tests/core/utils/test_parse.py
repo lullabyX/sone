@@ -37,6 +37,21 @@ def test_parses_bts_track_manifest():
     assert parse.parse_track_stream(stream) == (["https://media.invalid/track"], ".flac")
 
 
+def test_parses_hi_res_flac_track_manifest():
+    stream = track_stream(
+        {
+            "mimeType": "audio/flac",
+            "codecs": "flac",
+            "encryptionType": "NONE",
+            "urls": ["https://media.invalid/track"],
+        },
+        "application/vnd.tidal.bts",
+        "HI_RES_LOSSLESS",
+    )
+
+    assert parse.parse_track_stream(stream) == (["https://media.invalid/track"], ".flac")
+
+
 def test_parses_dash_track_manifest_with_the_declared_segment_numbers():
     stream = track_stream(
         """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><Period><AdaptationSet><Representation codecs="mp4a.40.2"><SegmentTemplate initialization="https://media.invalid/init.mp4" startNumber="7" media="https://media.invalid/$Number$.m4s"><SegmentTimeline><S d="1" r="1" /></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>""",
