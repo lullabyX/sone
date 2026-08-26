@@ -226,41 +226,41 @@ textarea {
 
 @keyframes lovedDrift1 {
   0% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   33% {
-    transform: translate3d(26%, 12%, 0) scale(1.18);
+    transform: translate3d(26%, 12%, 0);
   }
   66% {
-    transform: translate3d(12%, -10%, 0) scale(0.92);
+    transform: translate3d(12%, -10%, 0);
   }
   100% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 @keyframes lovedDrift2 {
   0% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   50% {
-    transform: translate3d(-30%, 14%, 0) scale(1.22);
+    transform: translate3d(-30%, 14%, 0);
   }
   100% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 @keyframes lovedDrift3 {
   0% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   40% {
-    transform: translate3d(-22%, -14%, 0) scale(1.12);
+    transform: translate3d(-22%, -14%, 0);
   }
   80% {
-    transform: translate3d(20%, 10%, 0) scale(0.9);
+    transform: translate3d(20%, 10%, 0);
   }
   100% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
