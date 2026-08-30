@@ -4,7 +4,7 @@ import PlayerBar from "./PlayerBar";
 import NowPlayingDrawer from "./NowPlayingDrawer";
 import TitleBar from "./TitleBar";
 import ResizeEdges from "./ResizeEdges";
-import { ReactNode, useRef, useEffect, useCallback } from "react";
+import { ReactNode, useRef, useState, useEffect, useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { currentViewAtom } from "../atoms/navigation";
 import {
@@ -16,13 +16,20 @@ import MaximizedPlayer from "./MaximizedPlayer";
 import VideoPlayer from "./VideoPlayer";
 import { currentVideoAtom, videoExpandedAtom } from "../atoms/video";
 import { useMiniplayerEmitter } from "../hooks/useMiniplayerEmitter";
+import { useScrollRestoration } from "../hooks/useScrollRestoration";
+import { PageScrollProvider } from "../contexts/PageScrollContext";
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const setScrollNode = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
   const currentView = useAtomValue(currentViewAtom);
   const maximized = useAtomValue(maximizedPlayerAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
@@ -35,9 +42,22 @@ export default function Layout({ children }: LayoutProps) {
   const hideTitleBar = useAtomValue(hideTitleBarAtom);
 
   useMiniplayerEmitter();
+  useScrollRestoration(scrollRef);
 
+  // The container has to own focus for bare arrow keys to scroll it, and
+  // nothing else would give it focus before the first click; `preventScroll`
+  // keeps that focus from scrolling the container out from under a restore.
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, 0);
+    const el = scrollRef.current;
+    if (!el) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    ) {
+      return;
+    }
+    el.focus({ preventScroll: true });
   }, [currentView]);
 
   // ── Middle-mouse autoscroll (Chrome-style) ──
@@ -111,11 +131,14 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex-1 flex flex-col min-w-0 bg-th-base">
           <Header />
           <div
-            ref={scrollRef}
+            ref={setScrollNode}
             onMouseDown={onMouseDown}
-            className="flex-1 overflow-y-auto custom-scrollbar relative"
+            tabIndex={-1}
+            className="flex-1 overflow-y-auto custom-scrollbar relative outline-none"
           >
-            {children}
+            <PageScrollProvider element={scrollEl}>
+              {children}
+            </PageScrollProvider>
           </div>
         </div>
       </div>

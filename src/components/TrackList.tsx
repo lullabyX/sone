@@ -32,6 +32,7 @@ import { favoriteTrackIdsAtom, favoriteVideoIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
 import { useToast } from "../contexts/ToastContext";
+import { usePageScrollElement } from "../contexts/PageScrollContext";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import { TrackArtists } from "./TrackArtists";
 
@@ -62,16 +63,6 @@ interface TrackListProps {
   /** When true, rows render through @tanstack/react-virtual. Only paginated
    * callers (Loved tracks, Playlists) use this. */
   virtualize?: boolean;
-}
-
-function findScrollParent(el: HTMLElement | null): HTMLElement | null {
-  let cur: HTMLElement | null = el?.parentElement ?? null;
-  while (cur) {
-    const overflowY = getComputedStyle(cur).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll") return cur;
-    cur = cur.parentElement;
-  }
-  return null;
 }
 
 function formatDuration(seconds: number): string {
@@ -488,25 +479,25 @@ function VirtualTrackRows({
   loadingMore,
 }: VirtualTrackRowsProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const scrollEl = usePageScrollElement();
   const [scrollMargin, setScrollMargin] = useState(0);
 
-  // Locate the page scroll container by walking up from this list.
-  useLayoutEffect(() => {
-    const el = findScrollParent(parentRef.current);
-    setScrollEl(el);
-  }, []);
-
   // Maintain scrollMargin: the list's offset within the scroll container.
-  // Re-measures when own list, page content above, or scroll element resizes.
+  // Summed from the offsetParent chain rather than from rects plus scrollTop:
+  // the rows this value positions, and the overflow they create, feed back into
+  // the parent's rect, so a rect-derived margin diverges as the user scrolls
+  // (736 -> 503 -> -1311 -> -3689 was the observed decay, which translated every
+  // row thousands of pixels off-screen). offsetTop excludes scroll entirely.
+  // Relies on Layout's container being a positioned ancestor, which it is.
   useLayoutEffect(() => {
     if (!parentRef.current || !scrollEl) return;
     const measure = () => {
-      if (!parentRef.current) return;
-      const top =
-        parentRef.current.getBoundingClientRect().top -
-        scrollEl.getBoundingClientRect().top +
-        scrollEl.scrollTop;
+      let node: HTMLElement | null = parentRef.current;
+      let top = 0;
+      for (let hops = 0; node && node !== scrollEl && hops < 32; hops++) {
+        top += node.offsetTop;
+        node = node.offsetParent as HTMLElement | null;
+      }
       setScrollMargin(top);
     };
     measure();
@@ -519,6 +510,10 @@ function VirtualTrackRows({
     return () => ro.disconnect();
   }, [scrollEl]);
 
+  // Load-bearing for the page's scrollHeight: 60 = a 40px cover + 20px py-2.5.
+  // If this drifts from a real row's height the scrollbar shifts under a restore.
+  // The 48 branch is unexercised — no caller passes no-cover — and is not
+  // derived; a real no-cover row is ~50px with showArtist, ~58px without.
   const rowHeight = showCover ? 60 : 48;
 
   const virtualizer = useVirtualizer({
@@ -527,6 +522,11 @@ function VirtualTrackRows({
     estimateSize: () => rowHeight,
     overscan: 8,
     scrollMargin,
+    // The virtualizer scrolls its element to initialOffset once on attach, and
+    // the default 0 would wipe a restored offset the moment this list mounts.
+    // Resolved once and memoised on first read, so this relies on Layout's
+    // element already being attached before any virtualized list first renders.
+    initialOffset: () => scrollEl?.scrollTop ?? 0,
     getItemKey: (i) => tracks[i]?.id ?? i,
   });
 
@@ -551,7 +551,10 @@ function VirtualTrackRows({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, onLoadMore]);
+    // tracks.length re-arms the observer on growth: a restored offset can park
+    // the viewport at max scroll with the sentinel already inside it, and
+    // IntersectionObserver reports only crossings, never a standing overlap.
+  }, [hasMore, onLoadMore, tracks.length]);
 
   return (
     <>
@@ -567,9 +570,11 @@ function VirtualTrackRows({
           const track = tracks[v.index];
           if (!track) return null;
           return (
+            // Deliberately unmeasured: estimateSize is exact for a fixed-height
+            // row, and a hidden list would measure every row as 0 and make the
+            // virtualizer scroll-adjust the shared container.
             <div
               key={v.key}
-              ref={virtualizer.measureElement}
               data-index={v.index}
               style={{
                 position: "absolute",
@@ -722,7 +727,7 @@ export default memo(function TrackList({
     }
 
     return () => observerRef.current?.disconnect();
-  }, [hasMore, onLoadMore, virtualize]);
+  }, [hasMore, onLoadMore, virtualize, tracks.length]);
 
   // Build grid columns string
   const gridCols = useMemo(

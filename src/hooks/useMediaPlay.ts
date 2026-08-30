@@ -78,6 +78,11 @@ export function useMediaPlay() {
           const result = await playTrack(first);
           if (!result.ok && result.reason === "unplayable") {
             await playNext({ explicit: true });
+          } else if (!result.ok && result.reason === "rate-limited") {
+            // The queue was set to `rest`, and playTrack's auto-resume is a
+            // playNext() — put `first` back at the head so the retry replays
+            // the track the user clicked instead of the one after it.
+            setQueueTracks([first, ...rest], source ? { source } : undefined);
           }
         }
       } catch (err) {

@@ -20,8 +20,12 @@ import {
 import {
   videoToTrack,
   buildMediaItem,
+  buildTrackFromHit,
+  buildVideoTrackFromHit,
   getArtistImage,
+  getTrackArtistDisplay,
 } from "../utils/itemHelpers";
+import ExplicitBadge from "./ExplicitBadge";
 import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
@@ -39,6 +43,8 @@ const TABS: { id: SearchTab; label: string }[] = [
   { id: "albums", label: "Albums" },
   { id: "artists", label: "Artists" },
 ];
+
+const TAB_IDS: readonly SearchTab[] = TABS.map((t) => t.id);
 
 interface SearchViewProps {
   query: string;
@@ -71,7 +77,10 @@ export default function SearchView({
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useViewTab<SearchTab>(initialTab ?? "all");
+  const [activeTab, setActiveTab] = useViewTab<SearchTab>(
+    initialTab ?? "all",
+    TAB_IDS,
+  );
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -192,6 +201,7 @@ export default function SearchView({
         key={video.id}
         item={video}
         aspect="video"
+        showExplicit
         onClick={() => handlePlayVideo(video)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -477,37 +487,12 @@ export default function SearchView({
               <TopHitsList
                 topHits={results.topHits || []}
                 onPlayTrack={(hit) => {
-                  const trackObj: Track = {
-                    id: hit.id || 0,
-                    title: hit.title || "",
-                    duration: hit.duration || 0,
-                    artist: hit.artistName
-                      ? { id: 0, name: hit.artistName }
-                      : undefined,
-                    album: hit.albumId
-                      ? {
-                          id: hit.albumId,
-                          title: hit.albumTitle || "",
-                          cover: hit.albumCover,
-                        }
-                      : undefined,
-                  };
                   setQueueTracks([]);
-                  playTrack(trackObj);
+                  playTrack(buildTrackFromHit(hit));
                 }}
                 onPlayVideo={(hit) => {
-                  const videoTrack: Track = {
-                    id: hit.id || 0,
-                    title: hit.title || "",
-                    itemType: "video",
-                    imageId: hit.image,
-                    duration: hit.duration || 0,
-                    artist: hit.artistName
-                      ? { id: 0, name: hit.artistName }
-                      : undefined,
-                  };
                   setQueueTracks([]);
-                  playTrack(videoTrack);
+                  playTrack(buildVideoTrackFromHit(hit));
                 }}
                 onAlbumClick={(hit) => {
                   if (hit.id)
@@ -730,21 +715,11 @@ function TopHitsList({
     );
   }
 
-  const buildTrackObj = (hit: DirectHitItem): Track => ({
-    id: hit.id || 0,
-    title: hit.title || "",
-    duration: hit.duration || 0,
-    artist: hit.artistName ? { id: 0, name: hit.artistName } : undefined,
-    album: hit.albumId
-      ? { id: hit.albumId, title: hit.albumTitle || "", cover: hit.albumCover }
-      : undefined,
-  });
-
   return (
     <div className="flex flex-col">
       {topHits.map((hit, idx) => {
         if (hit.hitType === "TRACKS") {
-          const trackObj = buildTrackObj(hit);
+          const trackObj = buildTrackFromHit(hit);
           return (
             <div
               key={`th-${idx}`}
@@ -777,11 +752,14 @@ function TopHitsList({
                 </div>
               </button>
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-[14px] text-th-text-primary truncate">
-                  {hit.title}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[14px] text-th-text-primary truncate">
+                    {hit.title}
+                  </span>
+                  {trackObj.explicit && <ExplicitBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-faint truncate">
-                  Track &middot; {hit.artistName || "Unknown Artist"}
+                  Track &middot; {getTrackArtistDisplay(trackObj)}
                 </p>
               </div>
               <button
@@ -818,6 +796,7 @@ function TopHitsList({
           );
         }
         if (hit.hitType === "VIDEOS") {
+          const videoTrack = buildVideoTrackFromHit(hit);
           const videoMedia: MediaItemType = {
             type: "video",
             id: hit.id || 0,
@@ -855,11 +834,14 @@ function TopHitsList({
                 </div>
               </button>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate">
-                  {hit.title}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[14px] text-th-text-primary truncate">
+                    {hit.title}
+                  </span>
+                  {videoTrack.explicit && <ExplicitBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-faint truncate">
-                  Video &middot; {hit.artistName || "Unknown Artist"}
+                  Video &middot; {getTrackArtistDisplay(videoTrack)}
                 </p>
               </div>
               <button

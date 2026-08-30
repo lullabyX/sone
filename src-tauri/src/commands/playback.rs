@@ -69,6 +69,11 @@ pub async fn resolve_play_uri(
                     break;
                 }
                 Err(e) if e.is_network() => return Err(e),
+                // A rate-limit or a terminal-unplayable answer will not change
+                // at a lower tier — over-requesting quality returns 200 with a
+                // downgraded audioQuality, never an error. Walking the rest of
+                // the cascade only multiplies the request count by 4.
+                Err(e) if e.is_rate_limited() || e.is_terminal_unplayable() => return Err(e),
                 Err(e) => last_err = Some(e),
             }
         }
@@ -487,6 +492,7 @@ pub fn update_mpris_loop_status(
 #[cfg(test)]
 mod tests {
     use super::quality_tiers;
+    use crate::SoneError;
 
     #[test]
     fn ceiling_max_with_secret_is_full_cascade() {
@@ -530,5 +536,61 @@ mod tests {
                 assert!(tiers.contains(&"HIGH"), "ceiling={ceiling} secret={has_secret}");
             }
         }
+    }
+
+    #[test]
+    fn terminal_and_rate_limited_errors_are_classified() {
+        let rl = SoneError::Api {
+            status: 429,
+            body: String::new(),
+        };
+        assert!(rl.is_rate_limited());
+        assert!(!rl.is_terminal_unplayable());
+
+        let missing = SoneError::Api {
+            status: 404,
+            body: String::new(),
+        };
+        assert!(missing.is_terminal_unplayable());
+        assert!(!missing.is_rate_limited());
+
+        let gone = SoneError::Api {
+            status: 410,
+            body: String::new(),
+        };
+        assert!(gone.is_terminal_unplayable());
+        assert!(!gone.is_rate_limited());
+
+        let blocked = SoneError::Api {
+            status: 451,
+            body: String::new(),
+        };
+        assert!(blocked.is_terminal_unplayable());
+        assert!(!blocked.is_rate_limited());
+
+        let asset = SoneError::Api {
+            status: 401,
+            body: r#"{"status":401,"subStatus":4005}"#.into(),
+        };
+        assert!(asset.is_terminal_unplayable());
+
+        let expired = SoneError::Api {
+            status: 401,
+            body: r#"{"status":401,"subStatus":11003}"#.into(),
+        };
+        assert!(!expired.is_terminal_unplayable());
+
+        let bare_401 = SoneError::Api {
+            status: 401,
+            body: String::new(),
+        };
+        assert!(!bare_401.is_terminal_unplayable());
+
+        let server = SoneError::Api {
+            status: 500,
+            body: String::new(),
+        };
+        assert!(!server.is_rate_limited());
+        assert!(!server.is_terminal_unplayable());
     }
 }

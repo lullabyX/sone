@@ -25,12 +25,21 @@ export type PendingNext = {
 
 let cachedSupported: boolean | null = null;
 
+const FAILURE_MEMO_MS = 10_000;
+
 export function useGaplessPrefetch(
   predictNextTrack: () => Track | null,
   pendingNextRef: React.MutableRefObject<PendingNext | null>,
 ) {
   const store = useStore();
   const genRef = useRef(0);
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(false);
+  const failedRef = useRef<{
+    trackId: number;
+    qid: string;
+    until: number;
+  } | null>(null);
 
   const clearSlot = useCallback(async () => {
     pendingNextRef.current = null;
@@ -80,6 +89,26 @@ export function useGaplessPrefetch(
     ) {
       return;
     }
+    // A track that just failed to resolve must not be retried on every queue
+    // mutation — the background paginator writes queueAtom once per page, and
+    // without this each page re-runs the full quality-tier cascade.
+    const failed = failedRef.current;
+    if (
+      failed &&
+      failed.trackId === next.id &&
+      failed.qid === qid &&
+      Date.now() < failed.until
+    ) {
+      return;
+    }
+    // Coalesce rather than drop: with shuffle on, the predicted next genuinely
+    // changes mid-flight, and a dropped refresh would leave the slot armed with
+    // the wrong track until some later atom write.
+    if (inFlightRef.current) {
+      queuedRef.current = true;
+      return;
+    }
+    inFlightRef.current = true;
     try {
       const info = await invoke<StreamInfo>("set_next_track", {
         trackId: next.id,
@@ -87,6 +116,7 @@ export function useGaplessPrefetch(
         useTrackGain: store.get(useTrackGainAtom),
       });
       if (gen !== genRef.current) return; // superseded
+      failedRef.current = null;
       pendingNextRef.current = {
         trackId: next.id,
         qid,
@@ -94,7 +124,18 @@ export function useGaplessPrefetch(
         streamInfo: info,
       };
     } catch {
-      /* best-effort */
+      if (gen !== genRef.current) return; // superseded
+      failedRef.current = {
+        trackId: next.id,
+        qid,
+        until: Date.now() + FAILURE_MEMO_MS,
+      };
+    } finally {
+      inFlightRef.current = false;
+      if (queuedRef.current) {
+        queuedRef.current = false;
+        void refresh();
+      }
     }
   }, [store, predictNextTrack, clearSlot, pendingNextRef]);
 
@@ -115,7 +156,10 @@ export function useGaplessPrefetch(
     const subs = [
       store.sub(manualQueueAtom, refreshDebounced),
       store.sub(queueAtom, refreshDebounced),
-      store.sub(currentTrackAtom, refreshDebounced),
+      store.sub(currentTrackAtom, () => {
+        failedRef.current = null;
+        refreshDebounced();
+      }),
       store.sub(repeatAtom, refreshDebounced),
       store.sub(shuffleAtom, refreshDebounced),
       store.sub(autoplayAtom, refreshDebounced),

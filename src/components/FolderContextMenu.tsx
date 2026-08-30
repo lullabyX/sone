@@ -10,6 +10,9 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useToast } from "../contexts/ToastContext";
 import { useFolders } from "../hooks/useFolders";
 import { useContextMenu } from "../hooks/useContextMenu";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
+import { replaceView } from "../lib/scrollMemory";
 import { currentViewAtom } from "../atoms/navigation";
 import { CreatePlaylistModal } from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
@@ -49,14 +52,7 @@ function RenameFolderModal({
     }
   }, []);
 
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeDismiss(true, onClose, DISMISS_PRIORITY.contextMenu);
 
   const canSave = name.trim().length > 0 && name.trim() !== currentName;
 
@@ -176,8 +172,7 @@ export default function FolderContextMenu({
         currentView.type === "libraryViewAll" &&
         currentView.folderId === folderId
       ) {
-        const homeView = { type: "home" as const };
-        window.history.replaceState(homeView, "");
+        const homeView = replaceView({ type: "home" });
         startTransition(() => setCurrentView(homeView));
       }
     } catch {

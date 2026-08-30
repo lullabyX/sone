@@ -33,6 +33,8 @@ import {
 import { useVideoPlayback, type VideoQuality } from "../hooks/useVideoPlayback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useFavorites } from "../hooks/useFavorites";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import {
   volumeAtom,
   shuffleAtom,
@@ -460,13 +462,11 @@ export default function VideoPlayer() {
     return () => clearTimeout(hideTimerRef.current);
   }, [resetHideTimer]);
 
-  // ESC closes (exits fullscreen first if active) — but only when the overlay is
-  // actually on screen. A minimized/background video must survive an ESC meant for
-  // dismissing a menu, search box, or other UI.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (!expanded) return;
+  // Escape exits fullscreen first, then closes. Registering on `expanded` is what
+  // keeps a minimized background video from swallowing the key.
+  useEscapeDismiss(
+    expanded,
+    () => {
       if (fullscreen) {
         setFullscreen(false);
         getCurrentWindow()
@@ -475,10 +475,9 @@ export default function VideoPlayer() {
         return;
       }
       closeVideo();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [expanded, fullscreen, setFullscreen, closeVideo]);
+    },
+    DISMISS_PRIORITY.overlay,
+  );
 
   if (!video) return null;
 

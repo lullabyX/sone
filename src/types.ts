@@ -210,7 +210,7 @@ export type SearchTab =
   | "albums"
   | "artists";
 
-export type AppView =
+type ViewTarget =
   | { type: "home" }
   | {
       type: "album";
@@ -276,6 +276,11 @@ export type AppView =
       profileName: string;
     };
 
+export type AppView = ViewTarget & {
+  __navId?: number;
+  __navSession?: string;
+};
+
 export interface SearchResults {
   artists: {
     id: number;
@@ -309,6 +314,13 @@ export interface DirectHitItem {
   albumCover?: string;
   duration?: number;
   numberOfTracks?: number;
+  /** Present on TRACKS hits: the complete track entity, carrying the artists[],
+   *  explicit flag and album vibrantColor the flat fields above have no room for.
+   *  Read it via buildTrackFromHit() rather than re-projecting the flat fields. */
+  track?: Track;
+  /** Present on VIDEOS hits: the complete video entity, for the same reason.
+   *  Read it via buildVideoTrackFromHit(). */
+  video?: TidalVideo;
 }
 
 export interface SuggestionTextItem {

@@ -14,6 +14,8 @@ import { useAtom, useAtomValue } from "jotai";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "../hooks/useNavigation";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import {
   exclusiveModeAtom,
   bitPerfectAtom,
@@ -23,6 +25,7 @@ import { currentUserAvatarAtom } from "../atoms/auth";
 import { useToast } from "../contexts/ToastContext";
 import {
   ACTION_REGISTRY,
+  FIXED_KEY_DOCS,
   DEFAULT_BINDINGS,
   shortcutsAtom,
   formatCombo,
@@ -61,7 +64,12 @@ export default function UserMenu() {
 
   // Toggle shortcuts modal from ? key
   useEffect(() => {
-    const handler = () => setShortcutsOpen((prev) => !prev);
+    // Close the dropdown too — left open it sits above the modal on the
+    // dismissal stack and eats the first Escape.
+    const handler = () => {
+      setOpen(false);
+      setShortcutsOpen((prev) => !prev);
+    };
     window.addEventListener("toggle-shortcuts", handler);
     return () => window.removeEventListener("toggle-shortcuts", handler);
   }, []);
@@ -134,18 +142,24 @@ export default function UserMenu() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Close dropdown on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        setDeviceDropdownOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open]);
+  useEscapeDismiss(
+    open,
+    () => {
+      setOpen(false);
+      setDeviceDropdownOpen(false);
+    },
+    DISMISS_PRIORITY.contextMenu,
+  );
+
+  useEscapeDismiss(
+    shortcutsOpen,
+    () => {
+      setShortcutsOpen(false);
+      setEditingId(null);
+      setReservedHint(false);
+    },
+    DISMISS_PRIORITY.modal,
+  );
 
   const menuItemClass =
     "w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-th-text-secondary hover:text-th-text-primary hover:bg-th-border-subtle transition-colors";
@@ -378,15 +392,26 @@ export default function UserMenu() {
             <div className="px-5 pb-3 flex flex-col gap-0.5 overflow-y-auto min-h-0">
               {ACTION_REGISTRY.map((action) => {
                 const isEditing = editingId === action.id;
-                const binding = bindings[action.id];
+                const binding = action.fixed
+                  ? action.default
+                  : bindings[action.id];
                 return (
                   <div
                     key={action.id}
-                    onDoubleClick={() => {
-                      setReservedHint(false);
-                      setEditingId(action.id);
-                    }}
-                    className="flex items-center justify-between py-2 px-2 rounded hover:bg-th-inset cursor-pointer select-none"
+                    title={action.fixed ? "Not rebindable" : undefined}
+                    onDoubleClick={
+                      action.fixed
+                        ? undefined
+                        : () => {
+                            setReservedHint(false);
+                            setEditingId(action.id);
+                          }
+                    }
+                    className={`flex items-center justify-between py-2 px-2 rounded select-none ${
+                      action.fixed
+                        ? "opacity-60"
+                        : "hover:bg-th-inset cursor-pointer"
+                    }`}
                   >
                     <span className="text-[13px] text-th-text-secondary">
                       {action.label}
@@ -409,6 +434,20 @@ export default function UserMenu() {
                   </div>
                 );
               })}
+              {FIXED_KEY_DOCS.map((doc) => (
+                <div
+                  key={doc.label}
+                  title="Not rebindable"
+                  className="flex items-center justify-between py-2 px-2 rounded select-none opacity-60"
+                >
+                  <span className="text-[13px] text-th-text-secondary">
+                    {doc.label}
+                  </span>
+                  <kbd className="text-[12px] font-mono px-2.5 py-1 rounded-md border bg-th-surface text-th-text-muted border-th-border-subtle">
+                    {formatCombo(doc.combo)}
+                  </kbd>
+                </div>
+              ))}
             </div>
             <div className="border-t border-th-border-subtle px-5 py-3 flex justify-between items-center">
               <span className="text-[11px] text-th-text-muted">

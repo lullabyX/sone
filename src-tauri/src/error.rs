@@ -51,6 +51,26 @@ impl SoneError {
         matches!(self, SoneError::Network(_))
     }
 
+    /// Upstream is rate-limiting us. Never retry in a loop — a 429 is usually
+    /// self-inflicted, so the fix is to stop asking.
+    pub fn is_rate_limited(&self) -> bool {
+        matches!(self, SoneError::Api { status: 429, .. })
+    }
+
+    /// This specific item cannot be played and no retry will change that.
+    /// 404/410/451 are catalog/licensing terminal; a 401 is terminal only when
+    /// its body carries a terminal playbackinfo sub-status.
+    pub fn is_terminal_unplayable(&self) -> bool {
+        match self {
+            SoneError::Api {
+                status: 404 | 410 | 451,
+                ..
+            } => true,
+            SoneError::Api { status: 401, body } => crate::tidal_api::is_terminal_sub_status(body),
+            _ => false,
+        }
+    }
+
     /// A log-safe message that omits API response bodies (which may carry
     /// account data for `/users/` and `/sessions` endpoints). Logs only the
     /// status for API errors; other variants carry no server response body.

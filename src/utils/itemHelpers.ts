@@ -1,6 +1,7 @@
 import {
   getTidalImageUrl,
   getTidalArtistImageUrl,
+  type DirectHitItem,
   type MediaItemType,
   type StreamInfo,
   type Track,
@@ -346,15 +347,54 @@ export function trackCoverId(track: Track): string | undefined {
   return track.itemType === "video" ? track.imageId : track.album?.cover;
 }
 
-/** Return comma-separated artist names for a track (plain text, no links). */
-export function getTrackArtistDisplay(track: {
-  artist?: { name?: string };
-  artists?: { name: string }[];
-}): string {
+/** A search direct-hit / top-hit as a playable Track.
+ *  The API returns a complete track entity on TRACKS hits, so prefer it — the
+ *  flat `DirectHitItem` fields cannot express multiple artists, the explicit
+ *  flag or the album's vibrantColor, and rebuilding from them loses all three.
+ *  Falls back to the flat fields for a payload too partial to deserialize. */
+export function buildTrackFromHit(hit: DirectHitItem): Track {
+  if (hit.track) return hit.track;
+  return {
+    id: hit.id || 0,
+    title: hit.title || "",
+    duration: hit.duration || 0,
+    artist: hit.artistName ? { id: 0, name: hit.artistName } : undefined,
+    album: hit.albumId
+      ? { id: hit.albumId, title: hit.albumTitle || "", cover: hit.albumCover }
+      : undefined,
+  };
+}
+
+/** A search VIDEOS top-hit as a queue-ready Track.
+ *  Same reasoning as buildTrackFromHit: prefer the full video entity, whose
+ *  artists[] and explicit flag the flat fields cannot express. */
+export function buildVideoTrackFromHit(hit: DirectHitItem): Track {
+  if (hit.video) return videoToTrack(hit.video);
+  return {
+    id: hit.id || 0,
+    title: hit.title || "",
+    itemType: "video",
+    imageId: hit.image,
+    duration: hit.duration || 0,
+    artist: hit.artistName ? { id: 0, name: hit.artistName } : undefined,
+  };
+}
+
+/** Return comma-separated artist names for a track (plain text, no links).
+ *  artists[] wins over the singular `artist`, which is often just a backfilled
+ *  copy of artists[0] and would collapse a collaboration to one name.
+ *  Pass `fallback: ""` where an absent artist should render nothing. */
+export function getTrackArtistDisplay(
+  track: {
+    artist?: { name?: string };
+    artists?: { name: string }[];
+  },
+  fallback = "Unknown Artist",
+): string {
   if (track.artists && track.artists.length > 0) {
     return track.artists.map((a) => a.name).join(", ");
   }
-  return track.artist?.name || "Unknown Artist";
+  return track.artist?.name || fallback;
 }
 
 /** The single primary artist to scrobble to Audioscrobbler providers (Last.fm/Libre.fm).

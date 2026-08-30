@@ -39,6 +39,7 @@ import {
   optimisticFavoriteMixesAtom,
 } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
+import { clearAllOffsets } from "../lib/scrollMemory";
 import {
   clearCache,
   getPlaylistFolders,
@@ -275,6 +276,7 @@ export function useAuth() {
       setRenamedFolders(new Map());
       setUpdatedPlaylists(new Map());
       // Navigation
+      clearAllOffsets();
       setCurrentView({ type: "home" });
       try {
         localStorage.removeItem(PLAYBACK_STATE_KEY);

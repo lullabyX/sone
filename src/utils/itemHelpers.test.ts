@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
+import type { DirectHitItem } from "../types";
 import {
+  buildTrackFromHit,
+  buildVideoTrackFromHit,
+  getTrackArtistDisplay,
   getTrackPrimaryArtist,
   getAudioQualityBadge,
   getMediaQualityBadge,
@@ -238,5 +242,158 @@ describe("deep-link items (v2 My Tracks shortcut)", () => {
   it("is not playable media", () => {
     expect(buildMediaItem(unwrapped)).toBeNull();
     expect(buildMediaItem(wrapped)).toBeNull();
+  });
+});
+
+describe("buildTrackFromHit", () => {
+  // Shape captured from a real suggestions directHits TRACKS entry.
+  const fullHit: DirectHitItem = {
+    hitType: "TRACKS",
+    id: 401317294,
+    title: "tv off",
+    duration: 221,
+    artistName: "Kendrick Lamar",
+    albumId: 401317276,
+    albumTitle: "GNX",
+    albumCover: "faef7f4f-e362-484b-a46b-4e633c2a1ca3",
+    track: {
+      id: 401317294,
+      title: "tv off",
+      duration: 221,
+      explicit: true,
+      artist: { id: 3816041, name: "Kendrick Lamar" },
+      artists: [
+        { id: 3816041, name: "Kendrick Lamar" },
+        { id: 40179705, name: "Lefty Gunplay" },
+      ],
+      album: {
+        id: 401317276,
+        title: "GNX",
+        cover: "faef7f4f-e362-484b-a46b-4e633c2a1ca3",
+        vibrantColor: "#FFFFFF",
+      },
+    },
+  };
+
+  it("keeps every artist so the row can render them all", () => {
+    const track = buildTrackFromHit(fullHit);
+    expect(track.artists?.map((a) => a.name)).toEqual([
+      "Kendrick Lamar",
+      "Lefty Gunplay",
+    ]);
+    expect(getTrackArtistDisplay(track)).toBe("Kendrick Lamar, Lefty Gunplay");
+  });
+
+  it("keeps the explicit flag so the badge renders and the filter applies", () => {
+    expect(buildTrackFromHit(fullHit).explicit).toBe(true);
+  });
+
+  it("keeps the album vibrantColor that drives the drawer gradient", () => {
+    expect(buildTrackFromHit(fullHit).album?.vibrantColor).toBe("#FFFFFF");
+  });
+
+  it("falls back to the flat projection when no track entity is present", () => {
+    const flat: DirectHitItem = { ...fullHit, track: undefined };
+    const track = buildTrackFromHit(flat);
+    expect(track.id).toBe(401317294);
+    expect(track.title).toBe("tv off");
+    expect(track.duration).toBe(221);
+    expect(track.artist).toEqual({ id: 0, name: "Kendrick Lamar" });
+    expect(track.album).toEqual({
+      id: 401317276,
+      title: "GNX",
+      cover: "faef7f4f-e362-484b-a46b-4e633c2a1ca3",
+    });
+  });
+
+  it("tolerates a hit with no album at all", () => {
+    const bare: DirectHitItem = { hitType: "TRACKS", id: 7, title: "Bare" };
+    const track = buildTrackFromHit(bare);
+    expect(track.album).toBeUndefined();
+    expect(track.artist).toBeUndefined();
+    expect(track.duration).toBe(0);
+  });
+});
+
+describe("buildVideoTrackFromHit", () => {
+  const fullHit: DirectHitItem = {
+    hitType: "VIDEOS",
+    id: 12345678,
+    title: "Not Like Us",
+    duration: 274,
+    image: "aabbccdd-1122-3344-5566-778899aabbcc",
+    artistName: "Kendrick Lamar",
+    video: {
+      id: 12345678,
+      title: "Not Like Us",
+      duration: 274,
+      imageId: "aabbccdd-1122-3344-5566-778899aabbcc",
+      explicit: true,
+      artists: [
+        { id: 3816041, name: "Kendrick Lamar" },
+        { id: 40179705, name: "Someone Else" },
+      ],
+    },
+  };
+
+  it("keeps every artist so the row can render them all", () => {
+    const track = buildVideoTrackFromHit(fullHit);
+    expect(getTrackArtistDisplay(track)).toBe("Kendrick Lamar, Someone Else");
+  });
+
+  it("keeps the explicit flag so the badge renders", () => {
+    expect(buildVideoTrackFromHit(fullHit).explicit).toBe(true);
+  });
+
+  it("stays queue-ready as a video", () => {
+    const track = buildVideoTrackFromHit(fullHit);
+    expect(track.itemType).toBe("video");
+    expect(track.imageId).toBe("aabbccdd-1122-3344-5566-778899aabbcc");
+  });
+
+  it("tolerates a video entity with no explicit flag", () => {
+    const noExplicit: DirectHitItem = {
+      ...fullHit,
+      video: { ...fullHit.video!, explicit: undefined },
+    };
+    const track = buildVideoTrackFromHit(noExplicit);
+    expect(track.explicit).toBeUndefined();
+    expect(getTrackArtistDisplay(track)).toBe("Kendrick Lamar, Someone Else");
+  });
+
+  it("falls back to the flat projection when no video entity is present", () => {
+    const flat: DirectHitItem = { ...fullHit, video: undefined };
+    const track = buildVideoTrackFromHit(flat);
+    expect(track.itemType).toBe("video");
+    expect(track.id).toBe(12345678);
+    expect(track.imageId).toBe("aabbccdd-1122-3344-5566-778899aabbcc");
+    expect(track.duration).toBe(274);
+    expect(track.artist).toEqual({ id: 0, name: "Kendrick Lamar" });
+    expect(track.explicit).toBeUndefined();
+  });
+});
+
+describe("getTrackArtistDisplay", () => {
+  it("prefers artists[] over a backfilled singular artist", () => {
+    expect(
+      getTrackArtistDisplay({
+        artist: { name: "Kendrick Lamar" },
+        artists: [{ name: "Kendrick Lamar" }, { name: "Lefty Gunplay" }],
+      }),
+    ).toBe("Kendrick Lamar, Lefty Gunplay");
+  });
+
+  it("falls back to the singular artist when artists[] is empty", () => {
+    expect(
+      getTrackArtistDisplay({ artist: { name: "Solo" }, artists: [] }),
+    ).toBe("Solo");
+  });
+
+  it("defaults to Unknown Artist", () => {
+    expect(getTrackArtistDisplay({})).toBe("Unknown Artist");
+  });
+
+  it("honours an empty fallback so a caller can render nothing", () => {
+    expect(getTrackArtistDisplay({}, "")).toBe("");
   });
 });

@@ -17,6 +17,7 @@ import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
 import { formatTime } from "../lib/format";
 import { isNavigableSource } from "../lib/playbackSource";
+import { getTrackArtistDisplay } from "../utils/itemHelpers";
 import TidalImage from "./TidalImage";
 import { useCallback, useRef, useState, useEffect, memo } from "react";
 import { useAtomValue, useAtom, useSetAtom } from "jotai";
@@ -75,10 +76,10 @@ const TrackInfoSection = memo(function TrackInfoSection() {
     currentVideo ??
     (currentTrack?.itemType === "video" ? currentTrack : null);
   if (videoItem) {
-    const videoArtist =
-      videoItem.artist?.name ||
-      videoItem.artists?.map((a) => a.name).join(", ") ||
-      "";
+    // artists[] first: videoToTrack always backfills the singular `artist` from
+    // artists[0], so preferring it would collapse a multi-artist video to one
+    // name. Empty fallback keeps the line unrendered when there is no artist.
+    const videoArtist = getTrackArtistDisplay(videoItem, "");
     const openVideo = currentVideo
       ? expandVideo
       : () => playVideo(videoInputFromTrack(currentTrack!));

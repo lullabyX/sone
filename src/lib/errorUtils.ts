@@ -45,6 +45,8 @@ function apiBodyDetail(body: string): string {
     const parsed = JSON.parse(body) as {
       errors?: Array<{ detail?: string; title?: string }>;
     };
+    const direct = (parsed as { userMessage?: unknown })?.userMessage;
+    if (typeof direct === "string" && direct.length > 0) return direct;
     if (parsed && Array.isArray(parsed.errors)) {
       const details = parsed.errors
         .map((e) => e.detail || e.title)
@@ -93,7 +95,9 @@ export function formatSoneError(err: unknown): string {
   if (typeof msg === "string") return msg;
   if (msg && typeof msg === "object") {
     const body = (msg as { body?: unknown }).body;
-    return typeof body === "string" ? apiBodyDetail(body) : JSON.stringify(body);
+    return typeof body === "string"
+      ? apiBodyDetail(body)
+      : JSON.stringify(body);
   }
   return typeof err === "string" ? err : "An unexpected error occurred";
 }

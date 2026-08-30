@@ -29,6 +29,7 @@ import { useContextMenu } from "../hooks/useContextMenu";
 import { userPlaylistsAtom } from "../atoms/playlists";
 import { currentViewAtom } from "../atoms/navigation";
 import { getShareUrl } from "../utils/itemHelpers";
+import { replaceView } from "../lib/scrollMemory";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MoveToFolderMenu from "./MoveToFolderMenu";
 import MenuPortal from "./MenuPortal";
@@ -347,8 +348,7 @@ export default function MediaContextMenu({
         currentView.playlistId === item.uuid
       ) {
         // Replace current history entry so back button doesn't return to deleted playlist
-        const homeView = { type: "home" as const };
-        window.history.replaceState(homeView, "");
+        const homeView = replaceView({ type: "home" });
         startTransition(() => setCurrentView(homeView));
       }
     } catch (err) {

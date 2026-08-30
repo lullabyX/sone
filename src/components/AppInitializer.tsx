@@ -17,6 +17,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
 import { updateToastSeenAtom } from "../atoms/updates";
 import { shouldShowUpdateToast, type UpdateInfo } from "../lib/updateToast";
+import { refreshApp } from "../lib/refreshApp";
 
 // Atoms — write-only setters (no re-render from reading)
 import {
@@ -81,7 +82,6 @@ import { useOverlayBridge } from "../hooks/useOverlayBridge";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
-  clearCache,
   savePlaybackQueue,
   loadPlaybackQueue,
   getHomePage,
@@ -111,6 +111,12 @@ import {
   formatStreamQuality,
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
+import {
+  clearOffset,
+  pushView,
+  replaceView,
+  scrollKey,
+} from "../lib/scrollMemory";
 import {
   initPositionInterpolator,
   destroyPositionInterpolator,
@@ -520,8 +526,8 @@ export function AppInitializer() {
     if (!action) return;
 
     if (action.kind === "navigate") {
-      window.history.pushState(action.view, "");
-      startTransition(() => setCurrentView(action.view));
+      const stamped = pushView(action.view);
+      startTransition(() => setCurrentView(stamped));
     } else {
       // playTrack: fetch track metadata, then play
       getTrack(action.trackId)
@@ -1266,17 +1272,14 @@ export function AppInitializer() {
         addFavoriteTrack(track.id, track);
       }
     },
+    toggleShuffle,
+    toggleRepeat: () => {
+      store.set(repeatAtom, (store.get(repeatAtom) + 1) % 3);
+    },
     focusSearch: () => {
       window.dispatchEvent(new CustomEvent("focus-search"));
     },
-    refreshData: () => {
-      clearCache();
-      window.location.reload();
-    },
-    closeDrawer: () => {
-      if (store.get(maximizedPlayerAtom)) return;
-      setDrawerOpen(false);
-    },
+    refreshData: () => void refreshApp(),
     toggleExclusive: () => {
       const isExclusive = store.get(exclusiveModeAtom);
       if (isExclusive) {
@@ -1368,7 +1371,7 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     if (!window.history.state) {
-      window.history.replaceState({ type: "home" }, "");
+      setCurrentView(replaceView({ type: "home" }));
     }
 
     const handler = (event: PopStateEvent) => {
@@ -1378,6 +1381,8 @@ export function AppInitializer() {
         event.state.type === "playlist" &&
         deletedPlaylistIdsRef.current.has(event.state.playlistId)
       ) {
+        const key = scrollKey(event.state);
+        if (key) clearOffset(key);
         window.history.back();
         return;
       }

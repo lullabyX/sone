@@ -20,9 +20,16 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
   const ownedKey = (Object.keys(dispatch) as ActionId[]).sort().join(",");
 
   const inverse = useMemo(() => {
+    const owned = ownedKey.split(",").filter(Boolean) as ActionId[];
+    const isFixed = (id: ActionId) => ACTION_BY_ID.get(id)?.fixed === true;
     const m = new Map<string, ActionId>();
-    for (const id of ownedKey.split(",").filter(Boolean) as ActionId[]) {
+    for (const id of owned.filter((a) => !isFixed(a))) {
       const combo = bindings[id];
+      if (combo) m.set(comboKey(combo), id);
+    }
+    // Second pass: a fixed action's combo is reserved, so it wins any collision.
+    for (const id of owned.filter(isFixed)) {
+      const combo = ACTION_BY_ID.get(id)?.default;
       if (combo) m.set(comboKey(combo), id);
     }
     return m;
@@ -41,7 +48,8 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
       const inInput =
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement;
-      if (inInput && !combo.mod) return;
+      // Alt-modified combos type nothing, so they stay live inside text fields.
+      if (inInput && !combo.mod && !combo.alt) return;
 
       const fn = dispatchRef.current[id];
       if (!fn) return;

@@ -7,6 +7,54 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Playbackinfo sub-statuses occupy the 4xxx range. Auth failures use a
+/// different namespace (11002/11003 token, 6001 session, 1002 pending), so a
+/// 4xxx code on a 401 is never fixed by refreshing the token.
+const PLAYBACKINFO_SUB_STATUS_RANGE: std::ops::RangeInclusive<u64> = 4000..=4999;
+
+/// Sub-statuses meaning "this track will not play, move on". Deliberately
+/// excludes 4006 (streaming privileges lost — recovers) and 4033 (subscription
+/// up-sell — the user can fix it), which must NOT delete the track.
+const TERMINAL_SUB_STATUSES: &[u64] = &[4005, 4010, 4030, 4031, 4032, 4034, 4035];
+
+fn sub_status(body: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("subStatus").cloned())
+        .and_then(|s| match s.as_u64() {
+            Some(n) => Some(n),
+            // A float-encoded whole number (4005.0) is still a sub-status; the
+            // frontend's `typeof sub === "number"` accepts it, so we must too.
+            None => s
+                .as_f64()
+                .filter(|f| f.is_finite() && f.fract() == 0.0 && *f >= 0.0)
+                .map(|f| f as u64),
+        })
+}
+
+/// True when a response body carries a playbackinfo sub-status. Drives the
+/// "do not refresh the token" decision.
+pub fn is_playbackinfo_sub_status(body: &str) -> bool {
+    sub_status(body).is_some_and(|s| PLAYBACKINFO_SUB_STATUS_RANGE.contains(&s))
+}
+
+/// True when the sub-status means the track itself is unplayable.
+pub fn is_terminal_sub_status(body: &str) -> bool {
+    sub_status(body).is_some_and(|s| TERMINAL_SUB_STATUSES.contains(&s))
+}
+
+/// Body for a synthesized 429. `retryAfterSecs` is machine-readable for the
+/// frontend; `userMessage` is what the user actually sees in an error banner.
+fn rate_limited_error(secs: u64) -> SoneError {
+    SoneError::Api {
+        status: 429,
+        body: format!(
+            r#"{{"status":429,"retryAfterSecs":{},"userMessage":"Too many requests — retrying in {}s"}}"#,
+            secs, secs
+        ),
+    }
+}
+
 /// Build a reqwest::Client with optional proxy configuration.
 pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error> {
     let mut builder = Client::builder().timeout(Duration::from_secs(30));
@@ -783,6 +831,16 @@ pub struct DirectHitItem {
     pub duration: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_tracks: Option<u32>,
+    /// The complete track entity for TRACKS hits. The payload is a full track —
+    /// `artists[]`, `explicit`, `album.vibrantColor`, `mediaMetadata`, `mixes` —
+    /// so carry it whole rather than re-projecting it onto the flat fields above
+    /// and losing everything they have no room for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track: Option<TidalTrack>,
+    /// The complete video entity for VIDEOS hits, for the same reason as `track`:
+    /// the flat fields cannot express `explicit` or more than one artist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video: Option<TidalVideo>,
 }
 
 impl DirectHitItem {
@@ -823,6 +881,8 @@ impl DirectHitItem {
                 album_cover: None,
                 duration: None,
                 number_of_tracks: None,
+                track: None,
+                video: None,
             }),
             "ALBUMS" => {
                 let artist_name = val
@@ -858,6 +918,8 @@ impl DirectHitItem {
                         .get("numberOfTracks")
                         .and_then(|v| v.as_u64())
                         .map(|n| n as u32),
+                    track: None,
+                    video: None,
                 })
             }
             "TRACKS" => {
@@ -872,6 +934,14 @@ impl DirectHitItem {
                     })
                     .map(String::from);
                 let album = val.get("album");
+                // Deserialize the whole entity; the flat fields below stay as a
+                // fallback for a payload too partial to satisfy TidalTrack.
+                let track = serde_json::from_value::<TidalTrack>(val.clone())
+                    .ok()
+                    .map(|mut t| {
+                        t.backfill_artist();
+                        t
+                    });
                 Some(DirectHitItem {
                     hit_type,
                     id: val.get("id").and_then(|v| v.as_u64()),
@@ -896,6 +966,8 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    track,
+                    video: None,
                 })
             }
             "VIDEOS" => {
@@ -909,6 +981,9 @@ impl DirectHitItem {
                             .and_then(|a| a.get("name").and_then(|v| v.as_str()))
                     })
                     .map(String::from);
+                // Deserialize the whole entity; the flat fields below stay as a
+                // fallback for a payload too partial to satisfy TidalVideo.
+                let video = serde_json::from_value::<TidalVideo>(val.clone()).ok();
                 Some(DirectHitItem {
                     hit_type,
                     id: val.get("id").and_then(|v| v.as_u64()),
@@ -933,6 +1008,8 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    track: None,
+                    video,
                 })
             }
             "PLAYLISTS" => Some(DirectHitItem {
@@ -959,6 +1036,8 @@ impl DirectHitItem {
                     .get("numberOfTracks")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as u32),
+                track: None,
+                video: None,
             }),
             _ => None,
         }
@@ -1077,6 +1156,7 @@ pub struct TidalClient {
     /// Populated after authentication via get_session_info().
     pub country_code: String,
     token_persist: Option<TokenPersist>,
+    gate: Arc<crate::rate_gate::RateGate>,
 }
 
 impl TidalClient {
@@ -1093,6 +1173,7 @@ impl TidalClient {
             client_secret: String::new(),
             country_code: "US".to_string(),
             token_persist: None,
+            gate: Arc::new(crate::rate_gate::RateGate::new()),
         }
     }
 
@@ -1112,12 +1193,35 @@ impl TidalClient {
         }
     }
 
-    /// Make a plain GET request using the proxy-aware inner client.
-    pub async fn raw_get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
-        self.client.get(url).send().await
+    /// Single egress point for API traffic. Consults the cooldown before
+    /// sending and records a new one from any 429. Never sleeps — callers that
+    /// want to wait must do so with the client mutex released.
+    async fn send(&self, req: reqwest::RequestBuilder) -> Result<reqwest::Response, SoneError> {
+        if let Some(secs) = self.gate.cooling_down() {
+            return Err(rate_limited_error(secs));
+        }
+        let resp = req.send().await?;
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let secs = crate::rate_gate::retry_after_or_default(resp.headers());
+            self.gate.trip(secs);
+            // Report the gate's own view, not the raw header: `trip` clamps to
+            // MAX_COOLDOWN_SECS, and a concurrent longer cooldown may already
+            // be in force, so `.min(120)` here would under-report instead.
+            let secs = self.gate.cooling_down().unwrap_or(secs);
+            log::warn!("[send] rate limited, cooling down {}s", secs);
+            return Err(rate_limited_error(secs));
+        }
+        Ok(resp)
     }
 
-    /// Return a reference to the inner proxy-aware `reqwest::Client`.
+    /// Clone the gate out so callers can consult it WITHOUT holding the client
+    /// mutex — mirrors the token_snapshot pattern in tidal_report.
+    pub fn gate(&self) -> Arc<crate::rate_gate::RateGate> {
+        self.gate.clone()
+    }
+
+    /// Return a reference to the inner proxy-aware `reqwest::Client`, for
+    /// non-API hosts only (resources.tidal.com, scrobble providers).
     /// `reqwest::Client` is cheaply cloneable (Arc internally).
     pub fn raw_client(&self) -> &Client {
         &self.client
@@ -1275,10 +1379,22 @@ impl TidalClient {
         if url.contains("/v2/") {
             req = req.header("x-tidal-client-version", TIDAL_CLIENT_VERSION);
         }
-        let response = req.query(query).send().await?;
+        let response = self.send(req.query(query)).await?;
 
         // 3. Check 401
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            // A 401 carrying a playbackinfo sub-status is not auth expiry.
+            // Refreshing costs a token round-trip, a settings rewrite and a
+            // second GET, and the answer never changes.
+            let body = response.text().await.unwrap_or_default();
+            if is_playbackinfo_sub_status(&body) {
+                log::warn!(
+                    "[authenticated_get] {} -> 401 playbackinfo sub-status, not retrying: {}",
+                    url,
+                    body.chars().take(200).collect::<String>()
+                );
+                return Err(SoneError::Api { status: 401, body });
+            }
             log::debug!("Got 401 from {}, attempting refresh...", url);
             // 4. Refresh token (requires &mut self)
             let new_tokens = self.refresh_token().await?;
@@ -1292,7 +1408,7 @@ impl TidalClient {
             if url.contains("/v2/") {
                 req = req.header("x-tidal-client-version", TIDAL_CLIENT_VERSION);
             }
-            return Ok(req.query(query).send().await?);
+            return self.send(req.query(query)).await;
         }
 
         Ok(response)
@@ -1721,13 +1837,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // First, get the playlist ETag which is required for modifications
-        let head_response = self
+        let req = self
             .client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let head_response = self.send(req).await?;
 
         let etag = head_response
             .headers()
@@ -1737,7 +1852,7 @@ impl TidalClient {
             .to_string();
 
         // Add the track
-        let response = self
+        let req = self
             .client
             .post(format!("{}/playlists/{}/items", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
@@ -1747,9 +1862,8 @@ impl TidalClient {
                 ("trackIds", &track_id.to_string()),
                 ("onDupes", &"FAIL".to_string()),
                 ("onArtifactNotFound", &"FAIL".to_string()),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
 
@@ -1772,13 +1886,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // First, get the playlist ETag which is required for modifications
-        let head_response = self
+        let req = self
             .client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let head_response = self.send(req).await?;
 
         let etag = head_response
             .headers()
@@ -1788,7 +1901,7 @@ impl TidalClient {
             .to_string();
 
         // Remove the track at the given index
-        let response = self
+        let req = self
             .client
             .delete(format!(
                 "{}/playlists/{}/items/{}",
@@ -1796,9 +1909,8 @@ impl TidalClient {
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
 
@@ -1817,13 +1929,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // First, get the playlist ETag which is required for modifications
-        let head_response = self
+        let req = self
             .client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let head_response = self.send(req).await?;
 
         let etag = head_response
             .headers()
@@ -1833,14 +1944,13 @@ impl TidalClient {
             .to_string();
 
         // Delete the playlist
-        let response = self
+        let req = self
             .client
             .delete(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
 
@@ -1860,7 +1970,7 @@ impl TidalClient {
         user_id: u64,
     ) -> Result<Vec<String>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/playlists",
@@ -1871,9 +1981,8 @@ impl TidalClient {
                 ("countryCode", self.country_code.as_str()),
                 ("limit", "2000"),
                 ("offset", "0"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2213,7 +2322,7 @@ impl TidalClient {
 
     pub async fn is_track_favorited(&self, user_id: u64, track_id: u64) -> Result<bool, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/tracks",
@@ -2226,9 +2335,8 @@ impl TidalClient {
                 ("offset", "0"),
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2269,7 +2377,7 @@ impl TidalClient {
 
     pub async fn get_favorite_track_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/tracks",
@@ -2282,9 +2390,8 @@ impl TidalClient {
                 ("offset", "0"),
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2317,7 +2424,7 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let track_id_str = track_id.to_string();
 
-        let response = self
+        let req = self
             .client
             .post(format!(
                 "{}/users/{}/favorites/tracks",
@@ -2325,9 +2432,8 @@ impl TidalClient {
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
-            .form(&[("trackId", track_id_str.as_str())])
-            .send()
-            .await?;
+            .form(&[("trackId", track_id_str.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2349,16 +2455,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let response = self
+        let req = self
             .client
             .delete(format!(
                 "{}/users/{}/favorites/tracks/{}",
                 TIDAL_API_URL, user_id, track_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2377,7 +2482,7 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let video_id_str = video_id.to_string();
 
-        let response = self
+        let req = self
             .client
             .post(format!(
                 "{}/users/{}/favorites/videos",
@@ -2388,9 +2493,8 @@ impl TidalClient {
             .form(&[
                 ("videoIds", video_id_str.as_str()),
                 ("onArtifactNotFound", "FAIL"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2412,16 +2516,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let response = self
+        let req = self
             .client
             .delete(format!(
                 "{}/users/{}/favorites/videos/{}",
                 TIDAL_API_URL, user_id, video_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2448,7 +2551,7 @@ impl TidalClient {
         loop {
             let limit_str = PAGE.to_string();
             let offset_str = offset.to_string();
-            let response = self
+            let req = self
                 .client
                 .get(format!(
                     "{}/users/{}/favorites/videos",
@@ -2461,9 +2564,8 @@ impl TidalClient {
                     ("offset", offset_str.as_str()),
                     ("order", "DATE"),
                     ("orderDirection", "DESC"),
-                ])
-                .send()
-                .await?;
+                ]);
+            let response = self.send(req).await?;
 
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -2511,7 +2613,7 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let limit_str = limit.to_string();
         let offset_str = offset.to_string();
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/videos",
@@ -2524,9 +2626,8 @@ impl TidalClient {
                 ("offset", offset_str.as_str()),
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2563,7 +2664,7 @@ impl TidalClient {
 
     pub async fn is_album_favorited(&self, user_id: u64, album_id: u64) -> Result<bool, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/albums",
@@ -2576,9 +2677,8 @@ impl TidalClient {
                 ("offset", "0"),
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2619,7 +2719,7 @@ impl TidalClient {
 
     pub async fn get_favorite_album_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/albums",
@@ -2632,9 +2732,8 @@ impl TidalClient {
                 ("offset", "0"),
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2672,7 +2771,7 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let album_id_str = album_id.to_string();
 
-        let response = self
+        let req = self
             .client
             .post(format!(
                 "{}/users/{}/favorites/albums",
@@ -2680,9 +2779,8 @@ impl TidalClient {
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
-            .form(&[("albumId", album_id_str.as_str())])
-            .send()
-            .await?;
+            .form(&[("albumId", album_id_str.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2704,16 +2802,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let response = self
+        let req = self
             .client
             .delete(format!(
                 "{}/users/{}/favorites/albums/{}",
                 TIDAL_API_URL, user_id, album_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2735,7 +2832,7 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let response = self
+        let req = self
             .client
             .post(format!(
                 "{}/users/{}/favorites/playlists",
@@ -2743,9 +2840,8 @@ impl TidalClient {
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
-            .form(&[("uuid", playlist_uuid)])
-            .send()
-            .await?;
+            .form(&[("uuid", playlist_uuid)]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2767,16 +2863,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let response = self
+        let req = self
             .client
             .delete(format!(
                 "{}/users/{}/favorites/playlists/{}",
                 TIDAL_API_URL, user_id, playlist_uuid
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2793,7 +2888,7 @@ impl TidalClient {
 
     pub async fn get_favorite_artist_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!(
                 "{}/users/{}/favorites/artists",
@@ -2806,9 +2901,8 @@ impl TidalClient {
                 ("offset", "0"),
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2838,7 +2932,7 @@ impl TidalClient {
 
     pub async fn get_all_favorite_ids(&self, user_id: u64) -> Result<AllFavoriteIds, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let response = self
+        let req = self
             .client
             .get(format!("{}/users/{}/favorites/ids", TIDAL_API_URL, user_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
@@ -2846,9 +2940,8 @@ impl TidalClient {
                 ("countryCode", self.country_code.as_str()),
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2881,7 +2974,7 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let artist_id_str = artist_id.to_string();
 
-        let response = self
+        let req = self
             .client
             .post(format!(
                 "{}/users/{}/favorites/artists",
@@ -2889,9 +2982,8 @@ impl TidalClient {
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
-            .form(&[("artistId", artist_id_str.as_str())])
-            .send()
-            .await?;
+            .form(&[("artistId", artist_id_str.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2913,16 +3005,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let response = self
+        let req = self
             .client
             .delete(format!(
                 "{}/users/{}/favorites/artists/{}",
                 TIDAL_API_URL, user_id, artist_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2942,7 +3033,7 @@ impl TidalClient {
 
         log::debug!("[add_favorite_mix]: mix_id={}", mix_id);
 
-        let response = self
+        let req = self
             .client
             .put(format!("{}/favorites/mixes/add", TIDAL_API_V2_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
@@ -2950,9 +3041,8 @@ impl TidalClient {
                 ("countryCode", self.country_code.as_str()),
                 ("mixIds", mix_id),
                 ("onArtifactNotFound", "FAIL"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2978,16 +3068,15 @@ impl TidalClient {
 
         log::debug!("[remove_favorite_mix]: mix_id={}", mix_id);
 
-        let response = self
+        let req = self
             .client
             .put(format!("{}/favorites/mixes/remove", TIDAL_API_V2_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[
                 ("countryCode", self.country_code.as_str()),
                 ("mixIds", mix_id),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3211,16 +3300,15 @@ impl TidalClient {
             params.push(("trns", trns));
         }
 
-        let response = self
+        let req = self
             .client
             .put(format!(
                 "{}/my-collection/playlists/folders/create-folder",
                 TIDAL_API_V2_URL
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&params)
-            .send()
-            .await?;
+            .query(&params);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3254,7 +3342,7 @@ impl TidalClient {
             name
         );
 
-        let response = self
+        let req = self
             .client
             .put(format!(
                 "{}/my-collection/playlists/folders/rename",
@@ -3267,9 +3355,8 @@ impl TidalClient {
                 ("countryCode", self.country_code.as_str()),
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3295,7 +3382,7 @@ impl TidalClient {
 
         log::debug!("[delete_playlist_folder]: folder_trn={}", folder_trn);
 
-        let response = self
+        let req = self
             .client
             .put(format!(
                 "{}/my-collection/playlists/folders/remove",
@@ -3307,9 +3394,8 @@ impl TidalClient {
                 ("countryCode", self.country_code.as_str()),
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3343,7 +3429,7 @@ impl TidalClient {
             playlist_trn
         );
 
-        let response = self
+        let req = self
             .client
             .put(format!(
                 "{}/my-collection/playlists/folders/move",
@@ -3356,9 +3442,8 @@ impl TidalClient {
                 ("countryCode", self.country_code.as_str()),
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3387,13 +3472,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // Get the playlist ETag which is required for modifications
-        let head_response = self
+        let req = self
             .client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .query(&[("countryCode", self.country_code.as_str())])
-            .send()
-            .await?;
+            .query(&[("countryCode", self.country_code.as_str())]);
+        let head_response = self.send(req).await?;
 
         let etag = head_response
             .headers()
@@ -3408,7 +3492,7 @@ impl TidalClient {
             .collect::<Vec<_>>()
             .join(",");
 
-        let response = self
+        let req = self
             .client
             .post(format!("{}/playlists/{}/items", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
@@ -3418,9 +3502,8 @@ impl TidalClient {
                 ("trackIds", ids_str.as_str()),
                 ("onDupes", "SKIP"),
                 ("onArtifactNotFound", "FAIL"),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.send(req).await?;
 
         let status = response.status();
 
@@ -6418,5 +6501,331 @@ mod profile_upload_tests {
     #[test]
     fn normalize_square_jpeg_rejects_garbage() {
         assert!(normalize_square_jpeg(b"not an image").is_err());
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_error_tests {
+    use super::rate_limited_error;
+    use crate::SoneError;
+
+    /// Pins the wire contract that src/lib/trackAvailability.ts parses:
+    /// status 429, a numeric `retryAfterSecs`, and a non-empty `userMessage`.
+    #[test]
+    fn synthesized_429_carries_retry_after_and_a_human_message() {
+        match rate_limited_error(7) {
+            SoneError::Api { status, body } => {
+                assert_eq!(status, 429);
+                let v: serde_json::Value =
+                    serde_json::from_str(&body).expect("body must be valid JSON");
+                assert_eq!(v["status"].as_u64(), Some(429));
+                assert_eq!(v["retryAfterSecs"].as_u64(), Some(7));
+                assert!(!v["userMessage"].as_str().unwrap_or_default().is_empty());
+            }
+            other => panic!("expected SoneError::Api, got {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod sub_status_tests {
+    use super::{is_playbackinfo_sub_status, is_terminal_sub_status};
+
+    #[test]
+    fn terminal_codes_are_terminal() {
+        for code in [4005u64, 4010, 4030, 4031, 4032, 4034, 4035] {
+            let body = format!(r#"{{"status":401,"subStatus":{}}}"#, code);
+            assert!(is_terminal_sub_status(&body), "{} should be terminal", code);
+            assert!(is_playbackinfo_sub_status(&body));
+        }
+    }
+
+    #[test]
+    fn retryable_playbackinfo_codes_are_not_terminal() {
+        // 4006 = privileges lost, 4033 = subscription up-sell. Both recover.
+        for code in [4006u64, 4033] {
+            let body = format!(r#"{{"status":401,"subStatus":{}}}"#, code);
+            assert!(
+                !is_terminal_sub_status(&body),
+                "{} must not be terminal",
+                code
+            );
+            // …but still must NOT trigger a token refresh.
+            assert!(is_playbackinfo_sub_status(&body));
+        }
+    }
+
+    #[test]
+    fn auth_sub_statuses_and_junk_are_neither() {
+        for body in [
+            r#"{"status":401,"subStatus":11003}"#,
+            r#"{"status":401,"subStatus":6001}"#,
+            r#"{"subStatus":"4005"}"#, // string-typed, not a number
+            "",
+            "not json",
+        ] {
+            assert!(!is_playbackinfo_sub_status(body), "{body}");
+            assert!(!is_terminal_sub_status(body), "{body}");
+        }
+    }
+
+    #[test]
+    fn float_encoded_sub_status_is_terminal() {
+        // serde_json reads 4005.0 as f64, so as_u64() alone says None while the
+        // frontend's `typeof sub === "number"` accepts it. Keep the two agreeing.
+        let body = r#"{"status":401,"subStatus":4005.0}"#;
+        assert!(is_terminal_sub_status(body));
+        assert!(is_playbackinfo_sub_status(body));
+    }
+}
+
+#[cfg(test)]
+mod direct_hit_tests {
+    use super::*;
+
+    /// A real `directHits` entry captured from the suggestions endpoint. The
+    /// value is a complete track entity, which is why the flat projection alone
+    /// silently dropped the second artist, the explicit flag and the album's
+    /// vibrant color.
+    fn tv_off_hit() -> serde_json::Value {
+        serde_json::json!({
+            "type": "TRACKS",
+            "value": {
+                "id": 401317294,
+                "title": "tv off",
+                "duration": 221,
+                "explicit": true,
+                "artists": [
+                    { "id": 3816041, "name": "Kendrick Lamar", "type": "MAIN",
+                      "picture": "84d81b7a-a12e-4a3e-bda4-d0527cb1c8cf" },
+                    { "id": 40179705, "name": "Lefty Gunplay", "type": "FEATURED",
+                      "picture": null }
+                ],
+                "album": {
+                    "id": 401317276,
+                    "title": "GNX",
+                    "cover": "faef7f4f-e362-484b-a46b-4e633c2a1ca3",
+                    "vibrantColor": "#FFFFFF",
+                    "releaseDate": "2024-11-22"
+                },
+                "audioQuality": "LOSSLESS",
+                "mediaMetadata": { "tags": ["LOSSLESS", "HIRES_LOSSLESS"] },
+                "mixes": { "TRACK_MIX": "001d13d399e86e948d03c21bcd15db" },
+                "replayGain": -7.92,
+                "peak": 0.959098,
+                "trackNumber": 7,
+                "volumeNumber": 1,
+                "isrc": "USUG12408493"
+            }
+        })
+    }
+
+    #[test]
+    fn track_hit_carries_every_artist() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let artists = hit
+            .track
+            .as_ref()
+            .and_then(|t| t.artists.as_ref())
+            .expect("full track must carry artists[]");
+        let names: Vec<&str> = artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["Kendrick Lamar", "Lefty Gunplay"]);
+        assert_eq!(artists[1].artist_type.as_deref(), Some("FEATURED"));
+    }
+
+    #[test]
+    fn track_hit_carries_explicit_flag() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        assert_eq!(hit.track.and_then(|t| t.explicit), Some(true));
+    }
+
+    #[test]
+    fn track_hit_carries_album_vibrant_color() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let album = hit
+            .track
+            .and_then(|t| t.album)
+            .expect("full track must carry its album");
+        assert_eq!(album.vibrant_color.as_deref(), Some("#FFFFFF"));
+    }
+
+    /// The payload has no singular `artist`, so it must be backfilled the same
+    /// way every other track parse path does it.
+    #[test]
+    fn track_hit_backfills_the_singular_artist() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let artist = hit
+            .track
+            .and_then(|t| t.artist)
+            .expect("artist must be backfilled from artists[0]");
+        assert_eq!(artist.name, "Kendrick Lamar");
+    }
+
+    /// The flat fields stay populated so the frontend fallback keeps working.
+    #[test]
+    fn track_hit_still_populates_the_flat_projection() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        assert_eq!(hit.artist_name.as_deref(), Some("Kendrick Lamar"));
+        assert_eq!(hit.album_id, Some(401317276));
+        assert_eq!(hit.album_title.as_deref(), Some("GNX"));
+        assert_eq!(hit.duration, Some(221));
+    }
+
+    /// A value too partial to satisfy TidalTrack must not abort the hit — the
+    /// flat projection is the fallback.
+    #[test]
+    fn partial_track_value_falls_back_to_the_flat_projection() {
+        let partial = serde_json::json!({
+            "type": "TRACKS",
+            "value": { "id": 1, "title": "No Duration Here" }
+        });
+        let hit = DirectHitItem::from_typed_value(&partial).expect("hit must still parse");
+        assert!(hit.track.is_none(), "TidalTrack needs a duration");
+        assert_eq!(hit.title.as_deref(), Some("No Duration Here"));
+    }
+
+    /// The wire contract src/types.ts DirectHitItem.track relies on: the
+    /// serialized hit must actually expose the three fields the flat projection
+    /// dropped, under the camelCase names the frontend reads.
+    #[test]
+    fn serialized_hit_exposes_the_recovered_fields_to_the_frontend() {
+        let hit = DirectHitItem::from_typed_value(&tv_off_hit()).expect("TRACKS hit must parse");
+        let wire: serde_json::Value =
+            serde_json::to_value(&hit).expect("hit must serialize for the frontend");
+
+        let track = &wire["track"];
+        assert_eq!(track["explicit"], serde_json::json!(true));
+        assert_eq!(track["album"]["vibrantColor"], serde_json::json!("#FFFFFF"));
+        let artists = track["artists"]
+            .as_array()
+            .expect("artists[] must survive to the wire");
+        assert_eq!(artists.len(), 2);
+        assert_eq!(artists[1]["name"], serde_json::json!("Lefty Gunplay"));
+        // TidalArtist renames artist_type to `type`, so the wire carries `type`
+        // (not `artistType`) — matching every other track path in the app.
+        assert_eq!(artists[1]["type"], serde_json::json!("FEATURED"));
+    }
+
+    /// Non-track hits must not pay for a `track` key on the wire.
+    #[test]
+    fn serialized_non_track_hit_omits_the_track_key() {
+        let album = serde_json::json!({
+            "type": "ALBUMS",
+            "value": { "id": 401317276, "title": "GNX", "cover": "faef7f4f" }
+        });
+        let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
+        let wire: serde_json::Value = serde_json::to_value(&hit).expect("must serialize");
+        assert!(wire.get("track").is_none());
+    }
+
+    /// Shape recorded in docs/superpowers/plans/2026-07-13-video-search.md. Only
+    /// `id`/`title` are required by TidalVideo, so a leaner payload still parses.
+    fn video_hit(extra: serde_json::Value) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "id": 12345678,
+            "title": "Not Like Us",
+            "duration": 274,
+            "imageId": "aabbccdd-1122-3344-5566-778899aabbcc",
+            "artists": [
+                { "id": 3816041, "name": "Kendrick Lamar", "type": "MAIN" },
+                { "id": 40179705, "name": "Someone Else", "type": "FEATURED" }
+            ]
+        });
+        if let (Some(base), Some(more)) = (value.as_object_mut(), extra.as_object()) {
+            for (k, v) in more {
+                base.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::json!({ "type": "VIDEOS", "value": value })
+    }
+
+    #[test]
+    fn video_hit_carries_every_artist() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({})))
+            .expect("VIDEOS hit must parse");
+        let artists = hit
+            .video
+            .as_ref()
+            .and_then(|v| v.artists.as_ref())
+            .expect("full video must carry artists[]");
+        let names: Vec<&str> = artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["Kendrick Lamar", "Someone Else"]);
+    }
+
+    /// The plan doc lists `artists` but not `explicit` for VIDEOS top-hits, so
+    /// both cases must behave: present means carried, absent means simply None.
+    #[test]
+    fn video_hit_carries_explicit_when_the_payload_has_it() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({
+            "explicit": true
+        })))
+        .expect("VIDEOS hit must parse");
+        assert_eq!(hit.video.and_then(|v| v.explicit), Some(true));
+    }
+
+    #[test]
+    fn video_hit_without_explicit_still_parses() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({})))
+            .expect("VIDEOS hit must parse");
+        let video = hit.video.expect("video entity must still be carried");
+        assert!(video.explicit.is_none());
+        assert_eq!(video.title, "Not Like Us");
+    }
+
+    #[test]
+    fn video_hit_still_populates_the_flat_projection() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({})))
+            .expect("VIDEOS hit must parse");
+        assert_eq!(hit.hit_type, "VIDEOS");
+        assert_eq!(hit.artist_name.as_deref(), Some("Kendrick Lamar"));
+        assert_eq!(
+            hit.image.as_deref(),
+            Some("aabbccdd-1122-3344-5566-778899aabbcc")
+        );
+        assert_eq!(hit.duration, Some(274));
+        assert!(hit.track.is_none(), "a video is not a track");
+    }
+
+    /// The wire contract src/types.ts DirectHitItem.video relies on.
+    #[test]
+    fn serialized_video_hit_exposes_artists_and_explicit() {
+        let hit = DirectHitItem::from_typed_value(&video_hit(serde_json::json!({
+            "explicit": true
+        })))
+        .expect("VIDEOS hit must parse");
+        let wire: serde_json::Value = serde_json::to_value(&hit).expect("must serialize");
+        let video = &wire["video"];
+        assert_eq!(video["explicit"], serde_json::json!(true));
+        assert_eq!(
+            video["imageId"],
+            serde_json::json!("aabbccdd-1122-3344-5566-778899aabbcc")
+        );
+        let artists = video["artists"].as_array().expect("artists[] on the wire");
+        assert_eq!(artists.len(), 2);
+        assert_eq!(artists[1]["name"], serde_json::json!("Someone Else"));
+        assert!(wire.get("track").is_none(), "a video carries no track key");
+    }
+
+    /// A value too partial to satisfy TidalVideo must not abort the hit.
+    #[test]
+    fn partial_video_value_falls_back_to_the_flat_projection() {
+        let partial = serde_json::json!({
+            "type": "VIDEOS",
+            "value": { "title": "No Id Here", "artists": [{ "id": 1, "name": "A" }] }
+        });
+        let hit = DirectHitItem::from_typed_value(&partial).expect("hit must still parse");
+        assert!(hit.video.is_none(), "TidalVideo needs an id");
+        assert_eq!(hit.artist_name.as_deref(), Some("A"));
+    }
+
+    /// Non-track hit types have no track entity to carry.
+    #[test]
+    fn non_track_hits_carry_no_track() {
+        let album = serde_json::json!({
+            "type": "ALBUMS",
+            "value": { "id": 401317276, "title": "GNX", "cover": "faef7f4f" }
+        });
+        let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
+        assert!(hit.track.is_none());
     }
 }

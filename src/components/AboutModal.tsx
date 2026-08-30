@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { X, Heart, CircleDot } from "lucide-react";
+import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { DISMISS_PRIORITY } from "../lib/dismissStack";
 
 interface AboutModalProps {
   open: boolean;
@@ -53,14 +55,7 @@ export default function AboutModal({ open, onClose }: AboutModalProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open, onClose]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  useEscapeDismiss(open, onClose, DISMISS_PRIORITY.modal);
 
   if (!open) return null;
 

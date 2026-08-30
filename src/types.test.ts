@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTidalVideoUrl } from "./types";
+import { getTidalVideoUrl, type AppView } from "./types";
 
 describe("getTidalVideoUrl", () => {
   it("returns empty string for undefined input", () => {
@@ -39,5 +39,23 @@ describe("getTidalVideoUrl", () => {
     expect(getTidalVideoUrl("11-22-33", "origin")).toBe(
       "https://resources.tidal.com/videos/11/22/33/origin.mp4",
     );
+  });
+});
+
+describe("AppView nav stamping", () => {
+  it("carries __navId and __navSession while preserving discriminated narrowing", () => {
+    const view: AppView = {
+      type: "album",
+      albumId: 42,
+      __navId: 7,
+      __navSession: "abc",
+    };
+    expect(view.__navId).toBe(7);
+    expect(view.__navSession).toBe("abc");
+    if (view.type === "album") {
+      expect(view.albumId).toBe(42);
+    } else {
+      throw new Error("narrowing broke");
+    }
   });
 });

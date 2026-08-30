@@ -12,7 +12,12 @@ import {
   type Track,
   type MediaItemType,
 } from "../types";
-import { getArtistImage } from "../utils/itemHelpers";
+import {
+  buildTrackFromHit,
+  getArtistImage,
+  getTrackArtistDisplay,
+} from "../utils/itemHelpers";
+import ExplicitBadge from "./ExplicitBadge";
 import TidalImage from "./TidalImage";
 import TrackContextMenu from "./TrackContextMenu";
 import MediaContextMenu from "./MediaContextMenu";
@@ -151,6 +156,8 @@ export default function SearchBar() {
       addToHistory(searchQuery.trim());
       navigateToSearch(searchQuery.trim());
     } else if (e.key === "Escape") {
+      // A focused input owns Escape; keep it off the dismissal stack.
+      e.stopPropagation();
       setSearchOpen(false);
       searchInputRef.current?.blur();
     }
@@ -164,7 +171,7 @@ export default function SearchBar() {
     searchInputRef.current?.focus();
   };
 
-  // Listen for global Ctrl+S focus event
+  // Listen for global Ctrl+K focus event
   useEffect(() => {
     const handler = () => {
       searchInputRef.current?.focus();
@@ -491,22 +498,7 @@ export default function SearchBar() {
                       );
                     }
                     if (hit.hitType === "TRACKS") {
-                      // Build a minimal Track object for playback and context menu
-                      const trackObj: Track = {
-                        id: hit.id || 0,
-                        title: hit.title || "",
-                        duration: hit.duration || 0,
-                        artist: hit.artistName
-                          ? { id: 0, name: hit.artistName }
-                          : undefined,
-                        album: hit.albumId
-                          ? {
-                              id: hit.albumId,
-                              title: hit.albumTitle || "",
-                              cover: hit.albumCover,
-                            }
-                          : undefined,
-                      };
+                      const trackObj = buildTrackFromHit(hit);
                       return (
                         <div
                           key={`dh-${idx}`}
@@ -553,12 +545,14 @@ export default function SearchBar() {
                             </div>
                           </button>
                           <div className="flex-1 min-w-0 text-left">
-                            <p className="text-[14px] text-th-text-primary truncate">
-                              {hit.title}
-                            </p>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[14px] text-th-text-primary truncate">
+                                {hit.title}
+                              </span>
+                              {trackObj.explicit && <ExplicitBadge />}
+                            </div>
                             <p className="text-[11px] text-th-text-faint truncate">
-                              Track &middot;{" "}
-                              {hit.artistName || "Unknown Artist"}
+                              Track &middot; {getTrackArtistDisplay(trackObj)}
                             </p>
                           </div>
                           <button
