@@ -152,7 +152,10 @@ describe("FeedPage", () => {
 
     // Only the mix and album rows carry a play button; the inert one has none.
     // `queryAll` rather than `query`, which throws on more than one match.
-    expect(screen.queryAllByLabelText(/^Play /).length).toBe(2);
+    // `\b` not a trailing space: the unknown row has no title, so a leaked
+    // button would be labelled "Play ", which Testing Library trims to "Play"
+    // — and `/^Play /` would silently stop matching it.
+    expect(screen.queryAllByLabelText(/^Play\b/).length).toBe(2);
   });
 
   it("opens the context menu from the row's three-dot button", async () => {
@@ -170,8 +173,12 @@ describe("FeedPage", () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText("July 2026")).toBeTruthy());
 
+    // rows[0] is the mix row — bucket order is This month / Last month / Older
+    // and `groupFeedByPeriod` preserves input order, so the mix is always
+    // first regardless of the date the suite runs. The dots-button test above
+    // covers the album row, so between them both kinds are exercised.
     const rows = document.querySelectorAll("div.group");
-    fireEvent.contextMenu(rows[1]);
+    fireEvent.contextMenu(rows[0]);
 
     await waitFor(() => expect(screen.getByText("Play now")).toBeTruthy());
   });

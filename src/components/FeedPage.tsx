@@ -14,7 +14,7 @@ import {
 } from "../utils/itemHelpers";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
-import type { FeedItem } from "../types";
+import type { FeedItem, MediaItemType } from "../types";
 import MediaContextMenu from "./MediaContextMenu";
 import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
 import PageContainer from "./PageContainer";
@@ -40,7 +40,15 @@ function feedSubtitle(entry: FeedItem): string {
   return getItemSubtitle(entry.item);
 }
 
-function FeedRow({ entry }: { entry: FeedItem }) {
+function FeedRow({
+  entry,
+  menuOpen,
+  onOpenMenu,
+}: {
+  entry: FeedItem;
+  menuOpen: boolean;
+  onOpenMenu: (item: MediaItemType, position: { x: number; y: number }) => void;
+}) {
   const { navigateToMix, navigateToAlbum } = useNavigation();
   const playMedia = useMediaPlay();
 
@@ -53,14 +61,21 @@ function FeedRow({ entry }: { entry: FeedItem }) {
   // on a null return: `buildMediaItem` falls through to its `item.id &&
   // !isTrackItem` branch for an unrecognised payload and hands back a bogus
   // album, so the kind check is the only thing that keeps unknown rows inert.
+  // The type hint keeps this deterministic: without it `buildMediaItem`
+  // re-sniffs the payload via `isMixItem` (which keys on `mixType`), a
+  // different signal from the `historyMix` payload key the backend derives
+  // `kind` from. A mix arriving without `mixType` would otherwise fall into
+  // the same album branch that already caught us on unknown rows.
   const mediaItem = useMemo(
-    () => (isInert ? null : buildMediaItem(entry.item)),
-    [isInert, entry.item],
+    () =>
+      isInert
+        ? null
+        : buildMediaItem(
+            entry.item,
+            entry.kind === "mix" ? "MIX_LIST" : "ALBUM_LIST",
+          ),
+    [isInert, entry.kind, entry.item],
   );
-  const [menuPosition, setMenuPosition] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
 
   const handleOpen = () => {
     if (entry.kind === "mix") {
@@ -87,7 +102,7 @@ function FeedRow({ entry }: { entry: FeedItem }) {
     if (!mediaItem) return;
     e.preventDefault();
     e.stopPropagation();
-    setMenuPosition({ x: e.clientX, y: e.clientY });
+    onOpenMenu(mediaItem, { x: e.clientX, y: e.clientY });
   };
 
   return (
@@ -146,21 +161,13 @@ function FeedRow({ entry }: { entry: FeedItem }) {
           aria-label={`More options for ${title}`}
           title="More options"
           className={`shrink-0 p-1.5 rounded-full transition-colors cursor-pointer ${
-            menuPosition
+            menuOpen
               ? "text-th-text-primary opacity-100"
               : "text-th-text-muted hover:text-th-text-primary opacity-0 group-hover:opacity-100"
           }`}
         >
           <MoreHorizontal size={18} />
         </button>
-      )}
-
-      {menuPosition && mediaItem && (
-        <MediaContextMenu
-          item={mediaItem}
-          cursorPosition={menuPosition}
-          onClose={() => setMenuPosition(null)}
-        />
       )}
     </div>
   );
@@ -211,6 +218,17 @@ export default function FeedPage() {
 
   const groups = useMemo(() => groupFeedByPeriod(items, new Date()), [items]);
 
+  // Held here, not in FeedRow: MediaContextMenu renders through a portal, and
+  // React portals bubble events up the REACT tree. Nested inside a row, a click
+  // dismissing one of its sub-modals (Add to playlist -> Create playlist ->
+  // backdrop) would reach the row's onClick and navigate. Every other
+  // MediaContextMenu call site renders at container level for the same reason.
+  const [contextMenu, setContextMenu] = useState<{
+    rowKey: string;
+    item: MediaItemType;
+    position: { x: number; y: number };
+  } | null>(null);
+
   return (
     <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
       <PageContainer className="px-8 py-10">
@@ -232,18 +250,33 @@ export default function FeedPage() {
                   {group.label}
                 </h2>
                 <div className="space-y-1">
-                  {group.items.map((entry, idx) => (
-                    <FeedRow
-                      key={`${entry.occurredAt}-${entry.kind}-${idx}`}
-                      entry={entry}
-                    />
-                  ))}
+                  {group.items.map((entry, idx) => {
+                    const rowKey = `${entry.occurredAt}-${entry.kind}-${idx}`;
+                    return (
+                      <FeedRow
+                        key={rowKey}
+                        entry={entry}
+                        menuOpen={contextMenu?.rowKey === rowKey}
+                        onOpenMenu={(item, position) =>
+                          setContextMenu({ rowKey, item, position })
+                        }
+                      />
+                    );
+                  })}
                 </div>
               </section>
             ))}
           </div>
         )}
       </PageContainer>
+
+      {contextMenu && (
+        <MediaContextMenu
+          item={contextMenu.item}
+          cursorPosition={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
