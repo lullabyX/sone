@@ -49,6 +49,19 @@ textarea {
   -webkit-user-select: text;
 }
 
+/* WebKitGTK applies the CSS `zoom` factor to the SVG stroke-width presentation
+   attribute a second time, so icons render `zoom`x too heavy (and too light
+   when zoomed out). A CSS declaration overrides the attribute and scales once. */
+svg[stroke-width="2"] {
+  stroke-width: 2;
+}
+svg[stroke-width="2.5"] {
+  stroke-width: 2.5;
+}
+svg[stroke-width="3"] {
+  stroke-width: 3;
+}
+
 /* Visible selection highlight across dark + light themes.
    No color override so the original text color stays readable. */
 ::selection {
@@ -65,10 +78,13 @@ textarea {
   width: 100%;
 }
 
-/* Custom Scrollbar - Thinner and Darker */
+/* Track is wider than the thumb on purpose: the transparent border keeps the
+   thumb 6px while the draggable band is 10px, so the window edge-resize strip
+   can't swallow the whole scrollbar. Set background-color, never the
+   `background` shorthand — the shorthand resets background-clip. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -76,12 +92,14 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--th-scrollbar, #333);
-  border-radius: 3px;
+  background-color: var(--th-scrollbar, #333);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--th-scrollbar-hover, #555);
+  background-color: var(--th-scrollbar-hover, #555);
 }
 
 /* Hide scrollbar for specific elements but keep functionality */
@@ -93,15 +111,16 @@ textarea {
   scrollbar-width: none; /* Firefox */
 }
 
-/* Custom utility for the sidebar scrollbar to match Tidal's subtle look */
+/* Subtler variant: 3px border leaves a 4px thumb in the same 10px band. */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--th-scrollbar, #222);
+  background-color: var(--th-scrollbar, #222);
+  border: 3px solid transparent;
 }
 .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: var(--th-scrollbar-hover, #444);
+  background-color: var(--th-scrollbar-hover, #444);
 }
 
 /* Player bar - prevent text selection during scrubbing */

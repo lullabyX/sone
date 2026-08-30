@@ -12,6 +12,7 @@ import {
 } from "../atoms/playback";
 import { favoriteTrackIdsAtom } from "../atoms/favorites";
 import { miniplayerOpenAtom } from "../atoms/ui";
+import { themeAtom } from "../atoms/theme";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
 import { usePlaybackActions } from "./usePlaybackActions";
 import { useFavorites } from "./useFavorites";
@@ -66,15 +67,8 @@ export function useMiniplayerEmitter() {
     const source =
       store.get(contextSourceAtom) || store.get(playbackSourceAtom);
 
-    // Read accent from theme in localStorage
-    let accentColor = "#A855F7"; // fallback
-    try {
-      const stored = localStorage.getItem("sone.theme.v1");
-      if (stored) {
-        const theme = JSON.parse(stored);
-        if (theme.accent) accentColor = theme.accent;
-      }
-    } catch {}
+    // Read accent from the live theme atom.
+    const accentColor = store.get(themeAtom).accent;
 
     return {
       track: track

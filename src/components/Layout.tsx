@@ -148,7 +148,7 @@ export default function Layout({ children }: LayoutProps) {
         <PlayerBar />
       </div>
       {currentVideo && <VideoPlayer />}
-      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={4} />}
+      {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={2} />}
     </div>
   );
 }

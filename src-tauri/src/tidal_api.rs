@@ -640,6 +640,139 @@ pub struct TidalVideo {
     pub artists: Option<Vec<TidalArtist>>,
 }
 
+// ==================== Feed (activity notifications) ====================
+
+/// Which entity a feed activity carries. The payload key in
+/// `followableActivity` is the real discriminant; this is its typed form.
+///
+/// `rename_all` must live on the enum — a struct-level `rename_all` does not
+/// rename enum variants, and the wire contract is lowercase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedItemKind {
+    Mix,
+    Album,
+    Unknown,
+}
+
+/// One flattened feed row. `item` is the raw payload, passed through untouched
+/// so the frontend's existing item helpers can render and play it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedItem {
+    pub kind: FeedItemKind,
+    pub activity_type: String,
+    pub occurred_at: String,
+    pub seen: bool,
+    pub item: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedResponse {
+    pub items: Vec<FeedItem>,
+    pub unseen_count: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct FeedActivitiesEnvelope {
+    #[serde(default)]
+    activities: Vec<FeedActivityEntry>,
+    #[serde(default)]
+    stats: Option<FeedStats>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FeedStats {
+    #[serde(default)]
+    total_not_seen_activities: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FeedActivityEntry {
+    #[serde(default)]
+    followable_activity: Option<serde_json::Value>,
+    #[serde(default)]
+    seen: bool,
+}
+
+/// Keys inside `followableActivity` that are metadata, not the payload.
+const FEED_META_KEYS: [&str; 2] = ["activityType", "occurredAt"];
+
+/// Flatten one `followableActivity` object into a `FeedItem`.
+///
+/// The object holds exactly one payload, keyed by content type
+/// (`historyMix`, `album`, …). Returns `None` when no payload object is
+/// present at all — such an entry has nothing to render.
+pub fn flatten_feed_activity(seen: bool, activity: &serde_json::Value) -> Option<FeedItem> {
+    let obj = activity.as_object()?;
+
+    let activity_type = obj
+        .get("activityType")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let occurred_at = obj
+        .get("occurredAt")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let (key, payload) = obj
+        .iter()
+        .find(|(k, v)| !FEED_META_KEYS.contains(&k.as_str()) && v.is_object())?;
+
+    let kind = match key.as_str() {
+        "historyMix" => FeedItemKind::Mix,
+        "album" => FeedItemKind::Album,
+        other => {
+            log::warn!(
+                "[feed] unrecognized payload key '{}' (activityType={})",
+                other,
+                activity_type
+            );
+            FeedItemKind::Unknown
+        }
+    };
+
+    Some(FeedItem {
+        kind,
+        activity_type,
+        occurred_at,
+        seen,
+        item: payload.clone(),
+    })
+}
+
+/// Parse a feed response body into flattened rows.
+pub fn parse_feed_body(body: &str) -> Result<FeedResponse, serde_json::Error> {
+    let envelope: FeedActivitiesEnvelope = serde_json::from_str(body)?;
+
+    let items: Vec<FeedItem> = envelope
+        .activities
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .followable_activity
+                .as_ref()
+                .and_then(|a| flatten_feed_activity(entry.seen, a))
+        })
+        .collect();
+
+    let unseen_count = envelope
+        .stats
+        .as_ref()
+        .map(|s| s.total_not_seen_activities)
+        .unwrap_or(0);
+
+    Ok(FeedResponse {
+        items,
+        unseen_count,
+    })
+}
+
 // ==================== v2 Home Feed MIX types ====================
 // These structs document the v2 MIX shape. Not yet consumed by backend code
 // (home feed items pass through as raw Value), but available for future typed parsing.
@@ -5708,6 +5841,83 @@ impl TidalClient {
         }
         Ok(())
     }
+
+    /// Fetch the activity feed. `user_id` comes from the caller — `self.tokens`
+    /// may carry `None` on the token-import path.
+    pub async fn fetch_feed(&mut self, user_id: u64) -> Result<FeedResponse, SoneError> {
+        let url = format!("{}/feed/activities", TIDAL_API_V2_URL);
+        let country_code = self.country_code.clone();
+        let user_id_str = user_id.to_string();
+
+        let body = self
+            .api_get_body(
+                &url,
+                &[
+                    ("userId", user_id_str.as_str()),
+                    ("countryCode", country_code.as_str()),
+                    ("locale", "en_US"),
+                    ("deviceType", "BROWSER"),
+                    ("platform", "WEB"),
+                ],
+            )
+            .await?;
+
+        let feed = parse_feed_body(&body).map_err(|e| {
+            log::error!("[fetch_feed] parse error: {}", e);
+            SoneError::Parse(format!("feed parse error: {}", e))
+        })?;
+
+        log::debug!(
+            "[fetch_feed] items={} unseen={}",
+            feed.items.len(),
+            feed.unseen_count
+        );
+
+        Ok(feed)
+    }
+
+    /// Mark every feed activity as seen.
+    ///
+    /// Hand-rolled because no authenticated PUT helper exists. Two things the GET
+    /// path gives for free must be done manually: the v2 client-version header
+    /// (v2 returns 400/404 without it), and routing through `self.send` so the
+    /// rate gate still applies. An expired token hard-401s with no refresh retry —
+    /// callers treat failure as non-fatal.
+    pub async fn mark_feed_seen(&self, user_id: u64) -> Result<(), SoneError> {
+        let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
+
+        log::debug!("[mark_feed_seen] user_id={}", user_id);
+
+        let user_id_str = user_id.to_string();
+        let req = self
+            .client
+            .put(format!("{}/feed/activities/seen", TIDAL_API_V2_URL))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
+            .query(&[
+                ("userId", user_id_str.as_str()),
+                ("countryCode", self.country_code.as_str()),
+            ]);
+        let response = self.send(req).await?;
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        log::debug!(
+            "[mark_feed_seen] status={}, body={}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if !status.is_success() {
+            return Err(SoneError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
+    }
 }
 
 // ==================== Profile ====================
@@ -6827,5 +7037,164 @@ mod direct_hit_tests {
         });
         let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
         assert!(hit.track.is_none());
+    }
+}
+
+#[cfg(test)]
+mod feed_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn feed_item_kind_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&FeedItemKind::Mix).unwrap(),
+            "\"mix\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FeedItemKind::Album).unwrap(),
+            "\"album\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FeedItemKind::Unknown).unwrap(),
+            "\"unknown\""
+        );
+    }
+
+    #[test]
+    fn flattens_history_mix_activity() {
+        let activity = json!({
+            "historyMix": {
+                "id": "0011112222333344445555666677",
+                "mixType": "HISTORY_MONTHLY_MIX",
+                "title": "July 2026",
+                "subTitle": "Some Artist and more",
+                "images": {
+                    "MEDIUM": { "width": 533, "height": 533, "url": "https://example.invalid/a.jpg" }
+                }
+            },
+            "activityType": "NEW_HISTORY_MIX",
+            "occurredAt": "2026-08-01T00:00:00.000Z"
+        });
+
+        let item = flatten_feed_activity(true, &activity).expect("should flatten");
+
+        assert!(matches!(item.kind, FeedItemKind::Mix));
+        assert_eq!(item.activity_type, "NEW_HISTORY_MIX");
+        assert_eq!(item.occurred_at, "2026-08-01T00:00:00.000Z");
+        assert!(item.seen);
+        assert_eq!(item.item["mixType"], "HISTORY_MONTHLY_MIX");
+        assert_eq!(
+            item.item["images"]["MEDIUM"]["url"],
+            "https://example.invalid/a.jpg"
+        );
+    }
+
+    #[test]
+    fn flattens_album_activity() {
+        let activity = json!({
+            "album": {
+                "id": 1234,
+                "title": "Some Single",
+                "type": "SINGLE",
+                "cover": "00000000-1111-2222-3333-444444444444",
+                "artists": [ { "id": 9, "name": "Some Artist" } ]
+            },
+            "activityType": "NEW_ALBUM_RELEASE",
+            "occurredAt": "2026-06-05T00:00:00.000Z"
+        });
+
+        let item = flatten_feed_activity(false, &activity).expect("should flatten");
+
+        assert!(matches!(item.kind, FeedItemKind::Album));
+        assert!(!item.seen);
+        assert_eq!(item.item["id"], 1234);
+        assert_eq!(item.item["artists"][0]["name"], "Some Artist");
+    }
+
+    #[test]
+    fn unrecognized_payload_key_becomes_unknown() {
+        let activity = json!({
+            "somethingNew": { "id": 7, "title": "Mystery" },
+            "activityType": "NEW_MYSTERY_THING",
+            "occurredAt": "2026-01-01T00:00:00.000Z"
+        });
+
+        let item = flatten_feed_activity(true, &activity).expect("should still flatten");
+
+        assert!(matches!(item.kind, FeedItemKind::Unknown));
+        assert_eq!(item.item["title"], "Mystery");
+    }
+
+    #[test]
+    fn activity_without_payload_object_is_dropped() {
+        let activity = json!({
+            "activityType": "NEW_NOTHING",
+            "occurredAt": "2026-01-01T00:00:00.000Z"
+        });
+
+        assert!(flatten_feed_activity(true, &activity).is_none());
+    }
+
+    #[test]
+    fn parses_envelope_with_both_kinds_and_unseen_count() {
+        let body = json!({
+            "activities": [
+                {
+                    "followableActivity": {
+                        "historyMix": { "id": "abc", "mixType": "HISTORY_MONTHLY_MIX" },
+                        "activityType": "NEW_HISTORY_MIX",
+                        "occurredAt": "2026-08-01T00:00:00.000Z"
+                    },
+                    "seen": false
+                },
+                {
+                    "followableActivity": {
+                        "album": { "id": 1, "title": "T" },
+                        "activityType": "NEW_ALBUM_RELEASE",
+                        "occurredAt": "2026-06-05T00:00:00.000Z"
+                    },
+                    "seen": true
+                }
+            ],
+            "stats": { "totalNotSeenActivities": 3 }
+        })
+        .to_string();
+
+        let feed = parse_feed_body(&body).expect("should parse");
+
+        assert_eq!(feed.items.len(), 2);
+        assert_eq!(feed.unseen_count, 3);
+        assert!(matches!(feed.items[0].kind, FeedItemKind::Mix));
+        assert!(!feed.items[0].seen);
+        assert!(matches!(feed.items[1].kind, FeedItemKind::Album));
+    }
+
+    #[test]
+    fn missing_stats_yields_zero_unseen() {
+        let body = json!({ "activities": [] }).to_string();
+        let feed = parse_feed_body(&body).expect("should parse");
+        assert_eq!(feed.unseen_count, 0);
+        assert!(feed.items.is_empty());
+    }
+
+    /// A feed parse failure must surface as `SoneError::Parse`, whose wire
+    /// `message` is a plain string. `SoneError::Api` serializes `message` as a
+    /// `{status, body}` object, which the frontend cannot render as text.
+    #[test]
+    fn parse_failure_serializes_message_as_a_string() {
+        let err = parse_feed_body("not json").expect_err("should fail to parse");
+        let parse_err = SoneError::Parse(format!("feed parse error: {}", err));
+
+        let wire = serde_json::to_value(&parse_err).unwrap();
+        assert_eq!(wire["kind"], "Parse");
+        assert!(wire["message"].is_string());
+
+        let api_wire = serde_json::to_value(SoneError::Api {
+            status: 200,
+            body: "x".to_string(),
+        })
+        .unwrap();
+        assert!(api_wire["message"].is_object());
     }
 }

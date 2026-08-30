@@ -8,6 +8,7 @@ import type {
   ArtistPageData,
   Credit,
   FavoriteMix,
+  FeedResponse,
   HomePageCached,
   HomePageResponse,
   Lyrics,
@@ -1117,6 +1118,22 @@ export async function getAllFavoriteIds(
   userId: number,
 ): Promise<AllFavoriteIds> {
   return invoke<AllFavoriteIds>("get_all_favorite_ids", { userId });
+}
+
+// ==================== Feed ====================
+
+/**
+ * Activity feed. Deliberately uncached on this side — `get_feed` owns the
+ * cache, and a second TTL layer here would mask backend invalidation.
+ */
+export async function getFeed(userId: number): Promise<FeedResponse> {
+  return invoke<FeedResponse>("get_feed", { userId });
+}
+
+/** Mark all feed activities seen. Failure is non-fatal — the caller clears the
+ *  badge locally regardless, and the next startup fetch reports the truth. */
+export async function markFeedSeen(userId: number): Promise<void> {
+  return invoke<void>("mark_feed_seen", { userId });
 }
 
 // ==================== Profile ====================

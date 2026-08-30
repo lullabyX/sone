@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type ResizeDir =
@@ -67,19 +68,52 @@ function buildZones(top: number, bottom: number, left: number, right: number) {
   return zones;
 }
 
+// Maximized / fullscreen windows can't be edge-resized, and these strips sit on
+// top of the content scrollbars — so don't render them at all in those states.
+function useWindowFills() {
+  const [fills, setFills] = useState(false);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let cancelled = false;
+
+    const sync = () => {
+      Promise.all([win.isMaximized(), win.isFullscreen()])
+        .then(([maximized, fullscreen]) => {
+          if (!cancelled) setFills(maximized || fullscreen);
+        })
+        .catch(() => {});
+    };
+
+    sync();
+    const unlisten = win.onResized(sync);
+
+    return () => {
+      cancelled = true;
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  return fills;
+}
+
 export default function ResizeEdges({
   top = 4,
   bottom = 4,
   left = 4,
   right = 4,
 }: ResizeEdgesProps) {
+  const fills = useWindowFills();
   const zones = buildZones(top, bottom, left, right);
+
+  if (fills) return null;
 
   return (
     <>
       {zones.map((zone) => (
         <div
           key={zone.direction}
+          data-resize-edge={zone.direction}
           onMouseDown={(e) => {
             e.preventDefault();
             getCurrentWindow().startResizeDragging(zone.direction);

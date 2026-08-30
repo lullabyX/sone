@@ -314,3 +314,85 @@ export const PRESET_THEMES: Theme[] = [
   { name: "Meadow", accent: "#16A34A", bgBase: "#F2F6EE" },
   { name: "Blossom", accent: "#E11D48", bgBase: "#FEF3F2" },
 ];
+
+export interface ThemeCustom {
+  accent: string;
+  background: string;
+}
+
+export interface ThemeFile {
+  version?: number;
+  preset: string; // "custom" or an exact PRESET_THEMES name
+  custom: ThemeCustom;
+}
+
+export const THEME_STORAGE_KEY = "sone.theme.v1";
+
+/** The `"preset"` meaning "use the `custom` colors". Mirrors `CUSTOM_PRESET`
+ *  in `src-tauri/src/theme_config.rs`. */
+export const CUSTOM_PRESET = "custom";
+
+const PRESET_NAMES = new Set(PRESET_THEMES.map((p) => p.name));
+
+/** Normalize a `#RGB`/`#RrGgBb` color to uppercase `#RRGGBB` */
+export function normalizeHex(input: string): string | null {
+  if (typeof input !== "string") return null;
+  const m = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(input.trim());
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3)
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  return `#${h.toUpperCase()}`;
+}
+
+export function themesEqual(a: Theme, b: Theme): boolean {
+  return (
+    a.accent.toUpperCase() === b.accent.toUpperCase() &&
+    a.bgBase.toUpperCase() === b.bgBase.toUpperCase()
+  );
+}
+
+/** Validate a parsed theme file and resolve it to a Theme */
+export function resolveThemeFile(
+  file: ThemeFile | null | undefined,
+): Theme | null {
+  // Check version and parameters presence
+  if (!file || typeof file !== "object") return null;
+  if (file.version !== undefined && file.version !== 1) return null;
+  if (typeof file.preset !== "string") return null;
+  const custom = file.custom;
+  if (!custom || typeof custom !== "object") return null;
+  const accent = normalizeHex(String(custom.accent));
+  const bgBase = normalizeHex(String(custom.background));
+  if (!accent || !bgBase) return null;
+
+  if (file.preset === CUSTOM_PRESET) {
+    return { name: "Custom", accent, bgBase };
+  }
+  if (!PRESET_NAMES.has(file.preset)) return null;
+  const preset = PRESET_THEMES.find((p) => p.name === file.preset)!;
+  return { name: preset.name, accent: preset.accent, bgBase: preset.bgBase };
+}
+
+/** Serialize a live Theme to file shape */
+export function themeToFile(theme: Theme): ThemeFile {
+  const accent = normalizeHex(theme.accent) ?? theme.accent.toUpperCase();
+  const bgBase = normalizeHex(theme.bgBase) ?? theme.bgBase.toUpperCase();
+  // Trust the theme's own name rather than matching colors back to a preset --
+  // a custom theme that happens to land on a preset's colors is still custom.
+  // The colors are still checked so a stale name can't mislabel edited colors.
+  const isPreset = PRESET_THEMES.some(
+    (p) =>
+      p.name === theme.name &&
+      p.accent.toUpperCase() === accent &&
+      p.bgBase.toUpperCase() === bgBase,
+  );
+  return {
+    version: 1,
+    preset: isPreset ? theme.name : CUSTOM_PRESET,
+    custom: { accent, background: bgBase },
+  };
+}

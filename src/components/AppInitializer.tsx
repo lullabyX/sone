@@ -13,6 +13,7 @@ import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
 import { updateToastSeenAtom } from "../atoms/updates";
@@ -65,9 +66,12 @@ import {
 import {
   decorationsAtom,
   drawerOpenAtom,
+  feedUnseenCountAtom,
   maximizedPlayerAtom,
 } from "../atoms/ui";
+import { themeAtom } from "../atoms/theme";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
+import { syncThemeToFile, handleThemeFocusChange } from "../lib/themeFile";
 
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
@@ -93,6 +97,7 @@ import {
   normalizePlaylistFolders,
   getTrack,
   getProfile,
+  getFeed,
 } from "../api/tidal";
 import { pickProfileAvatarHref } from "./ProfilePage";
 
@@ -209,6 +214,7 @@ export function AppInitializer() {
   const setDrawerOpen = useSetAtom(drawerOpenAtom);
   const setMaximized = useSetAtom(maximizedPlayerAtom);
   const setDecorations = useSetAtom(decorationsAtom);
+  const setFeedUnseenCount = useSetAtom(feedUnseenCountAtom);
   const { showToast } = useToast();
 
   // ---- Store for one-time reads (volume, queue, history, etc.) — no subscription ----
@@ -455,6 +461,12 @@ export function AppInitializer() {
       .catch((error) =>
         console.error("Failed to load favorite video IDs:", error),
       );
+
+    // Activity feed — fetched at startup so the sidebar unread dot is correct
+    // before the user ever opens the page. Also warms the backend feed cache.
+    getFeed(userId)
+      .then((feed) => setFeedUnseenCount(feed.unseenCount))
+      .catch((error) => console.error("Failed to load feed:", error));
 
     // Non-blocking background preload (2s delay to avoid startup congestion)
     const timer = setTimeout(() => {
@@ -765,6 +777,45 @@ export function AppInitializer() {
         );
       }
     };
+  }, [store]);
+
+  // ================================================================
+  //  THEME FILE WRITE-THROUGH — persist themeAtom ->
+  //  CONFIG_SONE_DIR/theme.json
+  // ================================================================
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = store.sub(themeAtom, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void syncThemeToFile(store.get(themeAtom));
+      }, 150);
+    });
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, [store]);
+
+  // ================================================================
+  //  EXTERNAL THEME FILE — re-read when window is displayed
+  //  (tray/taskbar restore, re-focus)
+  // ================================================================
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        void handleThemeFocusChange(
+          focused,
+          () => store.get(themeAtom),
+          (t) => store.set(themeAtom, t),
+        );
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => unlisten?.();
   }, [store]);
 
   // ================================================================

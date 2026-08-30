@@ -1,7 +1,7 @@
 import { atomWithStorage } from "jotai/utils";
-import { type Theme, PRESET_THEMES } from "../lib/theme";
+import { type Theme, PRESET_THEMES, THEME_STORAGE_KEY } from "../lib/theme";
 
 export const themeAtom = atomWithStorage<Theme>(
-  "sone.theme.v1",
+  THEME_STORAGE_KEY,
   PRESET_THEMES[0],
 );
