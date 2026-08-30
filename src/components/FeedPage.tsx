@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, type MouseEvent } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Music, Play } from "lucide-react";
+import { MoreHorizontal, Music, Play } from "lucide-react";
 import { getFeed, markFeedSeen } from "../api/tidal";
 import { authTokensAtom } from "../atoms/auth";
 import { feedUnseenCountAtom } from "../atoms/ui";
@@ -15,6 +15,7 @@ import {
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import type { FeedItem } from "../types";
+import MediaContextMenu from "./MediaContextMenu";
 import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
 import PageContainer from "./PageContainer";
 
@@ -48,6 +49,19 @@ function FeedRow({ entry }: { entry: FeedItem }) {
   const subtitle = feedSubtitle(entry);
   const isInert = entry.kind === "unknown";
 
+  // Drives playback and the context menu alike. Gated on `isInert` rather than
+  // on a null return: `buildMediaItem` falls through to its `item.id &&
+  // !isTrackItem` branch for an unrecognised payload and hands back a bogus
+  // album, so the kind check is the only thing that keeps unknown rows inert.
+  const mediaItem = useMemo(
+    () => (isInert ? null : buildMediaItem(entry.item)),
+    [isInert, entry.item],
+  );
+  const [menuPosition, setMenuPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+
   const handleOpen = () => {
     if (entry.kind === "mix") {
       navigateToMix(String(entry.item.id), {
@@ -66,13 +80,20 @@ function FeedRow({ entry }: { entry: FeedItem }) {
 
   const handlePlay = (e: MouseEvent) => {
     e.stopPropagation();
-    const media = buildMediaItem(entry.item);
-    if (media) playMedia(media);
+    if (mediaItem) playMedia(mediaItem);
+  };
+
+  const openMenu = (e: MouseEvent) => {
+    if (!mediaItem) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPosition({ x: e.clientX, y: e.clientY });
   };
 
   return (
     <div
       onClick={isInert ? undefined : handleOpen}
+      onContextMenu={openMenu}
       className={`group flex items-center gap-4 px-2 py-2 rounded-md transition-colors duration-150 ${
         isInert ? "" : "cursor-pointer hover:bg-th-surface-hover"
       }`}
@@ -107,7 +128,8 @@ function FeedRow({ entry }: { entry: FeedItem }) {
         )}
       </div>
 
-      <div className="min-w-0">
+      {/* flex-1 so the trailing menu button is pushed to the far right */}
+      <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-th-text-primary truncate">
           {title}
         </div>
@@ -117,6 +139,29 @@ function FeedRow({ entry }: { entry: FeedItem }) {
           </div>
         )}
       </div>
+
+      {mediaItem && (
+        <button
+          onClick={openMenu}
+          aria-label={`More options for ${title}`}
+          title="More options"
+          className={`shrink-0 p-1.5 rounded-full transition-colors cursor-pointer ${
+            menuPosition
+              ? "text-th-text-primary opacity-100"
+              : "text-th-text-muted hover:text-th-text-primary opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          <MoreHorizontal size={18} />
+        </button>
+      )}
+
+      {menuPosition && mediaItem && (
+        <MediaContextMenu
+          item={mediaItem}
+          cursorPosition={menuPosition}
+          onClose={() => setMenuPosition(null)}
+        />
+      )}
     </div>
   );
 }
