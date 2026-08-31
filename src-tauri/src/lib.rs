@@ -781,6 +781,9 @@ pub fn run() {
                 let _ = window.show();
             }
 
+            // Pick up external edits to theme.json while the app runs.
+            theme_config::spawn_theme_watcher(app.handle().clone());
+
             // System tray icon (ksni — native D-Bus StatusNotifierItem)
             #[cfg(target_os = "linux")]
             tray::setup(app);

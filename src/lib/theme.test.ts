@@ -1,4 +1,6 @@
+/// <reference types="vite/client" />
 import { describe, it, expect } from "vitest";
+import themeConfigRs from "../../src-tauri/src/theme_config.rs?raw";
 import {
   PRESET_THEMES,
   normalizeHex,
@@ -226,5 +228,25 @@ describe("themeToFile round-trip fidelity", () => {
       preset: "custom",
       custom: { accent: "#FF00AA", background: "#101010" },
     });
+  });
+});
+
+// The Rust validator rejects any preset name it does not know, so a preset
+// added here but not there would make theme_file_set fail -- silently, since
+// the failure is only console-warned once per process. Guard lives in vitest
+// rather than cargo because `npm run check` runs clippy, not `cargo test`.
+describe("preset names stay in sync with the Rust validator", () => {
+  it("matches PRESET_NAMES in src-tauri/src/theme_config.rs", () => {
+    const block = /pub const PRESET_NAMES: &\[&str\] = &\[([\s\S]*?)\];/.exec(
+      themeConfigRs,
+    );
+    expect(block, "PRESET_NAMES not found in theme_config.rs").not.toBeNull();
+
+    const rustNames = [...block![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(rustNames.length).toBeGreaterThan(0);
+
+    expect([...rustNames].sort()).toEqual(
+      PRESET_THEMES.map((p) => p.name).sort(),
+    );
   });
 });
