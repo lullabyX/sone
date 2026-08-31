@@ -95,47 +95,54 @@ export async function bootstrapThemeFile(): Promise<void> {
   markPersisted(resolved);
 }
 
-export async function syncThemeToFile(theme: Theme): Promise<void> {
-  const file = themeToFile(theme);
-  const json = JSON.stringify(file);
-  if (json === lastPersisted) return;
+async function writeThemeFile(file: ThemeFile): Promise<void> {
   try {
     await invoke("theme_file_set", { file });
-    lastPersisted = json;
+    lastPersisted = JSON.stringify(file);
   } catch (err) {
     warnWrite(err);
   }
 }
 
-export async function handleThemeFocusChange(
-  focused: boolean,
+export async function syncThemeToFile(theme: Theme): Promise<void> {
+  const file = themeToFile(theme);
+  if (JSON.stringify(file) === lastPersisted) return;
+  await writeThemeFile(file);
+}
+
+/**
+ * Re-create `theme.json` after it was deleted while SONE was running.
+ *
+ * Deliberately skips the no-op guard: the guard tracks what we believe is on
+ * disk, and what is on disk is now nothing.
+ */
+export async function recreateThemeFile(theme: Theme): Promise<void> {
+  await writeThemeFile(themeToFile(theme));
+}
+
+/**
+ * Apply a `theme.json` payload pushed by the backend watcher.
+ *
+ * Synchronous and side-effect-light on purpose: the watcher already did the
+ * read, so there is nothing to await, and no window in which a concurrent
+ * in-app change could be clobbered.
+ *
+ * SONE's own writes also come back through here. `themesEqual` makes that a
+ * no-op, which is what keeps write -> watch -> apply -> write from looping.
+ * That only holds because `themeToFile(resolveThemeFile(f))` is an identity,
+ * so the loop guard is asserted in the tests rather than left implicit.
+ */
+export function applyExternalThemeFile(
+  file: ThemeFile | null,
   getCurrent: () => Theme,
   setCurrent: (theme: Theme) => void,
-): Promise<void> {
-  if (!focused) return;
-
-  let file: ThemeFile | null;
-  try {
-    file = await invoke<ThemeFile | null>("theme_file_get");
-  } catch {
-    return; // invalid file, keep in-app theme
-  }
-  if (file === null) {
-    const current = getCurrent();
-    try {
-      await invoke("theme_file_set", { file: themeToFile(current) });
-      markPersisted(current);
-    } catch (err) {
-      warnWrite(err);
-    }
-    return;
-  }
+): void {
   const resolved = resolveThemeFile(file);
   if (!resolved) return;
   if (!themesEqual(resolved, getCurrent())) {
     setCurrent(resolved);
   }
-  // Either way the file and the live theme now agree -- record that, so the
-  // write-through this may have just triggered does not echo back to disk.
+  // Record agreement even when nothing changed, so the write-through this may
+  // have just triggered does not echo back to disk.
   markPersisted(resolved);
 }

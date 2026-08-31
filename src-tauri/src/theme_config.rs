@@ -124,10 +124,15 @@ fn config_sone_dir() -> Result<PathBuf, String> {
 /// - File present + valid   -> `Ok(Some(normalized))`
 /// - File present + invalid -> `Err`
 pub fn read_theme_file(path: &Path) -> Result<Option<ThemeFile>, String> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read_to_string(path).map_err(|e| format!("failed to read {path:?}: {e}"))?;
+    // Read first and interpret the error, rather than `exists()` then read:
+    // one syscall has no check-to-use gap, and `exists()` would also fold
+    // permission errors into "absent", which would then be papered over by
+    // re-creating the file.
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("failed to read {path:?}: {e}")),
+    };
     let parsed: ThemeFile =
         serde_json::from_str(&raw).map_err(|e| format!("theme file is not valid JSON: {e}"))?;
     match validate(&parsed) {
@@ -200,6 +205,98 @@ pub fn theme_file_get() -> Result<Option<ThemeFile>, String> {
 pub fn theme_file_set(file: ThemeFile) -> Result<(), String> {
     let dir = config_sone_dir()?;
     write_theme_file(&dir.join("theme.json"), &file)
+}
+
+// ---------------------------------------------------------------------------
+// External change watcher
+// ---------------------------------------------------------------------------
+
+/// Emitted to the frontend when `theme.json` changes on disk.
+pub const THEME_FILE_CHANGED_EVENT: &str = "theme-file-changed";
+
+/// Holds the debouncer for the process lifetime. Dropping it stops the watch,
+/// so this lives in Tauri state rather than in a local. The `Mutex` is only
+/// here to satisfy Tauri's `Sync` bound on managed state -- nothing locks it.
+pub struct ThemeWatcher(#[allow(dead_code)] std::sync::Mutex<Box<dyn std::any::Any + Send>>);
+
+/// True if `paths` mentions the file we care about.
+///
+/// An atomic write arrives as CREATE/MODIFY/CLOSE_WRITE on `theme.json.tmp-*`
+/// followed by MOVED_TO on `theme.json`. Only the last one names the real file,
+/// which is why the watch is on the directory and the filter is on the name.
+fn event_touches(paths: &[PathBuf], target: &Path) -> bool {
+    paths.iter().any(|p| p == target)
+}
+
+/// Watch `theme.json` and emit [`THEME_FILE_CHANGED_EVENT`] when it changes.
+///
+/// Non-fatal: on any failure the app keeps working, it just stops noticing
+/// external edits until the next launch.
+pub fn spawn_theme_watcher(app: tauri::AppHandle) {
+    use notify::RecursiveMode;
+    use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+    use std::time::Duration;
+
+    let dir = match config_sone_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("theme: not watching theme.json: {e}");
+            return;
+        }
+    };
+    let path = dir.join("theme.json");
+
+    let handler = {
+        let path = path.clone();
+        let app = app.clone();
+        move |res: DebounceEventResult| {
+            let events = match res {
+                Ok(events) => events,
+                Err(errors) => {
+                    for e in errors {
+                        log::warn!("theme: watch error: {e}");
+                    }
+                    return;
+                }
+            };
+            if !events.iter().any(|e| event_touches(&e.paths, &path)) {
+                return;
+            }
+            match read_theme_file(&path) {
+                // The frontend ignores an echo of its own write, so emitting
+                // unconditionally is safe and keeps this side stateless.
+                //
+                // `None` means the file is gone, and the frontend re-creates it
+                // from the live theme. Debouncing means a delete-then-rewrite
+                // still reads as `Some` -- only a lasting deletion gets here.
+                Ok(file) => {
+                    let _ = tauri::Emitter::emit(&app, THEME_FILE_CHANGED_EVENT, file);
+                }
+                Err(e) => log::warn!("theme: ignoring external change: {e}"),
+            }
+        }
+    };
+
+    // Debounce coalesces the tmp-file churn of a single atomic write, and any
+    // editor that saves more than once in quick succession.
+    let mut debouncer = match new_debouncer(Duration::from_millis(250), None, handler) {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("theme: could not start watcher: {e}");
+            return;
+        }
+    };
+    // NonRecursive: the config dir has subdirectories (logs, cache) we do not
+    // want events from.
+    if let Err(e) = debouncer.watch(&dir, RecursiveMode::NonRecursive) {
+        log::warn!("theme: could not watch {dir:?}: {e}");
+        return;
+    }
+    log::info!("theme: watching {path:?} for external changes");
+    tauri::Manager::manage(
+        &app,
+        ThemeWatcher(std::sync::Mutex::new(Box::new(debouncer))),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +446,98 @@ mod tests {
         let read = read_theme_file(&p).unwrap().unwrap();
         assert_eq!(read.custom.accent, "#3B82F6");
         assert_eq!(read.custom.background, "#0E1118");
+    }
+
+    #[test]
+    fn event_touches_only_the_theme_file() {
+        let target = Path::new("/cfg/sone/theme.json");
+        // The MOVED_TO of an atomic write is the event that matters.
+        assert!(event_touches(&[target.to_path_buf()], target));
+        // The tmp file it was renamed from must not trigger a read.
+        assert!(!event_touches(
+            &[PathBuf::from("/cfg/sone/theme.json.tmp-1234")],
+            target
+        ));
+        // Neighbours in the same watched directory are ignored.
+        assert!(!event_touches(
+            &[PathBuf::from("/cfg/sone/settings.json")],
+            target
+        ));
+        assert!(!event_touches(&[], target));
+        // A batch containing the target anywhere still counts.
+        assert!(event_touches(
+            &[
+                PathBuf::from("/cfg/sone/settings.json"),
+                target.to_path_buf()
+            ],
+            target
+        ));
+    }
+
+    #[test]
+    fn read_deleted_file_is_none_not_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("theme.json");
+        write_theme_file(&p, &custom("#3B82F6", "#0E1118")).unwrap();
+        assert!(read_theme_file(&p).unwrap().is_some());
+        fs::remove_file(&p).unwrap();
+        // Absent must stay Ok(None) so callers re-create rather than warn.
+        assert_eq!(read_theme_file(&p).unwrap(), None);
+    }
+
+    /// The watcher's core assumption: `write_theme_file` replaces the file by
+    /// rename, so a watch bound to the file path would go deaf after the first
+    /// write. Watching the directory sees the rename as an event naming
+    /// `theme.json`, which is what `event_touches` filters on.
+    #[test]
+    fn directory_watch_sees_an_atomic_write() {
+        use notify::RecursiveMode;
+        use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.json");
+
+        let (tx, rx) = mpsc::channel();
+        let mut debouncer = new_debouncer(
+            Duration::from_millis(80),
+            None,
+            move |res: DebounceEventResult| {
+                if let Ok(events) = res {
+                    for e in events {
+                        let _ = tx.send(e.paths.clone());
+                    }
+                }
+            },
+        )
+        .unwrap();
+        debouncer
+            .watch(dir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+
+        write_theme_file(&path, &custom("#3B82F6", "#0E1118")).unwrap();
+
+        // Collect whatever arrives within a generous window, then assert the
+        // real file was named at least once.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut saw_target = false;
+        while std::time::Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(paths) => {
+                    if event_touches(&paths, &path) {
+                        saw_target = true;
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        assert!(
+            saw_target,
+            "directory watch never reported an event naming theme.json"
+        );
     }
 
     #[cfg(unix)]
