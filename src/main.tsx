@@ -1,6 +1,7 @@
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { bootstrapThemeFile } from "./lib/themeFile";
+import { trackWindowFocus } from "./lib/windowFocus";
 
 /**
  * Resolve the external theme file (~/.config/sone/theme.json) BEFORE the
@@ -10,6 +11,7 @@ import { bootstrapThemeFile } from "./lib/themeFile";
  * Also in promise so a stuck IPC cannot block startup.
  */
 async function main() {
+  trackWindowFocus();
   await Promise.race([
     bootstrapThemeFile(),
     new Promise<void>((resolve) => setTimeout(resolve, 2000)),
