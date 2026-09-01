@@ -77,7 +77,6 @@ export default function TitleBar() {
 
   return (
     <div
-      data-tauri-drag-region
       onDoubleClick={handleDoubleClick}
       className="flex items-center justify-between bg-th-overlay border-b border-th-border-subtle select-none shrink-0"
       style={{ height: TITLEBAR_HEIGHT }}
@@ -117,7 +116,11 @@ export default function TitleBar() {
       >
         <button
           data-titlebar-button
-          onClick={minimize}
+          onClick={(e) => {
+            e.stopPropagation();
+            minimize();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
           aria-label="Minimize"
           className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-button-hover hover:text-th-text-primary transition-colors"
         >
@@ -125,7 +128,11 @@ export default function TitleBar() {
         </button>
         <button
           data-titlebar-button
-          onClick={toggleMaximize}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMaximize();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
           aria-label={isMaximized ? "Restore" : "Maximize"}
           className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-button-hover hover:text-th-text-primary transition-colors"
         >
@@ -133,7 +140,11 @@ export default function TitleBar() {
         </button>
         <button
           data-titlebar-button
-          onClick={close}
+          onClick={(e) => {
+            e.stopPropagation();
+            close();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
           aria-label="Close"
           className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-red-500/80 hover:text-white transition-colors"
         >
