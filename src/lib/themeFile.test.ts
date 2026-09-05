@@ -408,10 +408,11 @@ describe("bootstrapThemeFile pushes the file theme into the atom", () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(CUSTOM));
     vi.resetModules();
     const { bootstrapThemeFile } = await import("./themeFile");
-    const setItem = localStorage.setItem;
-    localStorage.setItem = () => {
-      throw new Error("QuotaExceededError");
-    };
+    const spy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
     invokeMock.mockResolvedValue({
       version: 1,
       preset: "Ocean",
@@ -420,7 +421,36 @@ describe("bootstrapThemeFile pushes the file theme into the atom", () => {
     try {
       await expect(bootstrapThemeFile()).resolves.toBeUndefined();
     } finally {
-      localStorage.setItem = setItem;
+      spy.mockRestore();
     }
+  });
+
+  it("arms the guard from the atom's value, not a malformed stored theme", async () => {
+    // No `name` field: a naive localStorage read would accept this (it only
+    // checks accent/bgBase), but themeAtom's `isTheme` validator rejects it,
+    // so the atom falls back to its default preset at module-eval. The guard
+    // must be armed from what the atom actually holds, not from this value.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ accent: "#3B82F6", bgBase: "#0E1118" }),
+    );
+    vi.resetModules();
+    const { getDefaultStore } = await import("jotai");
+    const { themeAtom } = await import("../atoms/theme");
+    const { bootstrapThemeFile, syncThemeToFile } = await import("./themeFile");
+
+    // The file read fails, so bootstrap returns early with only the
+    // above-the-first-await guard armed -- this is the only path where a
+    // mismatched `current` cannot be papered over by a later markPersisted.
+    invokeMock.mockRejectedValueOnce("backend unavailable");
+    await bootstrapThemeFile();
+    invokeMock.mockClear();
+
+    // Echo the atom's own value, as the mount-time write-through
+    // subscription would. The guard must already agree with it.
+    await syncThemeToFile(getDefaultStore().get(themeAtom));
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
   });
 });
