@@ -104,7 +104,11 @@ export default function TitleBar() {
         >
           SONE
         </span>
-        <span className="w-1.5 h-1.5 rounded-full bg-th-accent shrink-0" />
+        <span
+          className={`w-1.5 h-1.5 rounded-full bg-th-accent shrink-0 pointer-events-none transition-opacity ${
+            isFocused ? "opacity-100" : "opacity-50"
+          }`}
+        />
       </div>
 
       {/* Middle zone (flex grows to fill — draggable) */}
@@ -120,7 +124,7 @@ export default function TitleBar() {
           data-titlebar-button
           onClick={minimize}
           aria-label="Minimize"
-          className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-surface-hover hover:text-th-text-primary transition-colors"
+          className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-button-hover hover:text-th-text-primary transition-colors"
         >
           <Minus size={14} />
         </button>
@@ -128,7 +132,7 @@ export default function TitleBar() {
           data-titlebar-button
           onClick={toggleMaximize}
           aria-label={isMaximized ? "Restore" : "Maximize"}
-          className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-surface-hover hover:text-th-text-primary transition-colors"
+          className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-button-hover hover:text-th-text-primary transition-colors"
         >
           {isMaximized ? <Copy size={12} /> : <Square size={12} />}
         </button>

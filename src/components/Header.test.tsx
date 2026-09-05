@@ -1,17 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 
 vi.mock("./UserMenu", () => ({
-  default: () => <div data-testid="user-menu" />,
+  default: () => <div />,
 }));
 vi.mock("./SearchBar", () => ({
-  default: () => <div data-testid="search-bar" />,
+  default: () => <div />,
 }));
 
 import Header from "./Header";
 
 describe("Header", () => {
-  beforeEach(() => {
+  afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
   });
@@ -21,10 +21,13 @@ describe("Header", () => {
     const backBtn = getByRole("button", { name: /go back/i });
     const forwardBtn = getByRole("button", { name: /go forward/i });
 
-    expect(backBtn.className).toContain("bg-th-inset");
-    expect(backBtn.className).toContain("hover:bg-th-inset-hover");
-    expect(forwardBtn.className).toContain("bg-th-inset");
-    expect(forwardBtn.className).toContain("hover:bg-th-inset-hover");
+    for (const btn of [backBtn, forwardBtn]) {
+      // classList matches whole tokens; a `className.includes` check would be
+      // satisfied by the `hover:` variant alone and never fail.
+      expect(btn.classList.contains("bg-th-inset")).toBe(true);
+      expect(btn.classList.contains("hover:bg-th-inset-hover")).toBe(true);
+      expect(btn.className).not.toContain("bg-black");
+    }
   });
 
   it("calls window.history.back and forward on click", () => {
