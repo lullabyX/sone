@@ -79,6 +79,11 @@ export async function bootstrapThemeFile(): Promise<void> {
   const resolved = resolveThemeFile(file);
   if (!resolved) return;
 
+  // Promise.race in main.tsx does not cancel this call. If the timeout fired
+  // and the user has since changed the theme, a late resolve would revert it
+  // and then arm the guard so nothing repairs the divergence.
+  if (getDefaultStore().get(themeAtom) !== current) return;
+
   // Mirror unconditionally, not just when the colors differ: a stored `name`
   // of "Custom" against a file preset of "Ocean" describes the same colors but
   // serializes differently, and that disagreement would surface as a spurious
@@ -87,11 +92,12 @@ export async function bootstrapThemeFile(): Promise<void> {
   markPersisted(resolved);
   try {
     getDefaultStore().set(themeAtom, resolved);
-  } catch {
+  } catch (err) {
     // jotai's setItem is not guarded internally; a failing storage write must
     // not reject bootstrap. The atom is correct for this paint -- if storage
     // is genuinely broken, onMount re-reads the old value and reverts it, but
     // persistence is already lost in that case.
+    warnWrite(err);
   }
 }
 
@@ -139,10 +145,12 @@ export function applyExternalThemeFile(
 ): void {
   const resolved = resolveThemeFile(file);
   if (!resolved) return;
+  // Armed before `setCurrent`, not after: that call writes through to storage
+  // and can throw, which would strand the guard and let the write-through it
+  // triggers rewrite a hand-edited file. Recorded even when nothing changed,
+  // so a no-op apply cannot echo back to disk either.
+  markPersisted(resolved);
   if (!themesEqual(resolved, getCurrent())) {
     setCurrent(resolved);
   }
-  // Record agreement even when nothing changed, so the write-through this may
-  // have just triggered does not echo back to disk.
-  markPersisted(resolved);
 }
