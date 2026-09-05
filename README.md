@@ -440,8 +440,11 @@ for you need the matching path above.
 
 SONE reads the file at startup and **watches it while running**, so an external
 edit is applied straight away — even when SONE is unfocused or sitting in the
-tray. If the watch cannot be started SONE logs a warning and falls back to
-reading the file at startup only.
+tray. The watch can miss edits: it may fail to start (SONE logs a warning), it
+is not re-armed for the rest of the session if the config directory is deleted
+and recreated, and on filesystems where inotify does not work (NFS, sshfs, some
+overlay mounts) it starts but then never fires. In all of these the file is
+still read at startup, so restarting SONE always applies it.
 
 ```json
 {

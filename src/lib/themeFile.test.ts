@@ -404,6 +404,43 @@ describe("bootstrapThemeFile pushes the file theme into the atom", () => {
     await pending;
   });
 
+  // main.tsx races bootstrap against a 2s timeout, and Promise.race does not
+  // cancel the loser. A read that resolves after the user has already picked a
+  // different theme must not push the stale file back over it.
+  it("does not revert a theme changed while the read was in flight", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(OCEAN));
+    vi.resetModules();
+    const { getDefaultStore } = await import("jotai");
+    const { themeAtom } = await import("../atoms/theme");
+    const { bootstrapThemeFile } = await import("./themeFile");
+
+    let release: (v: unknown) => void = () => {};
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "theme_file_get"
+        ? new Promise((r) => (release = r))
+        : Promise.resolve(),
+    );
+    const pending = bootstrapThemeFile();
+
+    // Timeout fired, React rendered, user picks Noir in Settings.
+    const NOIR = { name: "Noir", accent: "#FFFFFF", bgBase: "#020202" };
+    getDefaultStore().set(themeAtom, NOIR);
+
+    // The stalled read finally returns the *old* file contents.
+    release({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    await pending;
+
+    expect(getDefaultStore().get(themeAtom)).toEqual(NOIR);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(NOIR);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
+  });
+
   it("survives a storage write that throws", async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(CUSTOM));
     vi.resetModules();
