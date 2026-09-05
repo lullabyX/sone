@@ -79,10 +79,10 @@ export default function TitleBar() {
     <div
       data-tauri-drag-region
       onDoubleClick={handleDoubleClick}
-      className="flex items-center justify-between bg-th-overlay border-b border-th-border-subtle select-none shrink-0"
+      className="flex items-center justify-between bg-th-surface border-b border-th-border-subtle select-none shrink-0"
       style={{ height: TITLEBAR_HEIGHT }}
     >
-      {/* Left zone: app icon + wordmark (also draggable) */}
+      {/* Left zone: app icon + wordmark + accent indicator (also draggable) */}
       <div
         data-tauri-drag-region
         className="flex items-center gap-2 pl-3 pr-4 h-full"
@@ -98,12 +98,17 @@ export default function TitleBar() {
           }`}
         />
         <span
-          className={`text-[11px] font-semibold tracking-wider text-th-text-secondary transition-opacity ${
+          className={`text-[11px] font-semibold tracking-wider text-th-text-primary transition-opacity ${
             isFocused ? "opacity-100" : "opacity-50"
           }`}
         >
           SONE
         </span>
+        <span
+          className={`w-1.5 h-1.5 rounded-full bg-th-accent shrink-0 pointer-events-none transition-opacity ${
+            isFocused ? "opacity-100" : "opacity-50"
+          }`}
+        />
       </div>
 
       {/* Middle zone (flex grows to fill — draggable) */}
