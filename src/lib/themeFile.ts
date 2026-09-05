@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { getDefaultStore } from "jotai";
 import { themeAtom } from "../atoms/theme";
 import {
-  PRESET_THEMES,
   THEME_STORAGE_KEY,
   resolveThemeFile,
   themeToFile,
@@ -38,21 +37,6 @@ function markPersisted(theme: Theme) {
   lastPersisted = JSON.stringify(themeToFile(theme));
 }
 
-function readStoredTheme(): Theme {
-  try {
-    const raw = localStorage.getItem(THEME_STORAGE_KEY);
-    if (raw) {
-      const t = JSON.parse(raw) as Theme | null;
-      if (t && typeof t.accent === "string" && typeof t.bgBase === "string") {
-        return t;
-      }
-    }
-  } catch {
-    // fall through to default
-  }
-  return PRESET_THEMES[0];
-}
-
 function writeStoredTheme(theme: Theme) {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
@@ -65,7 +49,7 @@ function writeStoredTheme(theme: Theme) {
  * at module-eval, before this runs, so localStorage alone would not reach it.
  */
 export async function bootstrapThemeFile(): Promise<void> {
-  const current = readStoredTheme();
+  const current = getDefaultStore().get(themeAtom);
   // Arm the write guard BEFORE the first await. The write-through
   // subscription mounts themeAtom and fires a debounced write; without this
   // it could clobber a valid theme.json while the read is still in flight.
