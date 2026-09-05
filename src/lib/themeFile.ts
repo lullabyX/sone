@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getDefaultStore } from "jotai";
+import { themeAtom } from "../atoms/theme";
 import {
   PRESET_THEMES,
   THEME_STORAGE_KEY,
@@ -57,22 +59,29 @@ function writeStoredTheme(theme: Theme) {
   } catch {}
 }
 
-/** Pre-render bootstrap */
+/**
+ * Pre-render bootstrap. `main.tsx` awaits this before the first render so the
+ * file's theme is on screen in the first painted frame -- the atom is created
+ * at module-eval, before this runs, so localStorage alone would not reach it.
+ */
 export async function bootstrapThemeFile(): Promise<void> {
   const current = readStoredTheme();
+  // Arm the write guard BEFORE the first await. The write-through
+  // subscription mounts themeAtom and fires a debounced write; without this
+  // it could clobber a valid theme.json while the read is still in flight.
+  markPersisted(current);
+
   let file: ThemeFile | null;
   try {
     file = await invoke<ThemeFile | null>("theme_file_get");
   } catch {
-    // Invalid file or backend unavailable. Seed the guard from the theme we
-    // are about to render so the mount-time echo (below) cannot overwrite a
-    // file the user may be part-way through editing. A deliberate theme
-    // change still writes, repairing the file.
-    markPersisted(current);
+    // Invalid file or backend unavailable -- keep the guard armed from the
+    // theme we are about to render, so nothing overwrites a file the user may
+    // be part-way through editing. A deliberate theme change still repairs it.
     return;
   }
+
   if (file === null) {
-    // Create if not exists
     const newFile = themeToFile(current);
     try {
       await invoke("theme_file_set", { file: newFile });
@@ -82,17 +91,24 @@ export async function bootstrapThemeFile(): Promise<void> {
     }
     return;
   }
+
   const resolved = resolveThemeFile(file);
-  if (!resolved) {
-    markPersisted(current);
-    return;
-  }
-  // Mirror the file into localStorage unconditionally, not just when the
-  // colors differ: a stored `name` of "Custom" against a file preset of
-  // "Ocean" describes the same colors but serializes differently, and the
-  // disagreement would surface as a spurious write on the next launch.
+  if (!resolved) return;
+
+  // Mirror unconditionally, not just when the colors differ: a stored `name`
+  // of "Custom" against a file preset of "Ocean" describes the same colors but
+  // serializes differently, and that disagreement would surface as a spurious
+  // write on the next launch.
   writeStoredTheme(resolved);
   markPersisted(resolved);
+  try {
+    getDefaultStore().set(themeAtom, resolved);
+  } catch {
+    // jotai's setItem is not guarded internally; a failing storage write must
+    // not reject bootstrap. The atom is correct for this paint -- if storage
+    // is genuinely broken, onMount re-reads the old value and reverts it, but
+    // persistence is already lost in that case.
+  }
 }
 
 async function writeThemeFile(file: ThemeFile): Promise<void> {

@@ -353,3 +353,74 @@ describe("startup echo must not touch theme.json", () => {
     expect(sets[0][1].file.preset).toBe("Ocean");
   });
 });
+
+describe("bootstrapThemeFile pushes the file theme into the atom", () => {
+  it("sets themeAtom on the default store when the file resolves", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(CUSTOM));
+    vi.resetModules();
+    const { getDefaultStore } = await import("jotai");
+    const { themeAtom } = await import("../atoms/theme");
+    const { bootstrapThemeFile } = await import("./themeFile");
+
+    invokeMock.mockResolvedValue({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    await bootstrapThemeFile();
+
+    expect(getDefaultStore().get(themeAtom)).toEqual({
+      name: "Ocean",
+      accent: "#3B82F6",
+      bgBase: "#0E1118",
+    });
+  });
+
+  it("arms the write guard before awaiting the backend", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(OCEAN));
+    vi.resetModules();
+    const { bootstrapThemeFile, syncThemeToFile } = await import("./themeFile");
+
+    // A slow read: the write-through echo fires while the IPC is in flight.
+    let release: (v: unknown) => void = () => {};
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "theme_file_get"
+        ? new Promise((r) => (release = r))
+        : Promise.resolve(),
+    );
+    const pending = bootstrapThemeFile();
+
+    // Guard must already be armed, so this echo writes nothing.
+    await syncThemeToFile(OCEAN);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
+
+    release({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    await pending;
+  });
+
+  it("survives a storage write that throws", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(CUSTOM));
+    vi.resetModules();
+    const { bootstrapThemeFile } = await import("./themeFile");
+    const setItem = localStorage.setItem;
+    localStorage.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    invokeMock.mockResolvedValue({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    try {
+      await expect(bootstrapThemeFile()).resolves.toBeUndefined();
+    } finally {
+      localStorage.setItem = setItem;
+    }
+  });
+});
