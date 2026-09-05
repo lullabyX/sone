@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { render, cleanup } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { useEffect } from "react";
 import { useTheme } from "./useTheme";
@@ -10,6 +10,8 @@ const OCEAN = { name: "Ocean", accent: "#3B82F6", bgBase: "#0E1118" };
 beforeEach(() => {
   document.documentElement.style.cssText = "";
 });
+
+afterEach(cleanup);
 
 function Child({ onSeen }: { onSeen: (v: string) => void }) {
   // A passive effect in a child runs BEFORE the root's passive effect, but
