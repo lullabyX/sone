@@ -95,6 +95,19 @@ class Downloader:
 
         return base_path / relative_path
 
+    def get_track_stream(self, track_id: int):
+        stream = self.api.get_track_stream(track_id=track_id, quality=self.track_quality)
+
+        # TIDAL may answer a Hi-Res request with a successful AAC/HIGH stream
+        # instead of an error. Try the lossless tier before accepting that
+        # downgrade so Max does not silently become 320 kbps.
+        if self.track_quality == "HI_RES_LOSSLESS" and stream.audioQuality == "HIGH":
+            lossless_stream = self.api.get_track_stream(track_id=track_id, quality="LOSSLESS")
+            if lossless_stream.audioQuality in ["LOSSLESS", "HI_RES_LOSSLESS"]:
+                return lossless_stream
+
+        return stream
+
     async def get_total_bytes(
         self, session: aiohttp.ClientSession, urls: list[str]
     ) -> int | None:
@@ -170,9 +183,7 @@ class Downloader:
         async with self.semaphore:
             if isinstance(item, Track):
                 try:
-                    stream = self.api.get_track_stream(
-                        track_id=item.id, quality=self.track_quality
-                    )
+                    stream = self.get_track_stream(item.id)
 
                     log.debug(
                         f"{stream.trackId=}, {stream.audioQuality=}, {stream.audioMode=}"

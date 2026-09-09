@@ -31,6 +31,36 @@ class Api:
         )
 
 
+def test_max_retries_lossless_after_successful_high_fallback():
+    class Api:
+        def __init__(self):
+            self.qualities = []
+
+        def get_track_stream(self, **kwargs):
+            self.qualities.append(kwargs["quality"])
+            return type("Stream", (), {
+                "audioQuality": "HIGH" if kwargs["quality"] == "HI_RES_LOSSLESS" else "LOSSLESS"
+            })()
+
+    api = Api()
+    downloader = Downloader(
+        tidal_api=api,
+        threads_count=1,
+        output=Output(),
+        track_quality="max",
+        video_quality="fhd",
+        videos_filter="none",
+        skip_existing=False,
+        download_path=Path("/tmp"),
+        scan_path=Path("/tmp"),
+    )
+
+    stream = downloader.get_track_stream(1)
+
+    assert api.qualities == ["HI_RES_LOSSLESS", "LOSSLESS"]
+    assert stream.audioQuality == "LOSSLESS"
+
+
 @pytest.mark.parametrize(
     ("container_extension", "stream_quality", "expected_filename", "extract"),
     [

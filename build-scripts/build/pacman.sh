@@ -15,6 +15,7 @@ if [[ "${1:-}" == "--no-cache" ]]; then
 fi
 
 mkdir -p "$OUTDIR"
+rm -f "$OUTDIR"/sone-*.pkg.tar.zst "$OUTDIR"/sone-debug-*.pkg.tar.zst
 
 echo "=== Building .pkg.tar.zst in Docker (Arch Linux) ==="
 echo ""
@@ -30,11 +31,12 @@ docker rm "$CONTAINER" > /dev/null
 
 # Post-build check
 echo ""
-PKG=$(ls "$OUTDIR"/sone-*.pkg.tar.zst 2>/dev/null | head -1)
-if [[ -z "$PKG" ]]; then
+PACKAGES=("$OUTDIR"/sone-[0-9]*.pkg.tar.zst)
+if [[ ! -f "${PACKAGES[0]}" || "${#PACKAGES[@]}" -ne 1 ]]; then
     echo "ERROR: No .pkg.tar.zst found in $OUTDIR after build."
     exit 1
 fi
+PKG="${PACKAGES[0]}"
 
 echo ""
 echo "=== Build complete ==="
@@ -45,4 +47,5 @@ echo "Package helper and dependency checks:"
 docker run --rm -v "$PWD/$PKG:/tmp/pkg.tar.zst:ro" "$IMAGE" sh -ceu '
     pacman -Qip /tmp/pkg.tar.zst | grep -Eq "Depends On.*ffmpeg"
     pacman -Qlp /tmp/pkg.tar.zst | grep -Fx "usr/lib/sone/sone-tiddl/sone-tiddl"
+    tar -xOf /tmp/pkg.tar.zst usr/lib/sone/sone-tiddl/sone-tiddl | strings | grep -Fq extract_flac
 '
