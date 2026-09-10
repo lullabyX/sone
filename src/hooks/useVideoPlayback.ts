@@ -76,6 +76,15 @@ export function useVideoPlayback() {
     store.set(videoExpandedAtom, true);
   }, [store]);
 
+  /** Re-open the overlay and take the window fullscreen for the video. */
+  const fullscreenVideo = useCallback(() => {
+    store.set(videoExpandedAtom, true);
+    store.set(videoFullscreenAtom, true);
+    getCurrentWindow()
+      .setFullscreen(true)
+      .catch(() => {});
+  }, [store]);
+
   const closeVideo = useCallback(() => {
     store.set(videoPlayingAtom, false);
     store.set(videoStreamAtom, null);
@@ -94,6 +103,7 @@ export function useVideoPlayback() {
     setVideoQuality,
     minimizeVideo,
     expandVideo,
+    fullscreenVideo,
     closeVideo,
   };
 }

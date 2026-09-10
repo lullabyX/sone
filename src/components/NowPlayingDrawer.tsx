@@ -41,7 +41,9 @@ import {
   maximizedPlayerAtom,
   videoCoversAtom,
 } from "../atoms/ui";
+import { currentVideoAtom } from "../atoms/video";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useVideoPlayback } from "../hooks/useVideoPlayback";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
@@ -1586,6 +1588,8 @@ export default function NowPlayingDrawer() {
   // The custom title bar is in normal flow, so a top:0 overlay paints over its
   // drag region and window buttons — leave it uncovered when it's showing.
   const titleBarInset = !nativeChrome && !hideTitleBar ? TITLEBAR_HEIGHT : 0;
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const { fullscreenVideo } = useVideoPlayback();
   const {
     columnRef: coverColumnRef,
     textRef: coverTextRef,
@@ -1709,9 +1713,11 @@ export default function NowPlayingDrawer() {
             </div>
             <div className="flex items-center gap-1 shrink-0 ml-2">
               <button
-                onClick={() => setMaximized(true)}
+                onClick={() =>
+                  currentVideo ? fullscreenVideo() : setMaximized(true)
+                }
                 className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors duration-150"
-                title="Fullscreen player"
+                title={currentVideo ? "Fullscreen video" : "Fullscreen player"}
               >
                 <Maximize2 size={18} />
               </button>
