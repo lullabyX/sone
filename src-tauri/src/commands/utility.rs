@@ -396,6 +396,10 @@ pub async fn set_proxy_settings(
         .await;
     state.tidal_reporter.update_http_client(new_client);
 
+    // Apply proxy changes to future GStreamer HTTP sources without disrupting
+    // the currently playing pipeline.
+    state.audio_player.set_proxy_settings(settings.clone());
+
     // Save to disk
     let mut app_settings = state.load_settings().unwrap_or_default();
     app_settings.proxy = settings;

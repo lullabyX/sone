@@ -161,6 +161,127 @@ impl PlaybackBackend {
 
 // ── Helper functions ───────────────────────────────────────────────────
 
+/// Whether the configured proxy can be used for GStreamer HTTP playback.
+fn http_proxy_enabled(settings: &crate::ProxySettings) -> bool {
+    settings.enabled
+        && settings.proxy_type == crate::ProxyType::Http
+        && !settings.host.trim().is_empty()
+        && settings.port != 0
+}
+
+/// Build the non-secret proxy URI passed to curlhttpsrc. Authentication is set
+/// through the separate proxy-id/proxy-pw properties so credentials never need
+/// to be placed in a process-wide environment variable.
+fn gstreamer_proxy_uri(settings: &crate::ProxySettings) -> Option<String> {
+    let mut proxy_url = reqwest::Url::parse("http://localhost").ok()?;
+    proxy_url.set_host(Some(settings.host.trim())).ok()?;
+    proxy_url.set_port(Some(settings.port)).ok()?;
+    Some(proxy_url.to_string())
+}
+
+/// Configure one curlhttpsrc instance from the latest SONE proxy settings.
+///
+/// This is called both for the source created directly by uridecodebin and for
+/// nested sources created later by adaptive demuxers such as dashdemux.
+fn apply_proxy_to_source(
+    source: &gst::Element,
+    proxy_settings: &Arc<Mutex<crate::ProxySettings>>,
+) {
+    let settings = match proxy_settings.lock() {
+        Ok(settings) => settings.clone(),
+        Err(_) => return,
+    };
+
+    if !http_proxy_enabled(&settings) {
+        return;
+    }
+
+    let is_curlhttpsrc = source
+        .factory()
+        .map(|factory| factory.name() == "curlhttpsrc")
+        .unwrap_or(false);
+    if !is_curlhttpsrc {
+        return;
+    }
+
+    let Some(proxy_uri) = gstreamer_proxy_uri(&settings) else {
+        log::warn!("[audio] invalid HTTP proxy host or port");
+        return;
+    };
+
+    source.set_property("proxy", &proxy_uri);
+
+    if let Some(username) = settings
+        .username
+        .as_deref()
+        .filter(|username| !username.is_empty())
+    {
+        source.set_property("proxy-id", username);
+    }
+
+    if let Some(password) = settings.password.as_deref() {
+        source.set_property("proxy-pw", password);
+    }
+
+    log::debug!(
+        "[audio] configured curlhttpsrc proxy {}:{} on {}",
+        settings.host,
+        settings.port,
+        source.name()
+    );
+}
+
+/// Attach proxy configuration hooks to an uridecodebin.
+///
+/// `source-setup` covers the uridecodebin's own URI source. `deep-element-added`
+/// also catches HTTP sources created inside adaptive demuxers for DASH/HLS
+/// fragments, before those sources begin downloading.
+fn configure_proxy(
+    uridecodebin: &gst::Element,
+    proxy_settings: Arc<Mutex<crate::ProxySettings>>,
+) {
+    let source_settings = Arc::clone(&proxy_settings);
+    uridecodebin.connect("source-setup", false, move |values| {
+        let Some(source) = values.get(1).and_then(|value| value.get::<gst::Element>().ok()) else {
+            return None;
+        };
+
+        apply_proxy_to_source(&source, &source_settings);
+        None
+    });
+
+    if let Ok(bin) = uridecodebin.clone().downcast::<gst::Bin>() {
+        bin.connect_deep_element_added(move |_bin, _sub_bin, element| {
+            apply_proxy_to_source(element, &proxy_settings);
+        });
+    }
+}
+
+/// Prefer curlhttpsrc only while SONE's HTTP proxy is enabled, and restore the
+/// factory's original rank when proxying is disabled or another proxy type is
+/// selected.
+fn configure_http_source_rank(
+    settings: &crate::ProxySettings,
+    original_curl_rank: Option<gst::Rank>,
+) {
+    let Some(factory) = gst::ElementFactory::find("curlhttpsrc") else {
+        if http_proxy_enabled(settings) {
+            log::warn!(
+                "[audio] HTTP proxy is enabled but curlhttpsrc is unavailable; \
+                 proxied audio playback may not work"
+            );
+        }
+        return;
+    };
+
+    if http_proxy_enabled(settings) {
+        factory.set_rank(gst::Rank::PRIMARY + 100);
+        log::info!("[audio] curlhttpsrc preferred for HTTP proxy playback");
+    } else if let Some(rank) = original_curl_rank {
+        factory.set_rank(rank);
+    }
+}
+
 fn parse_pcm_format(caps: &gst::CapsRef) -> Option<PcmFormat> {
     let s = caps.structure(0)?;
     if !s.name().as_str().starts_with("audio/") {
@@ -257,6 +378,7 @@ fn attach_next_bin(
     concat: &gst::Element,
     uri: &str,
     is_dash: bool,
+    proxy_settings: Arc<Mutex<crate::ProxySettings>>,
 ) -> Result<(gst::Element, gst::Element), String> {
     let udb = gst::ElementFactory::make("uridecodebin")
         .property("uri", uri)
@@ -267,6 +389,7 @@ fn attach_next_bin(
         .property("use-buffering", true)
         .build()
         .map_err(|e| format!("Failed to create next uridecodebin: {e}"))?;
+    configure_proxy(&udb, proxy_settings);
     // Same props as the first branch's queue: 15s of decoded reservoir ahead of
     // concat — comfortable cushion against slow-internet rebuffering.
     let branch_queue = gst::ElementFactory::make("queue")
@@ -427,6 +550,7 @@ fn detach_bin(
 fn run_attach_executor(
     job_rx: mpsc::Receiver<AttachJob>,
     next_bin: Arc<Mutex<Option<NextBinState>>>,
+    proxy_settings: Arc<Mutex<crate::ProxySettings>>,
 ) {
     for job in job_rx {
         match job {
@@ -441,7 +565,13 @@ fn run_attach_executor(
                 replay_gain,
                 peak_amplitude,
             } => {
-                match attach_next_bin(&pipeline, &concat, &uri, is_dash) {
+                match attach_next_bin(
+                    &pipeline,
+                    &concat,
+                    &uri,
+                    is_dash,
+                    Arc::clone(&proxy_settings),
+                ) {
                     Ok((bin, branch_queue)) => {
                         if let Ok(mut guard) = next_bin.lock() {
                             *guard = Some(NextBinState {
@@ -1386,6 +1516,10 @@ enum AudioCommand {
         enabled: bool,
         reply: Reply<Result<(), String>>,
     },
+    SetProxySettings {
+        settings: crate::ProxySettings,
+        reply: Reply<()>,
+    },
     SetGapless {
         enabled: bool,
         reply: Reply<Result<(), String>>,
@@ -1430,8 +1564,14 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
-    pub fn new(app_handle: tauri::AppHandle, signal_path: Arc<SignalPathTracker>) -> Self {
+    pub fn new(
+        app_handle: tauri::AppHandle,
+        signal_path: Arc<SignalPathTracker>,
+        proxy_settings: crate::ProxySettings,
+    ) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AudioCommand>();
+        let proxy_settings = Arc::new(Mutex::new(proxy_settings));
+        let proxy_settings_thread = Arc::clone(&proxy_settings);
         // Clone a self-sender into the worker so the Normal bus thread can send
         // HandleGaplessAdvance back to this loop (Task 3). `cmd_tx` itself is
         // owned by AudioPlayer, not the worker closure.
@@ -1465,6 +1605,14 @@ impl AudioPlayer {
             }
 
             gst::init().expect("Failed to initialize GStreamer");
+
+            let original_curl_rank =
+                gst::ElementFactory::find("curlhttpsrc").map(|factory| factory.rank());
+            let initial_proxy_settings = proxy_settings_thread
+                .lock()
+                .map(|settings| settings.clone())
+                .unwrap_or_default();
+            configure_http_source_rank(&initial_proxy_settings, original_curl_rank.clone());
 
             let mut backend: Option<PlaybackBackend> = None;
             // ALSA writer state — lives outside PlaybackBackend so it persists across track changes
@@ -1531,7 +1679,10 @@ impl AudioPlayer {
             let (attach_tx, attach_rx) = mpsc::channel::<AttachJob>();
             {
                 let next_bin_exec = Arc::clone(&next_bin);
-                std::thread::spawn(move || run_attach_executor(attach_rx, next_bin_exec));
+                let proxy_settings_exec = Arc::clone(&proxy_settings_thread);
+                std::thread::spawn(move || {
+                    run_attach_executor(attach_rx, next_bin_exec, proxy_settings_exec)
+                });
             }
 
             for cmd in cmd_rx {
@@ -1689,6 +1840,7 @@ impl AudioPlayer {
                                     let supported_rates_for_pipeline = writer_supported_rates.as_deref().unwrap_or(&[44100, 48000]);
                                     let (pipe, u_vol, n_vol) = build_appsink_pipeline(
                                         &uri,
+                                        Arc::clone(&proxy_settings_thread),
                                         exclusive,
                                         bit_perfect,
                                         wtx.clone(),
@@ -1807,6 +1959,10 @@ impl AudioPlayer {
                                 let uridecodebin = udb
                                     .build()
                                     .map_err(|e| format!("Failed to create uridecodebin: {e}"))?;
+                                configure_proxy(
+                                    &uridecodebin,
+                                    Arc::clone(&proxy_settings_thread),
+                                );
                                 // Per-branch upstream queue (C1): decouples the decoder from
                                 // concat's gate so the next branch can pre-buffer ahead while
                                 // the current track plays. With one branch it's a passthrough.
@@ -2459,6 +2615,25 @@ impl AudioPlayer {
                         reply.send(Ok(())).ok();
                     }
 
+                    AudioCommand::SetProxySettings { settings, reply } => {
+                        // Apply new proxy settings to every HTTP source created from now on.
+                        //
+                        // Deliberately do NOT tear down/rebuild the active playback pipeline
+                        // here. Doing so makes a settings change audibly destructive and races
+                        // DASH preroll/seeking: the replacement pipeline starts at 0:00 and may
+                        // retry a bad proxy several times before reporting an error.
+                        //
+                        // Existing sources are allowed to continue with the proxy configuration
+                        // they already own. Any HTTP source created after this point uses the new
+                        // settings, so an application restart is not required.
+                        if let Ok(mut current) = proxy_settings_thread.lock() {
+                            *current = settings.clone();
+                        }
+                        configure_http_source_rank(&settings, original_curl_rank.clone());
+
+                        reply.send(()).ok();
+                    }
+
                     AudioCommand::SetGapless { enabled, reply } => {
                         // 2b-A2: drives SetNextTrack's effective-gapless gate.
                         gapless_setting = enabled;
@@ -2777,6 +2952,9 @@ impl AudioPlayer {
     pub fn set_bit_perfect(&self, enabled: bool) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
     }
+    pub fn set_proxy_settings(&self, settings: crate::ProxySettings) {
+        self.send_cmd(|reply| AudioCommand::SetProxySettings { settings, reply });
+    }
     pub fn set_gapless(&self, enabled: bool) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
     }
@@ -2843,6 +3021,7 @@ fn stereo_pad_mix_matrix(out_channels: u32) -> gst::Array {
 #[cfg(target_os = "linux")]
 fn build_appsink_pipeline(
     uri: &str,
+    proxy_settings: Arc<Mutex<crate::ProxySettings>>,
     exclusive: bool,
     bit_perfect: bool,
     writer_tx: crossbeam_channel::Sender<WriterCommand>,
@@ -2873,6 +3052,7 @@ fn build_appsink_pipeline(
     let uridecodebin = udb
         .build()
         .map_err(|e| format!("Failed to create uridecodebin: {e}"))?;
+    configure_proxy(&uridecodebin, proxy_settings);
     let device_channels = negotiated_fmt.channels;
     let audioconvert = gst::ElementFactory::make("audioconvert")
         .build()
