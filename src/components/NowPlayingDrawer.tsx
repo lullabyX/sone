@@ -57,6 +57,8 @@ import {
 } from "../api/tidal";
 import BioText from "./BioText";
 import { isTrackUnavailable } from "../lib/trackAvailability";
+import { COVER_TEXT_GAP, MAX_COVER_SIZE } from "../lib/coverFit";
+import { useFittedCoverSize } from "../hooks/useFittedCoverSize";
 import {
   getTidalImageUrl,
   getTrackDisplayTitle,
@@ -1584,6 +1586,11 @@ export default function NowPlayingDrawer() {
   // The custom title bar is in normal flow, so a top:0 overlay paints over its
   // drag region and window buttons — leave it uncovered when it's showing.
   const titleBarInset = !nativeChrome && !hideTitleBar ? TITLEBAR_HEIGHT : 0;
+  const {
+    columnRef: coverColumnRef,
+    textRef: coverTextRef,
+    size: coverSize,
+  } = useFittedCoverSize();
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
 
@@ -1638,27 +1645,39 @@ export default function NowPlayingDrawer() {
           }}
         />
 
-        {/* Left: Album Art — 45% */}
-        <div className="relative z-[1] w-[45%] flex flex-col items-center justify-center p-10 gap-6">
-          {animatedCover ? (
-            <TidalVideoCover
-              cover={currentTrack.album?.cover}
-              videoCover={currentTrack.album?.videoCover}
-              size={1280}
-              imageSize={640}
-              alt={currentTrack.album?.title || currentTrack.title}
-              className="w-full max-w-[640px] aspect-square rounded-lg overflow-hidden"
-            />
-          ) : (
-            <TiltCover className="w-full max-w-[640px] aspect-square rounded-lg">
-              <TidalImage
-                src={getTidalImageUrl(trackCoverId(currentTrack), 640)}
+        {/* Left: Album Art — 45% (cover sized to fit the column in both axes) */}
+        <div
+          ref={coverColumnRef}
+          className="relative z-[1] w-[45%] flex flex-col items-center justify-center p-10"
+          style={{ gap: COVER_TEXT_GAP }}
+        >
+          <div
+            className="w-full aspect-square shrink-0"
+            style={{ maxWidth: MAX_COVER_SIZE, width: coverSize ?? undefined }}
+          >
+            {animatedCover ? (
+              <TidalVideoCover
+                cover={currentTrack.album?.cover}
+                videoCover={currentTrack.album?.videoCover}
+                size={1280}
+                imageSize={640}
                 alt={currentTrack.album?.title || currentTrack.title}
-                className="w-full h-full"
+                className="w-full h-full rounded-lg overflow-hidden"
               />
-            </TiltCover>
-          )}
-          <div className="text-center w-full max-w-[520px]">
+            ) : (
+              <TiltCover className="w-full h-full rounded-lg">
+                <TidalImage
+                  src={getTidalImageUrl(trackCoverId(currentTrack), 640)}
+                  alt={currentTrack.album?.title || currentTrack.title}
+                  className="w-full h-full"
+                />
+              </TiltCover>
+            )}
+          </div>
+          <div
+            ref={coverTextRef}
+            className="shrink-0 text-center w-full max-w-[520px]"
+          >
             <h2 className="text-[22px] font-bold text-th-text-primary truncate">
               {getTrackDisplayTitle(currentTrack)}
             </h2>
