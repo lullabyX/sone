@@ -35,7 +35,12 @@ import {
   playbackSourceAtom,
   contextSourceAtom,
 } from "../atoms/playback";
-import { maximizedPlayerAtom, videoCoversAtom } from "../atoms/ui";
+import {
+  decorationsAtom,
+  hideTitleBarAtom,
+  maximizedPlayerAtom,
+  videoCoversAtom,
+} from "../atoms/ui";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
@@ -60,6 +65,7 @@ import {
   type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
+import { TITLEBAR_HEIGHT } from "./TitleBar";
 import TidalVideoCover from "./TidalVideoCover";
 import { TiltCover } from "./TiltCover";
 import TrackContextMenu from "./TrackContextMenu";
@@ -1573,6 +1579,11 @@ export default function NowPlayingDrawer() {
     DISMISS_PRIORITY.drawer,
   );
   const setMaximized = useSetAtom(maximizedPlayerAtom);
+  const nativeChrome = useAtomValue(decorationsAtom);
+  const hideTitleBar = useAtomValue(hideTitleBarAtom);
+  // The custom title bar is in normal flow, so a top:0 overlay paints over its
+  // drag region and window buttons — leave it uncovered when it's showing.
+  const titleBarInset = !nativeChrome && !hideTitleBar ? TITLEBAR_HEIGHT : 0;
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
 
@@ -1593,9 +1604,10 @@ export default function NowPlayingDrawer() {
 
   return (
     <div
-      className={`fixed inset-0 bottom-[90px] z-40 flex flex-col transition-[visibility] ${
+      className={`fixed inset-x-0 bottom-[90px] z-40 flex flex-col transition-[visibility] ${
         drawerOpen ? "visible" : "invisible delay-200"
       }`}
+      style={{ top: titleBarInset }}
     >
       {/* Backdrop */}
       <div
