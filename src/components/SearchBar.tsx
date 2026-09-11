@@ -7,6 +7,7 @@ import { currentViewAtom } from "../atoms/navigation";
 import { getSuggestions } from "../api/tidal";
 import {
   getTidalImageUrl,
+  getTrackDisplayTitle,
   type DirectHitItem,
   type SuggestionTextItem,
   type Track,
@@ -547,7 +548,7 @@ export default function SearchBar() {
                           <div className="flex-1 min-w-0 text-left">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-[14px] text-th-text-primary truncate">
-                                {hit.title}
+                                {getTrackDisplayTitle(trackObj)}
                               </span>
                               {trackObj.explicit && <ExplicitBadge />}
                             </div>

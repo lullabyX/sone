@@ -8,6 +8,7 @@ import { useViewTab } from "../hooks/useViewTab";
 import { searchTidal } from "../api/tidal";
 import {
   getTidalImageUrl,
+  getTrackDisplayTitle,
   type SearchResults,
   type SearchTab,
   type Track,
@@ -754,7 +755,7 @@ function TopHitsList({
               <div className="flex-1 min-w-0 text-left">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-[14px] text-th-text-primary truncate">
-                    {hit.title}
+                    {getTrackDisplayTitle(trackObj)}
                   </span>
                   {trackObj.explicit && <ExplicitBadge />}
                 </div>
