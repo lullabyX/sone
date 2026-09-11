@@ -413,6 +413,7 @@ impl AppState {
         let audio_player = Arc::new(AudioPlayer::new(
             app_handle.clone(),
             Arc::clone(&signal_path),
+            proxy_settings.clone(),
         ));
         let pipeline_probe = Arc::new(crate::pipeline_probe::PipelineProbe::new(
             Arc::clone(&signal_path),
