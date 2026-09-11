@@ -15,19 +15,22 @@ const DEVICE_VENDOR: &str = "Google";
 /// Max events per SQS SendMessageBatch.
 pub const MAX_BATCH: usize = 10;
 
-/// Container the play was started from — the primary Recently-Played attribution.
+/// Context the play was started from — the primary Recently-Played attribution.
+/// Values mirror the web player's `entityType.toUpperCase()`.
 #[derive(Clone, Copy)]
 pub enum SourceType {
     Album,
     Playlist,
     Artist,
     Mix,
+    /// A track played outside any container (search, home, view-all).
+    Item,
+    /// The user's favorites (My Tracks / My Videos).
+    MyItems,
 }
 
 impl SourceType {
     /// Map SONE's frontend source strings to the TIDAL enum. Unknown → None.
-    /// Sources with no TIDAL container (favorites, search, home-section,
-    /// view-all, playlist-recs) stay unmapped and report sourceless.
     pub fn from_sone(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "album" => Some(SourceType::Album),
@@ -38,6 +41,10 @@ impl SourceType {
             "radio" => Some(SourceType::Mix),
             // Artist "all tracks" page carries an artist id.
             "artist-tracks" => Some(SourceType::Artist),
+            // Recommendations under a playlist carry that playlist's id.
+            "playlist-recs" => Some(SourceType::Playlist),
+            "search" | "home-section" | "view-all" => Some(SourceType::Item),
+            "favorites" => Some(SourceType::MyItems),
             _ => None,
         }
     }
@@ -47,8 +54,29 @@ impl SourceType {
             SourceType::Playlist => "PLAYLIST",
             SourceType::Artist => "ARTIST",
             SourceType::Mix => "MIX",
+            SourceType::Item => "ITEM",
+            SourceType::MyItems => "MY_ITEMS",
         }
     }
+}
+
+/// Resolve SONE's (source type, source id) for a track into what TIDAL
+/// attributes. Containers keep their id. ITEM must carry the track's own id —
+/// SONE's id for these sources is a search query or section title, which
+/// TIDAL accepts but never surfaces. Favorites use the web player's fixed ids.
+pub fn resolve_source(
+    sone_type: &str,
+    sone_id: &str,
+    track_id: u64,
+) -> Option<(SourceType, String)> {
+    let st = SourceType::from_sone(sone_type)?;
+    let id = match st {
+        SourceType::Item => track_id.to_string(),
+        SourceType::MyItems if sone_id == "favorites-videos" => "MY_VIDEOS".into(),
+        SourceType::MyItems => "MY_TRACKS".into(),
+        _ => sone_id.to_string(),
+    };
+    Some((st, id))
 }
 
 /// JWT claims needed to attribute an event to the account.
@@ -314,11 +342,11 @@ mod tests {
             SourceType::from_sone("MIX"),
             Some(SourceType::Mix)
         ));
-        assert!(SourceType::from_sone("search").is_none());
+        assert!(SourceType::from_sone("video").is_none());
     }
 
     // A sourceless event is accepted but produces no Recently-Played row, so
-    // every frontend source carrying a real container id must map.
+    // every frontend source must map to something TIDAL attributes.
     #[test]
     fn radio_and_artist_tracks_map_to_containers() {
         // MixPage emits "radio" with the mix id for TRACK_MIX.
@@ -331,16 +359,50 @@ mod tests {
             SourceType::from_sone("artist-tracks"),
             Some(SourceType::Artist)
         ));
-        // Sources with no TIDAL container stay unmapped.
-        for s in [
-            "favorites",
-            "search",
-            "home-section",
-            "view-all",
-            "playlist-recs",
-        ] {
-            assert!(SourceType::from_sone(s).is_none(), "{s} must stay unmapped");
+        // Playlist recommendations play in the context of that playlist.
+        assert!(matches!(
+            SourceType::from_sone("playlist-recs"),
+            Some(SourceType::Playlist)
+        ));
+    }
+
+    // Live-verified 2026-09-12: the web player reports a track played outside
+    // any container as ITEM, and TIDAL surfaces it as a Recently-played TRACK
+    // row only when sourceId is the track's own id (a search query does not).
+    #[test]
+    fn single_track_sources_use_the_track_id() {
+        for s in ["search", "home-section", "view-all"] {
+            let (st, id) = resolve_source(s, "tv off", 401317294).unwrap();
+            assert!(matches!(st, SourceType::Item), "{s} must map to ITEM");
+            assert_eq!(id, "401317294", "{s} must carry the track id");
         }
+        let ev = sample(resolve_source("search", "tv off", 42));
+        let v: Value = serde_json::from_str(&build_body(&ev, &claims())).unwrap();
+        assert_eq!(v["payload"]["sourceType"], "ITEM");
+        assert_eq!(v["payload"]["sourceId"], "42");
+    }
+
+    // Favorites mirror the web player's My Tracks / My Videos context, which
+    // surfaces as the "My Tracks" shortcut in Recently played.
+    #[test]
+    fn favorites_map_to_my_items() {
+        let (st, id) = resolve_source("favorites", "favorites", 7).unwrap();
+        assert!(matches!(st, SourceType::MyItems));
+        assert_eq!(id, "MY_TRACKS");
+        let (_, id) = resolve_source("favorites", "favorites-videos", 7).unwrap();
+        assert_eq!(id, "MY_VIDEOS");
+        let ev = sample(resolve_source("favorites", "favorites", 7));
+        let v: Value = serde_json::from_str(&build_body(&ev, &claims())).unwrap();
+        assert_eq!(v["payload"]["sourceType"], "MY_ITEMS");
+    }
+
+    // Real containers keep their own id; unknown sources stay sourceless.
+    #[test]
+    fn container_sources_keep_their_id() {
+        let (st, id) = resolve_source("album", "1765476", 42).unwrap();
+        assert!(matches!(st, SourceType::Album));
+        assert_eq!(id, "1765476");
+        assert!(resolve_source("video", "9", 42).is_none());
     }
 
     #[test]
