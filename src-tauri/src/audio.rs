@@ -2402,8 +2402,67 @@ impl AudioPlayer {
                         if let Some(d) = dev {
                             device = Some(d);
                         }
+                        // Disabling exclusive mode must actively release the ALSA
+                        // hardware device. Previously we only flipped the mode flag
+                        // and left any live DirectAlsa pipeline + writer thread
+                        // running, so the exclusive `hw:` PCM stayed open — leaving
+                        // the device "busy"/unavailable to PipeWire (and thus the
+                        // system UI) until the next PlayUrl or app exit. Tear the
+                        // DirectAlsa backend down here so the device frees the moment
+                        // the user leaves exclusive mode.
                         if !enabled {
                             bit_perfect = false;
+                            // Single match on the taken backend: only DirectAlsa
+                            // holds the exclusive `hw:` device and needs teardown.
+                            // Any other backend is put back untouched.
+                            match backend.take() {
+                                Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
+                                    tearing_down.store(true, Ordering::SeqCst);
+                                    // Unblock writer if paused and invalidate its
+                                    // generation so it discards stale Data and the
+                                    // pipeline can reach Null without blocking.
+                                    paused.store(false, Ordering::Release);
+                                    track_generation += 1;
+                                    writer_gen.store(track_generation, Ordering::Release);
+                                    if let Some(ref tx) = writer_tx {
+                                        let _ = tx.send_timeout(
+                                            WriterCommand::Flush,
+                                            std::time::Duration::from_millis(200),
+                                        );
+                                    }
+                                    if let Some(bus) = pipeline.bus() {
+                                        bus.set_flushing(true);
+                                    }
+                                    pipeline.set_state(gst::State::Null).ok();
+                                    let _ = pipeline.state(gst::ClockTime::from_mseconds(500));
+                                    drop(pipeline);
+
+                                    // Shut down the ALSA writer thread — it owns the
+                                    // exclusive `hw:` handle, so joining it closes the
+                                    // device fd. Writer state is cleared so a later
+                                    // play re-spawns and re-negotiates cleanly.
+                                    if let Some(tx) = writer_tx.take() {
+                                        tx.try_send(WriterCommand::Shutdown).ok();
+                                    }
+                                    if let Some(h) = writer_thread.take() {
+                                        h.join().ok();
+                                    }
+                                    writer_fmt = None;
+                                    writer_supported_fmts = None;
+                                    writer_supported_rates = None;
+                                    writer_device = None;
+                                    writer_bit_perfect = None;
+                                    has_uri.store(false, Ordering::SeqCst);
+                                    eos.store(false, Ordering::SeqCst);
+                                    tearing_down.store(false, Ordering::SeqCst);
+                                    log::info!(
+                                        "[audio] exclusive disabled: DirectAlsa torn down, ALSA device released"
+                                    );
+                                }
+                                // Not DirectAlsa (Normal, or nothing playing): keep
+                                // the active backend as-is.
+                                other => backend = other,
+                            }
                         }
                         // Mirror the device into the shared cell so the
                         // pipeline probe can read it without messaging.
