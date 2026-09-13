@@ -13,7 +13,6 @@ import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
 import { updateToastSeenAtom } from "../atoms/updates";
@@ -71,7 +70,12 @@ import {
 } from "../atoms/ui";
 import { themeAtom } from "../atoms/theme";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
-import { syncThemeToFile, handleThemeFocusChange } from "../lib/themeFile";
+import {
+  syncThemeToFile,
+  applyExternalThemeFile,
+  recreateThemeFile,
+} from "../lib/themeFile";
+import type { ThemeFile } from "../lib/theme";
 
 // Stable action callbacks (no atom subscriptions)
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
@@ -799,23 +803,25 @@ export function AppInitializer() {
   }, [store]);
 
   // ================================================================
-  //  EXTERNAL THEME FILE — re-read when window is displayed
-  //  (tray/taskbar restore, re-focus)
+  //  EXTERNAL THEME FILE — applied when the backend watcher reports a
+  //  change, so an edit lands even while unfocused or in the tray
   // ================================================================
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    getCurrentWindow()
-      .onFocusChanged(({ payload: focused }) => {
-        void handleThemeFocusChange(
-          focused,
-          () => store.get(themeAtom),
-          (t) => store.set(themeAtom, t),
-        );
-      })
-      .then((fn) => {
-        unlisten = fn;
-      });
-    return () => unlisten?.();
+    const unlisten = listen<ThemeFile | null>("theme-file-changed", (event) => {
+      if (event.payload === null) {
+        // Deleted while running -- put it back from the live theme.
+        void recreateThemeFile(store.get(themeAtom));
+        return;
+      }
+      applyExternalThemeFile(
+        event.payload,
+        () => store.get(themeAtom),
+        (t) => store.set(themeAtom, t),
+      );
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
   }, [store]);
 
   // ================================================================

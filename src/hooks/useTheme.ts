@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { useAtomValue } from "jotai";
 import { themeAtom } from "../atoms/theme";
 import { deriveTheme, themeToCssVars } from "../lib/theme";
@@ -12,7 +12,7 @@ import { deriveTheme, themeToCssVars } from "../lib/theme";
 export function useTheme() {
   const theme = useAtomValue(themeAtom);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const derived = deriveTheme(theme.accent, theme.bgBase);
     const vars = themeToCssVars(derived);
     const root = document.documentElement;

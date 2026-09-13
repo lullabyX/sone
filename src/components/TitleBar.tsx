@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Minus, X, Square, Copy } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-const TITLEBAR_HEIGHT = 32;
+export const TITLEBAR_HEIGHT = 32;
 
 function useWindowControls() {
   const [isMaximized, setIsMaximized] = useState(false);

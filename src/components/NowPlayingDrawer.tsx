@@ -35,8 +35,15 @@ import {
   playbackSourceAtom,
   contextSourceAtom,
 } from "../atoms/playback";
-import { maximizedPlayerAtom, videoCoversAtom } from "../atoms/ui";
+import {
+  decorationsAtom,
+  hideTitleBarAtom,
+  maximizedPlayerAtom,
+  videoCoversAtom,
+} from "../atoms/ui";
+import { currentVideoAtom } from "../atoms/video";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useVideoPlayback } from "../hooks/useVideoPlayback";
 import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
@@ -52,6 +59,8 @@ import {
 } from "../api/tidal";
 import BioText from "./BioText";
 import { isTrackUnavailable } from "../lib/trackAvailability";
+import { COVER_TEXT_GAP, MAX_COVER_SIZE } from "../lib/coverFit";
+import { useFittedCoverSize } from "../hooks/useFittedCoverSize";
 import {
   getTidalImageUrl,
   getTrackDisplayTitle,
@@ -60,6 +69,7 @@ import {
   type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
+import { TITLEBAR_HEIGHT } from "./TitleBar";
 import TidalVideoCover from "./TidalVideoCover";
 import { TiltCover } from "./TiltCover";
 import TrackContextMenu from "./TrackContextMenu";
@@ -1573,6 +1583,18 @@ export default function NowPlayingDrawer() {
     DISMISS_PRIORITY.drawer,
   );
   const setMaximized = useSetAtom(maximizedPlayerAtom);
+  const nativeChrome = useAtomValue(decorationsAtom);
+  const hideTitleBar = useAtomValue(hideTitleBarAtom);
+  // The custom title bar is in normal flow, so a top:0 overlay paints over its
+  // drag region and window buttons — leave it uncovered when it's showing.
+  const titleBarInset = !nativeChrome && !hideTitleBar ? TITLEBAR_HEIGHT : 0;
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const { fullscreenVideo } = useVideoPlayback();
+  const {
+    columnRef: coverColumnRef,
+    textRef: coverTextRef,
+    size: coverSize,
+  } = useFittedCoverSize();
   const activeTab = (drawerTab || "queue") as TabId;
   const setActiveTab = (tab: TabId) => setDrawerTab(tab);
 
@@ -1593,9 +1615,10 @@ export default function NowPlayingDrawer() {
 
   return (
     <div
-      className={`fixed inset-0 bottom-[90px] z-40 flex flex-col transition-[visibility] ${
+      className={`fixed inset-x-0 bottom-[90px] z-40 flex flex-col transition-[visibility] ${
         drawerOpen ? "visible" : "invisible delay-200"
       }`}
+      style={{ top: titleBarInset }}
     >
       {/* Backdrop */}
       <div
@@ -1626,27 +1649,39 @@ export default function NowPlayingDrawer() {
           }}
         />
 
-        {/* Left: Album Art — 45% */}
-        <div className="relative z-[1] w-[45%] flex flex-col items-center justify-center p-10 gap-6">
-          {animatedCover ? (
-            <TidalVideoCover
-              cover={currentTrack.album?.cover}
-              videoCover={currentTrack.album?.videoCover}
-              size={1280}
-              imageSize={640}
-              alt={currentTrack.album?.title || currentTrack.title}
-              className="w-full max-w-[640px] aspect-square rounded-lg overflow-hidden"
-            />
-          ) : (
-            <TiltCover className="w-full max-w-[640px] aspect-square rounded-lg">
-              <TidalImage
-                src={getTidalImageUrl(trackCoverId(currentTrack), 640)}
+        {/* Left: Album Art — 45% (cover sized to fit the column in both axes) */}
+        <div
+          ref={coverColumnRef}
+          className="relative z-[1] w-[45%] flex flex-col items-center justify-center p-10"
+          style={{ gap: COVER_TEXT_GAP }}
+        >
+          <div
+            className="w-full aspect-square shrink-0"
+            style={{ maxWidth: MAX_COVER_SIZE, width: coverSize ?? undefined }}
+          >
+            {animatedCover ? (
+              <TidalVideoCover
+                cover={currentTrack.album?.cover}
+                videoCover={currentTrack.album?.videoCover}
+                size={1280}
+                imageSize={640}
                 alt={currentTrack.album?.title || currentTrack.title}
-                className="w-full h-full"
+                className="w-full h-full rounded-lg overflow-hidden"
               />
-            </TiltCover>
-          )}
-          <div className="text-center w-full max-w-[520px]">
+            ) : (
+              <TiltCover className="w-full h-full rounded-lg">
+                <TidalImage
+                  src={getTidalImageUrl(trackCoverId(currentTrack), 640)}
+                  alt={currentTrack.album?.title || currentTrack.title}
+                  className="w-full h-full"
+                />
+              </TiltCover>
+            )}
+          </div>
+          <div
+            ref={coverTextRef}
+            className="shrink-0 text-center w-full max-w-[520px]"
+          >
             <h2 className="text-[22px] font-bold text-th-text-primary truncate">
               {getTrackDisplayTitle(currentTrack)}
             </h2>
@@ -1678,9 +1713,11 @@ export default function NowPlayingDrawer() {
             </div>
             <div className="flex items-center gap-1 shrink-0 ml-2">
               <button
-                onClick={() => setMaximized(true)}
+                onClick={() =>
+                  currentVideo ? fullscreenVideo() : setMaximized(true)
+                }
                 className="w-8 h-8 rounded-full flex items-center justify-center text-th-text-muted hover:text-th-text-primary hover:bg-th-hl-med transition-colors duration-150"
-                title="Fullscreen player"
+                title={currentVideo ? "Fullscreen video" : "Fullscreen player"}
               >
                 <Maximize2 size={18} />
               </button>

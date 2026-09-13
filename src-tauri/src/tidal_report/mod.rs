@@ -237,7 +237,7 @@ impl TidalReporter {
             .await
             .remove(&tid)
             .unwrap_or_default();
-        let src = source.and_then(|(t, id)| SourceType::from_sone(&t).map(|st| (st, id)));
+        let src = source.and_then(|(t, id)| event::resolve_source(&t, &id, tid));
         log::debug!(
             "tidal-report: now tracking track={tid} dur={duration_secs}s source={}",
             src.as_ref()

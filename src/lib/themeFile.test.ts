@@ -129,30 +129,18 @@ describe("syncThemeToFile (write-through, §5)", () => {
   });
 });
 
-describe("handleThemeFocusChange (window display, §6)", () => {
-  it("does nothing when focused is false", async () => {
-    invokeMock.mockResolvedValue(null);
-    const { handleThemeFocusChange } = await freshThemeFile();
-    let applied: unknown = undefined;
-    await handleThemeFocusChange(
-      false,
-      () => CUSTOM,
-      (t) => (applied = t),
-    );
-    expect(invokeMock).not.toHaveBeenCalled();
-    expect(applied).toBeUndefined();
-  });
+describe("applyExternalThemeFile (watcher push)", () => {
+  const FOREST_FILE = {
+    version: 1,
+    preset: "Forest",
+    custom: { accent: "#22C55E", background: "#0E1410" },
+  };
 
-  it("applies an external change on focused:true", async () => {
-    invokeMock.mockResolvedValueOnce({
-      version: 1,
-      preset: "Forest",
-      custom: { accent: "#22C55E", background: "#0E1410" },
-    });
-    const { handleThemeFocusChange } = await freshThemeFile();
+  it("applies a change pushed by the watcher", async () => {
+    const { applyExternalThemeFile } = await freshThemeFile();
     let applied: unknown = undefined;
-    await handleThemeFocusChange(
-      true,
+    applyExternalThemeFile(
+      FOREST_FILE,
       () => CUSTOM,
       (t) => (applied = t),
     );
@@ -163,51 +151,93 @@ describe("handleThemeFocusChange (window display, §6)", () => {
     });
   });
 
-  it("is a no-op when the file matches the current theme", async () => {
-    invokeMock.mockResolvedValue({
-      version: 1,
-      preset: "custom",
-      custom: { accent: "#123456", background: "#654321" },
-    });
-    const { handleThemeFocusChange } = await freshThemeFile();
+  it("is a no-op when the payload matches the current theme", async () => {
+    const { applyExternalThemeFile } = await freshThemeFile();
     let applied: unknown = undefined;
-    await handleThemeFocusChange(
-      true,
+    applyExternalThemeFile(
+      {
+        version: 1,
+        preset: "custom",
+        custom: { accent: "#123456", background: "#654321" },
+      },
       () => CUSTOM,
       (t) => (applied = t),
     );
     expect(applied).toBeUndefined();
-    expect(invokeMock).toHaveBeenCalledTimes(1); // read only, no write
   });
 
-  it("recreates a deleted file from the live theme", async () => {
-    invokeMock
-      .mockResolvedValueOnce(null) // deleted externally
-      .mockResolvedValueOnce(undefined); // recreate
-    const { handleThemeFocusChange } = await freshThemeFile();
-    await handleThemeFocusChange(
-      true,
-      () => CUSTOM,
-      () => {},
-    );
-    const setCall = invokeMock.mock.calls.find(
-      (c) => c[0] === "theme_file_set",
-    );
-    expect(setCall).toBeDefined();
-    expect(setCall![1].file.preset).toBe("custom");
-  });
-
-  it("ignores an invalid file (never clobbers)", async () => {
-    invokeMock.mockRejectedValueOnce("bad hex");
-    const { handleThemeFocusChange } = await freshThemeFile();
+  it("ignores an unresolvable payload (never clobbers the live theme)", async () => {
+    const { applyExternalThemeFile } = await freshThemeFile();
     let applied: unknown = undefined;
-    await handleThemeFocusChange(
-      true,
-      () => CUSTOM,
-      (t) => (applied = t),
-    );
-    expect(invokeMock).toHaveBeenCalledTimes(1);
+    for (const bad of [
+      null,
+      {
+        version: 2,
+        preset: "custom",
+        custom: { accent: "#123456", background: "#654321" },
+      },
+      {
+        version: 1,
+        preset: "Nope",
+        custom: { accent: "#123456", background: "#654321" },
+      },
+      {
+        version: 1,
+        preset: "custom",
+        custom: { accent: "#ZZZ", background: "#654321" },
+      },
+    ]) {
+      applyExternalThemeFile(
+        bad as never,
+        () => CUSTOM,
+        (t) => (applied = t),
+      );
+    }
     expect(applied).toBeUndefined();
+  });
+
+  // The watcher sees SONE's own write too. That echo must not be written back,
+  // or write -> watch -> apply -> write loops forever.
+  it("does not write back an echo of SONE's own write", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+
+    // User picks Forest in Settings; write-through persists it.
+    const forest = { name: "Forest", accent: "#22C55E", bgBase: "#0E1410" };
+    await syncThemeToFile(forest);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(1);
+
+    // The watcher reports that same write back to us.
+    let live = forest;
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    // No re-apply, and the guard still matches, so a further write is skipped.
+    await syncThemeToFile(live);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(1);
+  });
+
+  // A watcher push arrives before any bootstrap, so lastPersisted starts empty.
+  // Applying must arm the guard, or the resulting atom change echoes to disk.
+  it("arms the write guard so applying does not trigger a write", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { applyExternalThemeFile, syncThemeToFile } = await freshThemeFile();
+    let live = CUSTOM;
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    await syncThemeToFile(live); // the write-through echo of setCurrent
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
   });
 });
 
@@ -218,6 +248,38 @@ async function simulateLaunchEcho(theme: typeof OCEAN) {
   const { syncThemeToFile } = await import("./themeFile");
   await syncThemeToFile(theme);
 }
+
+describe("recreateThemeFile (deleted while running)", () => {
+  it("writes the live theme back even though the guard already matches", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, recreateThemeFile } = await freshThemeFile();
+
+    await syncThemeToFile(OCEAN); // arms the guard
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(1);
+
+    // File deleted externally; the watcher reports it gone.
+    await recreateThemeFile(OCEAN);
+    const sets = invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set");
+    expect(sets).toHaveLength(2);
+    expect(sets[1][1].file).toEqual({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+  });
+
+  it("re-arms the guard so the recreate does not echo back", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { recreateThemeFile, syncThemeToFile } = await freshThemeFile();
+    await recreateThemeFile(OCEAN);
+    await syncThemeToFile(OCEAN);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(1);
+  });
+});
 
 describe("startup echo must not touch theme.json", () => {
   it("no write when the file already agrees with localStorage", async () => {
@@ -289,5 +351,143 @@ describe("startup echo must not touch theme.json", () => {
     const sets = invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set");
     expect(sets).toHaveLength(1);
     expect(sets[0][1].file.preset).toBe("Ocean");
+  });
+});
+
+describe("bootstrapThemeFile pushes the file theme into the atom", () => {
+  it("sets themeAtom on the default store when the file resolves", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(CUSTOM));
+    vi.resetModules();
+    const { getDefaultStore } = await import("jotai");
+    const { themeAtom } = await import("../atoms/theme");
+    const { bootstrapThemeFile } = await import("./themeFile");
+
+    invokeMock.mockResolvedValue({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    await bootstrapThemeFile();
+
+    expect(getDefaultStore().get(themeAtom)).toEqual({
+      name: "Ocean",
+      accent: "#3B82F6",
+      bgBase: "#0E1118",
+    });
+  });
+
+  it("arms the write guard before awaiting the backend", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(OCEAN));
+    vi.resetModules();
+    const { bootstrapThemeFile, syncThemeToFile } = await import("./themeFile");
+
+    // A slow read: the write-through echo fires while the IPC is in flight.
+    let release: (v: unknown) => void = () => {};
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "theme_file_get"
+        ? new Promise((r) => (release = r))
+        : Promise.resolve(),
+    );
+    const pending = bootstrapThemeFile();
+
+    // Guard must already be armed, so this echo writes nothing.
+    await syncThemeToFile(OCEAN);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
+
+    release({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    await pending;
+  });
+
+  // main.tsx races bootstrap against a 2s timeout, and Promise.race does not
+  // cancel the loser. A read that resolves after the user has already picked a
+  // different theme must not push the stale file back over it.
+  it("does not revert a theme changed while the read was in flight", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(OCEAN));
+    vi.resetModules();
+    const { getDefaultStore } = await import("jotai");
+    const { themeAtom } = await import("../atoms/theme");
+    const { bootstrapThemeFile } = await import("./themeFile");
+
+    let release: (v: unknown) => void = () => {};
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "theme_file_get"
+        ? new Promise((r) => (release = r))
+        : Promise.resolve(),
+    );
+    const pending = bootstrapThemeFile();
+
+    // Timeout fired, React rendered, user picks Noir in Settings.
+    const NOIR = { name: "Noir", accent: "#FFFFFF", bgBase: "#020202" };
+    getDefaultStore().set(themeAtom, NOIR);
+
+    // The stalled read finally returns the *old* file contents.
+    release({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    await pending;
+
+    expect(getDefaultStore().get(themeAtom)).toEqual(NOIR);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(NOIR);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
+  });
+
+  it("survives a storage write that throws", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(CUSTOM));
+    vi.resetModules();
+    const { bootstrapThemeFile } = await import("./themeFile");
+    const spy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    invokeMock.mockResolvedValue({
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    try {
+      await expect(bootstrapThemeFile()).resolves.toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("arms the guard from the atom's value, not a malformed stored theme", async () => {
+    // No `name` field: a naive localStorage read would accept this (it only
+    // checks accent/bgBase), but themeAtom's `isTheme` validator rejects it,
+    // so the atom falls back to its default preset at module-eval. The guard
+    // must be armed from what the atom actually holds, not from this value.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ accent: "#3B82F6", bgBase: "#0E1118" }),
+    );
+    vi.resetModules();
+    const { getDefaultStore } = await import("jotai");
+    const { themeAtom } = await import("../atoms/theme");
+    const { bootstrapThemeFile, syncThemeToFile } = await import("./themeFile");
+
+    // The file read fails, so bootstrap returns early with only the
+    // above-the-first-await guard armed -- this is the only path where a
+    // mismatched `current` cannot be papered over by a later markPersisted.
+    invokeMock.mockRejectedValueOnce("backend unavailable");
+    await bootstrapThemeFile();
+    invokeMock.mockClear();
+
+    // Echo the atom's own value, as the mount-time write-through
+    // subscription would. The guard must already agree with it.
+    await syncThemeToFile(getDefaultStore().get(themeAtom));
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
+    ).toHaveLength(0);
   });
 });

@@ -396,3 +396,16 @@ export function themeToFile(theme: Theme): ThemeFile {
     custom: { accent, background: bgBase },
   };
 }
+
+/** True when `value` is a usable Theme with parseable hex colors. */
+export function isTheme(value: unknown): value is Theme {
+  if (!value || typeof value !== "object") return false;
+  const t = value as Partial<Theme>;
+  return (
+    typeof t.name === "string" &&
+    typeof t.accent === "string" &&
+    typeof t.bgBase === "string" &&
+    normalizeHex(t.accent) !== null &&
+    normalizeHex(t.bgBase) !== null
+  );
+}

@@ -438,9 +438,13 @@ and Snap both redirect `XDG_CONFIG_HOME` into their own sandbox:
 A sandboxed SONE cannot read `~/.config/sone/`, so tools that write the theme
 for you need the matching path above.
 
-SONE reads the file **at startup, and whenever the window regains focus**. A
-change made while SONE is unfocused or in the tray is applied the next time you
-focus the window, not immediately.
+SONE reads the file at startup and **watches it while running**, so an external
+edit is applied straight away — even when SONE is unfocused or sitting in the
+tray. The watch can miss edits: it may fail to start (SONE logs a warning), it
+is not re-armed for the rest of the session if the config directory is deleted
+and recreated, and on filesystems where inotify does not work (NFS, sshfs, some
+overlay mounts) it starts but then never fires. In all of these the file is
+still read at startup, so restarting SONE always applies it.
 
 ```json
 {
@@ -463,7 +467,8 @@ for display. SONE rewrites `custom` to match the preset the next time you change
 the theme in Settings.
 
 A file SONE cannot parse is left alone and the in-app theme is kept. Fix the
-file and restart, or change the theme in Settings to overwrite it.
+file and the watcher picks it up, or change the theme in Settings to overwrite
+it.
 
 ## FAQ
 
