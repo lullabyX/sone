@@ -84,6 +84,9 @@ export const gaplessAtom = atom(true);
 /** Max streaming-quality ceiling: "HI_RES_LOSSLESS" | "LOSSLESS" | "HIGH". Backend-authoritative. */
 export const maxQualityAtom = atom("HI_RES_LOSSLESS");
 export const exclusiveDeviceAtom = atom<string | null>(null);
+/** When exclusive mode is turned off and the ALSA device is freed, notify
+ *  PipeWire/WirePlumber to re-acquire the output device. Backend-authoritative. */
+export const reclaimDeviceAtom = atom(false);
 export const volumeNormalizationAtom = atom(false);
 
 interface BitPerfectPreviousState {
