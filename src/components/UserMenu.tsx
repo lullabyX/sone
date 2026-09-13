@@ -4,6 +4,7 @@ import {
   X,
   Headphones,
   Shield,
+  RefreshCw,
   ChevronDown,
   Settings,
   Info,
@@ -20,6 +21,7 @@ import {
   exclusiveModeAtom,
   bitPerfectAtom,
   exclusiveDeviceAtom,
+  reclaimDeviceAtom,
 } from "../atoms/playback";
 import { currentUserAvatarAtom } from "../atoms/auth";
 import { useToast } from "../contexts/ToastContext";
@@ -54,6 +56,8 @@ export default function UserMenu() {
   const [exclusiveMode, setExclusiveMode] = useAtom(exclusiveModeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const [exclusiveDevice, setExclusiveDevice] = useAtom(exclusiveDeviceAtom);
+  const [reclaimDevice, setReclaimDevice] = useAtom(reclaimDeviceAtom);
+  const [reclaimSupported, setReclaimSupported] = useState(false);
   const { setBitPerfect } = usePlaybackActions();
   const [audioDevices, setAudioDevices] = useState<
     Array<{ id: string; name: string }>
@@ -111,6 +115,16 @@ export default function UserMenu() {
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [editingId, bindings, setBindings]);
+
+  // Detect whether the reclaim-device nudge applies to this system's audio
+  // stack (PipeWire/WirePlumber). Hidden on PulseAudio-only systems or when
+  // pactl is absent, since the suspend-cycle only meaningfully reloads the
+  // hardware on PipeWire.
+  useEffect(() => {
+    invoke<boolean>("get_reclaim_supported")
+      .then(setReclaimSupported)
+      .catch(() => setReclaimSupported(false));
+  }, []);
 
   // Load audio devices when exclusive mode is enabled
   useEffect(() => {
@@ -293,6 +307,29 @@ export default function UserMenu() {
               <Shield size={16} />
               <span className="flex-1 text-left">Bit-perfect</span>
               <Toggle on={bitPerfect} />
+            </button>
+          )}
+
+          {/* Reclaim device — notify WirePlumber to reload the output device
+              after exclusive mode frees it. Only shown on PipeWire systems,
+              where the suspend-cycle actually reloads the hardware. */}
+          {exclusiveMode && reclaimSupported && (
+            <button
+              onClick={() => {
+                const next = !reclaimDevice;
+                setReclaimDevice(next);
+                invoke("set_reclaim_device", { enabled: next }).catch(() => {});
+                showToast(
+                  next
+                    ? "Reclaim device on — WirePlumber reloads the output when exclusive is turned off"
+                    : "Reclaim device off",
+                );
+              }}
+              className={menuItemClass}
+            >
+              <RefreshCw size={16} />
+              <span className="flex-1 text-left">Reclaim device</span>
+              <Toggle on={reclaimDevice} />
             </button>
           )}
 
