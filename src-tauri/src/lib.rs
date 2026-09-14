@@ -3,6 +3,7 @@ pub mod cache;
 mod commands;
 mod crypto;
 mod discord;
+mod discord_ipc;
 mod embedded_config;
 mod embedded_lastfm;
 mod embedded_librefm;

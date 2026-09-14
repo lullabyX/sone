@@ -1,4 +1,6 @@
-use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use crate::discord_ipc::SoneDiscordClient;
+use discord_rich_presence::error::Error;
+use discord_rich_presence::{activity, DiscordIpc};
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -52,7 +54,7 @@ impl DiscordHandle {
         let (tx, rx) = mpsc::channel::<DiscordCommand>();
 
         std::thread::spawn(move || {
-            let mut client = DiscordIpcClient::new(APPLICATION_ID);
+            let mut client = SoneDiscordClient::new(APPLICATION_ID);
 
             let mut connected = false;
             let mut want_connected = false;
@@ -60,16 +62,23 @@ impl DiscordHandle {
 
             // Try to establish or re-establish the IPC connection.
             // Always creates a fresh client to avoid stale socket issues.
-            let try_connect = |client: &mut DiscordIpcClient, connected: &mut bool| -> bool {
+            let try_connect = |client: &mut SoneDiscordClient, connected: &mut bool| -> bool {
                 if *connected {
                     return true;
                 }
-                *client = DiscordIpcClient::new(APPLICATION_ID);
+                *client = SoneDiscordClient::new(APPLICATION_ID);
                 match client.connect() {
                     Ok(()) => {
                         *connected = true;
                         log::info!("Discord Rich Presence connected");
                         true
+                    }
+                    // No socket at all just means Discord is not running, which
+                    // is the normal state for most users. The retry tick asks
+                    // every 30s, so this must never reach the log at warn.
+                    Err(Error::IPCNotFound) => {
+                        log::debug!("Discord IPC socket not present");
+                        false
                     }
                     Err(e) => {
                         log::warn!("Failed to connect Discord IPC: {e}");
@@ -207,7 +216,7 @@ fn now_epoch_secs() -> i64 {
         .as_secs() as i64
 }
 
-fn publish_activity(client: &mut DiscordIpcClient, current: &CurrentActivity) -> Result<(), ()> {
+fn publish_activity(client: &mut SoneDiscordClient, current: &CurrentActivity) -> Result<(), ()> {
     let state_text = if current.artist.is_empty() {
         current.album.clone()
     } else if current.album.is_empty() {
