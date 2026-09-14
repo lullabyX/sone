@@ -310,6 +310,30 @@ mod tests {
         });
     }
 
+    /// Accept the connection, read the handshake, then answer CLOSE (opcode 2)
+    /// instead of READY — a peer that is dialable but deliberately rejects the
+    /// handshake, as opposed to one that never answers at all.
+    fn spawn_impostor(listener: UnixListener) {
+        std::thread::spawn(move || {
+            let Ok((mut s, _)) = listener.accept() else {
+                return;
+            };
+            let mut header = [0u8; 8];
+            if s.read_exact(&mut header).is_err() {
+                return;
+            }
+            let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+            let mut body = vec![0u8; len];
+            if s.read_exact(&mut body).is_err() {
+                return;
+            }
+            let close = br#"{"code":4000,"message":"impostor"}"#;
+            let _ = s.write_all(&2u32.to_le_bytes());
+            let _ = s.write_all(&(close.len() as u32).to_le_bytes());
+            let _ = s.write_all(close);
+        });
+    }
+
     #[test]
     fn dial_skips_a_zero_byte_regular_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -368,6 +392,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dead = dir.path().join("discord-ipc-0");
         drop(UnixListener::bind(&dead).unwrap()); // bound, then no listener
+        let live = dir.path().join("discord-ipc-1");
+        spawn_fake_discord(UnixListener::bind(&live).unwrap());
+
+        let mut client = SoneDiscordClient::with_bases("123", vec![dir.path().to_path_buf()]);
+        assert!(client.connect().is_ok());
+    }
+
+    /// The fallthrough must also happen at the *handshake* layer, not just at
+    /// `dial`'s stat/connect filters: an impostor that connects and answers
+    /// CLOSE at index 0 must not stop the search, and the real Discord at
+    /// index 1 must still get used.
+    #[test]
+    fn connect_falls_through_a_failed_handshake_to_a_live_discord() {
+        let dir = tempfile::tempdir().unwrap();
+        let impostor = dir.path().join("discord-ipc-0");
+        spawn_impostor(UnixListener::bind(&impostor).unwrap());
         let live = dir.path().join("discord-ipc-1");
         spawn_fake_discord(UnixListener::bind(&live).unwrap());
 
