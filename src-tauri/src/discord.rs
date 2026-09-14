@@ -2,9 +2,13 @@ use crate::discord_ipc::SoneDiscordClient;
 use discord_rich_presence::error::Error;
 use discord_rich_presence::{activity, DiscordIpc};
 use std::sync::mpsc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const APPLICATION_ID: &str = "1482171472167436308";
+
+/// How often an idle Discord thread retries, or re-publishes to notice that
+/// the connection has gone away.
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(30);
 
 pub enum DiscordCommand {
     SetMetadata {
@@ -87,7 +91,45 @@ impl DiscordHandle {
                 }
             };
 
-            for cmd in rx {
+            loop {
+                // Only wake on a timer when there is something to retry or
+                // re-verify; otherwise block so a disabled or idle integration
+                // costs nothing.
+                let cmd = if want_connected {
+                    match rx.recv_timeout(RECONNECT_INTERVAL) {
+                        Ok(cmd) => cmd,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if !connected {
+                                // Discord may have started after we did.
+                                if try_connect(&mut client, &mut connected)
+                                    && current.is_playing
+                                    && !current.title.is_empty()
+                                    && publish_activity(&mut client, &current).is_err()
+                                {
+                                    client.close().ok();
+                                    connected = false;
+                                }
+                            } else if current.is_playing && !current.title.is_empty() {
+                                // Re-publishing is the only way we learn the
+                                // socket died: a write to a departed Discord
+                                // fails. One update per 30s is well inside
+                                // every documented SET_ACTIVITY rate limit.
+                                if publish_activity(&mut client, &current).is_err() {
+                                    client.close().ok();
+                                    connected = false;
+                                }
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match rx.recv() {
+                        Ok(cmd) => cmd,
+                        Err(_) => break,
+                    }
+                };
+
                 match cmd {
                     DiscordCommand::Connect => {
                         want_connected = true;
