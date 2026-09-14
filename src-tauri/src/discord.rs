@@ -62,11 +62,18 @@ impl DiscordHandle {
 
             let mut connected = false;
             let mut want_connected = false;
+            // Set once a connect failure has been logged, cleared on the next
+            // success, so the 30s tick reports state *transitions* rather than
+            // repeating the same line twice a minute forever.
+            let mut logged_failure = false;
             let mut current = CurrentActivity::default();
 
             // Try to establish or re-establish the IPC connection.
             // Always creates a fresh client to avoid stale socket issues.
-            let try_connect = |client: &mut SoneDiscordClient, connected: &mut bool| -> bool {
+            let try_connect = |client: &mut SoneDiscordClient,
+                               connected: &mut bool,
+                               logged_failure: &mut bool|
+             -> bool {
                 if *connected {
                     return true;
                 }
@@ -74,18 +81,21 @@ impl DiscordHandle {
                 match client.connect() {
                     Ok(()) => {
                         *connected = true;
+                        *logged_failure = false;
                         log::info!("Discord Rich Presence connected");
                         true
                     }
-                    // No socket at all just means Discord is not running, which
-                    // is the normal state for most users. The retry tick asks
-                    // every 30s, so this must never reach the log at warn.
-                    Err(Error::IPCNotFound) => {
-                        log::debug!("Discord IPC socket not present");
-                        false
-                    }
                     Err(e) => {
-                        log::warn!("Failed to connect Discord IPC: {e}");
+                        if !*logged_failure {
+                            *logged_failure = true;
+                            // No socket at all just means Discord is not
+                            // running, the normal state for most users.
+                            if matches!(e, Error::IPCNotFound) {
+                                log::debug!("Discord IPC socket not present");
+                            } else {
+                                log::warn!("Failed to connect Discord IPC: {e}");
+                            }
+                        }
                         false
                     }
                 }
@@ -101,7 +111,7 @@ impl DiscordHandle {
                         Err(mpsc::RecvTimeoutError::Timeout) => {
                             if !connected {
                                 // Discord may have started after we did.
-                                if try_connect(&mut client, &mut connected)
+                                if try_connect(&mut client, &mut connected, &mut logged_failure)
                                     && current.is_playing
                                     && !current.title.is_empty()
                                     && publish_activity(&mut client, &current).is_err()
@@ -133,7 +143,7 @@ impl DiscordHandle {
                 match cmd {
                     DiscordCommand::Connect => {
                         want_connected = true;
-                        try_connect(&mut client, &mut connected);
+                        try_connect(&mut client, &mut connected, &mut logged_failure);
                         if connected
                             && current.is_playing
                             && !current.title.is_empty()
@@ -174,7 +184,7 @@ impl DiscordHandle {
                         }
 
                         if want_connected {
-                            try_connect(&mut client, &mut connected);
+                            try_connect(&mut client, &mut connected, &mut logged_failure);
                             if connected && publish_activity(&mut client, &current).is_err() {
                                 client.close().ok();
                                 connected = false;
@@ -192,7 +202,7 @@ impl DiscordHandle {
                         }
 
                         if want_connected {
-                            try_connect(&mut client, &mut connected);
+                            try_connect(&mut client, &mut connected, &mut logged_failure);
                             if connected {
                                 let failed = if !playing {
                                     client.clear_activity().is_err()

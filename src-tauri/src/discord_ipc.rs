@@ -18,8 +18,23 @@ use serde_json::json;
 
 type IpcResult<T> = std::result::Result<T, Error>;
 
-/// How long a candidate gets to complete the handshake before we move on.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Per-read/per-write socket timeout (`SO_RCVTIMEO`/`SO_SNDTIMEO`) applied to
+/// every dialled candidate.
+///
+/// This is *not* a budget for a whole handshake: a handshake reads several
+/// frames, two reads each, so a peer that answers just inside every deadline
+/// can legally spend many multiples of this on a single candidate. Use
+/// [`CONNECT_DEADLINE`] when you need a bound on the search.
+const HANDSHAKE_READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Wall-clock budget for one whole `connect()` call — the entire candidate
+/// scan, not one candidate.
+///
+/// `candidate_paths` can yield hundreds of entries, `UnixStream::connect` has
+/// no timeout at all, and [`HANDSHAKE_READ_TIMEOUT`] only bounds a single read,
+/// so nothing else caps the total. A slow or silent peer must not let one tick
+/// run long enough to back up the command channel behind it.
+const CONNECT_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Directory prefixes, relative to a runtime dir, where a Discord client may
 /// publish its IPC socket.
@@ -28,12 +43,13 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 /// in the separate `flathub/io.github.lullabyX.sone` repository and cannot be
 /// checked from this working tree. Verify against a built package with
 /// `flatpak info --show-permissions io.github.lullabyX.sone`.
-pub(crate) const APP_SUBPATHS: [&str; 8] = [
+pub(crate) const APP_SUBPATHS: [&str; 9] = [
     "",
     "app/com.discordapp.Discord/",
     "app/com.discordapp.DiscordCanary/",
     "app/dev.vencord.Vesktop/",
     ".flatpak/com.discordapp.Discord/xdg-run/",
+    ".flatpak/com.discordapp.DiscordCanary/xdg-run/",
     ".flatpak/dev.vencord.Vesktop/xdg-run/",
     "snap.discord/",
     "snap.discord-canary/",
@@ -102,8 +118,10 @@ pub(crate) fn dial(path: &Path) -> Option<UnixStream> {
         return None;
     }
     let stream = UnixStream::connect(path).ok()?;
-    stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).ok()?;
-    stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT)).ok()?;
+    stream.set_read_timeout(Some(HANDSHAKE_READ_TIMEOUT)).ok()?;
+    stream
+        .set_write_timeout(Some(HANDSHAKE_READ_TIMEOUT))
+        .ok()?;
     Some(stream)
 }
 
@@ -142,6 +160,12 @@ impl SoneDiscordClient {
     /// frames rather than exactly one. Opcode 2 is CLOSE and terminal; code
     /// 4000 means our application ID was rejected, which a developer needs to
     /// see (the accompanying message string is not stable).
+    ///
+    /// `recv()` sizes its buffer from the peer's own length header, so an
+    /// unvalidated peer can make us allocate. Left as is deliberately: the
+    /// framing lives in the crate's private `pack_unpack`, so capping it would
+    /// mean reimplementing `send`/`recv` wholesale. The read timeout bounds how
+    /// long such a peer can hold us.
     fn handshake_ok(&mut self) -> bool {
         const MAX_FRAMES: usize = 4;
 
@@ -185,8 +209,11 @@ impl DiscordIpc for SoneDiscordClient {
     /// Required by the trait. Prefer [`DiscordIpc::connect`], which is
     /// overridden below to validate the handshake — this accepts the first
     /// dialable candidate without proving it is Discord. Only the trait's
-    /// defaulted `reconnect()` reaches it, and `discord.rs` never calls that.
+    /// defaulted `reconnect()` reached it, and `reconnect()` is now overridden
+    /// below to route through `connect()`, so nothing arrives here by default.
     fn connect_ipc(&mut self) -> IpcResult<()> {
+        self.socket = None;
+
         for path in candidate_paths(&self.bases) {
             if let Some(stream) = dial(&path) {
                 self.socket = Some(stream);
@@ -199,10 +226,26 @@ impl DiscordIpc for SoneDiscordClient {
     /// Overrides the trait default so fallthrough happens at the *handshake*
     /// layer. A candidate that connects but fails the handshake is discarded
     /// and the search continues, rather than failing the whole attempt.
+    ///
+    /// Clears `socket` up front so an `Err` return always means "not
+    /// connected"; otherwise a scan that dials nothing would leave the previous
+    /// stream in place behind a failure.
+    ///
+    /// Bounded by [`CONNECT_DEADLINE`]: hundreds of candidates times an
+    /// untimed `UnixStream::connect` plus multi-read handshakes is otherwise
+    /// unbounded, and this runs on every retry tick and every queued command.
     fn connect(&mut self) -> IpcResult<()> {
+        self.socket = None;
+
+        let started = std::time::Instant::now();
         let mut dialled_any = false;
 
         for path in candidate_paths(&self.bases) {
+            if started.elapsed() >= CONNECT_DEADLINE {
+                log::debug!("Discord IPC scan hit its deadline at {}", path.display());
+                break;
+            }
+
             let Some(stream) = dial(&path) else {
                 continue;
             };
@@ -223,6 +266,14 @@ impl DiscordIpc for SoneDiscordClient {
         } else {
             Error::IPCNotFound
         })
+    }
+
+    /// Overrides the trait default, which would `close()`, `connect_ipc()` and
+    /// `send_handshake()` — the unvalidated first-dialable path, reintroducing
+    /// exactly the stale-socket bug [`Self::connect`] exists to fix.
+    fn reconnect(&mut self) -> IpcResult<()> {
+        self.close().ok();
+        self.connect()
     }
 
     fn write(&mut self, data: &[u8]) -> IpcResult<()> {
@@ -287,50 +338,65 @@ mod tests {
 
     use std::os::unix::net::UnixListener;
 
-    /// Answer one handshake with the frame real Discord sends, then stop.
-    fn spawn_fake_discord(listener: UnixListener) {
-        std::thread::spawn(move || {
-            let Ok((mut s, _)) = listener.accept() else {
-                return;
-            };
-            let mut header = [0u8; 8];
-            if s.read_exact(&mut header).is_err() {
-                return;
-            }
-            let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
-            let mut body = vec![0u8; len];
-            if s.read_exact(&mut body).is_err() {
-                return;
-            }
-            let ready = br#"{"cmd":"DISPATCH","data":{"v":1},"evt":"READY","nonce":null}"#;
-            let _ = s.write_all(&1u32.to_le_bytes());
-            let _ = s.write_all(&(ready.len() as u32).to_le_bytes());
-            let _ = s.write_all(ready);
-            std::thread::sleep(std::time::Duration::from_secs(5));
-        });
+    /// Read one length-prefixed IPC frame, discarding its body.
+    fn read_frame(s: &mut UnixStream) -> Option<()> {
+        let mut header = [0u8; 8];
+        s.read_exact(&mut header).ok()?;
+        let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let mut body = vec![0u8; len];
+        s.read_exact(&mut body).ok()
     }
 
-    /// Accept the connection, read the handshake, then answer CLOSE (opcode 2)
+    fn write_frame(s: &mut UnixStream, opcode: u32, body: &[u8]) {
+        let _ = s.write_all(&opcode.to_le_bytes());
+        let _ = s.write_all(&(body.len() as u32).to_le_bytes());
+        let _ = s.write_all(body);
+    }
+
+    /// Serve handshakes with the frame real Discord sends, for as long as the
+    /// test runs. Accepted streams are held open so the client's socket stays
+    /// valid after the handshake.
+    ///
+    /// The receiver fires once per answered handshake, so a test can assert
+    /// *which* peer a connect attempt actually landed on, and how many times.
+    fn spawn_fake_discord_reporting(listener: UnixListener) -> std::sync::mpsc::Receiver<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while let Ok((mut s, _)) = listener.accept() {
+                if read_frame(&mut s).is_none() {
+                    continue;
+                }
+                write_frame(
+                    &mut s,
+                    1,
+                    br#"{"cmd":"DISPATCH","data":{"v":1},"evt":"READY","nonce":null}"#,
+                );
+                // A dropped receiver just means the test only wanted a live
+                // peer, not a report; keep serving either way.
+                let _ = tx.send(());
+                held.push(s);
+            }
+        });
+        rx
+    }
+
+    fn spawn_fake_discord(listener: UnixListener) {
+        drop(spawn_fake_discord_reporting(listener));
+    }
+
+    /// Accept connections, read the handshake, then answer CLOSE (opcode 2)
     /// instead of READY — a peer that is dialable but deliberately rejects the
-    /// handshake, as opposed to one that never answers at all.
+    /// handshake, as opposed to one that never answers at all. Serves
+    /// repeatedly so it stays an impostor across more than one scan.
     fn spawn_impostor(listener: UnixListener) {
         std::thread::spawn(move || {
-            let Ok((mut s, _)) = listener.accept() else {
-                return;
-            };
-            let mut header = [0u8; 8];
-            if s.read_exact(&mut header).is_err() {
-                return;
+            while let Ok((mut s, _)) = listener.accept() {
+                if read_frame(&mut s).is_none() {
+                    continue;
+                }
+                write_frame(&mut s, 2, br#"{"code":4000,"message":"impostor"}"#);
             }
-            let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
-            let mut body = vec![0u8; len];
-            if s.read_exact(&mut body).is_err() {
-                return;
-            }
-            let close = br#"{"code":4000,"message":"impostor"}"#;
-            let _ = s.write_all(&2u32.to_le_bytes());
-            let _ = s.write_all(&(close.len() as u32).to_le_bytes());
-            let _ = s.write_all(close);
         });
     }
 
@@ -437,5 +503,83 @@ mod tests {
 
         let mut client = SoneDiscordClient::with_bases("123", vec![dir.path().to_path_buf()]);
         assert!(matches!(client.connect(), Err(Error::IPCNotFound)));
+    }
+
+    /// Each silent peer costs a whole `HANDSHAKE_READ_TIMEOUT`, and a real
+    /// environment offers hundreds of candidates. `CONNECT_DEADLINE` has to
+    /// bound the entire scan, not one candidate within it.
+    #[test]
+    fn connect_stops_scanning_once_the_deadline_passes() {
+        const SILENT_PEERS: u32 = 8;
+
+        let dir = tempfile::tempdir().unwrap();
+        // Bound but never accepted: the kernel backlog completes every connect,
+        // so each of these burns a full read timeout and answers nothing.
+        let _silent: Vec<UnixListener> = (0..SILENT_PEERS)
+            .map(|i| UnixListener::bind(dir.path().join(format!("discord-ipc-{i}"))).unwrap())
+            .collect();
+
+        let mut client = SoneDiscordClient::with_bases("123", vec![dir.path().to_path_buf()]);
+        let started = std::time::Instant::now();
+        assert!(client.connect().is_err());
+        let elapsed = started.elapsed();
+
+        // Undeadlined this is SILENT_PEERS * HANDSHAKE_READ_TIMEOUT (16s).
+        // Deadlined it is CONNECT_DEADLINE plus at most the one candidate that
+        // was already in flight. The bound is loose on purpose: it has to fail
+        // only when the deadline is genuinely absent, not when CI is busy.
+        assert!(
+            elapsed < CONNECT_DEADLINE + 2 * HANDSHAKE_READ_TIMEOUT,
+            "connect() ran for {elapsed:?}; the deadline did not bound the scan"
+        );
+        assert!(
+            elapsed < SILENT_PEERS * HANDSHAKE_READ_TIMEOUT,
+            "connect() ran for {elapsed:?}, as long as an undeadlined full scan"
+        );
+    }
+
+    /// A failed `connect()` must leave the client disconnected. Without the
+    /// up-front clear, a scan that dials nothing never enters the loop body and
+    /// silently keeps the previous stream behind an `Err` return.
+    #[test]
+    fn a_failed_connect_drops_the_previous_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("discord-ipc-0");
+        spawn_fake_discord(UnixListener::bind(&live).unwrap());
+
+        let mut client = SoneDiscordClient::with_bases("123", vec![dir.path().to_path_buf()]);
+        assert!(client.connect().is_ok());
+
+        std::fs::remove_file(&live).unwrap();
+        assert!(matches!(client.connect(), Err(Error::IPCNotFound)));
+
+        // `close()` reports `NotConnected` only when no socket is held.
+        assert!(matches!(client.close(), Err(Error::NotConnected)));
+    }
+
+    /// `reconnect()` must not fall back to the trait default, which dials the
+    /// first connectable candidate without proving it speaks Discord. The
+    /// impostor at index 0 would satisfy that path; only the validating
+    /// `connect()` reaches the real peer at index 1.
+    #[test]
+    fn reconnect_routes_through_the_validating_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let impostor = dir.path().join("discord-ipc-0");
+        spawn_impostor(UnixListener::bind(&impostor).unwrap());
+        let live = dir.path().join("discord-ipc-1");
+        let handshaken = spawn_fake_discord_reporting(UnixListener::bind(&live).unwrap());
+
+        let mut client = SoneDiscordClient::with_bases("123", vec![dir.path().to_path_buf()]);
+        assert!(client.connect().is_ok());
+        assert!(handshaken.recv_timeout(Duration::from_secs(5)).is_ok());
+
+        // The trait default would `close()` + `connect_ipc()` + a blind
+        // `send_handshake()`, land on the impostor, and still report `Ok` — so
+        // the real assertion is that the *live* peer saw a second handshake.
+        assert!(client.reconnect().is_ok());
+        assert!(
+            handshaken.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "reconnect() stopped at the impostor instead of validating candidates"
+        );
     }
 }
