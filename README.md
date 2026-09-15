@@ -63,7 +63,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Signal Path Transparency** — see exactly what your audio is going through end-to-end. Probes the live GStreamer pipeline, OS mixer (`pactl`), and ALSA card (`/proc/asound`); flags every conversion, format mismatch, or volume alteration with a PRISTINE verdict for bit-clean playback
 - **Volume normalization** (ReplayGain) with automatic context switching between album and track gain
 - **Autoplay** — discovers and plays similar tracks when your queue ends
-- **Gapless playback** — seamless, silence-free transitions between tracks in normal output mode. On by default; requires GStreamer 1.24+ and falls back automatically when unavailable
+- **Gapless playback** — seamless, silence-free transitions between tracks in normal output mode. On by default, with automatic fallback when unavailable
 
 ### Video
 
@@ -79,7 +79,6 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, shuffle, repeat, seek, and desktop widget support
-- **Proxy support** — route traffic through HTTP, HTTPS, or SOCKS5 proxies
 - **System tray** with playback controls and minimize-to-tray
 - **Keyboard shortcuts** for all common actions with a built-in shortcut overlay
 
@@ -97,6 +96,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Scrobbling** — track your listening history on Last.fm, Libre.fm, and ListenBrainz with full ISRC and MusicBrainz metadata
 - **Play reporting** — reports finished plays to TIDAL so Recently Played reflects what you listen to in SONE. On by default; turn it off in Settings → Scrobbling
 - **Discord Rich Presence** — show what you're listening to with album art, track info, and a direct TIDAL link
+- **Proxy support** — route everything through an HTTP, HTTPS, or SOCKS5 proxy, including audio playback, with optional username and password. If the proxy can't be reached, SONE stops rather than sending your traffic around it
 
 ## Why SONE?
 
@@ -399,6 +399,15 @@ Output goes to `dist/<format>/`. Pass `--no-cache` to force a clean Docker build
 
 **No sound?**
 Make sure GStreamer plugins are installed — you need at minimum `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, and `gstreamer1.0-libav` (or your distro's equivalents).
+
+**Audio won't play with a proxy enabled?**
+A proxy that requires a username and password needs GStreamer's curl source (`curlhttpsrc`), which SONE uses in place of the default HTTP source. Check whether you have it:
+
+```bash
+gst-inspect-1.0 curlhttpsrc
+```
+
+If it's missing, install the GStreamer "bad" plugin set and restart SONE — `gstreamer1.0-plugins-bad` (Debian/Ubuntu), `gst-plugins-bad` (Arch), `gstreamer-plugins-bad` (openSUSE), or `gstreamer1-plugins-bad-free` on Fedora 42+ (`gstreamer1-plugins-bad-free-extras` on Fedora 41 and earlier). Curl support is a build-time option, so the element can be missing even when the package is installed. The Flatpak build always includes it.
 
 **Playback errors in exclusive/bit-perfect mode?**
 SONE automatically detects your DAC's supported formats and sample rates, but if playback still fails, your hardware may not support the source format at all. Try a lower quality tier or switch to normal output mode.

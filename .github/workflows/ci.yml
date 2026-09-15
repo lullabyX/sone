@@ -65,7 +65,9 @@ jobs:
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
             libsecret-1-dev \
-            libasound2-dev
+            libasound2-dev \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad
 
       - name: Set up Rust
         # This action publishes no version tags; `stable` is a moving branch,

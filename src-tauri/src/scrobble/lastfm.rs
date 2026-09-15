@@ -30,7 +30,7 @@ pub struct AudioscrobblerProvider {
     api_key: String,
     api_secret: String,
     session: RwLock<Option<SessionData>>,
-    client: std::sync::Mutex<reqwest::Client>,
+    http: crate::proxy_http::ProxiedHttp,
 }
 
 impl AudioscrobblerProvider {
@@ -40,7 +40,7 @@ impl AudioscrobblerProvider {
         auth_base_url: &'static str,
         api_key: String,
         api_secret: String,
-        client: reqwest::Client,
+        http: crate::proxy_http::ProxiedHttp,
     ) -> Self {
         Self {
             name,
@@ -49,7 +49,7 @@ impl AudioscrobblerProvider {
             api_key,
             api_secret,
             session: RwLock::new(None),
-            client: std::sync::Mutex::new(client),
+            http,
         }
     }
 
@@ -71,7 +71,10 @@ impl AudioscrobblerProvider {
         params.insert("api_sig", sig);
         params.insert("format", "json".to_string());
 
-        let client = self.client.lock().unwrap().clone();
+        let client = self
+            .http
+            .client()
+            .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
         let resp = client
             .get(self.api_url)
             .query(&params)
@@ -121,7 +124,10 @@ impl AudioscrobblerProvider {
         params.insert("api_sig", sig);
         params.insert("format", "json".to_string());
 
-        let client = self.client.lock().unwrap().clone();
+        let client = self
+            .http
+            .client()
+            .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
         let resp = client
             .post(self.api_url)
             .form(&params)
@@ -236,10 +242,6 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         50
     }
 
-    fn set_http_client(&self, client: reqwest::Client) {
-        *self.client.lock().unwrap() = client;
-    }
-
     async fn username(&self) -> Option<String> {
         let session = self.session.read().await;
         session.as_ref().map(|s| s.username.clone())
@@ -273,7 +275,12 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         params.insert("api_sig", sig);
         params.insert("format", "json".to_string());
 
-        let client = self.client.lock().unwrap().clone();
+        let client = match self.http.client() {
+            Ok(c) => c,
+            // Retryable, not a hard failure: the scrobble is queued and goes
+            // out once the proxy is usable again.
+            Err(e) => return ScrobbleResult::Retryable(format!("proxy blocked: {}", e.cause)),
+        };
         let result = client
             .post(self.api_url)
             .form(&params)
@@ -348,7 +355,12 @@ impl ScrobbleProvider for AudioscrobblerProvider {
         params.push(("api_sig".to_string(), sig));
         params.push(("format".to_string(), "json".to_string()));
 
-        let client = self.client.lock().unwrap().clone();
+        let client = match self.http.client() {
+            Ok(c) => c,
+            // Retryable, not a hard failure: the scrobble is queued and goes
+            // out once the proxy is usable again.
+            Err(e) => return ScrobbleResult::Retryable(format!("proxy blocked: {}", e.cause)),
+        };
         let result = client
             .post(self.api_url)
             .form(&params)

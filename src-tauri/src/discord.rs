@@ -1,8 +1,14 @@
-use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use crate::discord_ipc::SoneDiscordClient;
+use discord_rich_presence::error::Error;
+use discord_rich_presence::{activity, DiscordIpc};
 use std::sync::mpsc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const APPLICATION_ID: &str = "1482171472167436308";
+
+/// How often an idle Discord thread retries, or re-publishes to notice that
+/// the connection has gone away.
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(30);
 
 pub enum DiscordCommand {
     SetMetadata {
@@ -52,37 +58,92 @@ impl DiscordHandle {
         let (tx, rx) = mpsc::channel::<DiscordCommand>();
 
         std::thread::spawn(move || {
-            let mut client = DiscordIpcClient::new(APPLICATION_ID);
+            let mut client = SoneDiscordClient::new(APPLICATION_ID);
 
             let mut connected = false;
             let mut want_connected = false;
+            // Set once a connect failure has been logged, cleared on the next
+            // success, so the 30s tick reports state *transitions* rather than
+            // repeating the same line twice a minute forever.
+            let mut logged_failure = false;
             let mut current = CurrentActivity::default();
 
             // Try to establish or re-establish the IPC connection.
             // Always creates a fresh client to avoid stale socket issues.
-            let try_connect = |client: &mut DiscordIpcClient, connected: &mut bool| -> bool {
+            let try_connect = |client: &mut SoneDiscordClient,
+                               connected: &mut bool,
+                               logged_failure: &mut bool|
+             -> bool {
                 if *connected {
                     return true;
                 }
-                *client = DiscordIpcClient::new(APPLICATION_ID);
+                *client = SoneDiscordClient::new(APPLICATION_ID);
                 match client.connect() {
                     Ok(()) => {
                         *connected = true;
+                        *logged_failure = false;
                         log::info!("Discord Rich Presence connected");
                         true
                     }
                     Err(e) => {
-                        log::warn!("Failed to connect Discord IPC: {e}");
+                        if !*logged_failure {
+                            *logged_failure = true;
+                            // No socket at all just means Discord is not
+                            // running, the normal state for most users.
+                            if matches!(e, Error::IPCNotFound) {
+                                log::debug!("Discord IPC socket not present");
+                            } else {
+                                log::warn!("Failed to connect Discord IPC: {e}");
+                            }
+                        }
                         false
                     }
                 }
             };
 
-            for cmd in rx {
+            loop {
+                // Only wake on a timer when there is something to retry or
+                // re-verify; otherwise block so a disabled or idle integration
+                // costs nothing.
+                let cmd = if want_connected {
+                    match rx.recv_timeout(RECONNECT_INTERVAL) {
+                        Ok(cmd) => cmd,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if !connected {
+                                // Discord may have started after we did.
+                                if try_connect(&mut client, &mut connected, &mut logged_failure)
+                                    && current.is_playing
+                                    && !current.title.is_empty()
+                                    && publish_activity(&mut client, &current).is_err()
+                                {
+                                    client.close().ok();
+                                    connected = false;
+                                }
+                            } else if current.is_playing && !current.title.is_empty() {
+                                // Re-publishing is the only way we learn the
+                                // socket died: a write to a departed Discord
+                                // fails. One update per 30s is well inside
+                                // every documented SET_ACTIVITY rate limit.
+                                if publish_activity(&mut client, &current).is_err() {
+                                    client.close().ok();
+                                    connected = false;
+                                }
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match rx.recv() {
+                        Ok(cmd) => cmd,
+                        Err(_) => break,
+                    }
+                };
+
                 match cmd {
                     DiscordCommand::Connect => {
                         want_connected = true;
-                        try_connect(&mut client, &mut connected);
+                        try_connect(&mut client, &mut connected, &mut logged_failure);
                         if connected
                             && current.is_playing
                             && !current.title.is_empty()
@@ -123,7 +184,7 @@ impl DiscordHandle {
                         }
 
                         if want_connected {
-                            try_connect(&mut client, &mut connected);
+                            try_connect(&mut client, &mut connected, &mut logged_failure);
                             if connected && publish_activity(&mut client, &current).is_err() {
                                 client.close().ok();
                                 connected = false;
@@ -141,7 +202,7 @@ impl DiscordHandle {
                         }
 
                         if want_connected {
-                            try_connect(&mut client, &mut connected);
+                            try_connect(&mut client, &mut connected, &mut logged_failure);
                             if connected {
                                 let failed = if !playing {
                                     client.clear_activity().is_err()
@@ -207,7 +268,7 @@ fn now_epoch_secs() -> i64 {
         .as_secs() as i64
 }
 
-fn publish_activity(client: &mut DiscordIpcClient, current: &CurrentActivity) -> Result<(), ()> {
+fn publish_activity(client: &mut SoneDiscordClient, current: &CurrentActivity) -> Result<(), ()> {
     let state_text = if current.artist.is_empty() {
         current.album.clone()
     } else if current.album.is_empty() {

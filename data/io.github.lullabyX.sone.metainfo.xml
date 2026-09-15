@@ -70,6 +70,7 @@
       <li>Open and share tidal:// deep links for tracks, albums, playlists, artists, and mixes</li>
       <li>Keep Awake — prevents the screen from sleeping during playback on X11, Wayland, and D-Bus</li>
       <li>MCP server — external AI agents like Claude Code can search your library and control playback (off by default)</li>
+      <li>OBS stream overlay — a built-in browser source shows the current track, album art, and a live progress bar in OBS and other streaming software, styled with your theme (off by default)</li>
       <li>Play reporting — finished plays are reported to TIDAL so Recently Played stays in sync (on by default)</li>
       <li>Proxy support — HTTP, HTTPS, and SOCKS5</li>
       <li>Sign in securely with PKCE inside the app</li>
@@ -160,6 +161,60 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.22.0" date="2026-09-15">
+      <description>
+        <p>Activity Feed</p>
+        <ul>
+          <li>See what the people you follow are listening to and sharing, on a new Feed page grouped by month</li>
+          <li>Play or open anything straight from a feed row, or right-click it for the full context menu</li>
+          <li>An unread badge tells you when there is new activity, and clears when you open the page</li>
+        </ul>
+        <p>Stream Overlay for OBS</p>
+        <ul>
+          <li>Show what you are playing on stream — a built-in browser source for OBS and other streaming software</li>
+          <li>The overlay shows album art, title, artist, a quality badge, and a live progress bar in your current theme</li>
+          <li>Choose your own port, see status and errors right in settings, and the overlay reconnects and resyncs on its own</li>
+        </ul>
+        <p>Listening History</p>
+        <ul>
+          <li>Finished plays are now reported to TIDAL so Recently Played stays in sync — turn it off any time in settings</li>
+          <li>Single tracks, favorites, radio, and artist tracks now all show up properly in Recently Played</li>
+        </ul>
+        <p>Keyboard Shortcuts &amp; Navigation</p>
+        <ul>
+          <li>Shortcuts follow a familiar standard keymap, now with shuffle and repeat bindings — your custom keys carry over</li>
+          <li>Escape closes one thing at a time — the menu, then the dialog, then the drawer</li>
+          <li>Go back and you land exactly where you left off, even in long lists that are still loading</li>
+          <li>Arrow keys scroll the main view, and your shortcuts keep working even while a text field is focused</li>
+        </ul>
+        <p>Themes &amp; Dark Mode</p>
+        <ul>
+          <li>Your theme is now a plain file you can edit by hand — save it and SONE updates instantly, no restart</li>
+          <li>Light and dark themes are ready before the window appears, so there is no flash of the wrong colors at launch</li>
+        </ul>
+        <p>HTTP &amp; SOCKS5 Proxy Fixes</p>
+        <ul>
+          <li>Audio now plays through proxies that require a username and password, not just browsing and artwork</li>
+          <li>SOCKS5 now resolves addresses through the proxy instead of leaking them to your local DNS</li>
+          <li>If the proxy cannot be reached, SONE stops instead of sending your traffic around it — and tells you why</li>
+          <li>A blocked or silently failing proxy is now reported, with a way out before you even sign in</li>
+          <li>Switching proxies mid-song no longer restarts the track — playback picks up at the same spot</li>
+          <li>Settings are checked as you type, a bad proxy can always be undone, and turning proxying off restores your system settings</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Unplayable tracks are skipped instead of stalling your queue</li>
+          <li>When the service is busy, playback pauses for a moment instead of dropping the track you picked</li>
+          <li>Long track and playlist lists scroll smoothly again, and keep loading more as you reach the bottom</li>
+          <li>Window edges no longer swallow the scrollbar or the window buttons, and the title bar drags properly again</li>
+          <li>Your zoom level is set before the window appears, and icons stay crisp at every zoom level</li>
+          <li>Artists without a photo fall back to album artwork everywhere, and search suggestions show the full track title</li>
+          <li>Discord Rich Presence connects reliably, retries on its own, and no longer floods the log with errors</li>
+          <li>You stay signed in more reliably, and the MCP server releases its port cleanly when restarted</li>
+          <li>Play a music video full-screen straight from the now-playing drawer</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.21.0" date="2026-07-14">
       <description>
         <p>Music Videos</p>

@@ -58,3 +58,6 @@ sone.code-workspace
 
 # Snap build artifacts
 *.snap
+
+# watch skill scratch files
+.watchtmp-*

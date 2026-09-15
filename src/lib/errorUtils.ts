@@ -1,17 +1,18 @@
 // Helpers for safely working with SoneError values that arrive over Tauri IPC.
 //
-// SoneError is serialized as { kind: "Api" | "Parse" | ..., message: string | { status, body } }.
-// For SoneError::Api, `message` is an object — passing it to setError(string) and rendering
-// it crashes React with "Objects are not valid as a React child" and unmounts the tree.
+// SoneError is serialized as { kind: "Api" | "Parse" | ..., message: string | object }.
+// For SoneError::Api `message` is { status, body }, and for SoneError::ProxyBlocked it is
+// { reason } — passing either to setError(string) and rendering it crashes React with
+// "Objects are not valid as a React child" and unmounts the tree. Always go through one of
+// the accessors below; never read `err.message` directly.
 
-interface ApiErrorMessage {
-  status: number;
-  body: string;
-}
-
+// `message` is deliberately `unknown`: its shape depends on the variant
+// (`{ status, body }` for Api, `{ reason }` for ProxyBlocked, a bare string for
+// most others), and typing it as a union only invites reading the wrong field
+// off the wrong variant. Every accessor below narrows before it reads.
 interface SoneErrorShape {
   kind: string;
-  message: string | ApiErrorMessage;
+  message: unknown;
 }
 
 function isSoneError(err: unknown): err is SoneErrorShape {
@@ -24,10 +25,51 @@ function isSoneError(err: unknown): err is SoneErrorShape {
   );
 }
 
+/**
+ * The reason a request was refused before it left the process, or null.
+ *
+ * `SoneError` is `#[serde(tag = "kind", content = "message")]`, so
+ * `ProxyBlocked { reason }` arrives as `{ kind: "ProxyBlocked", message: { reason } }`
+ * — `message` is an OBJECT, exactly like `Api`'s. Interpolating it into a
+ * string renders "[object Object]" and handing it to a React child unmounts
+ * the tree; this repo has shipped a blank screen from that once already. So the
+ * shape is checked rather than assumed, and anything unexpected returns null
+ * instead of a stringified object.
+ *
+ * A blocked proxy is never a property of the thing being fetched: the same
+ * refusal applies to every request, so callers must stop rather than advance.
+ */
+export function getProxyBlockedReason(err: unknown): string | null {
+  const parsed =
+    typeof err === "string"
+      ? (() => {
+          try {
+            return JSON.parse(err) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : err;
+  if (!isSoneError(parsed)) return null;
+  if (parsed.kind !== "ProxyBlocked") return null;
+  const msg = parsed.message as { reason?: unknown };
+  if (
+    typeof msg === "object" &&
+    msg !== null &&
+    typeof msg.reason === "string"
+  ) {
+    const reason = msg.reason.trim();
+    if (reason.length > 0) return reason;
+  }
+  // The kind is right but the payload is not what the backend promises. Still a
+  // block — saying so with a generic reason beats reporting no block at all.
+  return "The proxy refused this request";
+}
+
 export function getApiStatus(err: unknown): number | null {
   if (!isSoneError(err)) return null;
   if (err.kind !== "Api") return null;
-  const msg = err.message;
+  const msg = err.message as { status?: unknown };
   if (
     typeof msg === "object" &&
     msg !== null &&
@@ -60,9 +102,11 @@ function apiBodyDetail(body: string): string {
 }
 
 export function safeErrorMessage(err: unknown, fallback: string): string {
+  const blocked = getProxyBlockedReason(err);
+  if (blocked) return blocked;
   if (typeof err === "string") return err;
   if (isSoneError(err)) {
-    const msg = err.message;
+    const msg = err.message as { body?: unknown };
     if (typeof msg === "string") return msg;
     if (
       typeof msg === "object" &&
@@ -89,6 +133,9 @@ export function formatSoneError(err: unknown): string {
           }
         })()
       : err;
+
+  const blocked = getProxyBlockedReason(parsed);
+  if (blocked) return blocked;
 
   const msg = (parsed as { message?: unknown })?.message;
 

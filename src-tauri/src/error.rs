@@ -43,6 +43,11 @@ pub enum SoneError {
 
     #[error("MCP error: {0}")]
     Mcp(String),
+
+    /// The configured proxy cannot serve this request; nothing was sent.
+    /// Never a transport failure — the request never left the process.
+    #[error("Proxy blocked: {reason}")]
+    ProxyBlocked { reason: String },
 }
 
 impl SoneError {

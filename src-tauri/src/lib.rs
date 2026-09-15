@@ -3,6 +3,7 @@ pub mod cache;
 mod commands;
 mod crypto;
 mod discord;
+mod discord_ipc;
 mod embedded_config;
 mod embedded_lastfm;
 mod embedded_librefm;
@@ -23,6 +24,8 @@ mod tidal_report;
 pub mod mcp;
 pub mod overlay;
 mod http_util;
+pub mod proxy;
+mod proxy_http;
 
 pub use error::SoneError;
 pub use signal_path::{SignalPath, SignalPathTracker};
@@ -223,6 +226,18 @@ pub struct AppState {
     pub audio_player: Arc<AudioPlayer>,
     pub pipeline_probe: Arc<crate::pipeline_probe::PipelineProbe>,
     pub tidal_client: Mutex<TidalClient>,
+    /// The one reqwest client every consumer shares. Blocked plans hold an
+    /// `Err`, so no caller can fall back to an unproxied client.
+    pub proxied_http: crate::proxy_http::ProxiedHttp,
+    /// The probed GStreamer capabilities, re-read whenever the proxy settings
+    /// are saved. Not a plain value: the audio thread re-probes on every
+    /// `SetProxySettings`, and a copy frozen at startup lets the advisory
+    /// refusal in `commands::playback` outlive the facts the boundary decides
+    /// on — refusing a tier the audio thread would have built. This keeps the
+    /// two answering from one probe; it does not promise that a plugin
+    /// installed mid-session becomes visible, which is why those refusals say
+    /// to restart. Read it through `host_caps()`.
+    pub host_caps: std::sync::Mutex<crate::proxy::HostCaps>,
     pub settings_path: PathBuf,
     pub cache_dir: PathBuf,
     pub disk_cache: DiskCache,
@@ -253,6 +268,17 @@ pub struct AppState {
     pub overlay_state: crate::overlay::OverlayStateRef,
     pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
     pub signal_path: Arc<SignalPathTracker>,
+}
+
+/// The config directory, resolvable before `AppState` exists — `main.rs` needs
+/// it while the process is still single-threaded, long before the keyring and
+/// the decryption key are available.
+///
+/// `AppState::new` falls back to `./sone` when there is no user config dir at
+/// all; this returns `None` there instead, so the startup scrub simply does
+/// nothing rather than reading a sidecar from the working directory.
+pub fn config_dir_for_env() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("sone"))
 }
 
 pub fn now_secs() -> u64 {
@@ -335,6 +361,27 @@ impl AppState {
             }
         }
 
+        // One-shot proxy migration. A pre-branch install can hold an enabled
+        // proxy with no host or a zero port, which the old client builder read
+        // as "no proxy". This module fails closed instead, so left alone it
+        // would come up with every request blocked and no way in. Turning it
+        // off restores exactly what that install already had.
+        if let Some(ref mut s) = saved {
+            if crate::proxy::migrate_incomplete_proxy(&mut s.proxy) {
+                log::info!(
+                    "[migration] proxy was enabled with no host or port; disabling it \
+                     so the app is not blocked by settings a previous version accepted"
+                );
+                if let Ok(json) = serde_json::to_string_pretty(s) {
+                    if let Ok(encrypted) = crypto.encrypt(json.as_bytes()) {
+                        if let Err(e) = fs::write(&settings_path, encrypted) {
+                            log::warn!("[migration] failed to persist the proxy migration: {e}");
+                        }
+                    }
+                }
+            }
+        }
+
         // Eager migration: if settings exist but aren't encrypted, re-save encrypted
         if settings_path.exists() {
             if let Ok(raw) = fs::read(&settings_path) {
@@ -369,19 +416,40 @@ impl AppState {
             .map(|s| s.max_quality.clone())
             .unwrap_or_else(defaults::max_quality);
 
+        // `saved` is `None` when the settings cannot be decrypted at all, and
+        // the default proxy is disabled — so a failed decrypt overwrites an
+        // existing `on` sidecar with `off`. That direction is the safe one: the
+        // next launch declines to scrub and every consumer reads the system's
+        // own configuration, which is what a user with no usable settings
+        // should get. It self-heals as soon as the settings are readable again.
         let proxy_settings = saved.as_ref().map(|s| s.proxy.clone()).unwrap_or_default();
-        let scrobble_http_client = crate::tidal_api::build_http_client(&proxy_settings)
-            .unwrap_or_else(|_| {
-                reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(30))
-                    .build()
-                    .unwrap()
-            });
+        // Reconcile the launch sidecar with the encrypted truth on every start.
+        // Saving the proxy settings writes it too, but that only covers people
+        // who touch the proxy screen again: without this, anyone who configured
+        // a proxy before the sidecar existed — or whose sidecar was deleted
+        // with the rest of a stale config — would never get the startup scrub,
+        // because `main.rs` would keep reading "no sidecar" as "not proxying".
+        // Takes effect on the *next* launch; this one already has threads.
+        crate::proxy::write_sidecar(&config_dir, &proxy_settings);
+        let host_caps = crate::audio::probe_host_caps();
+        log::info!(
+            "[proxy] GStreamer {}.{}.{}, dashdemux={}, curlhttpsrc={}",
+            host_caps.gst_version.0,
+            host_caps.gst_version.1,
+            host_caps.gst_version.2,
+            host_caps.has_dashdemux,
+            host_caps.has_curlhttpsrc
+        );
+        // Settings that do not form a plan block egress rather than falling back
+        // to Direct: "we could not read your proxy" must not become "so we went
+        // around it". The user fixes it in settings, which needs no network.
+        let proxied_http = crate::proxy_http::ProxiedHttp::from_settings(&proxy_settings, &host_caps);
+
         let scrobble_manager = scrobble::ScrobbleManager::new(
             app_handle.clone(),
             crypto.clone(),
             &config_dir,
-            scrobble_http_client.clone(),
+            proxied_http.clone(),
         );
 
         let report_plays = saved.as_ref().map(|s| s.report_plays).unwrap_or(true);
@@ -389,7 +457,7 @@ impl AppState {
             app_handle.clone(),
             crypto.clone(),
             &config_dir,
-            scrobble_http_client,
+            proxied_http.clone(),
             report_plays,
         );
 
@@ -413,13 +481,14 @@ impl AppState {
         let audio_player = Arc::new(AudioPlayer::new(
             app_handle.clone(),
             Arc::clone(&signal_path),
+            proxy_settings.clone(),
         ));
         let pipeline_probe = Arc::new(crate::pipeline_probe::PipelineProbe::new(
             Arc::clone(&signal_path),
             Arc::clone(&audio_player),
         ));
 
-        let mut tidal_client = TidalClient::new(&proxy_settings);
+        let mut tidal_client = TidalClient::new(proxied_http.clone());
         tidal_client.set_token_persist({
             let settings_path = settings_path.clone();
             let crypto = Arc::clone(&crypto);
@@ -432,6 +501,8 @@ impl AppState {
             audio_player,
             pipeline_probe,
             tidal_client: Mutex::new(tidal_client),
+            proxied_http,
+            host_caps: std::sync::Mutex::new(host_caps),
             settings_path,
             cache_dir,
             disk_cache,
@@ -462,6 +533,38 @@ impl AppState {
             overlay_handle: Mutex::new(None),
             signal_path,
         }
+    }
+
+    /// The capabilities as last probed. `HostCaps` is `Copy`, so nothing holds
+    /// the lock past the read.
+    pub fn host_caps(&self) -> crate::proxy::HostCaps {
+        *self
+            .host_caps
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Re-read the registry and store the result. Called where the proxy
+    /// settings are saved, which is the moment the audio thread re-probes too —
+    /// so the advisory layer and the boundary answer from the same facts.
+    pub fn refresh_host_caps(&self) {
+        let probed = crate::audio::probe_host_caps();
+        let mut caps = self
+            .host_caps
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *caps != probed {
+            log::info!(
+                "[proxy] host capabilities changed: GStreamer {}.{}.{}, \
+                 dashdemux={}, curlhttpsrc={}",
+                probed.gst_version.0,
+                probed.gst_version.1,
+                probed.gst_version.2,
+                probed.has_dashdemux,
+                probed.has_curlhttpsrc
+            );
+        }
+        *caps = probed;
     }
 
     pub fn load_settings(&self) -> Option<Settings> {
@@ -520,9 +623,8 @@ pub fn run() {
     // calls from setup hooks are captured. Reads only the logging toggle
     // sidecar file — Settings struct is encrypted and loaded later via
     // AppState.
-    let sone_dir = dirs::config_dir()
-        .map(|d| d.join("sone"))
-        .unwrap_or_else(|| std::path::PathBuf::from("./.sone"));
+    let sone_dir =
+        config_dir_for_env().unwrap_or_else(|| std::path::PathBuf::from("./.sone"));
     let logging_toggle_path = sone_dir.join("logging.toggle");
     let logging_enabled = crate::logging::read_logging_preference(&logging_toggle_path);
     let _logger_handle = crate::logging::init_logging(
@@ -616,14 +718,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<AppState>();
                     if let Some(settings) = state.load_settings() {
-                        let http_client = crate::tidal_api::build_http_client(
-                            &settings.proxy
-                        ).unwrap_or_else(|_| {
-                            reqwest::Client::builder()
-                                .timeout(std::time::Duration::from_secs(30))
-                                .build()
-                                .unwrap()
-                        });
+                        let http_client = state.proxied_http.clone();
 
                         // Last.fm
                         if let Some(ref creds) = settings.scrobble.lastfm {
@@ -1040,7 +1135,9 @@ pub fn run() {
             commands::utility::set_discord_status_text,
             commands::utility::get_proxy_settings,
             commands::utility::set_proxy_settings,
+            commands::utility::get_proxy_status,
             commands::utility::test_proxy_connection,
+            commands::utility::probe_proxy_reachability,
             commands::utility::inhibit_idle,
             commands::utility::uninhibit_idle,
             // mcp

@@ -24,7 +24,7 @@ import UtilitiesTab from "./UtilitiesTab";
 import McpTab from "./McpTab";
 import OverlayTab from "./OverlayTab";
 
-type TabId =
+export type TabId =
   | "playback"
   | "themes"
   | "scrobble"
@@ -82,16 +82,23 @@ function DiscordGlyph({ size = 16 }: { size?: number }) {
 export default function SettingsSheet({
   open,
   onClose,
+  initialTab = "playback",
 }: {
   open: boolean;
   onClose: () => void;
+  /** Which tab this open lands on. Omitted, it is the default tab — which is
+   *  what every open that did not deliberately deep-link must get. A caller
+   *  that passes one is describing a single open and has to stop passing it
+   *  when that open ends; see `UserMenu`, which clears it in `onClose`.
+   *  Anything else turns one deep link into a changed default. */
+  initialTab?: TabId;
 }) {
-  const [active, setActive] = useState<TabId>("playback");
+  const [active, setActive] = useState<TabId>(initialTab);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (open) setActive("playback");
-  }, [open]);
+    if (open) setActive(initialTab);
+  }, [open, initialTab]);
 
   useEffect(() => {
     if (!open) return;

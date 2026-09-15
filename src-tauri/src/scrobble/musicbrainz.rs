@@ -45,7 +45,7 @@ impl From<CachedValue> for MbidLookup {
 }
 
 pub struct MusicBrainzLookup {
-    client: std::sync::Mutex<reqwest::Client>,
+    http: crate::proxy_http::ProxiedHttp,
     cache: Mutex<HashMap<String, MbidLookup>>,
     cache_path: PathBuf,
     last_request: Mutex<Instant>,
@@ -53,22 +53,17 @@ pub struct MusicBrainzLookup {
 }
 
 impl MusicBrainzLookup {
-    pub fn new(config_dir: &std::path::Path, http_client: reqwest::Client) -> Self {
+    pub fn new(config_dir: &std::path::Path, http: crate::proxy_http::ProxiedHttp) -> Self {
         let cache_path = config_dir.join("mbid_cache.json");
         let cache = Self::load_cache(&cache_path);
 
         Self {
-            client: std::sync::Mutex::new(http_client),
+            http,
             cache: Mutex::new(cache),
             cache_path,
             last_request: Mutex::new(Instant::now() - MIN_REQUEST_INTERVAL),
             dirty: AtomicBool::new(false),
         }
-    }
-
-    /// Replace the internal HTTP client (e.g. when proxy settings change).
-    pub fn set_http_client(&self, client: reqwest::Client) {
-        *self.client.lock().unwrap() = client;
     }
 
     /// Look up a recording MBID from an ISRC code.
@@ -156,7 +151,10 @@ impl MusicBrainzLookup {
     ) -> Result<MbidLookup, String> {
         let url = isrc_lookup_url(isrc);
         let user_agent = format!("SONE/{APP_VERSION} (https://github.com/lullabyX/sone)");
-        let client = self.client.lock().unwrap().clone();
+        let client = self
+            .http
+            .client()
+            .map_err(|e| format!("proxy blocked: {}", e.cause))?;
         let resp = client
             .get(&url)
             .header(reqwest::header::USER_AGENT, &user_agent)

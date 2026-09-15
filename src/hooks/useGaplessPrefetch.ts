@@ -14,6 +14,7 @@ import {
   useTrackGainAtom,
 } from "../atoms/playback";
 import { currentVideoAtom } from "../atoms/video";
+import { PROXY_SAVED_EVENT } from "../atoms/proxy";
 import type { Track, StreamInfo } from "../types";
 
 export type PendingNext = {
@@ -151,6 +152,21 @@ export function useGaplessPrefetch(
   const refreshImmediate = useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  // A proxy save invalidates the slot rather than changing the prediction: the
+  // backend detaches the prerolled branch (it was opened under settings it no
+  // longer holds) and the predicted next track is exactly as it was, so the
+  // dedup in `refresh` would skip the re-arm and leave the gap. Drop the record
+  // of what is armed, then re-arm immediately.
+  const onProxySaved = useCallback(() => {
+    pendingNextRef.current = null;
+    void refresh();
+  }, [pendingNextRef, refresh]);
+
+  useEffect(() => {
+    window.addEventListener(PROXY_SAVED_EVENT, onProxySaved);
+    return () => window.removeEventListener(PROXY_SAVED_EVENT, onProxySaved);
+  }, [onProxySaved]);
 
   useEffect(() => {
     const subs = [

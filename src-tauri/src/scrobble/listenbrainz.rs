@@ -27,14 +27,14 @@ pub struct TokenData {
 
 pub struct ListenBrainzProvider {
     token: RwLock<Option<TokenData>>,
-    client: std::sync::Mutex<reqwest::Client>,
+    http: crate::proxy_http::ProxiedHttp,
 }
 
 impl ListenBrainzProvider {
-    pub fn new(client: reqwest::Client) -> Self {
+    pub fn new(http: crate::proxy_http::ProxiedHttp) -> Self {
         Self {
             token: RwLock::new(None),
-            client: std::sync::Mutex::new(client),
+            http,
         }
     }
 
@@ -142,7 +142,10 @@ impl ListenBrainzProvider {
             "payload": payload,
         });
 
-        let client = self.client.lock().unwrap().clone();
+        let client = self
+            .http
+            .client()
+            .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
         let resp = client
             .post(format!("{API_BASE}/1/submit-listens"))
             .header("Authorization", format!("Token {token}"))
@@ -173,10 +176,6 @@ impl ScrobbleProvider for ListenBrainzProvider {
 
     fn max_batch_size(&self) -> usize {
         1000
-    }
-
-    fn set_http_client(&self, client: reqwest::Client) {
-        *self.client.lock().unwrap() = client;
     }
 
     async fn username(&self) -> Option<String> {

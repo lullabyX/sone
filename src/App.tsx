@@ -19,6 +19,7 @@ import FeedPage from "./components/FeedPage";
 import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
+import ProxyNoticeBanner from "./components/ProxyNoticeBanner";
 import TooltipLayer from "./components/TooltipLayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
@@ -38,6 +39,11 @@ function AppChrome({ children }: { children: ReactNode }) {
   return (
     <div className="relative flex flex-col h-full w-full overflow-hidden">
       {!nativeChrome && !hideTitleBar && <TitleBar />}
+      {/* Above `children`, so it is rendered on the login screen too. A proxy
+          that is blocked, or that swallows every request, refuses the login
+          itself, and Settings is behind the login — this bar is the only way
+          back out. */}
+      <ProxyNoticeBanner />
       <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
       {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={2} />}
     </div>

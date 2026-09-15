@@ -931,10 +931,10 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
         });
     }
 
-    let http = {
-        let client = state.tidal_client.lock().await;
-        client.raw_client().clone()
-    };
+    let http = state
+        .proxied_http
+        .client()
+        .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
     let mut summary = String::new();
 
     let endpoints = [

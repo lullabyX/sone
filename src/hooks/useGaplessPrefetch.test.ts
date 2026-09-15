@@ -1,13 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useGaplessPrefetch } from "./useGaplessPrefetch";
 import { currentTrackAtom, queueAtom, gaplessAtom } from "../atoms/playback";
+import { PROXY_SAVED_EVENT } from "../atoms/proxy";
 import type { Track } from "../types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+// Not automatic: this suite runs without vitest globals, so React Testing
+// Library never registers its own cleanup. Without this every hook a test
+// mounts stays mounted — and every one of them answers the window event the
+// last test dispatches, counted against the same `invoke` mock.
+afterEach(cleanup);
 
 const DEAD = { id: 42, title: "dead", _qid: "q42" } as unknown as Track;
 const LIVE = { id: 43, title: "live", _qid: "q43" } as unknown as Track;
@@ -77,6 +84,35 @@ describe("useGaplessPrefetch failure memo", () => {
 
     next = LIVE;
     store.set(queueAtom, [LIVE, ...store.get(queueAtom)]);
+    await waitFor(() => expect(attempts()).toHaveLength(2));
+    expect(attempts()[1][1]).toMatchObject({ trackId: LIVE.id });
+  });
+});
+
+describe("useGaplessPrefetch proxy invalidation", () => {
+  beforeEach(() => vi.mocked(invoke).mockReset());
+
+  it("re-arms the slot after a proxy save, whose prediction is unchanged", async () => {
+    const store = createStore();
+    store.set(gaplessAtom, true);
+    store.set(currentTrackAtom, { id: 1 } as unknown as Track);
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_gapless_supported") return true;
+      if (cmd === "set_next_track") return {};
+      return undefined;
+    });
+
+    setup(store, () => LIVE);
+    await waitFor(() => expect(attempts()).toHaveLength(1));
+
+    // The dedup this has to defeat: an ordinary refresh with the same
+    // prediction sends nothing, which is why the backend detaching the branch
+    // would otherwise cost one audible gap.
+    store.set(queueAtom, [LIVE, ...store.get(queueAtom)]);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(attempts()).toHaveLength(1);
+
+    window.dispatchEvent(new Event(PROXY_SAVED_EVENT));
     await waitFor(() => expect(attempts()).toHaveLength(2));
     expect(attempts()[1][1]).toMatchObject({ trackId: LIVE.id });
   });

@@ -170,14 +170,48 @@ pub async fn resolve_play_uri(
     ))
 }
 
+/// Report why a tier will be refused, so the user sees the proxy named rather
+/// than a bare playback failure.
+///
+/// Advisory only. The audio thread refuses independently at every pipeline
+/// build; this runs earlier purely so the message is a good one.
+fn explain_block(
+    settings: &crate::ProxySettings,
+    caps: &crate::proxy::HostCaps,
+    is_dash: bool,
+) -> Result<(), SoneError> {
+    let capability = if is_dash {
+        crate::proxy::Capability::Dash
+    } else {
+        crate::proxy::Capability::Lossy
+    };
+    let plan = crate::proxy::plan(settings, caps).map_err(|e| SoneError::ProxyBlocked {
+        reason: e.to_string(),
+    })?;
+    plan.route(capability, caps)
+        .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
+    Ok(())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn play_tidal_track(
     state: State<'_, AppState>,
     track_id: u64,
     use_track_gain: bool,
 ) -> Result<StreamInfo, SoneError> {
-    let (stream_info, uri, norm_gain, rg, peak, _is_dash) =
+    let (stream_info, uri, norm_gain, rg, peak, is_dash) =
         resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+
+    // Advisory only, and deliberately fail-open: `load_settings()` returns
+    // `None` on a read, decrypt, UTF-8 or JSON failure, and the default has
+    // `enabled: false`, so a corrupt settings file passes this check silently.
+    // That is fine ONLY because the containment boundary is elsewhere — the
+    // audio thread reads the settings the worker actually holds and refuses at
+    // every pipeline build regardless of what happens here. Never treat this
+    // as authoritative, and never drop the audio thread's refusals because
+    // this exists.
+    let proxy_settings = state.load_settings().unwrap_or_default().proxy;
+    explain_block(&proxy_settings, &state.host_caps(), is_dash)?;
 
     // Store selected values for live toggle
     state.last_replay_gain.store(rg.to_bits(), Ordering::Relaxed);
@@ -190,7 +224,7 @@ pub async fn play_tidal_track(
     let player = state.audio_player.clone();
     tokio::task::spawn_blocking(move || {
         player.set_normalization_gain(norm_gain)?;
-        player.play_url(&uri)
+        player.play_url(&uri, None)
     })
         .await
         .map_err(|e| SoneError::Audio(e.to_string()))?
@@ -214,6 +248,13 @@ pub async fn set_next_track(
 ) -> Result<StreamInfo, SoneError> {
     let (info, uri, gain, rg, peak, is_dash) =
         resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+
+    // Advisory only, same fail-open caveat as `play_tidal_track`: a corrupt
+    // settings file makes this pass silently. The audio thread is the
+    // boundary; it refuses at pipeline build with the settings it holds.
+    let proxy_settings = state.load_settings().unwrap_or_default().proxy;
+    explain_block(&proxy_settings, &state.host_caps(), is_dash)?;
+
     state
         .audio_player
         .set_next_track(uri, gain, track_id, qid, rg, peak, is_dash)
@@ -592,5 +633,59 @@ mod tests {
         };
         assert!(!server.is_rate_limited());
         assert!(!server.is_terminal_unplayable());
+    }
+}
+
+#[cfg(test)]
+mod proxy_message_tests {
+    use super::*;
+    use crate::proxy::HostCaps;
+
+    fn enabled() -> crate::ProxySettings {
+        crate::ProxySettings {
+            enabled: true,
+            proxy_type: crate::ProxyType::Http,
+            host: "proxy.example".into(),
+            port: 3128,
+            username: None,
+            password: None,
+        }
+    }
+
+    #[test]
+    fn a_refused_tier_is_named_as_a_proxy_problem() {
+        let mut caps = HostCaps::assume_all_present();
+        caps.has_dashdemux = false;
+        let err = explain_block(&enabled(), &caps, true)
+            .expect_err("dash is refused without the legacy demuxer");
+        assert!(matches!(err, SoneError::ProxyBlocked { .. }));
+        assert!(explain_block(&enabled(), &caps, false).is_ok());
+    }
+
+    #[test]
+    fn settings_that_form_no_plan_are_refused_not_waved_through() {
+        let mut bad = enabled();
+        bad.port = 0;
+        assert!(matches!(
+            explain_block(&bad, &HostCaps::assume_all_present(), false),
+            Err(SoneError::ProxyBlocked { .. })
+        ));
+    }
+
+    /// `port = 0` is what makes this test able to fail. Every other field here
+    /// routes `Ok` with the flag *on* as well, so without it the assertion
+    /// holds whether or not `enabled` is honoured at all. `plan()` returns
+    /// `Ok(Direct)` on the `!enabled` early return, which sits above the
+    /// `port == 0` check — so these settings pass only while the flag is
+    /// genuinely read, and `settings_that_form_no_plan_are_refused_not_waved_through`
+    /// above proves the same port reds once it is on.
+    #[test]
+    fn the_check_is_inert_when_the_proxy_is_off() {
+        let mut off = enabled();
+        off.enabled = false;
+        off.port = 0;
+        for is_dash in [true, false] {
+            assert!(explain_block(&off, &HostCaps::assume_all_present(), is_dash).is_ok());
+        }
     }
 }

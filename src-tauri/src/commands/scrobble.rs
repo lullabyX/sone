@@ -118,14 +118,16 @@ pub async fn connect_listenbrainz(
     state: State<'_, AppState>,
     token: String,
 ) -> Result<String, SoneError> {
-    let http_client = {
-        let client = state.tidal_client.lock().await;
-        client.raw_client().clone()
-    };
-    let username = ListenBrainzProvider::validate_token(&http_client, &token).await?;
+    // Validation needs a live client, so a blocked proxy fails the connect
+    // outright rather than reaching ListenBrainz directly.
+    let client = state
+        .proxied_http
+        .client()
+        .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
+    let username = ListenBrainzProvider::validate_token(&client, &token).await?;
 
     // Create and register the provider
-    let provider = ListenBrainzProvider::new(http_client);
+    let provider = ListenBrainzProvider::new(state.proxied_http.clone());
     provider.set_token(token.clone(), username.clone()).await;
     state
         .scrobble_manager
@@ -172,10 +174,7 @@ pub async fn connect_lastfm(state: State<'_, AppState>) -> Result<AuthStartRespo
     if !crate::embedded_lastfm::has_stream_keys() {
         return Err(SoneError::Scrobble("Last.fm not configured".into()));
     }
-    let http_client = {
-        let client = state.tidal_client.lock().await;
-        client.raw_client().clone()
-    };
+    let http_client = state.proxied_http.clone();
     let provider = crate::scrobble::lastfm::AudioscrobblerProvider::new(
         "lastfm",
         "https://ws.audioscrobbler.com/2.0/",
@@ -195,10 +194,7 @@ pub async fn connect_librefm(state: State<'_, AppState>) -> Result<AuthStartResp
     if !crate::embedded_librefm::has_stream_keys() {
         return Err(SoneError::Scrobble("Libre.fm not configured".into()));
     }
-    let http_client = {
-        let client = state.tidal_client.lock().await;
-        client.raw_client().clone()
-    };
+    let http_client = state.proxied_http.clone();
     let provider = crate::scrobble::lastfm::AudioscrobblerProvider::new(
         "librefm",
         crate::scrobble::librefm::LIBREFM_API_URL,
@@ -251,10 +247,7 @@ pub async fn complete_audioscrobbler_auth(
         }
     };
 
-    let http_client = {
-        let client = state.tidal_client.lock().await;
-        client.raw_client().clone()
-    };
+    let http_client = state.proxied_http.clone();
     let provider = crate::scrobble::lastfm::AudioscrobblerProvider::new(
         if provider_name == "lastfm" {
             "lastfm"

@@ -1,6 +1,8 @@
 use crate::error::SoneError;
+use crate::AppState;
 use semver::Version;
 use serde::Serialize;
+use tauri::State;
 
 const GITHUB_LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/lullabyX/sone/releases/latest";
@@ -29,19 +31,26 @@ fn is_update_available(current: &str, latest_tag: &str) -> bool {
 
 /// Check GitHub Releases for a newer version. Network/parse failures surface as
 /// `SoneError`; the frontend treats any failure as "no update" (silent).
+///
+/// GitHub is egress like any other: this goes through the shared cell, so a
+/// blocked proxy means no request rather than a direct one.
 #[tauri::command]
-pub async fn check_for_update() -> Result<UpdateInfo, SoneError> {
+pub async fn check_for_update(state: State<'_, AppState>) -> Result<UpdateInfo, SoneError> {
     let current = env!("CARGO_PKG_VERSION").to_string();
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+    let client = state
+        .proxied_http
+        .client()
+        .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
 
     let body: serde_json::Value = client
         .get(GITHUB_LATEST_RELEASE_URL)
         // GitHub rejects requests without a User-Agent.
         .header(reqwest::header::USER_AGENT, "SONE-update-checker")
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        // The cell's client carries a 30s timeout; the update check has always
+        // given up after 10s and stays that way.
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await?
         .error_for_status()?

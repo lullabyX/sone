@@ -148,7 +148,7 @@ pub struct TidalReporter {
     current: Mutex<Option<PlaySession>>,
     pending_meta: Mutex<HashMap<u64, StreamMeta>>,
     queue: ReportQueue,
-    http: std::sync::Mutex<reqwest::Client>,
+    http: crate::proxy_http::ProxiedHttp,
 }
 
 impl TidalReporter {
@@ -156,7 +156,7 @@ impl TidalReporter {
         app_handle: AppHandle,
         crypto: Arc<Crypto>,
         config_dir: &Path,
-        http: reqwest::Client,
+        http: crate::proxy_http::ProxiedHttp,
         enabled: bool,
     ) -> Self {
         Self {
@@ -165,7 +165,7 @@ impl TidalReporter {
             current: Mutex::new(None),
             pending_meta: Mutex::new(HashMap::new()),
             queue: ReportQueue::new(&config_dir.join("tidal_report_queue.bin"), crypto),
-            http: std::sync::Mutex::new(http),
+            http,
         }
     }
 
@@ -175,10 +175,6 @@ impl TidalReporter {
 
     pub fn set_enabled(&self, on: bool) {
         self.enabled.store(on, Ordering::Relaxed);
-    }
-
-    pub fn update_http_client(&self, client: reqwest::Client) {
-        *self.http.lock().unwrap() = client;
     }
 
     pub async fn queue_size(&self) -> usize {
@@ -519,7 +515,15 @@ impl TidalReporter {
             })
             .collect();
         let form = event::sqs_form(&events);
-        let http = self.http.lock().unwrap().clone();
+        let http = match self.http.client() {
+            Ok(c) => c,
+            // Requeue rather than drop: the play happened, only the proxy is
+            // unusable right now.
+            Err(e) => {
+                log::debug!("tidal-report: proxy blocked, requeueing ({})", e.cause);
+                return SendOutcome::Retryable;
+            }
+        };
 
         let send = http
             .post(event::EC_URL)

@@ -1,11 +1,7 @@
-use crate::ProxySettings;
-use crate::ProxyType;
 use crate::SoneError;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use std::time::Duration;
 
 /// Playbackinfo sub-statuses occupy the 4xxx range. Auth failures use a
 /// different namespace (11002/11003 token, 6001 session, 1002 pending), so a
@@ -53,35 +49,6 @@ fn rate_limited_error(secs: u64) -> SoneError {
             secs, secs
         ),
     }
-}
-
-/// Build a reqwest::Client with optional proxy configuration.
-pub fn build_http_client(proxy: &ProxySettings) -> Result<Client, reqwest::Error> {
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
-
-    if proxy.enabled && !proxy.host.is_empty() && proxy.port > 0 {
-        // Reject hosts with characters that could break URL parsing
-        if proxy.host.contains(|c: char| matches!(c, '@' | '/' | '?' | '#') || c.is_whitespace()) {
-            return builder.build(); // return client without proxy if host is invalid
-        }
-
-        let scheme = match proxy.proxy_type {
-            ProxyType::Http => "http",
-            ProxyType::Socks5 => "socks5",
-        };
-        let proxy_url = format!("{}://{}:{}", scheme, proxy.host, proxy.port);
-        let mut proxy_obj = reqwest::Proxy::all(&proxy_url)?;
-
-        if let (Some(user), Some(pass)) = (&proxy.username, &proxy.password) {
-            if !user.is_empty() {
-                proxy_obj = proxy_obj.basic_auth(user, pass);
-            }
-        }
-
-        builder = builder.proxy(proxy_obj);
-    }
-
-    builder.build()
 }
 
 const TIDAL_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2";
@@ -1281,7 +1248,9 @@ pub struct DeviceAuthResponse {
 pub type TokenPersist = Arc<dyn Fn(&AuthTokens) + Send + Sync>;
 
 pub struct TidalClient {
-    client: Client,
+    /// The shared cell, not a client: when the proxy plan is blocked there is
+    /// nothing to hand out, and that must stay unrepresentable here.
+    http: crate::proxy_http::ProxiedHttp,
     pub tokens: Option<AuthTokens>,
     pub client_id: String,
     pub client_secret: String,
@@ -1293,14 +1262,9 @@ pub struct TidalClient {
 }
 
 impl TidalClient {
-    pub fn new(proxy: &ProxySettings) -> Self {
+    pub fn new(http: crate::proxy_http::ProxiedHttp) -> Self {
         Self {
-            client: build_http_client(proxy).unwrap_or_else(|_| {
-                Client::builder()
-                    .timeout(Duration::from_secs(30))
-                    .build()
-                    .unwrap()
-            }),
+            http,
             tokens: None,
             client_id: String::new(),
             client_secret: String::new(),
@@ -1320,20 +1284,37 @@ impl TidalClient {
         self.client_secret = client_secret.to_string();
     }
 
-    pub fn rebuild_client(&mut self, proxy: &ProxySettings) {
-        if let Ok(client) = build_http_client(proxy) {
-            self.client = client;
-        }
+    /// The one place a request this client makes is actually sent.
+    ///
+    /// Every `.send()` in this file goes through here, including the auth
+    /// endpoints that bypass the rate gate, because the state it records is
+    /// most needed exactly where the gate is not involved: a login that cannot
+    /// reach the proxy is the failure a user has no way to diagnose and no
+    /// screen to fix.
+    ///
+    /// It only watches. `observe` hands the outcome straight back, so a request
+    /// that failed through the proxy stays failed and is never retried without
+    /// it — there is no unproxied second attempt to be had here or anywhere.
+    async fn dispatch(
+        &self,
+        generation: crate::proxy_http::Generation,
+        req: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, SoneError> {
+        Ok(self.http.observe_at(generation, req.send().await)?)
     }
 
     /// Single egress point for API traffic. Consults the cooldown before
     /// sending and records a new one from any 429. Never sleeps — callers that
     /// want to wait must do so with the client mutex released.
-    async fn send(&self, req: reqwest::RequestBuilder) -> Result<reqwest::Response, SoneError> {
+    async fn send(
+        &self,
+        generation: crate::proxy_http::Generation,
+        req: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, SoneError> {
         if let Some(secs) = self.gate.cooling_down() {
             return Err(rate_limited_error(secs));
         }
-        let resp = req.send().await?;
+        let resp = self.dispatch(generation, req).await?;
         if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let secs = crate::rate_gate::retry_after_or_default(resp.headers());
             self.gate.trip(secs);
@@ -1353,11 +1334,26 @@ impl TidalClient {
         self.gate.clone()
     }
 
-    /// Return a reference to the inner proxy-aware `reqwest::Client`, for
-    /// non-API hosts only (resources.tidal.com, scrobble providers).
-    /// `reqwest::Client` is cheaply cloneable (Arc internally).
-    pub fn raw_client(&self) -> &Client {
-        &self.client
+    /// The shared cell, unmapped, for the tests that assert what it holds.
+    ///
+    /// `#[cfg(test)]` because it has no production callers and `pub` would not
+    /// warn about that: artwork and the scrobble providers read
+    /// `AppState::proxied_http` directly. Leaving a public accessor here is a
+    /// second door onto the one cell, and a second door is how a consumer ends
+    /// up holding a client the plan never sanctioned.
+    #[cfg(test)]
+    pub fn raw_client(&self) -> Result<reqwest::Client, crate::proxy::BlockReason> {
+        self.http.client()
+    }
+
+    /// Same cell, mapped into the error type the API methods return — and the
+    /// generation the client belongs to, because the caller will report what
+    /// the request did and that report has to be about *this* client. Taking
+    /// the two separately would reopen the window `observe_at` exists to close.
+    fn client_at(&self) -> Result<(crate::proxy_http::Generation, reqwest::Client), SoneError> {
+        let (generation, client) = self.http.client_at();
+        let client = client.map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
+        Ok((generation, client))
     }
 
     pub async fn refresh_token(&mut self) -> Result<AuthTokens, SoneError> {
@@ -1380,12 +1376,11 @@ impl TidalClient {
             form_params.push(("client_secret", self.client_secret.as_str()));
         }
 
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .post(format!("{}/token", TIDAL_AUTH_URL))
-            .form(&form_params)
-            .send()
-            .await?;
+            .form(&form_params);
+        let response = self.dispatch(generation, request).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -1505,14 +1500,14 @@ impl TidalClient {
             .clone();
 
         // 2. Make first request
-        let mut req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let mut req = client
             .get(url)
             .header("Authorization", format!("Bearer {}", access_token));
         if url.contains("/v2/") {
             req = req.header("x-tidal-client-version", TIDAL_CLIENT_VERSION);
         }
-        let response = self.send(req.query(query)).await?;
+        let response = self.send(generation, req.query(query)).await?;
 
         // 3. Check 401
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
@@ -1534,14 +1529,15 @@ impl TidalClient {
             log::debug!("Refresh successful, retrying request...");
 
             // 5. Retry request
-            let mut req = self.client.get(url).header(
+            let (generation, client) = self.client_at()?;
+            let mut req = client.get(url).header(
                 "Authorization",
                 format!("Bearer {}", new_tokens.access_token),
             );
             if url.contains("/v2/") {
                 req = req.header("x-tidal-client-version", TIDAL_CLIENT_VERSION);
             }
-            return self.send(req.query(query)).await;
+            return self.send(generation, req.query(query)).await;
         }
 
         Ok(response)
@@ -1560,12 +1556,11 @@ impl TidalClient {
             form_params.push(("client_secret", self.client_secret.as_str()));
         }
 
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .post(format!("{}/device_authorization", TIDAL_AUTH_URL))
-            .form(&form_params)
-            .send()
-            .await?;
+            .form(&form_params);
+        let response = self.dispatch(generation, request).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -1611,12 +1606,11 @@ impl TidalClient {
             form_params.push(("client_secret", self.client_secret.as_str()));
         }
 
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .post(format!("{}/token", TIDAL_AUTH_URL))
-            .form(&form_params)
-            .send()
-            .await?;
+            .form(&form_params);
+        let response = self.dispatch(generation, request).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -1653,8 +1647,8 @@ impl TidalClient {
             return Err(SoneError::NotConfigured("Client ID".into()));
         }
 
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .post(format!("{}/token", TIDAL_AUTH_URL))
             .form(&[
                 ("code", code),
@@ -1664,9 +1658,8 @@ impl TidalClient {
                 ("scope", "r_usr+w_usr+w_sub"),
                 ("code_verifier", code_verifier),
                 ("client_unique_key", client_unique_key),
-            ])
-            .send()
-            .await?;
+            ]);
+        let response = self.dispatch(generation, request).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -1854,14 +1847,13 @@ impl TidalClient {
             body
         );
 
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .post(format!("{}/playlists", TIDAL_OPENAPI_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        let response = self.dispatch(generation, request).await?;
 
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
@@ -1913,15 +1905,14 @@ impl TidalClient {
             body
         );
 
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .patch(format!("{}/playlists/{}", TIDAL_OPENAPI_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("Content-Type", "application/vnd.api+json")
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        let response = self.dispatch(generation, request).await?;
 
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
@@ -1970,12 +1961,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // First, get the playlist ETag which is required for modifications
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let head_response = self.send(req).await?;
+        let head_response = self.send(generation, req).await?;
 
         let etag = head_response
             .headers()
@@ -1985,8 +1976,8 @@ impl TidalClient {
             .to_string();
 
         // Add the track
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!("{}/playlists/{}/items", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
@@ -1996,7 +1987,7 @@ impl TidalClient {
                 ("onDupes", &"FAIL".to_string()),
                 ("onArtifactNotFound", &"FAIL".to_string()),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
 
@@ -2019,12 +2010,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // First, get the playlist ETag which is required for modifications
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let head_response = self.send(req).await?;
+        let head_response = self.send(generation, req).await?;
 
         let etag = head_response
             .headers()
@@ -2034,8 +2025,8 @@ impl TidalClient {
             .to_string();
 
         // Remove the track at the given index
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!(
                 "{}/playlists/{}/items/{}",
                 TIDAL_API_URL, playlist_id, index
@@ -2043,7 +2034,7 @@ impl TidalClient {
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
 
@@ -2062,12 +2053,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // First, get the playlist ETag which is required for modifications
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let head_response = self.send(req).await?;
+        let head_response = self.send(generation, req).await?;
 
         let etag = head_response
             .headers()
@@ -2077,13 +2068,13 @@ impl TidalClient {
             .to_string();
 
         // Delete the playlist
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
 
@@ -2103,8 +2094,8 @@ impl TidalClient {
         user_id: u64,
     ) -> Result<Vec<String>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/playlists",
                 TIDAL_API_URL, user_id
@@ -2115,7 +2106,7 @@ impl TidalClient {
                 ("limit", "2000"),
                 ("offset", "0"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2455,8 +2446,8 @@ impl TidalClient {
 
     pub async fn is_track_favorited(&self, user_id: u64, track_id: u64) -> Result<bool, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/tracks",
                 TIDAL_API_URL, user_id
@@ -2469,7 +2460,7 @@ impl TidalClient {
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2510,8 +2501,8 @@ impl TidalClient {
 
     pub async fn get_favorite_track_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/tracks",
                 TIDAL_API_URL, user_id
@@ -2524,7 +2515,7 @@ impl TidalClient {
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2557,8 +2548,8 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let track_id_str = track_id.to_string();
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!(
                 "{}/users/{}/favorites/tracks",
                 TIDAL_API_URL, user_id
@@ -2566,7 +2557,7 @@ impl TidalClient {
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
             .form(&[("trackId", track_id_str.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2588,15 +2579,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!(
                 "{}/users/{}/favorites/tracks/{}",
                 TIDAL_API_URL, user_id, track_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2615,8 +2606,8 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let video_id_str = video_id.to_string();
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!(
                 "{}/users/{}/favorites/videos",
                 TIDAL_API_URL, user_id
@@ -2627,7 +2618,7 @@ impl TidalClient {
                 ("videoIds", video_id_str.as_str()),
                 ("onArtifactNotFound", "FAIL"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2649,15 +2640,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!(
                 "{}/users/{}/favorites/videos/{}",
                 TIDAL_API_URL, user_id, video_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2684,8 +2675,8 @@ impl TidalClient {
         loop {
             let limit_str = PAGE.to_string();
             let offset_str = offset.to_string();
-            let req = self
-                .client
+            let (generation, client) = self.client_at()?;
+            let req = client
                 .get(format!(
                     "{}/users/{}/favorites/videos",
                     TIDAL_API_URL, user_id
@@ -2698,7 +2689,7 @@ impl TidalClient {
                     ("order", "DATE"),
                     ("orderDirection", "DESC"),
                 ]);
-            let response = self.send(req).await?;
+            let response = self.send(generation, req).await?;
 
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -2746,8 +2737,8 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let limit_str = limit.to_string();
         let offset_str = offset.to_string();
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/videos",
                 TIDAL_API_URL, user_id
@@ -2760,7 +2751,7 @@ impl TidalClient {
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2797,8 +2788,8 @@ impl TidalClient {
 
     pub async fn is_album_favorited(&self, user_id: u64, album_id: u64) -> Result<bool, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/albums",
                 TIDAL_API_URL, user_id
@@ -2811,7 +2802,7 @@ impl TidalClient {
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2852,8 +2843,8 @@ impl TidalClient {
 
     pub async fn get_favorite_album_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/albums",
                 TIDAL_API_URL, user_id
@@ -2866,7 +2857,7 @@ impl TidalClient {
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2904,8 +2895,8 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let album_id_str = album_id.to_string();
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!(
                 "{}/users/{}/favorites/albums",
                 TIDAL_API_URL, user_id
@@ -2913,7 +2904,7 @@ impl TidalClient {
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
             .form(&[("albumId", album_id_str.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2935,15 +2926,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!(
                 "{}/users/{}/favorites/albums/{}",
                 TIDAL_API_URL, user_id, album_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2965,8 +2956,8 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!(
                 "{}/users/{}/favorites/playlists",
                 TIDAL_API_URL, user_id
@@ -2974,7 +2965,7 @@ impl TidalClient {
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
             .form(&[("uuid", playlist_uuid)]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -2996,15 +2987,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!(
                 "{}/users/{}/favorites/playlists/{}",
                 TIDAL_API_URL, user_id, playlist_uuid
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3021,8 +3012,8 @@ impl TidalClient {
 
     pub async fn get_favorite_artist_ids(&self, user_id: u64) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!(
                 "{}/users/{}/favorites/artists",
                 TIDAL_API_URL, user_id
@@ -3035,7 +3026,7 @@ impl TidalClient {
                 ("order", "DATE"),
                 ("orderDirection", "DESC"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3065,8 +3056,8 @@ impl TidalClient {
 
     pub async fn get_all_favorite_ids(&self, user_id: u64) -> Result<AllFavoriteIds, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!("{}/users/{}/favorites/ids", TIDAL_API_URL, user_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[
@@ -3074,7 +3065,7 @@ impl TidalClient {
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3107,8 +3098,8 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let artist_id_str = artist_id.to_string();
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!(
                 "{}/users/{}/favorites/artists",
                 TIDAL_API_URL, user_id
@@ -3116,7 +3107,7 @@ impl TidalClient {
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())])
             .form(&[("artistId", artist_id_str.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3138,15 +3129,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .delete(format!(
                 "{}/users/{}/favorites/artists/{}",
                 TIDAL_API_URL, user_id, artist_id
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3166,8 +3157,8 @@ impl TidalClient {
 
         log::debug!("[add_favorite_mix]: mix_id={}", mix_id);
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!("{}/favorites/mixes/add", TIDAL_API_V2_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[
@@ -3175,7 +3166,7 @@ impl TidalClient {
                 ("mixIds", mix_id),
                 ("onArtifactNotFound", "FAIL"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3201,15 +3192,15 @@ impl TidalClient {
 
         log::debug!("[remove_favorite_mix]: mix_id={}", mix_id);
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!("{}/favorites/mixes/remove", TIDAL_API_V2_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[
                 ("countryCode", self.country_code.as_str()),
                 ("mixIds", mix_id),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3433,15 +3424,15 @@ impl TidalClient {
             params.push(("trns", trns));
         }
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!(
                 "{}/my-collection/playlists/folders/create-folder",
                 TIDAL_API_V2_URL
             ))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&params);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3475,8 +3466,8 @@ impl TidalClient {
             name
         );
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!(
                 "{}/my-collection/playlists/folders/rename",
                 TIDAL_API_V2_URL
@@ -3489,7 +3480,7 @@ impl TidalClient {
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3515,8 +3506,8 @@ impl TidalClient {
 
         log::debug!("[delete_playlist_folder]: folder_trn={}", folder_trn);
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!(
                 "{}/my-collection/playlists/folders/remove",
                 TIDAL_API_V2_URL
@@ -3528,7 +3519,7 @@ impl TidalClient {
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3562,8 +3553,8 @@ impl TidalClient {
             playlist_trn
         );
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!(
                 "{}/my-collection/playlists/folders/move",
                 TIDAL_API_V2_URL
@@ -3576,7 +3567,7 @@ impl TidalClient {
                 ("locale", "en_US"),
                 ("deviceType", "BROWSER"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -3605,12 +3596,12 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // Get the playlist ETag which is required for modifications
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .get(format!("{}/playlists/{}", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .query(&[("countryCode", self.country_code.as_str())]);
-        let head_response = self.send(req).await?;
+        let head_response = self.send(generation, req).await?;
 
         let etag = head_response
             .headers()
@@ -3625,8 +3616,8 @@ impl TidalClient {
             .collect::<Vec<_>>()
             .join(",");
 
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .post(format!("{}/playlists/{}/items", TIDAL_API_URL, playlist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("If-None-Match", &etag)
@@ -3636,7 +3627,7 @@ impl TidalClient {
                 ("onDupes", "SKIP"),
                 ("onArtifactNotFound", "FAIL"),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
 
@@ -5597,16 +5588,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let body = build_artist_meta_body(artist_id, name, handle, dry_run);
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .patch(format!("{}/artists/{}", TIDAL_OPENAPI_URL, artist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        let response = self.dispatch(generation, request).await?;
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -5623,16 +5613,15 @@ impl TidalClient {
         let body = serde_json::json!({
             "data": { "type": "artistBiographies", "id": bio_id, "attributes": { "text": text } }
         });
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .patch(format!("{}/artistBiographies/{}", TIDAL_OPENAPI_URL, bio_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        let response = self.dispatch(generation, request).await?;
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -5651,16 +5640,15 @@ impl TidalClient {
     ) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let body = build_external_links_body(artist_id, &links);
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .patch(format!("{}/artists/{}", TIDAL_OPENAPI_URL, artist_id))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        let response = self.dispatch(generation, request).await?;
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -5698,16 +5686,15 @@ impl TidalClient {
                 }
             }
         });
-        let resp = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .post(format!("{}/artworks", TIDAL_OPENAPI_URL))
             .header("Authorization", &bearer)
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&create_body)
-            .send()
-            .await?;
+            .json(&create_body);
+        let resp = self.dispatch(generation, request).await?;
         let status = resp.status();
         let create_text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -5731,14 +5718,13 @@ impl TidalClient {
             .to_string();
 
         // (2) S3 PUT — NO Authorization; Content-Type: image/jpeg is REQUIRED.
-        let put = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .put(&upload_href)
             .header("content-md5", &content_md5)
             .header("Content-Type", "image/jpeg")
-            .body(bytes)
-            .send()
-            .await?;
+            .body(bytes);
+        let put = self.dispatch(generation, request).await?;
         let put_status = put.status();
         if !put_status.is_success() {
             let body = put.text().await.unwrap_or_default();
@@ -5755,8 +5741,8 @@ impl TidalClient {
         let link_body = serde_json::json!({
             "data": [ { "type": "artworks", "id": artwork_id } ]
         });
-        let patch = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .patch(format!(
                 "{}/artists/{}/relationships/profileArt",
                 TIDAL_OPENAPI_URL, artist_id
@@ -5765,9 +5751,8 @@ impl TidalClient {
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&link_body)
-            .send()
-            .await?;
+            .json(&link_body);
+        let patch = self.dispatch(generation, request).await?;
         let patch_status = patch.status();
         let patch_text = patch.text().await.unwrap_or_default();
         if !patch_status.is_success() {
@@ -5783,14 +5768,13 @@ impl TidalClient {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let bearer = format!("Bearer {}", tokens.access_token);
         for _ in 0..20 {
-            let resp = self
-                .client
+            let (generation, client) = self.client_at()?;
+            let request = client
                 .get(format!("{}/artworks/{}", TIDAL_OPENAPI_URL, artwork_id))
                 .header("Authorization", &bearer)
                 .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
-                .query(&[("countryCode", self.country_code.as_str())])
-                .send()
-                .await?;
+                .query(&[("countryCode", self.country_code.as_str())]);
+            let resp = self.dispatch(generation, request).await?;
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             if !status.is_success() {
@@ -5818,8 +5802,8 @@ impl TidalClient {
     pub async fn delete_profile_picture(&self, artist_id: u64) -> Result<(), SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
         let body = serde_json::json!({ "data": [] });
-        let response = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let request = client
             .patch(format!(
                 "{}/artists/{}/relationships/profileArt",
                 TIDAL_OPENAPI_URL, artist_id
@@ -5828,9 +5812,8 @@ impl TidalClient {
             .header("Content-Type", "application/vnd.api+json")
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
             .query(&[("countryCode", self.country_code.as_str())])
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        let response = self.dispatch(generation, request).await?;
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -5889,8 +5872,8 @@ impl TidalClient {
         log::debug!("[mark_feed_seen] user_id={}", user_id);
 
         let user_id_str = user_id.to_string();
-        let req = self
-            .client
+        let (generation, client) = self.client_at()?;
+        let req = client
             .put(format!("{}/feed/activities/seen", TIDAL_API_V2_URL))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("x-tidal-client-version", TIDAL_CLIENT_VERSION)
@@ -5898,7 +5881,7 @@ impl TidalClient {
                 ("userId", user_id_str.as_str()),
                 ("countryCode", self.country_code.as_str()),
             ]);
-        let response = self.send(req).await?;
+        let response = self.send(generation, req).await?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -7196,5 +7179,56 @@ mod feed_tests {
         })
         .unwrap();
         assert!(api_wire["message"].is_object());
+    }
+}
+
+#[cfg(test)]
+mod proxy_routing_tests {
+    use super::*;
+    use crate::proxy::{plan, HostCaps};
+    use crate::proxy_http::ProxiedHttp;
+    use crate::{ProxySettings, ProxyType};
+
+    /// `TidalClient` holds the shared cell, not its own client, so there is no
+    /// longer a field that could hold an unproxied one.
+    #[test]
+    fn a_blocked_cell_leaves_the_client_with_nothing_to_send_with() {
+        let caps = HostCaps::assume_all_present();
+        let blocked = plan(
+            &ProxySettings {
+                enabled: true,
+                proxy_type: ProxyType::Socks5,
+                host: "no-such-host.invalid".into(),
+                port: 3128,
+                username: None,
+                password: None,
+            },
+            &caps,
+        )
+        .unwrap();
+
+        let tc = TidalClient::new(ProxiedHttp::from_plan(&blocked, &caps));
+        assert!(tc.raw_client().is_err(), "artwork/scrobble path must block");
+        assert!(
+            matches!(tc.client_at(), Err(SoneError::ProxyBlocked { .. })),
+            "the API path must block as ProxyBlocked, not as a network error"
+        );
+    }
+
+    /// One cell, many consumers: a central swap must reach a `TidalClient` that
+    /// was constructed before it, because nothing re-creates the client now
+    /// that `rebuild_client` is gone.
+    #[test]
+    fn replacing_the_shared_cell_reaches_an_already_built_client() {
+        let caps = HostCaps::assume_all_present();
+        let cell = ProxiedHttp::from_plan(&crate::proxy::ProxyPlan::Direct, &caps);
+        let tc = TidalClient::new(cell.clone());
+        assert!(tc.raw_client().is_ok());
+
+        cell.block("proxy port must not be 0");
+        assert!(
+            tc.raw_client().is_err(),
+            "a client built earlier must observe the swap"
+        );
     }
 }

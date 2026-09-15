@@ -53,6 +53,7 @@ import {
   isUnplayableError,
   retryAfterSecs,
 } from "../lib/trackAvailability";
+import { getProxyBlockedReason } from "../lib/errorUtils";
 import { pickGaplessNext } from "../lib/gaplessPredict";
 import { startVideoSession } from "../lib/videoSession";
 import { videoElementRef } from "../lib/videoElement";
@@ -74,7 +75,15 @@ type PlayResult =
   | { ok: true }
   | {
       ok: false;
-      reason: "network" | "unplayable" | "transient" | "rate-limited";
+      /** `blocked` is deliberately NOT `unplayable`: the track is fine, egress
+       *  is refused, and every following track would fail identically. It must
+       *  never reach the skip drain. */
+      reason:
+        | "network"
+        | "unplayable"
+        | "transient"
+        | "rate-limited"
+        | "blocked";
     };
 
 const MAX_CONSECUTIVE_PLAY_FAILS = 3;
@@ -125,6 +134,10 @@ function extractPlaybackError(error: unknown): string {
       return error;
     }
   }
+  // `message` is an object for both Api and ProxyBlocked; only the latter has a
+  // reason worth showing verbatim, and it is the whole explanation.
+  const blocked = getProxyBlockedReason(parsed);
+  if (blocked) return blocked;
   const msg = parsed?.message;
   return typeof msg === "string" ? msg : "Playback failed";
 }
@@ -351,6 +364,17 @@ export function usePlaybackActions() {
         console.error("Failed to play track:", error);
         store.set(isPlayingAtom, false);
         markPlaybackLoading(false);
+        const blockedReason = getProxyBlockedReason(error);
+        if (blockedReason) {
+          // Checked BEFORE every other classifier so a blocked proxy can never
+          // be mistaken for an unplayable track. If it were, playNext()'s skip
+          // drain would walk the whole queue one refusal at a time, toasting
+          // "Track unavailable — skipping" for tracks that are perfectly fine,
+          // and stop only after emptying it. Toasted here and reported as its
+          // own reason so every caller halts instead of advancing.
+          showToast(blockedReason, "error");
+          return { ok: false, reason: "blocked" };
+        }
         if (isNetworkError(error)) {
           checkNetworkError(error);
           return { ok: false, reason: "network" };
@@ -878,6 +902,15 @@ export function usePlaybackActions() {
                 scheduleRateLimitResume(error);
               } else if (isUnplayableError(error)) {
                 showToast("Track unavailable", "info");
+              } else {
+                // Without this the chain simply ended: a refusal the other
+                // classifiers do not recognise — a blocked proxy above all —
+                // stopped the song and said nothing at all.
+                window.dispatchEvent(
+                  new CustomEvent("playback-error", {
+                    detail: extractPlaybackError(error),
+                  }),
+                );
               }
             }
             return;
@@ -959,7 +992,10 @@ export function usePlaybackActions() {
             if (recordUnplayableAndCheckCap()) return;
             continue;
           }
-          // Network or transient: preserve current behavior — re-insert and bail.
+          // Network, blocked or transient: preserve current behaviour — re-insert
+          // and bail. Only "unplayable" advances; a blocked proxy and a dead
+          // network are conditions of the connection, not of this track, so
+          // skipping past them would drain the queue without playing anything.
           if (manualSource) {
             store.set(playbackSourceAtom, prevPlaybackSource);
             store.set(contextSourceAtom, prevContextSource);
@@ -1022,7 +1058,9 @@ export function usePlaybackActions() {
             if (recordUnplayableAndCheckCap()) return;
             continue;
           }
-          // Network or transient: re-insert and bail.
+          // Network, blocked or transient: re-insert and bail. See above — the
+          // track stays at the head of the queue so it plays once the condition
+          // clears, and the skip counter is deliberately untouched.
           store.set(queueAtom, [nextTrack, ...store.get(queueAtom)]);
           if (orig) {
             store.set(originalQueueAtom, orig);
