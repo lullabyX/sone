@@ -130,7 +130,7 @@ impl SoneMcpServer {
         }
         let playlists: Vec<SanitizedPlaylist> = combined.iter().map(SanitizedPlaylist::from_tidal).collect();
         let json = serde_json::json!({ "playlists": playlists });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -159,7 +159,7 @@ impl SoneMcpServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let tracks = backfill_and_sanitize_tracks(raw_tracks);
         let json = serde_json::json!({ "tracks": tracks, "uuid": uuid });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -214,7 +214,7 @@ impl SoneMcpServer {
                 .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         }
         let json = serde_json::json!({ "uuid": uuid, "name": playlist.title, "trackCount": track_count });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -276,7 +276,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "updated" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -314,7 +314,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "deleted" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -359,7 +359,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "uuid": uuid, "added": added });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -392,7 +392,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "removed" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }

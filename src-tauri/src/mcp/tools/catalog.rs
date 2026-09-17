@@ -71,7 +71,7 @@ impl SoneMcpServer {
         let playlists: Vec<SanitizedPlaylist> = results.playlists.iter().map(SanitizedPlaylist::from_tidal).collect();
 
         let json = serde_json::json!({ "tracks": tracks, "albums": albums, "artists": artists, "playlists": playlists });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -117,7 +117,7 @@ impl SoneMcpServer {
             .collect();
 
         let json = serde_json::json!({ "tracks": tracks });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -142,7 +142,7 @@ impl SoneMcpServer {
 
         let tracks = backfill_and_sanitize_tracks(tracks);
         let json = serde_json::json!({ "tracks": tracks });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -167,7 +167,7 @@ impl SoneMcpServer {
 
         let tracks = backfill_and_sanitize_tracks(paginated.items);
         let json = serde_json::json!({ "tracks": tracks });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -195,7 +195,7 @@ impl SoneMcpServer {
             "subtitles": lyrics.subtitles,
             "isRightToLeft": lyrics.is_right_to_left,
         });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }

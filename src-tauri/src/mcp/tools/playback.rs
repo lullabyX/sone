@@ -79,7 +79,7 @@ impl SoneMcpServer {
             .emit(EV_PLAY_TRACKS, PlayTracksPayload { track_ids: args.track_ids, action: args.action })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": action });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(
@@ -100,7 +100,7 @@ impl SoneMcpServer {
             .emit(EV_PLAY_SOURCE, PlaySourcePayload { source_type: args.source_type, id: args.id })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "playing" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(
@@ -121,7 +121,7 @@ impl SoneMcpServer {
             .emit(EV_SHUFFLE_SOURCE, PlaySourcePayload { source_type: args.source_type, id: args.id })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "shuffling" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(name = "pause", description = "Pause playback.")]
@@ -130,7 +130,7 @@ impl SoneMcpServer {
             .emit(EV_PAUSE, ())
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(name = "resume", description = "Resume playback.")]
@@ -139,7 +139,7 @@ impl SoneMcpServer {
             .emit(EV_RESUME, ())
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(name = "skip_next", description = "Skip to the next track.")]
@@ -151,7 +151,7 @@ impl SoneMcpServer {
             .emit(EV_SKIP_NEXT, ())
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(name = "skip_previous", description = "Go back to the previous track.")]
@@ -163,7 +163,7 @@ impl SoneMcpServer {
             .emit(EV_SKIP_PREVIOUS, ())
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(name = "clear_queue", description = "Clear the play queue.")]
@@ -175,7 +175,7 @@ impl SoneMcpServer {
             .emit(EV_CLEAR_QUEUE, ())
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(name = "toggle_shuffle", description = "Toggle shuffle on/off.")]
@@ -187,7 +187,7 @@ impl SoneMcpServer {
             .emit(EV_TOGGLE_SHUFFLE, ())
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(
@@ -202,7 +202,7 @@ impl SoneMcpServer {
             .emit(EV_SEEK, SeekPayload { position_seconds: args.position_seconds })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "seeking" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(
@@ -218,7 +218,7 @@ impl SoneMcpServer {
             .emit(EV_SET_VOLUME, VolumePayload { level })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "ok" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(
@@ -233,7 +233,7 @@ impl SoneMcpServer {
             .emit(EV_REMOVE_FROM_QUEUE, RemoveFromQueuePayload { track_id: args.track_id })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": "removed" });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 
     #[rmcp::tool(
@@ -255,6 +255,6 @@ impl SoneMcpServer {
             .emit(EV_SET_REPEAT, RepeatPayload { mode: args.mode })
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": mode });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(json.to_string())]))
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(json.to_string())]))
     }
 }

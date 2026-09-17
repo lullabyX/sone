@@ -32,7 +32,7 @@ impl SoneMcpServer {
             Some(np) => serde_json::json!({ "nowPlaying": np }),
             None => serde_json::json!({ "nowPlaying": null }),
         };
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -51,7 +51,7 @@ impl SoneMcpServer {
         let take: Vec<_> = s.queue.iter().take(limit).cloned().collect();
         let total = s.queue.len();
         let json = serde_json::json!({ "queue": take, "totalSnapshot": total });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }

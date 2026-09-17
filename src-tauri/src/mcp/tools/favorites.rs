@@ -60,7 +60,7 @@ impl SoneMcpServer {
             "offset": offset,
             "limit": limit,
         });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -90,7 +90,7 @@ impl SoneMcpServer {
             "offset": offset,
             "limit": limit,
         });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -120,7 +120,7 @@ impl SoneMcpServer {
             "offset": offset,
             "limit": limit,
         });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -141,7 +141,7 @@ impl SoneMcpServer {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let json = serde_json::json!({ "favorited": favorited });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -187,7 +187,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": args.action, "id": args.id });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -233,7 +233,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": args.action, "id": args.id });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
@@ -279,7 +279,7 @@ impl SoneMcpServer {
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
         let json = serde_json::json!({ "status": args.action, "id": args.id });
-        Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+        Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
     }
