@@ -152,6 +152,12 @@ pub struct Settings {
     pub exclusive_device: Option<String>,
     #[serde(default)]
     pub bit_perfect: bool,
+    /// When exclusive mode is disabled and SONE releases the ALSA `hw:` device,
+    /// notify PipeWire/WirePlumber to re-acquire ("reload") the output device so
+    /// the desktop mixer can use it again immediately, instead of waiting for
+    /// WirePlumber to notice on its own. Off by default.
+    #[serde(default)]
+    pub reclaim_device: bool,
     #[serde(default = "defaults::yes")]
     pub gapless: bool,
     #[serde(default = "defaults::max_quality")]
@@ -204,6 +210,7 @@ impl Default for Settings {
             exclusive_mode: false,
             exclusive_device: None,
             bit_perfect: false,
+            reclaim_device: false,
             gapless: true,
             max_quality: "HI_RES_LOSSLESS".to_string(),
             scrobble: Default::default(),
@@ -247,6 +254,7 @@ pub struct AppState {
     pub volume_normalization: AtomicBool,
     pub exclusive_mode: AtomicBool,
     pub bit_perfect: AtomicBool,
+    pub reclaim_device: AtomicBool,
     pub gapless: AtomicBool,
     pub max_quality: std::sync::Mutex<String>,
     pub exclusive_device: std::sync::Mutex<Option<String>>,
@@ -409,6 +417,7 @@ impl AppState {
             .unwrap_or(false);
         let exclusive_mode = saved.as_ref().map(|s| s.exclusive_mode).unwrap_or(false);
         let bit_perfect = saved.as_ref().map(|s| s.bit_perfect).unwrap_or(false);
+        let reclaim_device = saved.as_ref().map(|s| s.reclaim_device).unwrap_or(false);
         let gapless = saved.as_ref().map(|s| s.gapless).unwrap_or(true);
         let exclusive_device = saved.as_ref().and_then(|s| s.exclusive_device.clone());
         let max_quality = saved
@@ -512,6 +521,7 @@ impl AppState {
             volume_normalization: AtomicBool::new(volume_normalization),
             exclusive_mode: AtomicBool::new(exclusive_mode),
             bit_perfect: AtomicBool::new(bit_perfect),
+            reclaim_device: AtomicBool::new(reclaim_device),
             gapless: AtomicBool::new(gapless),
             max_quality: std::sync::Mutex::new(max_quality),
             exclusive_device: std::sync::Mutex::new(exclusive_device),
@@ -1125,6 +1135,9 @@ pub fn run() {
             commands::utility::set_max_quality,
             commands::utility::get_exclusive_device,
             commands::utility::set_exclusive_device,
+            commands::utility::get_reclaim_device,
+            commands::utility::set_reclaim_device,
+            commands::utility::get_reclaim_supported,
             commands::utility::list_audio_devices,
             commands::utility::get_discord_rpc,
             commands::utility::set_discord_rpc,
