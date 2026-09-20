@@ -538,6 +538,44 @@ In short: exclusive gives you direct hardware access with volume control. Bit-pe
 
 </details>
 
+<details>
+<summary>Discord Rich Presence isn't showing up (Flatpak or Snap)</summary>
+
+Discord Rich Presence talks over a socket in your session's runtime directory. Sandboxed packages are restricted there, so the fix depends on how you installed SONE. Native packages (`.deb`, `.rpm`, AUR) are unaffected.
+
+**Flatpak** — start Discord *before* SONE.
+
+A Flatpak grants access to that socket when the sandbox starts. If Discord isn't running yet, there is nothing to grant, and the socket stays invisible to SONE for the rest of that run no matter how long Discord has been up since. Quitting SONE and reopening it after Discord is running is enough.
+
+Flatpak and Vesktop builds of Discord work in either order. Only Discord installed natively or from Snap needs the ordering, and this cannot be fixed from SONE's side — the permission has to resolve before the app starts.
+
+If you'd rather not think about launch order, grant SONE your whole runtime directory once:
+
+```bash
+flatpak override --user --filesystem=/run/user/$(id -u) io.github.lullabyX.sone
+```
+
+**Snap** — the connection is blocked outright.
+
+Snap's strict confinement lets SONE *see* Discord's socket but denies the connection to it, and no Snap interface can grant it. SONE logs this rather than silently reporting Discord as absent:
+
+```
+Discord IPC socket at /run/user/1000/discord-ipc-0 exists but the sandbox
+denied the connection; Rich Presence cannot reach Discord from this package
+```
+
+SONE can only reach sockets inside its own runtime directory, so forward Discord's into it:
+
+```bash
+mkdir -p $XDG_RUNTIME_DIR/snap.sone
+socat UNIX-LISTEN:$XDG_RUNTIME_DIR/snap.sone/discord-ipc-0,fork \
+      UNIX-CONNECT:$XDG_RUNTIME_DIR/discord-ipc-0
+```
+
+Leave that running and SONE will find it. Run it before starting SONE, or restart SONE afterwards. To make it permanent, wrap it in a systemd user service. If you'd rather not, install the Flatpak or a native package instead.
+
+</details>
+
 ## Tech Stack
 
 - **Backend:** Rust ([Tauri 2](https://v2.tauri.app/))

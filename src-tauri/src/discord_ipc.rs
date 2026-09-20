@@ -10,6 +10,7 @@ use std::net::Shutdown;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 use std::time::Duration;
 
 use discord_rich_presence::error::Error;
@@ -72,11 +73,36 @@ pub(crate) fn candidate_paths(bases: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
-/// Runtime directories to search, in priority order.
+/// Expand a Snap `XDG_RUNTIME_DIR` into every runtime dir worth searching.
 ///
 /// Under Snap, `XDG_RUNTIME_DIR` points at the app's private `.../snap.<name>`
-/// subdir, so walk one level up to reach the real one. Deduped because
-/// `XDG_RUNTIME_DIR` and `TMPDIR` can resolve to the same directory.
+/// subdir, so the real runtime dir is one level up. Both are returned:
+///
+/// * the parent is where Discord actually publishes its socket, and
+/// * the private dir is the only one strict confinement lets us connect to.
+///
+/// Under strict confinement the AppArmor profile denies `connect` on anything
+/// outside the private dir, so the parent is discoverable but unusable — a
+/// relay socket placed in the private dir is the one route that works, and it
+/// is worthless if we never look there. Parent first, so a build that *can*
+/// reach the real socket (classic confinement, or a future snapd) still
+/// prefers it.
+///
+/// Returns nothing for a value with no usable parent; that is not a runtime
+/// dir layout we understand.
+pub(crate) fn snap_runtime_dirs(val: &str) -> Vec<PathBuf> {
+    match val.rsplit_once('/') {
+        Some((parent, _)) if !parent.is_empty() => {
+            vec![PathBuf::from(parent), PathBuf::from(val)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Runtime directories to search, in priority order.
+///
+/// Deduped because `XDG_RUNTIME_DIR` and `TMPDIR` can resolve to the same
+/// directory. See [`snap_runtime_dirs`] for the Snap expansion.
 pub(crate) fn base_dirs() -> Vec<PathBuf> {
     const KEYS: [&str; 4] = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"];
     let under_snap = std::env::var("SNAP").is_ok();
@@ -86,19 +112,30 @@ pub(crate) fn base_dirs() -> Vec<PathBuf> {
         let Ok(val) = std::env::var(key) else {
             continue;
         };
-        let path = if under_snap && idx == 0 {
-            match val.rsplit_once('/') {
-                Some((parent, _)) if !parent.is_empty() => PathBuf::from(parent),
-                _ => continue,
-            }
+        let paths = if under_snap && idx == 0 {
+            snap_runtime_dirs(&val)
         } else {
-            PathBuf::from(val)
+            vec![PathBuf::from(val)]
         };
-        if path.is_dir() && !out.contains(&path) {
-            out.push(path);
+        for path in paths {
+            if path.is_dir() && !out.contains(&path) {
+                out.push(path);
+            }
         }
     }
     out
+}
+
+/// Why [`dial`] gave up on a candidate.
+pub(crate) enum DialError {
+    /// Nothing usable here: no such path, not an AF_UNIX socket, or a connect
+    /// that failed for any reason other than sandbox policy. The normal answer
+    /// for all but one or two of the candidates on any given scan.
+    Unavailable,
+    /// The socket is there and we are not allowed to talk to it. Distinct
+    /// because it is the *only* outcome the user can act on — see
+    /// [`SoneDiscordClient::connect`].
+    Denied,
 }
 
 /// Connect to `path`, but only if it is genuinely an AF_UNIX socket.
@@ -112,17 +149,40 @@ pub(crate) fn base_dirs() -> Vec<PathBuf> {
 ///
 /// Note the socket-type check is a fast filter, not a correctness guarantee —
 /// an unlinked inode still stats as a socket. The connect is what rejects it.
-pub(crate) fn dial(path: &Path) -> Option<UnixStream> {
-    let meta = std::fs::metadata(path).ok()?;
+pub(crate) fn dial(path: &Path) -> Result<UnixStream, DialError> {
+    let meta = std::fs::metadata(path).map_err(|_| DialError::Unavailable)?;
     if !meta.file_type().is_socket() {
-        return None;
+        return Err(DialError::Unavailable);
     }
-    let stream = UnixStream::connect(path).ok()?;
-    stream.set_read_timeout(Some(HANDSHAKE_READ_TIMEOUT)).ok()?;
+    let stream = UnixStream::connect(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::PermissionDenied => DialError::Denied,
+        _ => DialError::Unavailable,
+    })?;
+    stream
+        .set_read_timeout(Some(HANDSHAKE_READ_TIMEOUT))
+        .map_err(|_| DialError::Unavailable)?;
     stream
         .set_write_timeout(Some(HANDSHAKE_READ_TIMEOUT))
-        .ok()?;
-    Some(stream)
+        .map_err(|_| DialError::Unavailable)?;
+    Ok(stream)
+}
+
+/// Log a sandbox denial once per process.
+///
+/// Without this the failure is silent: a denied connect is indistinguishable
+/// from an absent socket, so a packaged build reports "Discord not running"
+/// while Discord is plainly running. Once is the right granularity — sandbox
+/// policy is fixed for the life of the process, and `connect()` re-runs on
+/// every 30s retry tick, so anything finer would repeat the same line forever.
+fn report_sandbox_denial(path: &Path) {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        log::warn!(
+            "Discord IPC socket at {} exists but the sandbox denied the connection; \
+             Rich Presence cannot reach Discord from this package",
+            path.display()
+        );
+    });
 }
 
 /// A Discord IPC client that validates each candidate before committing.
@@ -215,7 +275,7 @@ impl DiscordIpc for SoneDiscordClient {
         self.socket = None;
 
         for path in candidate_paths(&self.bases) {
-            if let Some(stream) = dial(&path) {
+            if let Ok(stream) = dial(&path) {
                 self.socket = Some(stream);
                 return Ok(());
             }
@@ -246,8 +306,13 @@ impl DiscordIpc for SoneDiscordClient {
                 break;
             }
 
-            let Some(stream) = dial(&path) else {
-                continue;
+            let stream = match dial(&path) {
+                Ok(stream) => stream,
+                Err(DialError::Denied) => {
+                    report_sandbox_denial(&path);
+                    continue;
+                }
+                Err(DialError::Unavailable) => continue,
             };
             dialled_any = true;
             self.socket = Some(stream);
@@ -336,6 +401,27 @@ mod tests {
         assert!(bare < sub, "native Discord's path must be tried first");
     }
 
+    #[test]
+    fn snap_searches_the_real_runtime_dir_and_its_own_private_one() {
+        let dirs = snap_runtime_dirs("/run/user/1000/snap.sone");
+
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/run/user/1000"),
+                PathBuf::from("/run/user/1000/snap.sone"),
+            ],
+            "the private dir is where a relay socket has to live, and strict \
+             confinement lets us connect to nothing else"
+        );
+    }
+
+    #[test]
+    fn snap_runtime_dirs_rejects_a_value_with_no_parent() {
+        assert!(snap_runtime_dirs("snap.sone").is_empty());
+        assert!(snap_runtime_dirs("/run").is_empty());
+    }
+
     use std::os::unix::net::UnixListener;
 
     /// Read one length-prefixed IPC frame, discarding its body.
@@ -406,7 +492,7 @@ mod tests {
         let stale = dir.path().join("discord-ipc-0");
         std::fs::write(&stale, b"").unwrap();
 
-        assert!(dial(&stale).is_none());
+        assert!(dial(&stale).is_err());
     }
 
     #[test]
@@ -415,7 +501,30 @@ mod tests {
         let live = dir.path().join("discord-ipc-0");
         let _listener = UnixListener::bind(&live).unwrap();
 
-        assert!(dial(&live).is_some());
+        assert!(dial(&live).is_ok());
+    }
+
+    /// The Snap case: the socket is discoverable but policy refuses the
+    /// connect. Reproduced here with file permissions rather than AppArmor —
+    /// both surface as `ErrorKind::PermissionDenied`, which is what `dial`
+    /// branches on. Skipped for root, who is refused nothing.
+    #[test]
+    fn dial_reports_a_refused_connect_as_denied_not_missing() {
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("discord-ipc-0");
+        let _listener = UnixListener::bind(&live).unwrap();
+        std::fs::set_permissions(&live, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        assert!(
+            matches!(dial(&live), Err(DialError::Denied)),
+            "a sandbox denial must stay distinguishable from an absent socket"
+        );
     }
 
     #[test]
@@ -424,7 +533,7 @@ mod tests {
         let link = dir.path().join("discord-ipc-0");
         std::os::unix::fs::symlink(dir.path().join("absent"), &link).unwrap();
 
-        assert!(dial(&link).is_none());
+        assert!(dial(&link).is_err());
     }
 
     #[test]
@@ -435,7 +544,7 @@ mod tests {
         let link = dir.path().join("discord-ipc-0");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        assert!(dial(&link).is_some());
+        assert!(dial(&link).is_ok());
     }
 
     /// The regression, end to end. Upstream's `find_pipe` commits to index 0
