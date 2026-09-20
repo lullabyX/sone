@@ -50,6 +50,7 @@ import {
   gaplessAtom,
   maxQualityAtom,
   exclusiveDeviceAtom,
+  reclaimDeviceAtom,
   volumeNormalizationAtom,
   originalQueueAtom,
   manualQueueAtom,
@@ -328,6 +329,9 @@ export function AppInitializer() {
           .catch(() => {});
         invoke<string | null>("get_exclusive_device")
           .then((v) => store.set(exclusiveDeviceAtom, v))
+          .catch(() => {});
+        invoke<boolean>("get_reclaim_device")
+          .then((v) => store.set(reclaimDeviceAtom, v))
           .catch(() => {});
         invoke<boolean>("get_volume_normalization")
           .then((v) => store.set(volumeNormalizationAtom, v))

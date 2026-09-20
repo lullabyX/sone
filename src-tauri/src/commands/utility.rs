@@ -188,6 +188,15 @@ pub fn set_exclusive_mode(state: State<'_, AppState>, enabled: bool) -> Result<(
         settings.bit_perfect = false;
     }
     state.save_settings(&settings)?;
+
+    // When leaving exclusive mode, the audio thread tears down the DirectAlsa
+    // backend and frees the `hw:` device. If the user opted in, nudge
+    // PipeWire/WirePlumber to re-acquire ("reload") that freed device so the
+    // desktop mixer can use it again without manual intervention.
+    if !enabled && state.reclaim_device.load(Ordering::Relaxed) {
+        let dev = state.exclusive_device.lock().unwrap().clone();
+        reclaim_output_device(dev);
+    }
     Ok(())
 }
 
@@ -281,6 +290,230 @@ pub fn set_exclusive_device(state: State<'_, AppState>, device: String) -> Resul
     settings.exclusive_device = Some(device);
     state.save_settings(&settings)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_reclaim_device(state: State<'_, AppState>) -> bool {
+    state.reclaim_device.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn set_reclaim_device(state: State<'_, AppState>, enabled: bool) -> Result<(), SoneError> {
+    state.reclaim_device.store(enabled, Ordering::Relaxed);
+    let mut settings = state.load_settings().unwrap_or_default();
+    settings.reclaim_device = enabled;
+    state.save_settings(&settings)?;
+    Ok(())
+}
+
+/// Whether the "Reclaim device" feature is applicable on this system.
+///
+/// The reclaim nudge is specific to PipeWire/WirePlumber: it cycles a sink's
+/// suspend state so WirePlumber re-opens the ALSA node it released while SONE
+/// held the device exclusively. On plain PulseAudio (or when `pactl` is
+/// missing) this does not meaningfully "reload" the hardware, so we hide the
+/// toggle. Detection reuses `pactl info`'s "Server Name" field.
+#[tauri::command]
+pub fn get_reclaim_supported() -> bool {
+    let out = match std::process::Command::new("pactl")
+        .env("LC_ALL", "C")
+        .arg("info")
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return false,
+    };
+    let stdout = match String::from_utf8(out.stdout) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    // "Server Name: PulseAudio (on PipeWire x.y.z)" on PipeWire systems.
+    stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("Server Name:"))
+        .any(|v| v.contains("PipeWire"))
+}
+
+/// Notify PipeWire/WirePlumber to recreate ("reload") the output device after
+/// SONE has released the exclusive ALSA `hw:` handle.
+///
+/// Background: when SONE releases an exclusively-held device, WirePlumber can
+/// fail to recreate the ALSA node for that card (observed: "Failed to create
+/// ALSA node ...: Object activation aborted: PipeWire proxy destroyed"). The
+/// PipeWire *sink* for the card then goes **missing entirely** — it is not just
+/// suspended — so nudging sinks (`suspend-sink`) does nothing because there is
+/// no sink to nudge. The reliable recovery, matching the manual workaround, is
+/// to cycle the *card profile* (`set-card-profile <card> off` then back to its
+/// output profile), which forces WirePlumber to rebuild the node. If the sink
+/// still does not reappear, restart WirePlumber as a last resort.
+///
+/// `device` is SONE's exclusive ALSA device string (e.g. `hw:CARD=TP35,DEV=0`);
+/// we map its ALSA card name to the matching PipeWire `alsa_card.*` and cycle
+/// only that card. If we cannot resolve it, we fall back to cycling every ALSA
+/// card that currently has no sink. Runs detached with a short delay so the
+/// ALSA fd is fully closed before PipeWire re-probes. Best-effort: failures are
+/// logged and swallowed.
+pub fn reclaim_output_device(device: Option<String>) {
+    std::thread::spawn(move || {
+        // Let the just-torn-down ALSA writer thread fully close the device fd
+        // before PipeWire tries to re-open it.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        let run = |args: &[&str]| -> Option<String> {
+            let out = std::process::Command::new("pactl")
+                .env("LC_ALL", "C")
+                .args(args)
+                .output()
+                .ok()?;
+            if !out.status.success() {
+                return None;
+            }
+            String::from_utf8(out.stdout).ok()
+        };
+
+        // ── Resolve the target PipeWire card(s) ──────────────────────────
+        // `pactl list short cards`: "<index>\t<card_name>\t<driver>..."
+        let short_cards = run(&["list", "short", "cards"]).unwrap_or_default();
+        let all_cards: Vec<String> = short_cards
+            .lines()
+            .filter_map(|l| l.split('\t').nth(1))
+            .map(|s| s.to_string())
+            .collect();
+
+        // Map SONE's exclusive ALSA device -> ALSA card name (e.g. "TP35"),
+        // then find the PipeWire card whose name contains it. PipeWire card
+        // names look like `alsa_card.usb-..._TP35_Pro_...`.
+        let alsa_card = device
+            .as_deref()
+            .and_then(crate::pipeline_probe::parse_alsa_card_from_device);
+        let target_cards: Vec<String> = match alsa_card.as_deref() {
+            Some(name) if !name.is_empty() => {
+                let matched: Vec<String> = all_cards
+                    .iter()
+                    .filter(|c| c.contains(name))
+                    .cloned()
+                    .collect();
+                if matched.is_empty() {
+                    all_cards.clone()
+                } else {
+                    matched
+                }
+            }
+            _ => all_cards.clone(),
+        };
+
+        if target_cards.is_empty() {
+            log::warn!("[audio] reclaim: no PipeWire cards found; nothing to reclaim");
+            return;
+        }
+
+        // Which sink names exist right now, so we can tell if a card is missing
+        // its sink and whether the cycle restored it.
+        let sinks_now = || -> String { run(&["list", "short", "sinks"]).unwrap_or_default() };
+
+        for card in &target_cards {
+            // Pick the card's best output profile from `pactl list cards`.
+            // We restore to a concrete profile rather than leaving it "off".
+            let profile = card_output_profile(&run, card)
+                .unwrap_or_else(|| "output:analog-stereo".to_string());
+
+            log::info!("[audio] reclaim: cycling profile of card '{card}' -> off -> {profile}");
+            let _ = run(&["set-card-profile", card, "off"]);
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            let _ = run(&["set-card-profile", card, &profile]);
+            std::thread::sleep(std::time::Duration::from_millis(700));
+        }
+
+        // Verify a sink now exists for the target card; if not, restart the
+        // session manager as a last resort (matches the manual workaround).
+        let restored = {
+            let sinks = sinks_now();
+            match alsa_card.as_deref() {
+                Some(name) if !name.is_empty() => sinks.contains(name),
+                // No specific card: treat "any sink present" as success.
+                _ => !sinks.trim().is_empty(),
+            }
+        };
+
+        if restored {
+            log::info!("[audio] reclaim: output device restored via profile cycle");
+        } else {
+            log::warn!(
+                "[audio] reclaim: profile cycle did not restore sink; restarting wireplumber"
+            );
+            let _ = std::process::Command::new("systemctl")
+                .args(["--user", "restart", "wireplumber"])
+                .status();
+        }
+    });
+}
+
+/// Read `pactl list cards` and return the best *output* profile for `card`.
+///
+/// Prefers a currently-available profile that provides output sinks, ranked by
+/// the priority PipeWire reports. Falls back to the card's "Active Profile" if
+/// it is an output profile. Profile lines look like:
+///   `output:analog-stereo: Analog Stereo Output (sinks: 1, sources: 0, priority: 6500, available: yes)`
+fn card_output_profile<F>(run: &F, card: &str) -> Option<String>
+where
+    F: Fn(&[&str]) -> Option<String>,
+{
+    let out = run(&["list", "cards"])?;
+    let mut in_target = false;
+    let mut in_profiles = false;
+    let mut best: Option<(i64, String)> = None;
+    let mut active_profile: Option<String> = None;
+
+    for raw in out.lines() {
+        let line = raw.trim();
+
+        if let Some(name) = line.strip_prefix("Name:").map(str::trim) {
+            in_target = name == card;
+            in_profiles = false;
+            continue;
+        }
+        if !in_target {
+            continue;
+        }
+        if line.starts_with("Profiles:") {
+            in_profiles = true;
+            continue;
+        }
+        if let Some(active) = line.strip_prefix("Active Profile:").map(str::trim) {
+            active_profile = Some(active.to_string());
+            in_profiles = false;
+            continue;
+        }
+
+        if in_profiles {
+            // e.g. "output:analog-stereo: ... (sinks: 1, ... priority: 6500, available: yes)"
+            if let Some((id, meta)) = line.split_once(':') {
+                let id = id.trim();
+                if !id.starts_with("output:") {
+                    continue;
+                }
+                // Require at least one sink and availability != no.
+                let has_sink = meta.contains("sinks: ") && !meta.contains("sinks: 0");
+                let unavailable = meta.contains("available: no");
+                if !has_sink || unavailable {
+                    continue;
+                }
+                let priority = meta
+                    .split("priority:")
+                    .nth(1)
+                    .and_then(|s| s.split(|c: char| !c.is_ascii_digit()).find(|t| !t.is_empty()))
+                    .and_then(|n| n.parse::<i64>().ok())
+                    .unwrap_or(0);
+                if best.as_ref().map(|(p, _)| priority > *p).unwrap_or(true) {
+                    best = Some((priority, id.to_string()));
+                }
+            }
+        }
+    }
+
+    best.map(|(_, id)| id).or_else(|| {
+        active_profile.filter(|p| p.starts_with("output:") && p != "off")
+    })
 }
 
 #[tauri::command]
