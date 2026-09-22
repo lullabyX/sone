@@ -617,6 +617,9 @@ impl AppState {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod webview_proxy_auth;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // File logger setup. Must happen before Tauri builds so early log
@@ -663,6 +666,9 @@ pub fn run() {
             }
 
             app.manage(AppState::new(app.handle().clone()));
+
+            #[cfg(target_os = "linux")]
+            webview_proxy_auth::install(app.handle());
 
             // Start MCP server in background (if enabled). ensure_mcp_started
             // holds the mcp_handle lock across the start to stay race-free.
