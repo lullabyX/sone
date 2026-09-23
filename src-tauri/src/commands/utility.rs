@@ -297,6 +297,12 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
     Ok(devices)
 }
 
+/// Whether Discord Rich Presence can work at all in this build -> SNAP exception
+#[tauri::command]
+pub fn discord_rpc_supported() -> bool {
+    std::env::var("SNAP").is_err()
+}
+
 #[tauri::command]
 pub fn get_discord_rpc(state: State<'_, AppState>) -> bool {
     state
