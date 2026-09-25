@@ -198,6 +198,26 @@ pub async fn get_album_tracks(
     Ok(tracks)
 }
 
+/// A home feed with no sections is an upstream failure wearing a success mask,
+/// never content — storing one blanks Home for the whole 4h fresh window.
+fn encode_home_for_cache(home: &HomePageResponse) -> Option<Vec<u8>> {
+    if home.sections.is_empty() {
+        return None;
+    }
+    serde_json::to_vec(home).ok()
+}
+
+/// The read-side half of [`encode_home_for_cache`]: an entry with no sections
+/// is a miss, so caches poisoned by earlier builds heal on the next launch
+/// instead of waiting out the 24h stale window.
+fn decode_cached_home(bytes: &[u8]) -> Option<HomePageResponse> {
+    let home = serde_json::from_slice::<HomePageResponse>(bytes).ok()?;
+    if home.sections.is_empty() {
+        return None;
+    }
+    Some(home)
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_home_page(
     state: State<'_, AppState>,
@@ -212,7 +232,7 @@ pub async fn get_home_page(
 
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
         CacheResult::Fresh(bytes) => {
-            if let Ok(home) = serde_json::from_slice(&bytes) {
+            if let Some(home) = decode_cached_home(&bytes) {
                 return Ok(HomePageCached {
                     home,
                     is_stale: false,
@@ -220,7 +240,7 @@ pub async fn get_home_page(
             }
         }
         CacheResult::Stale(bytes) => {
-            if let Ok(home) = serde_json::from_slice::<HomePageResponse>(&bytes) {
+            if let Some(home) = decode_cached_home(&bytes) {
                 // SWR: return stale data, refresh in background.
                 if state.disk_cache.mark_in_flight(&cache_key).await {
                     // Only retry if last attempt was >5min ago (300s)
@@ -235,13 +255,24 @@ pub async fn get_home_page(
                                 let mut client = st.tidal_client.lock().await;
                                 client.get_home_page(&slug).await
                             };
-                            if let Ok(fresh) = result {
-                                if let Ok(json) = serde_json::to_vec(&fresh) {
-                                    st.disk_cache
-                                        .put(&cache_key, &json, CacheTier::Dynamic, &["home-page"])
-                                        .await
-                                        .ok();
+                            match result {
+                                Ok(fresh) => {
+                                    if let Some(json) = encode_home_for_cache(&fresh) {
+                                        st.disk_cache
+                                            .put(
+                                                &cache_key,
+                                                &json,
+                                                CacheTier::Dynamic,
+                                                &["home-page"],
+                                            )
+                                            .await
+                                            .ok();
+                                    }
                                 }
+                                Err(e) => log::warn!(
+                                    "[get_home_page] background refresh failed: {}",
+                                    e.log_safe()
+                                ),
                             }
                             st.disk_cache.clear_in_flight(&cache_key).await;
                         });
@@ -262,7 +293,7 @@ pub async fn get_home_page(
     let home = client.get_home_page(&slug).await?;
     drop(client);
 
-    if let Ok(json) = serde_json::to_vec(&home) {
+    if let Some(json) = encode_home_for_cache(&home) {
         state
             .disk_cache
             .put(&cache_key, &json, CacheTier::Dynamic, &["home-page"])
@@ -289,7 +320,7 @@ pub async fn refresh_home_page(
     let home = client.get_home_page(&slug).await?;
     drop(client);
 
-    if let Ok(json) = serde_json::to_vec(&home) {
+    if let Some(json) = encode_home_for_cache(&home) {
         state
             .disk_cache
             .put(&cache_key, &json, CacheTier::Dynamic, &["home-page"])
@@ -314,8 +345,9 @@ pub async fn get_home_page_more(
         &cursor[..cursor.len().min(32)]
     );
     let mut client = state.tidal_client.lock().await;
-    let (_tabs, mut sections, next_cursor) = client.fetch_v2_home_feed(&slug, Some(&cursor)).await;
+    let result = client.fetch_v2_home_feed(&slug, Some(&cursor)).await;
     drop(client);
+    let (_tabs, mut sections, next_cursor) = result?;
 
     sections.retain(|s| {
         !s.title.trim().is_empty()
@@ -1062,4 +1094,58 @@ pub async fn debug_home_page_raw(state: State<'_, AppState>) -> Result<String, S
     }
 
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tidal_api::HomePageSection;
+
+    fn section(title: &str) -> HomePageSection {
+        HomePageSection {
+            title: title.to_string(),
+            section_type: "HORIZONTAL_LIST".to_string(),
+            items: Value::Array(vec![]),
+            has_more: false,
+            api_path: None,
+        }
+    }
+
+    fn home(sections: Vec<HomePageSection>) -> HomePageResponse {
+        HomePageResponse {
+            tabs: vec![],
+            sections,
+            cursor: None,
+        }
+    }
+
+    #[test]
+    fn empty_home_is_never_written_to_cache() {
+        assert!(encode_home_for_cache(&home(vec![])).is_none());
+    }
+
+    #[test]
+    fn home_with_sections_is_written_to_cache() {
+        assert!(encode_home_for_cache(&home(vec![section("Recently played")])).is_some());
+    }
+
+    #[test]
+    fn an_already_cached_empty_home_reads_back_as_a_miss() {
+        // Caches poisoned before this guard existed must heal themselves on
+        // read, otherwise Home stays blank for the rest of the 24h stale window.
+        let bytes = serde_json::to_vec(&home(vec![])).expect("serialize");
+        assert!(decode_cached_home(&bytes).is_none());
+    }
+
+    #[test]
+    fn a_cached_home_with_sections_reads_back() {
+        let bytes = serde_json::to_vec(&home(vec![section("Mixes for you")])).expect("serialize");
+        let decoded = decode_cached_home(&bytes).expect("should decode");
+        assert_eq!(decoded.sections.len(), 1);
+    }
+
+    #[test]
+    fn unparseable_cache_bytes_read_back_as_a_miss() {
+        assert!(decode_cached_home(b"not json").is_none());
+    }
 }

@@ -55,7 +55,7 @@ const TIDAL_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2";
 const TIDAL_API_URL: &str = "https://api.tidal.com/v1";
 const TIDAL_API_V2_URL: &str = "https://api.tidal.com/v2";
 const TIDAL_OPENAPI_URL: &str = "https://openapi.tidal.com/v2";
-const TIDAL_CLIENT_VERSION: &str = "2025.11.3";
+const TIDAL_CLIENT_VERSION: &str = "2026.9.15";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthTokens {
@@ -4149,13 +4149,17 @@ impl TidalClient {
 
     // ==================== Home Page (Pages API) ====================
 
-    /// Fetch the v2 home feed from api.tidal.com/v2/home/feed/static.
-    /// Returns parsed sections, or empty vec on failure.
+    /// Fetch the v2 home feed from api.tidal.com/v2/home/feed/{slug}.
+    ///
+    /// Errors are returned, never flattened into an empty feed: callers cache
+    /// what comes back, and a silent empty is indistinguishable from "this
+    /// account has no home content" — which is how one failed request used to
+    /// blank Home for hours.
     pub async fn fetch_v2_home_feed(
         &mut self,
         feed_slug: &str,
         cursor: Option<&str>,
-    ) -> (Vec<HomeTab>, Vec<HomePageSection>, Option<String>) {
+    ) -> Result<(Vec<HomeTab>, Vec<HomePageSection>, Option<String>), SoneError> {
         let url = format!("{}/home/feed/{}", TIDAL_API_V2_URL, feed_slug);
         let country_code = self.country_code.clone();
 
@@ -4197,21 +4201,23 @@ impl TidalClient {
                                 raw_count - result.sections.len()
                             );
                         }
-                        (result.tabs, result.sections, next_cursor)
+                        Ok((result.tabs, result.sections, next_cursor))
                     }
                     Err(e) => {
-                        log::debug!("v2 home feed: parse error: {}", e);
-                        (vec![], vec![], None)
+                        log::warn!("v2 home feed: parse error: {}", e);
+                        Err(SoneError::Parse(format!("home feed JSON: {}", e)))
                     }
                 }
             }
             Ok(r) => {
-                log::debug!("v2 home feed: HTTP {}", r.status());
-                (vec![], vec![], None)
+                let status = r.status().as_u16();
+                let body = r.text().await.unwrap_or_default();
+                log::warn!("v2 home feed: HTTP {}", status);
+                Err(SoneError::Api { status, body })
             }
             Err(e) => {
-                log::debug!("v2 home feed: request error: {}", e);
-                (vec![], vec![], None)
+                log::warn!("v2 home feed: request error: {}", e.log_safe());
+                Err(e)
             }
         }
     }
@@ -4324,8 +4330,21 @@ impl TidalClient {
     /// (what the Tidal web app uses). Falls back to multi-endpoint v1 approach.
     /// Trusts Tidal's section ordering — no manual resorting.
     pub async fn get_home_page(&mut self, feed_slug: &str) -> Result<HomePageResponse, SoneError> {
-        // Try v2 home feed first (single endpoint, personalized)
-        let (tabs, mut all_sections, cursor) = self.fetch_v2_home_feed(feed_slug, None).await;
+        // Try v2 home feed first (single endpoint, personalized). A failure here
+        // is held rather than raised: the v1 fallback below may still have
+        // content, and only if that comes up empty too does the error stand.
+        let (tabs, mut all_sections, cursor, v2_error) =
+            match self.fetch_v2_home_feed(feed_slug, None).await {
+                Ok((tabs, sections, cursor)) => (tabs, sections, cursor, None),
+                Err(e) => {
+                    log::warn!(
+                        "[home v2]: home/feed/{} failed: {}",
+                        feed_slug,
+                        e.log_safe()
+                    );
+                    (vec![], vec![], None, Some(e))
+                }
+            };
 
         if !all_sections.is_empty() {
             log::debug!(
@@ -4361,8 +4380,12 @@ impl TidalClient {
             });
         }
 
-        // v1 fallback only applies to the default static feed; other tabs are v2-only.
+        // v1 fallback only applies to the default static feed; other tabs are
+        // v2-only, so a v2 failure is the whole story for them.
         if feed_slug != "static" {
+            if let Some(e) = v2_error {
+                return Err(e);
+            }
             return Ok(HomePageResponse {
                 tabs,
                 sections: all_sections,
@@ -4394,6 +4417,15 @@ impl TidalClient {
 
         if let Ok(sections) = self.fetch_page_endpoint("pages/rising").await {
             Self::add_unique_sections(&mut all_sections, &mut seen_titles, sections);
+        }
+
+        // Nothing anywhere. If v2 told us why, say so — an error gives the UI
+        // something to show and a retry to offer, where a blank success does not.
+        if all_sections.is_empty() {
+            if let Some(e) = v2_error {
+                log::warn!("[home]: v2 failed and the v1 fallback found nothing");
+                return Err(e);
+            }
         }
 
         log::debug!("[home v1]: returning {} sections", all_sections.len());

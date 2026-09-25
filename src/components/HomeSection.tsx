@@ -11,6 +11,7 @@ import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
+import { useGridColumns, fitRows, GRID_ROWS } from "../hooks/useGridColumns";
 import {
   type HomeSection as HomeSectionType,
   type MediaItemType,
@@ -497,8 +498,8 @@ function TrackListSection({
     });
   };
 
-  // Display up to 16 items in a multi-column grid
-  const displayItems = items.slice(0, 16);
+  const { gridRef, columns } = useGridColumns(items.length);
+  const displayItems = fitRows(items, columns);
 
   return (
     <section className="mb-8">
@@ -515,7 +516,15 @@ function TrackListSection({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-1">
+      <div
+        ref={gridRef}
+        className="grid gap-x-6 gap-y-1"
+        style={{
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${GRID_ROWS}, auto)`,
+          gridAutoFlow: "column",
+        }}
+      >
         {displayItems.map((item: any, idx: number) => {
           const myTracks = isMyTracksItem(item);
           return (
@@ -638,7 +647,8 @@ function CompactGridSection({
   const { navigateToViewAll, navigateToAlbum } = useNavigation();
   const { playFromSource } = usePlaybackActions();
   const playMedia = useMediaPlay();
-  const displayItems = items.slice(0, 16);
+  const { gridRef, columns } = useGridColumns(items.length);
+  const displayItems = fitRows(items, columns);
 
   // Track context menu (for track items)
   const [trackContextMenu, setTrackContextMenu] = useState<{
@@ -758,7 +768,15 @@ function CompactGridSection({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-x-6 gap-y-1">
+      <div
+        ref={gridRef}
+        className="grid gap-x-6 gap-y-1"
+        style={{
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${GRID_ROWS}, auto)`,
+          gridAutoFlow: "column",
+        }}
+      >
         {displayItems.map((item: any, idx: number) => {
           const isTrack = isTrackItem(item, typeHint);
           const myTracks = isMyTracksItem(item);

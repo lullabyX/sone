@@ -14,6 +14,7 @@ import {
 } from "../types";
 import HomeSection from "./HomeSection";
 import MediaContextMenu from "./MediaContextMenu";
+import { safeErrorMessage } from "../lib/errorUtils";
 import {
   getItemImage,
   getItemTitle,
@@ -54,6 +55,7 @@ export default function Home() {
   const sections = activeEntry?.sections ?? [];
   const cursor = activeEntry?.cursor ?? null;
   const [loading, setLoading] = useState<boolean>(!activeEntry);
+  const [error, setError] = useState<string | null>(null);
   const [, forceRender] = useState(0); // bump to re-render after async cache writes
   const activeTypeRef = useRef(activeType);
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function Home() {
   const revalidatingRef = useRef(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const failedCursorRef = useRef<string | null>(null);
 
   // Context menu state for quick-access shortcut cards
   const [contextMenu, setContextMenu] = useState<{
@@ -229,8 +232,14 @@ export default function Home() {
         }
 
         lastLoadedAtRef.current = Date.now();
+        if (slugOf(activeTypeRef.current) === slug) setError(null);
       } catch (e) {
         console.error("Failed to load home tab", feedType, e);
+        // Only the tab on screen gets to set the error — background prefetches
+        // of the other tabs must not paint over a feed that loaded fine.
+        if (slugOf(activeTypeRef.current) === slug) {
+          setError(safeErrorMessage(e, "Failed to load home"));
+        }
       } finally {
         if (isRevalidation) revalidatingRef.current = false;
         if (slugOf(activeTypeRef.current) === slug) setLoading(false);
@@ -255,6 +264,7 @@ export default function Home() {
   const handleTabClick = useCallback(
     (feedType: string) => {
       setActiveType(feedType);
+      setError(null);
       if (!tabCache.has(slugOf(feedType))) {
         setLoading(true);
         loadTab(feedType, false);
@@ -264,6 +274,12 @@ export default function Home() {
     },
     [loadTab],
   );
+
+  const handleRetry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    loadTab(activeTypeRef.current, false);
+  }, [loadTab]);
 
   // Revalidate on window focus / tab visibility — covers the case where the
   // app stays open past the cache TTL and nothing else triggers a re-fetch.
@@ -295,10 +311,16 @@ export default function Home() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && cursor && !loadingMore) {
+        if (
+          entries[0].isIntersecting &&
+          cursor &&
+          !loadingMore &&
+          cursor !== failedCursorRef.current
+        ) {
           setLoadingMore(true);
           getHomePageMore(cursor, activeType)
             .then((result) => {
+              failedCursorRef.current = null;
               const slug = slugOf(activeType);
               const prev = tabCache.get(slug);
               if (prev) {
@@ -311,6 +333,10 @@ export default function Home() {
               }
             })
             .catch((err) => {
+              // The sentinel is still on screen, so without remembering which
+              // cursor failed the observer would re-fire the same doomed
+              // request as soon as loadingMore flips back to false.
+              failedCursorRef.current = cursor;
               console.error("Failed to load more home sections:", err);
             })
             .finally(() => {
@@ -428,6 +454,39 @@ export default function Home() {
               </div>
             </div>
           ))}
+        </PageContainer>
+      </div>
+    );
+  }
+
+  // A feed that came back with nothing used to render as a bare container —
+  // indistinguishable from a broken app. Say which of the two it is, and when
+  // it's a failure, offer the retry instead of waiting out the cache TTL.
+  if (sections.length === 0) {
+    return (
+      <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+        <PageContainer className="px-6 py-8">
+          {renderTabBar("mb-8")}
+          <div className="text-center py-20">
+            {error ? (
+              <>
+                <p className="text-th-text-primary text-sm font-semibold">
+                  Couldn't load Home
+                </p>
+                <p className="text-th-text-faint text-xs mt-1">{error}</p>
+                <button
+                  onClick={handleRetry}
+                  className="mt-4 px-4 py-2 text-[12px] font-bold border border-th-border-subtle rounded-full text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+                >
+                  Retry
+                </button>
+              </>
+            ) : (
+              <p className="text-th-text-muted text-sm">
+                Nothing to show here yet
+              </p>
+            )}
+          </div>
         </PageContainer>
       </div>
     );

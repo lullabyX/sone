@@ -6,6 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const APPLICATION_ID: &str = "1482171472167436308";
 
+/// SONE logo drawn as the small badge over the album art's corner.
+const SONE_LOGO_URL: &str = "https://raw.githubusercontent.com/lullabyX/sone/master/sone.png";
+
 /// How often an idle Discord thread retries, or re-publishes to notice that
 /// the connection has gone away.
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(30);
@@ -310,7 +313,10 @@ fn publish_activity(client: &mut SoneDiscordClient, current: &CurrentActivity) -
     // Album art + quality hover text
     let assets;
     if !current.art_url.is_empty() {
-        let mut a = activity::Assets::new().large_image(current.art_url.clone());
+        let mut a = activity::Assets::new()
+            .large_image(current.art_url.clone())
+            .small_image(SONE_LOGO_URL)
+            .small_text("SONE for TIDAL");
         if !current.quality_text.is_empty() {
             a = a.large_text(current.quality_text.clone());
         }

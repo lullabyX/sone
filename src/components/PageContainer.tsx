@@ -10,7 +10,7 @@ export default function PageContainer({
   return (
     <div
       className={`mx-auto w-full ${className}`.trim()}
-      style={{ maxWidth: 1872 }}
+      style={{ maxWidth: 1520 }}
     >
       {children}
     </div>

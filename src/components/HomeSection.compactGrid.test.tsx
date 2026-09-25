@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  it,
+  expect,
+  vi,
+} from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import type { PropsWithChildren } from "react";
@@ -56,6 +65,24 @@ vi.mock("../hooks/useFavorites", () => ({
 }));
 
 import HomeSection from "./HomeSection";
+
+// jsdom lays nothing out, so the grid would measure 0px and fall to one
+// column. 937px is what the grid measures in the app: three columns.
+const clientWidth = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "clientWidth",
+);
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => 937,
+  });
+});
+afterAll(() => {
+  if (clientWidth) {
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", clientWidth);
+  }
+});
 
 // Shapes copied from a real v2 home feed "Recently played" section
 // (moduleId CONTINUE_LISTEN_TO): items arrive unwrapped, carrying _itemType.
