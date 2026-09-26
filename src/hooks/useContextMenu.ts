@@ -2,6 +2,7 @@ import {
   useRef,
   useState,
   useEffect,
+  useLayoutEffect,
   type RefObject,
   type CSSProperties,
 } from "react";
@@ -26,8 +27,13 @@ export function useContextMenu({
   onClose,
 }: UseContextMenuOptions) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
   const [isPositioned, setIsPositioned] = useState(false);
   const [pos, setPos] = useState({ top: -9999, left: -9999 });
+
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   // Position the menu after first paint so we can measure its size.
   useEffect(() => {
@@ -83,6 +89,50 @@ export function useContextMenu({
   }, [cursorPosition, anchorRef, anchorGap]);
 
   useEscapeDismiss(!suppressClose, onClose, DISMISS_PRIORITY.contextMenu);
+
+  // A right-click can continue as a drag into the menu, releasing on an item will select it
+  const cursorX = cursorPosition?.x;
+  const cursorY = cursorPosition?.y;
+  useEffect(() => {
+    if (cursorX === undefined || cursorY === undefined || suppressClose) return;
+
+    let armed = true;
+    let dragged = false;
+    const dragSlop = 8;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (Math.hypot(e.clientX - cursorX, e.clientY - cursorY) > dragSlop) {
+        dragged = true;
+      }
+    };
+    const handleMouseDown = () => {
+      armed = false;
+    };
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!armed) return;
+      armed = false;
+      if (!dragged) return;
+
+      const target = e.target;
+      const menu = menuRef.current;
+      const button =
+        target instanceof Element ? target.closest("button") : null;
+      if (button && menu?.contains(button)) {
+        button.click();
+      } else if (!target || !menu?.contains(target as Node)) {
+        onCloseRef.current();
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove, true);
+    document.addEventListener("mousedown", handleMouseDown, true);
+    document.addEventListener("mouseup", handleMouseUp, true);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove, true);
+      document.removeEventListener("mousedown", handleMouseDown, true);
+      document.removeEventListener("mouseup", handleMouseUp, true);
+    };
+  }, [cursorX, cursorY, suppressClose]);
 
   // Dismiss on click-outside
   useEffect(() => {
