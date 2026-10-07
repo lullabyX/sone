@@ -1,53 +1,24 @@
 import { useCallback, useRef } from "react";
 import { usePlaybackActions } from "./usePlaybackActions";
-import { fetchMediaTracks } from "../api/tidal";
-import { isTrackUnavailable } from "../lib/trackAvailability";
+import { usePlaySource } from "./usePlaySource";
+import { useToast } from "../contexts/ToastContext";
+import { playableFromMedia } from "../lib/trackSources";
 import type { MediaItemType, Track } from "../types";
 
 const PLAY_REENTRY_GUARD_MS = 250;
 
-function buildSource(item: MediaItemType, tracks: Track[]) {
-  switch (item.type) {
-    case "album":
-      return {
-        type: "album" as const,
-        id: item.id,
-        name: item.title,
-        image: item.cover,
-        allTracks: tracks,
-      };
-    case "playlist":
-      return {
-        type: "playlist" as const,
-        id: item.uuid,
-        name: item.title,
-        image: item.image,
-        allTracks: tracks,
-      };
-    case "mix":
-      return {
-        type: "mix" as const,
-        id: item.mixId,
-        name: item.title,
-        image: item.image,
-        subtitle: item.subtitle,
-        allTracks: tracks,
-      };
-    default:
-      return undefined;
-  }
-}
-
 export function useMediaPlay() {
-  const { playTrack, setQueueTracks, playNext } = usePlaybackActions();
+  const { playTrack, setQueueTracks } = usePlaybackActions();
+  const playSource = usePlaySource();
+  const { showToast } = useToast();
   const lastInvokeRef = useRef(0);
 
   return useCallback(
     async (item: MediaItemType) => {
-      // Skip duplicate fetchMediaTracks on rapid double-clicks of a card.
+      // Skip duplicate fetches on rapid double-clicks of a card.
       const now = Date.now();
       if (now - lastInvokeRef.current < PLAY_REENTRY_GUARD_MS) {
-        return;
+        return false;
       }
       lastInvokeRef.current = now;
       // Video plays through the queue dispatch as a single-item video so
@@ -62,33 +33,17 @@ export function useMediaPlay() {
           duration: item.duration,
           artist: item.artist ? { id: 0, name: item.artist } : undefined,
         } as Track);
-        return;
+        return true;
       }
       try {
-        const tracks = await fetchMediaTracks(item);
-        if (tracks.length > 0) {
-          const [first, ...rest] = tracks;
-          const source = buildSource(item, tracks);
-          setQueueTracks(rest, source ? { source } : undefined);
-          if (isTrackUnavailable(first)) {
-            // First track flagged unavailable — let the skip-loop pull the next playable.
-            await playNext({ explicit: true });
-            return;
-          }
-          const result = await playTrack(first);
-          if (!result.ok && result.reason === "unplayable") {
-            await playNext({ explicit: true });
-          } else if (!result.ok && result.reason === "rate-limited") {
-            // The queue was set to `rest`, and playTrack's auto-resume is a
-            // playNext() — put `first` back at the head so the retry replays
-            // the track the user clicked instead of the one after it.
-            setQueueTracks([first, ...rest], source ? { source } : undefined);
-          }
-        }
+        const playable = await playableFromMedia(item);
+        return playable ? await playSource(playable) : false;
       } catch (err) {
         console.error("Failed to play media:", err);
+        showToast("Failed to play", "error");
+        return false;
       }
     },
-    [playTrack, setQueueTracks, playNext],
+    [playTrack, setQueueTracks, playSource, showToast],
   );
 }

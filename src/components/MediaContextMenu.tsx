@@ -23,6 +23,7 @@ import { useToast } from "../contexts/ToastContext";
 import { type MediaItemType, type Track } from "../types";
 import { fetchMediaTracks } from "../api/tidal";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useContextMenu } from "../hooks/useContextMenu";
@@ -47,8 +48,7 @@ export default function MediaContextMenu({
   sourceFolderId,
   onClose,
 }: MediaContextMenuProps) {
-  const { playTrack, setQueueTracks, addToQueue, playNextInQueue } =
-    usePlaybackActions();
+  const { addToQueue, playNextInQueue } = usePlaybackActions();
   const {
     favoriteAlbumIds,
     addFavoriteAlbum,
@@ -177,53 +177,12 @@ export default function MediaContextMenu({
     [item, fetchMediaTracks, onClose, showToast],
   );
 
-  const handlePlayNow = useCallback(() => {
-    withTracks(
-      "play",
-      (tracks) => {
-        const [first, ...rest] = tracks;
-        let source:
-          | {
-              type: string;
-              id: string | number;
-              name: string;
-              image?: string;
-              subtitle?: string;
-              allTracks: Track[];
-            }
-          | undefined;
-        if (item.type === "album") {
-          source = {
-            type: "album",
-            id: item.id,
-            name: item.title,
-            image: item.cover,
-            allTracks: tracks,
-          };
-        } else if (item.type === "playlist") {
-          source = {
-            type: "playlist",
-            id: item.uuid,
-            name: item.title,
-            image: item.image,
-            allTracks: tracks,
-          };
-        } else if (item.type === "mix") {
-          source = {
-            type: "mix",
-            id: item.mixId,
-            name: item.title,
-            image: item.image,
-            subtitle: item.subtitle,
-            allTracks: tracks,
-          };
-        }
-        setQueueTracks(rest, source ? { source } : undefined);
-        playTrack(first);
-      },
-      `Now playing "${itemLabel}"`,
-    );
-  }, [withTracks, playTrack, setQueueTracks, itemLabel, item]);
+  const playMedia = useMediaPlay();
+
+  const handlePlayNow = useCallback(async () => {
+    onClose();
+    if (await playMedia(item)) showToast(`Now playing "${itemLabel}"`);
+  }, [playMedia, item, itemLabel, showToast, onClose]);
 
   const handlePlayNext = useCallback(() => {
     withTracks(

@@ -27,12 +27,11 @@ import {
 import { authTokensAtom } from "../atoms/auth";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
 import { usePlaybackActions } from "./usePlaybackActions";
+import { usePlaySource } from "./usePlaySource";
 import {
   getTrack,
-  getPlaylistTracks,
   getPlaylistDetails,
   getMixItems,
-  getArtistTopTracks,
   getArtistDetail,
   getAlbumDetail,
   getAlbumPage,
@@ -45,100 +44,87 @@ import {
   removeArtistFromFollowedCache,
   removeTrackFromFavoritesCache,
 } from "../api/tidal";
+import {
+  artistTopTracksPager,
+  playlistTracksPager,
+  type PlayableSource,
+} from "../lib/trackSources";
 import type { Track, Playlist, PlaylistOrFolder } from "../types";
 
-type SourceData = {
-  tracks: Track[];
-  source: {
-    type: string;
-    id: string | number;
-    name: string;
-    image?: string;
-    subtitle?: string;
-    mixType?: string;
-    allTracks: Track[];
-  };
-  albumMode?: boolean;
-};
-
-async function fetchSourceWithMetadata(
+async function playableForSource(
   sourceType: string,
   id: string,
-): Promise<SourceData | null> {
+): Promise<PlayableSource | null> {
   if (sourceType === "playlist") {
-    const tracks = await getPlaylistTracks(id);
+    const fetchPage = playlistTracksPager(id);
     try {
       const details = await getPlaylistDetails(id);
       return {
-        tracks,
-        source: {
+        meta: {
           type: "playlist",
           id,
           name: details.title,
           image: details.squareImage ?? details.image,
-          allTracks: tracks,
         },
+        loaded: [],
+        fetchPage,
       };
     } catch {
       // metadata fetch failed — fall back to tracks-only
       return {
-        tracks,
-        source: { type: "playlist", id, name: "Playlist", allTracks: tracks },
+        meta: { type: "playlist", id, name: "Playlist" },
+        loaded: [],
+        fetchPage,
       };
     }
   } else if (sourceType === "album") {
     const { page } = await getAlbumPage(Number(id));
-    const tracks = page.tracks;
     return {
-      tracks,
-      source: {
+      meta: {
         type: "album",
         id: Number(id),
         name: page.album.title,
         image: page.album.cover,
-        allTracks: tracks,
       },
+      loaded: page.tracks,
       albumMode: true,
     };
   } else if (sourceType === "artist") {
-    const tracks = await getArtistTopTracks(Number(id));
+    const fetchPage = artistTopTracksPager(Number(id));
     try {
       const detail = await getArtistDetail(Number(id));
       return {
-        tracks,
-        source: {
+        meta: {
           type: "artist",
           id: Number(id),
           name: detail.name,
           image: detail.picture ?? undefined,
           subtitle: "Top tracks",
-          allTracks: tracks,
         },
+        loaded: [],
+        fetchPage,
+        dedupe: true,
       };
     } catch {
       // metadata fetch failed — fall back to tracks-only
       return {
-        tracks,
-        source: {
-          type: "artist",
-          id: Number(id),
-          name: "Artist",
-          allTracks: tracks,
-        },
+        meta: { type: "artist", id: Number(id), name: "Artist" },
+        loaded: [],
+        fetchPage,
+        dedupe: true,
       };
     }
   } else if (sourceType === "mix") {
     const result = await getMixItems(id);
     return {
-      tracks: result.tracks,
-      source: {
+      meta: {
         type: "mix",
         id,
         name: result.title ?? "Mix",
         image: result.image ?? undefined,
         mixType: result.mixType ?? undefined,
-        allTracks: result.tracks,
       },
+      loaded: result.tracks,
     };
   }
   return null;
@@ -168,12 +154,16 @@ export function useMcpBridge() {
   const setRepeat = useSetAtom(repeatAtom);
   const setShuffle = useSetAtom(shuffleAtom);
   const actions = usePlaybackActions();
+  const playSource = usePlaySource();
   const store = useStore();
 
   // Refs so listener closures always read the latest values without
   // forcing the listener effect to re-run on every state change.
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+
+  const playSourceRef = useRef(playSource);
+  playSourceRef.current = playSource;
 
   const manualQueueRef = useRef(manualQueue);
   manualQueueRef.current = manualQueue;
@@ -266,13 +256,8 @@ export function useMcpBridge() {
         async (e) => {
           const { sourceType, id } = e.payload;
           try {
-            const data = await fetchSourceWithMetadata(sourceType, id);
-            if (!data || data.tracks.length === 0) return;
-            const opts: { source: typeof data.source; albumMode?: boolean } = {
-              source: data.source,
-            };
-            if (data.albumMode) opts.albumMode = true;
-            await actionsRef.current.playAllFromSource(data.tracks, opts);
+            const playable = await playableForSource(sourceType, id);
+            if (playable) await playSourceRef.current(playable);
           } catch (err) {
             console.error("mcp:play-source failed:", err);
           }
@@ -286,14 +271,13 @@ export function useMcpBridge() {
         async (e) => {
           const { sourceType, id } = e.payload;
           try {
-            const data = await fetchSourceWithMetadata(sourceType, id);
-            if (!data || data.tracks.length === 0) return;
+            // Global shuffle on, as before; undo it if nothing could be played.
+            const playable = await playableForSource(sourceType, id);
+            if (!playable) return;
+            const prevShuffle = store.get(shuffleAtom);
             setShuffle(true);
-            const opts: { source: typeof data.source; albumMode?: boolean } = {
-              source: data.source,
-            };
-            if (data.albumMode) opts.albumMode = true;
-            await actionsRef.current.playAllFromSource(data.tracks, opts);
+            if (!(await playSourceRef.current(playable)))
+              setShuffle(prevShuffle);
           } catch (err) {
             console.error("mcp:shuffle-source failed:", err);
           }
