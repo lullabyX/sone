@@ -16,6 +16,7 @@ import {
   historyAtom,
   playbackSourceAtom,
   contextSourceAtom,
+  queueEpochAtom,
 } from "../../atoms/playback";
 import { videoCoversAtom } from "../../atoms/ui";
 import Toggle from "../Toggle";
@@ -155,6 +156,7 @@ export default function PlaybackTab() {
               store.set(historyAtom, []);
               store.set(playbackSourceAtom, null);
               store.set(contextSourceAtom, null);
+              store.set(queueEpochAtom, store.get(queueEpochAtom) + 1);
             }}
           >
             <Toggle on={allowExplicit} />

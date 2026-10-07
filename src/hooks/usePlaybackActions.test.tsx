@@ -15,6 +15,8 @@ import {
   contextSourceAtom,
   manualQueueAtom,
   consecutiveFailCountAtom,
+  allowExplicitAtom,
+  queueEpochAtom,
 } from "../atoms/playback";
 import { getProxyBlockedReason } from "../lib/errorUtils";
 import type { Track } from "../types";
@@ -254,5 +256,118 @@ describe("repeat-one says why when a track is refused", () => {
     // track, and must not drop the track that is still loaded.
     expect(screen.queryByText(/Track unavailable/)).toBeNull();
     expect(store.get(currentTrackAtom)?.id).toBe(7);
+  });
+});
+
+describe("queue epoch and shuffle-play primitives", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+    // An earlier describe leaves play_tidal_track rejecting; reset it.
+    playResult = () => Promise.resolve({});
+    cleanup();
+  });
+
+  it("bumps the epoch on queue replacement but not on reorder or append", () => {
+    const { store, result } = setup();
+    act(() => {
+      result.current.setQueueTracks(tracks(3));
+    });
+    expect(store.get(queueEpochAtom)).toBe(1);
+    act(() => {
+      result.current.setQueueTracks(tracks(3), { reorder: true });
+      result.current.appendToQueue([track({ id: 9 })]);
+    });
+    expect(store.get(queueEpochAtom)).toBe(1);
+    act(() => {
+      result.current.setShuffledQueue(tracks(3));
+      result.current.clearQueue();
+    });
+    expect(store.get(queueEpochAtom)).toBe(3);
+  });
+
+  it("playAllFromSource({ shuffle }) shuffles but leaves shuffle mode off", async () => {
+    const { store, result } = setup();
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    let started = false;
+    await act(async () => {
+      started = await result.current.playAllFromSource(tracks(5), {
+        shuffle: true,
+      });
+    });
+    expect(started).toBe(true);
+    expect(store.get(shuffleAtom)).toBe(false);
+    expect(store.get(originalQueueAtom)).toBeNull();
+    expect(store.get(currentTrackAtom)?.id).toBe(5);
+    expect(
+      store
+        .get(queueAtom)
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual([1, 2, 3, 4]);
+    expect(store.get(queueEpochAtom)).toBe(1);
+  });
+
+  it("playAllFromSource returns false and changes nothing when nothing is playable", async () => {
+    const { store, result } = setup();
+    store.set(allowExplicitAtom, false);
+    let started = true;
+    await act(async () => {
+      started = await result.current.playAllFromSource([
+        track({ id: 1, explicit: true } as Partial<Track>),
+      ]);
+    });
+    expect(started).toBe(false);
+    expect(store.get(queueEpochAtom)).toBe(0);
+    expect(store.get(currentTrackAtom)).toBeNull();
+  });
+
+  it("appendToQueue({ shuffle }) inserts at random positions with shuffle mode off", () => {
+    const { store, result } = setup();
+    act(() => {
+      result.current.setQueueTracks(tracks(3));
+    });
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    act(() => {
+      result.current.appendToQueue([track({ id: 10 }), track({ id: 11 })], {
+        shuffle: true,
+      });
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([11, 10, 1, 2, 3]);
+    expect(store.get(originalQueueAtom)).toBeNull();
+    expect(store.get(shuffleAtom)).toBe(false);
+  });
+
+  it("appendToQueue({ source }) updates the matching context source, not the playing item's", () => {
+    const { store, result } = setup();
+    const ctx = { type: "playlist", id: "p1", name: "P", tracks: [] };
+    const item = { type: "album", id: 5, name: "A", tracks: [] };
+    act(() => {
+      store.set(playbackSourceAtom, item as never);
+      store.set(contextSourceAtom, ctx as never);
+      result.current.appendToQueue([track({ id: 10 })], {
+        source: { type: "playlist", id: "p1" },
+      });
+    });
+    expect(store.get(contextSourceAtom)?.tracks.map((t) => t.id)).toEqual([10]);
+    expect(store.get(playbackSourceAtom)?.tracks).toHaveLength(0);
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([10]);
+  });
+
+  it("shuffled append still drops explicit tracks", () => {
+    const { store, result } = setup();
+    act(() => {
+      store.set(allowExplicitAtom, false);
+      result.current.setQueueTracks(tracks(2));
+      result.current.appendToQueue(
+        [
+          track({ id: 10, explicit: true } as Partial<Track>),
+          track({ id: 11 }),
+        ],
+        { shuffle: true },
+      );
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).not.toContain(10);
+    expect(store.get(queueAtom).map((t) => t.id)).toContain(11);
   });
 });

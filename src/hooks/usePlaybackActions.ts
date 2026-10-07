@@ -32,6 +32,7 @@ import {
   bitPerfectPreviousStateAtom,
   consecutiveFailCountAtom,
   userPausedAtom,
+  queueEpochAtom,
 } from "../atoms/playback";
 import {
   currentVideoAtom,
@@ -707,6 +708,10 @@ export function usePlaybackActions() {
     [store],
   );
 
+  const bumpQueueEpoch = useCallback(() => {
+    store.set(queueEpochAtom, store.get(queueEpochAtom) + 1);
+  }, [store]);
+
   const setQueueTracks = useCallback(
     (
       tracks: Track[],
@@ -733,6 +738,7 @@ export function usePlaybackActions() {
         store.set(queueAtom, stamped.slice(mc));
         return;
       }
+      bumpQueueEpoch();
       const filterExplicit = !store.get(allowExplicitAtom);
       const eligible = filterExplicit
         ? tracks.filter((t) => !t.explicit)
@@ -757,11 +763,17 @@ export function usePlaybackActions() {
       );
       store.set(queueAtom, stampQids(eligible.map(normalizeTrack)));
     },
-    [store],
+    [store, bumpQueueEpoch],
   );
 
   const appendToQueue = useCallback(
-    (newTracks: Track[]) => {
+    (
+      newTracks: Track[],
+      options?: {
+        shuffle?: boolean;
+        source?: { type: string; id: string | number };
+      },
+    ) => {
       const filterExplicit = !store.get(allowExplicitAtom);
       const eligible = filterExplicit
         ? newTracks.filter((t) => !t.explicit)
@@ -769,22 +781,33 @@ export function usePlaybackActions() {
       if (eligible.length === 0) return;
       const stamped = stampQids(eligible.map(normalizeTrack));
 
-      // Append to playbackSourceAtom.tracks
-      const source = store.get(playbackSourceAtom);
-      if (source) {
+      const owner = options?.source;
+      const matches = (s: PlaybackSource | null) =>
+        !!s && (!owner || (s.type === owner.type && s.id === owner.id));
+      const playing = store.get(playbackSourceAtom);
+      if (matches(playing)) {
         store.set(playbackSourceAtom, {
-          ...source,
-          tracks: [...source.tracks, ...stamped],
+          ...playing!,
+          tracks: [...playing!.tracks, ...stamped],
         });
+      } else if (owner) {
+        const ctx = store.get(contextSourceAtom);
+        if (matches(ctx)) {
+          store.set(contextSourceAtom, {
+            ...ctx!,
+            tracks: [...ctx!.tracks, ...stamped],
+          });
+        }
       }
 
-      if (store.get(shuffleAtom)) {
-        // Append to originalQueueAtom in order
-        const orig = store.get(originalQueueAtom);
-        if (orig) {
-          store.set(originalQueueAtom, [...orig, ...stamped]);
+      const shuffleMode = store.get(shuffleAtom);
+      if (shuffleMode || options?.shuffle) {
+        if (shuffleMode) {
+          const orig = store.get(originalQueueAtom);
+          if (orig) {
+            store.set(originalQueueAtom, [...orig, ...stamped]);
+          }
         }
-        // Insert into queueAtom at random positions
         const queue = [...store.get(queueAtom)];
         for (const track of stamped) {
           const idx = Math.floor(Math.random() * (queue.length + 1));
@@ -792,7 +815,6 @@ export function usePlaybackActions() {
         }
         store.set(queueAtom, queue);
       } else {
-        // Append to end of queueAtom
         store.set(queueAtom, [...store.get(queueAtom), ...stamped]);
       }
     },
@@ -1146,6 +1168,7 @@ export function usePlaybackActions() {
               if (fresh.length > 0) {
                 const [next, ...rest] = fresh;
                 autoplayIdsRef.current = new Set(rest.map((t) => t.id));
+                bumpQueueEpoch();
                 store.set(queueAtom, stampQids(rest.map(normalizeTrack)));
                 store.set(useTrackGainAtom, true); // radio = mixed context
                 const result = await playTrack(next, { chosenByUser: false });
@@ -1179,7 +1202,7 @@ export function usePlaybackActions() {
         playNextLockRef.current = false;
       }
     },
-    [store, playTrack, scheduleRateLimitResume, requeueHead],
+    [store, playTrack, scheduleRateLimitResume, requeueHead, bumpQueueEpoch],
   );
 
   playNextRef.current = playNext;
@@ -1502,6 +1525,7 @@ export function usePlaybackActions() {
         albumMode?: boolean;
       },
     ) => {
+      bumpQueueEpoch();
       const filterExplicit = !store.get(allowExplicitAtom);
       const eligible = filterExplicit
         ? tracks.filter((t) => !t.explicit)
@@ -1528,7 +1552,7 @@ export function usePlaybackActions() {
           : null,
       );
     },
-    [store],
+    [store, bumpQueueEpoch],
   );
 
   const playFromQueue = useCallback(
@@ -1632,16 +1656,17 @@ export function usePlaybackActions() {
           allTracks: Track[];
         };
         albumMode?: boolean;
+        shuffle?: boolean;
       },
-    ) => {
+    ): Promise<boolean> => {
       const filterExplicit = !store.get(allowExplicitAtom);
       const eligible = allTracks.filter(
         (t) => !isTrackUnavailable(t) && (!filterExplicit || !t.explicit),
       );
-      if (eligible.length === 0) return;
+      if (eligible.length === 0) return false;
       store.set(consecutiveFailCountAtom, 0);
       let first: Track;
-      if (store.get(shuffleAtom)) {
+      if (options?.shuffle || store.get(shuffleAtom)) {
         const firstIdx = Math.floor(Math.random() * eligible.length);
         first = eligible[firstIdx];
         const rest = eligible.filter((_, i) => i !== firstIdx);
@@ -1657,17 +1682,19 @@ export function usePlaybackActions() {
       } else if (!result.ok && result.reason === "rate-limited") {
         requeueHead(first);
       }
+      return true;
     },
     [store, playTrack, setQueueTracks, setShuffledQueue, playNext, requeueHead],
   );
 
   const clearQueue = useCallback(() => {
+    bumpQueueEpoch();
     store.set(queueAtom, []);
     store.set(manualQueueAtom, []);
     store.set(originalQueueAtom, null);
     store.set(playbackSourceAtom, null);
     store.set(contextSourceAtom, null);
-  }, [store]);
+  }, [store, bumpQueueEpoch]);
 
   return {
     playTrack,
