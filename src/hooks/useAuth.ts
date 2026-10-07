@@ -27,6 +27,7 @@ import {
   historyAtom,
   streamInfoAtom,
   userPausedAtom,
+  queueEpochAtom,
 } from "../atoms/playback";
 import {
   favoriteTrackIdsAtom,
@@ -68,6 +69,7 @@ export function useAuth() {
   const setIsPlaying = useSetAtom(isPlayingAtom);
   const setCurrentTrack = useSetAtom(currentTrackAtom);
   const setQueue = useSetAtom(queueAtom);
+  const setQueueEpoch = useSetAtom(queueEpochAtom);
   const setHistory = useSetAtom(historyAtom);
   const setStreamInfo = useSetAtom(streamInfoAtom);
   const setUserPaused = useSetAtom(userPausedAtom);
@@ -240,6 +242,7 @@ export function useAuth() {
     setIsPlaying(false);
     setCurrentTrack(null);
     setQueue([]);
+    setQueueEpoch((e) => e + 1);
     try {
       await invoke("logout");
     } catch (error) {
@@ -295,6 +298,7 @@ export function useAuth() {
     setIsPlaying,
     setCurrentTrack,
     setQueue,
+    setQueueEpoch,
     setHistory,
     setStreamInfo,
     setUserPaused,
