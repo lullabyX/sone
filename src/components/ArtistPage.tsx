@@ -1,6 +1,4 @@
 import {
-  Play,
-  Pause,
   User,
   X,
   Shuffle,
@@ -17,9 +15,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { useStore } from "jotai";
-import { isPlayingAtom, currentTrackAtom } from "../atoms/playback";
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { usePlaySource } from "../hooks/usePlaySource";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
@@ -38,6 +34,8 @@ import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
 import { fetchCachedImageUrl } from "./TidalImage";
 import TrackList from "./TrackList";
+import SourcePlayButton from "./SourcePlayButton";
+import { artistTopTracksPager, type PlayableSource } from "../lib/trackSources";
 import { ArtistPageSkeleton } from "./PageSkeleton";
 import {
   getItemImage,
@@ -92,15 +90,7 @@ export default function ArtistPage({
   artistInfo,
   onBack,
 }: ArtistPageProps) {
-  const store = useStore();
-  const {
-    playTrack,
-    pauseTrack,
-    resumeTrack,
-    setShuffledQueue,
-    playFromSource,
-    playAllFromSource,
-  } = usePlaybackActions();
+  const playSource = usePlaySource();
   const playMedia = useMediaPlay();
   const {
     followedArtistIds,
@@ -277,76 +267,32 @@ export default function ArtistPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showLow]);
 
-  const trackIds = useMemo(
-    () => new Set(topTracks.map((t: any) => t.id).filter(Boolean)),
-    [topTracks],
-  );
+  const artistMeta = { type: "artist", id: artistId, name: displayName };
 
-  const handlePlayTrack = async (
-    track: any,
-    _index: number,
-    trackList: any[],
-  ) => {
-    try {
-      await playFromSource(track, trackList, {
-        source: {
-          type: "artist",
-          id: artistId,
-          name: displayName,
-          allTracks: trackList,
-        },
-      });
-    } catch (err) {
-      console.error("Failed to play artist track:", err);
-    }
+  // The preview isn't guaranteed to be a prefix of the full list, so page
+  // from 0 and let de-duplication drop the overlap.
+  const artistPlayable = (): PlayableSource => ({
+    meta: artistMeta,
+    loaded: topTracks,
+    nextOffset: 0,
+    fetchPage: artistTopTracksPager(artistId),
+    dedupe: true,
+  });
+
+  const handlePlayTrack = (track: any, _index: number, trackList: any[]) => {
+    // Only the first TRACK_LIST is the top tracks; other track sections play
+    // their own list.
+    const src: PlayableSource =
+      trackList === topTracks
+        ? artistPlayable()
+        : { meta: artistMeta, loaded: trackList };
+    void playSource(src, { startAt: track });
   };
-
-  const handlePlayAll = async () => {
-    if (topTracks.length === 0) return;
-
-    const currentTrack = store.get(currentTrackAtom);
-    const isPlaying = store.get(isPlayingAtom);
-    if (currentTrack && trackIds.has(currentTrack.id)) {
-      if (isPlaying) {
-        await pauseTrack();
-      } else {
-        await resumeTrack();
-      }
-      return;
-    }
-
-    try {
-      await playAllFromSource(topTracks, {
-        source: {
-          type: "artist",
-          id: artistId,
-          name: displayName,
-          allTracks: topTracks,
-        },
-      });
-    } catch (err) {
-      console.error("Failed to play artist tracks:", err);
-    }
+  const handlePlayAll = () => {
+    void playSource(artistPlayable());
   };
-
-  const handleShuffle = async () => {
-    if (topTracks.length === 0) return;
-    const firstIdx = Math.floor(Math.random() * topTracks.length);
-    const first = topTracks[firstIdx];
-    const rest = topTracks.filter((_, i) => i !== firstIdx);
-    try {
-      setShuffledQueue(rest, {
-        source: {
-          type: "artist",
-          id: artistId,
-          name: displayName,
-          allTracks: topTracks,
-        },
-      });
-      await playTrack(first);
-    } catch (err) {
-      console.error("Failed to shuffle artist tracks:", err);
-    }
+  const handleShuffle = () => {
+    void playSource(artistPlayable(), { shuffle: true });
   };
 
   const handleToggleFollow = async () => {
@@ -499,11 +445,6 @@ export default function ArtistPage({
     ],
   );
 
-  const artistPlaying = (() => {
-    const ct = store.get(currentTrackAtom);
-    return !!(ct && trackIds.has(ct.id) && store.get(isPlayingAtom));
-  })();
-
   if (loading) {
     return <ArtistPageSkeleton />;
   }
@@ -614,25 +555,11 @@ export default function ArtistPage({
             {/* Controls */}
             <div className="mt-6 flex items-end justify-between gap-6">
               <div className="flex items-center gap-3">
-                <button
-                  onClick={handlePlayAll}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-th-accent text-th-on-accent font-bold text-sm rounded-full shadow-lg hover:brightness-110 hover:scale-[1.03] transition-[transform,filter] duration-150"
-                >
-                  {artistPlaying ? (
-                    <Pause
-                      size={18}
-                      fill="currentColor"
-                      className="text-th-on-accent"
-                    />
-                  ) : (
-                    <Play
-                      size={18}
-                      fill="currentColor"
-                      className="text-th-on-accent"
-                    />
-                  )}
-                  {artistPlaying ? "Pause" : "Play"}
-                </button>
+                <SourcePlayButton
+                  sourceType="artist"
+                  sourceId={artistId}
+                  onPlay={handlePlayAll}
+                />
                 <button
                   onClick={handleShuffle}
                   className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
