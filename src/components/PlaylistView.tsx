@@ -826,7 +826,17 @@ export default function PlaylistView({
             onSort={handleSort}
             sortLoading={sortLoading}
             onTrackRemoved={(index) => {
+              const removed = filteredTracks[index];
               setAllTracks((prev) => prev.filter((_, i) => i !== index));
+              if (!removed) return;
+              const rawIdx = rawTracksRef.current.findIndex(
+                (t) => t.id === removed.id,
+              );
+              if (rawIdx === -1) return;
+              rawTracksRef.current = rawTracksRef.current.filter(
+                (_, i) => i !== rawIdx,
+              );
+              offsetRef.current -= 1;
             }}
             virtualize
           />
