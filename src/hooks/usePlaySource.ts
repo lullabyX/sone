@@ -81,7 +81,12 @@ export function usePlaySource() {
       try {
         while (!startNow && hasMore && playableCount < START_BATCH) {
           await fetchNext();
-          if (request !== latestRequest) return false;
+          if (
+            request !== latestRequest ||
+            store.get(queueEpochAtom) !== epochAtRequest
+          ) {
+            return false;
+          }
         }
       } catch (err) {
         console.error(`Failed to load ${meta.type} tracks:`, err);

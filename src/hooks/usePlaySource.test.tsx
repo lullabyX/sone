@@ -212,6 +212,32 @@ describe("usePlaySource", () => {
     expect(store.get(currentTrackAtom)).toBeNull();
   });
 
+  it("stops fetching the start batch once the queue is replaced", async () => {
+    const { result } = setup();
+    const first = deferred<TrackPage>();
+    const fetchPage = vi.fn(
+      (offset: number): Promise<TrackPage> =>
+        offset === 0
+          ? first.promise
+          : Promise.resolve({
+              items: range(offset + 1, offset + 10),
+              hasMore: true,
+            }),
+    );
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = result.current.play({ meta, loaded: [], fetchPage });
+    });
+    act(() => {
+      result.current.actions.setQueueTracks([]);
+    });
+    await act(async () => {
+      first.resolve({ items: range(1, 10), hasMore: true });
+      expect(await pending).toBe(false);
+    });
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps loading while a sourced Play-next item plays", async () => {
     const { store, result } = setup();
     const page = deferred<TrackPage>();
