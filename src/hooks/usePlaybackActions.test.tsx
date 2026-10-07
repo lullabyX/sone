@@ -356,6 +356,21 @@ describe("queue epoch and shuffle-play primitives", () => {
     expect(store.get(queueAtom).map((t) => t.id)).toEqual([10]);
   });
 
+  it("appendToQueue({ source }) prefers the context source when both match", () => {
+    const { store, result } = setup();
+    const ctx = { type: "playlist", id: "p1", name: "P", tracks: [] };
+    const item = { type: "playlist", id: "p1", name: "P", tracks: [] };
+    act(() => {
+      store.set(playbackSourceAtom, item as never);
+      store.set(contextSourceAtom, ctx as never);
+      result.current.appendToQueue([track({ id: 10 })], {
+        source: { type: "playlist", id: "p1" },
+      });
+    });
+    expect(store.get(contextSourceAtom)?.tracks.map((t) => t.id)).toEqual([10]);
+    expect(store.get(playbackSourceAtom)?.tracks).toHaveLength(0);
+  });
+
   it("shuffled append still drops explicit tracks", () => {
     const { store, result } = setup();
     act(() => {

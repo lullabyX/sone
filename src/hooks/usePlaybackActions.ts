@@ -784,20 +784,18 @@ export function usePlaybackActions() {
       const owner = options?.source;
       const matches = (s: PlaybackSource | null) =>
         !!s && (!owner || (s.type === owner.type && s.id === owner.id));
+      const ctx = owner ? store.get(contextSourceAtom) : null;
       const playing = store.get(playbackSourceAtom);
-      if (matches(playing)) {
+      if (matches(ctx)) {
+        store.set(contextSourceAtom, {
+          ...ctx!,
+          tracks: [...ctx!.tracks, ...stamped],
+        });
+      } else if (matches(playing)) {
         store.set(playbackSourceAtom, {
           ...playing!,
           tracks: [...playing!.tracks, ...stamped],
         });
-      } else if (owner) {
-        const ctx = store.get(contextSourceAtom);
-        if (matches(ctx)) {
-          store.set(contextSourceAtom, {
-            ...ctx!,
-            tracks: [...ctx!.tracks, ...stamped],
-          });
-        }
       }
 
       const shuffleMode = store.get(shuffleAtom);
