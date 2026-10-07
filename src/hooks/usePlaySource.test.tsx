@@ -116,22 +116,22 @@ describe("usePlaySource", () => {
   it("shuffle scatters later pages into the queue and leaves shuffle mode off", async () => {
     const { store, result } = setup();
     vi.spyOn(Math, "random").mockReturnValue(0);
-    const fetchPage = vi.fn(
-      async (): Promise<TrackPage> => ({
-        items: range(51, 60),
-        hasMore: false,
-      }),
-    );
+    const page = deferred<TrackPage>();
     await act(async () => {
       await result.current.play(
-        { meta, loaded: range(1, 50), fetchPage },
+        { meta, loaded: range(1, 50), fetchPage: () => page.promise },
         { shuffle: true },
       );
     });
+    const head = store.get(queueAtom)[0].id;
+    await act(async () => {
+      page.resolve({ items: range(51, 60), hasMore: false });
+    });
     await waitFor(() => expect(store.get(queueAtom)).toHaveLength(59));
     expect(store.get(shuffleAtom)).toBe(false);
-    // Math.random() === 0 inserts every appended track at the front.
-    expect(store.get(queueAtom)[0].id).toBe(60);
+    // Math.random() === 0 inserts every appended track right after the head.
+    expect(store.get(queueAtom)[0].id).toBe(head);
+    expect(store.get(queueAtom)[1].id).toBe(60);
   });
 
   it("starts at once from a clicked, already-loaded track and does not wrap", async () => {

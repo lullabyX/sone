@@ -810,7 +810,11 @@ export function usePlaybackActions() {
         }
         const queue = [...store.get(queueAtom)];
         for (const track of stamped) {
-          const idx = Math.floor(Math.random() * (queue.length + 1));
+          // Never in front of the head, so "up next" stays put.
+          const idx =
+            queue.length === 0
+              ? 0
+              : 1 + Math.floor(Math.random() * queue.length);
           queue.splice(idx, 0, track);
         }
         store.set(queueAtom, queue);

@@ -333,7 +333,9 @@ describe("queue epoch and shuffle-play primitives", () => {
         shuffle: true,
       });
     });
-    expect(store.get(queueAtom).map((t) => t.id)).toEqual([11, 10, 1, 2, 3]);
+    // Math.random() === 0 inserts right after the head, which never moves.
+    expect(store.get(queueAtom)[0].id).toBe(1);
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 11, 10, 2, 3]);
     expect(store.get(originalQueueAtom)).toBeNull();
     expect(store.get(shuffleAtom)).toBe(false);
   });
