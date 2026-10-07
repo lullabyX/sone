@@ -8,7 +8,7 @@ import {
   startTransition,
 } from "react";
 import { useAtomValue, useAtom } from "jotai";
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { usePlaySource } from "../hooks/usePlaySource";
 import { useAuth } from "../hooks/useAuth";
 import { useFavorites } from "../hooks/useFavorites";
 import { useViewTab } from "../hooks/useViewTab";
@@ -36,13 +36,17 @@ import DebouncedFilterInput from "./DebouncedFilterInput";
 import PageContainer from "./PageContainer";
 import SourcePlayButton from "./SourcePlayButton";
 import { DetailPageSkeleton } from "./PageSkeleton";
+import {
+  FAVORITE_TRACKS_PAGE_SIZE,
+  FAVORITE_VIDEOS_PAGE_SIZE,
+  favoriteTracksPager,
+  favoriteVideosPager,
+  type PlayableSource,
+} from "../lib/trackSources";
 
 interface FavoritesViewProps {
   onBack: () => void;
 }
-
-const PAGE_SIZE = 100;
-const VIDEO_PAGE_SIZE = 50;
 
 const FAVORITES_TABS = ["tracks", "videos"] as const;
 type FavoritesTab = (typeof FAVORITES_TABS)[number];
@@ -53,13 +57,6 @@ type FavoritesTab = (typeof FAVORITES_TABS)[number];
 export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const { authTokens } = useAuth();
-  const {
-    playTrack,
-    playFromSource,
-    playAllFromSource,
-    setShuffledQueue,
-    appendToQueue,
-  } = usePlaybackActions();
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
   const { favoriteVideoIds, addFavoriteVideo, removeFavoriteVideo } =
     useFavorites();
@@ -72,6 +69,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     position: { x: number; y: number };
   } | null>(null);
   const videosOffsetRef = useRef(0);
+  const rawVideosRef = useRef<TidalVideo[]>([]);
   const hasMoreVideosRef = useRef(true);
   const bgFetchingVideosRef = useRef(false);
   const videosSentinelRef = useRef<HTMLDivElement>(null);
@@ -98,11 +96,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const hasMoreRef = useRef(true);
 
   const bgFetchingRef = useRef(false);
-  const allTracksRef = useRef<Track[]>([]);
-
-  useEffect(() => {
-    allTracksRef.current = allTracks;
-  }, [allTracks]);
+  const rawTracksRef = useRef<Track[]>([]);
 
   const handleSort = useCallback(
     (column: string | null, direction: "ASC" | "DESC" | null) => {
@@ -148,6 +142,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     }
 
     offsetRef.current = 0;
+    rawTracksRef.current = [];
     hasMoreRef.current = true;
 
     const loadFavorites = async () => {
@@ -155,7 +150,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         const firstPage = await getFavoriteTracks(
           userId,
           0,
-          PAGE_SIZE,
+          FAVORITE_TRACKS_PAGE_SIZE,
           sortColumn ?? "DATE",
           sortDirection ?? "DESC",
         );
@@ -164,6 +159,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
         offsetRef.current = firstPage.items.length;
+        rawTracksRef.current = firstPage.items;
         hasMoreRef.current =
           firstPage.items.length < firstPage.totalNumberOfItems;
       } catch (err: any) {
@@ -188,14 +184,16 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     if (userId == null) return;
     let cancelled = false;
     videosOffsetRef.current = 0;
+    rawVideosRef.current = [];
     hasMoreVideosRef.current = true;
     bgFetchingVideosRef.current = false;
-    getFavoriteVideos(userId, 0, VIDEO_PAGE_SIZE)
+    getFavoriteVideos(userId, 0, FAVORITE_VIDEOS_PAGE_SIZE)
       .then((items) => {
         if (cancelled) return;
         setVideos(items);
         videosOffsetRef.current = items.length;
-        hasMoreVideosRef.current = items.length === VIDEO_PAGE_SIZE;
+        rawVideosRef.current = items;
+        hasMoreVideosRef.current = items.length === FAVORITE_VIDEOS_PAGE_SIZE;
         setHasMoreVideos(hasMoreVideosRef.current);
       })
       .catch((err) => {
@@ -226,41 +224,36 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     [videos, favoriteVideoIds, favIdsHydrated],
   );
 
-  // Load ALL remaining favorite-video pages (so local search covers everything,
-  // and — when a queue is playing — so prev/next reach the whole library, matching
-  // the tracks tab). `onPageFetched` receives each fresh page as it arrives.
-  const fetchRemainingVideos = useCallback(
-    async (onPageFetched?: (videos: TidalVideo[]) => void) => {
-      if (bgFetchingVideosRef.current || !hasMoreVideosRef.current) return;
-      const userId = authTokens?.user_id;
-      if (userId == null) return;
-      bgFetchingVideosRef.current = true;
-      try {
-        while (hasMoreVideosRef.current) {
-          const page = await getFavoriteVideos(
-            userId,
-            videosOffsetRef.current,
-            VIDEO_PAGE_SIZE,
-          );
-          startTransition(() => {
-            setVideos((prev) => {
-              const seen = new Set(prev.map((v) => v.id));
-              return [...prev, ...page.filter((v) => !seen.has(v.id))];
-            });
+  // Load ALL remaining favorite-video pages so local search covers everything.
+  const fetchRemainingVideos = useCallback(async () => {
+    if (bgFetchingVideosRef.current || !hasMoreVideosRef.current) return;
+    const userId = authTokens?.user_id;
+    if (userId == null) return;
+    bgFetchingVideosRef.current = true;
+    try {
+      while (hasMoreVideosRef.current) {
+        const page = await getFavoriteVideos(
+          userId,
+          videosOffsetRef.current,
+          FAVORITE_VIDEOS_PAGE_SIZE,
+        );
+        startTransition(() => {
+          setVideos((prev) => {
+            const seen = new Set(prev.map((v) => v.id));
+            return [...prev, ...page.filter((v) => !seen.has(v.id))];
           });
-          videosOffsetRef.current += page.length;
-          hasMoreVideosRef.current = page.length === VIDEO_PAGE_SIZE;
-          setHasMoreVideos(hasMoreVideosRef.current);
-          onPageFetched?.(page);
-        }
-      } catch (err) {
-        console.error("Failed to background-fetch favorite videos:", err);
-      } finally {
-        bgFetchingVideosRef.current = false;
+        });
+        videosOffsetRef.current += page.length;
+        rawVideosRef.current = [...rawVideosRef.current, ...page];
+        hasMoreVideosRef.current = page.length === FAVORITE_VIDEOS_PAGE_SIZE;
+        setHasMoreVideos(hasMoreVideosRef.current);
       }
-    },
-    [authTokens?.user_id],
-  );
+    } catch (err) {
+      console.error("Failed to background-fetch favorite videos:", err);
+    } finally {
+      bgFetchingVideosRef.current = false;
+    }
+  }, [authTokens?.user_id]);
 
   // Infinite-scroll one more page of favorite videos.
   const loadMoreVideos = useCallback(async () => {
@@ -277,14 +270,15 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       const page = await getFavoriteVideos(
         userId,
         videosOffsetRef.current,
-        VIDEO_PAGE_SIZE,
+        FAVORITE_VIDEOS_PAGE_SIZE,
       );
       setVideos((prev) => {
         const seen = new Set(prev.map((v) => v.id));
         return [...prev, ...page.filter((v) => !seen.has(v.id))];
       });
       videosOffsetRef.current += page.length;
-      hasMoreVideosRef.current = page.length === VIDEO_PAGE_SIZE;
+      rawVideosRef.current = [...rawVideosRef.current, ...page];
+      hasMoreVideosRef.current = page.length === FAVORITE_VIDEOS_PAGE_SIZE;
       setHasMoreVideos(hasMoreVideosRef.current);
     } catch (err) {
       console.error("Failed to load more favorite videos:", err);
@@ -294,48 +288,42 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   }, [loadingMoreVideos, authTokens?.user_id]);
 
   // Fetch all remaining pages in the background, appending to state as they arrive
-  const fetchRemaining = useCallback(
-    async (onPageFetched?: (items: Track[]) => void) => {
-      if (bgFetchingRef.current || !hasMoreRef.current) return;
-      const userId = authTokens?.user_id;
-      if (userId == null) return;
-      const gen = generationRef.current;
+  const fetchRemaining = useCallback(async () => {
+    if (bgFetchingRef.current || !hasMoreRef.current) return;
+    const userId = authTokens?.user_id;
+    if (userId == null) return;
+    const gen = generationRef.current;
 
-      bgFetchingRef.current = true;
-      try {
-        while (hasMoreRef.current && generationRef.current === gen) {
-          const page = await getFavoriteTracks(
-            userId,
-            offsetRef.current,
-            PAGE_SIZE,
-            sortColumn ?? "DATE",
-            sortDirection ?? "DESC",
-          );
-          if (generationRef.current !== gen) return;
+    bgFetchingRef.current = true;
+    try {
+      while (hasMoreRef.current && generationRef.current === gen) {
+        const page = await getFavoriteTracks(
+          userId,
+          offsetRef.current,
+          FAVORITE_TRACKS_PAGE_SIZE,
+          sortColumn ?? "DATE",
+          sortDirection ?? "DESC",
+        );
+        if (generationRef.current !== gen) return;
 
-          const newItems = page.items;
-          startTransition(() => {
-            setAllTracks((prev) => {
-              const seen = new Set(prev.map((t) => t.id));
-              return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
-            });
-            setTotalTracks(page.totalNumberOfItems);
+        const newItems = page.items;
+        startTransition(() => {
+          setAllTracks((prev) => {
+            const seen = new Set(prev.map((t) => t.id));
+            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
           });
-          offsetRef.current += newItems.length;
-          hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
-
-          if (onPageFetched) {
-            onPageFetched(newItems);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to background-fetch favorites:", err);
-      } finally {
-        bgFetchingRef.current = false;
+          setTotalTracks(page.totalNumberOfItems);
+        });
+        offsetRef.current += newItems.length;
+        rawTracksRef.current = [...rawTracksRef.current, ...newItems];
+        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
       }
-    },
-    [authTokens?.user_id, sortColumn, sortDirection],
-  );
+    } catch (err) {
+      console.error("Failed to background-fetch favorites:", err);
+    } finally {
+      bgFetchingRef.current = false;
+    }
+  }, [authTokens?.user_id, sortColumn, sortDirection]);
 
   // Manual load-more (infinite scroll trigger) — also kicks off full background fetch
   const loadMore = useCallback(async () => {
@@ -350,7 +338,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       const page = await getFavoriteTracks(
         userId,
         offsetRef.current,
-        PAGE_SIZE,
+        FAVORITE_TRACKS_PAGE_SIZE,
         sortColumn ?? "DATE",
         sortDirection ?? "DESC",
       );
@@ -361,6 +349,7 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
       });
       setTotalTracks(page.totalNumberOfItems);
       offsetRef.current += page.items.length;
+      rawTracksRef.current = [...rawTracksRef.current, ...page.items];
       hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
     } catch (err) {
       console.error("Failed to load more favorites:", err);
@@ -465,139 +454,76 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
     navigateToExplore();
   }, [navigateToExplore, navigateToExplorePage]);
 
+  const playSource = usePlaySource();
+
   // Stable identity so it doesn't destabilize handlePlayTrack (onPlay) and
   // defeat TrackList's memo — otherwise every tab switch re-renders the whole
   // virtualized list.
-  const favoritesSource = useCallback(
-    (allTracks: Track[]) => ({
-      type: "favorites" as const,
-      id: "favorites" as const,
-      name: "Loved Tracks",
-      allTracks,
-    }),
-    [],
-  );
+  const favoritesPlayable = useCallback((): PlayableSource => {
+    const userId = authTokens?.user_id;
+    return {
+      meta: { type: "favorites", id: "favorites", name: "Loved Tracks" },
+      loaded: rawTracksRef.current,
+      nextOffset: offsetRef.current,
+      hasMore: userId != null && hasMoreRef.current,
+      fetchPage:
+        userId != null
+          ? favoriteTracksPager(
+              userId,
+              sortColumn ?? "DATE",
+              sortDirection ?? "DESC",
+            )
+          : undefined,
+      // Drop tracks un-loved this session.
+      include: (t) => favoriteTrackIds.has(t.id),
+    };
+  }, [authTokens?.user_id, sortColumn, sortDirection, favoriteTrackIds]);
 
   const handlePlayTrack = useCallback(
-    async (track: Track, _index: number) => {
-      try {
-        await playFromSource(track, tracks, {
-          source: favoritesSource(tracks),
-        });
-
-        // Fire-and-forget: append remaining pages to queue as they arrive
-        if (hasMoreRef.current && !bgFetchingRef.current) {
-          fetchRemaining(appendToQueue);
-        }
-      } catch (err) {
-        console.error("Failed to play track:", err);
-      }
+    (track: Track, _index: number) => {
+      void playSource(favoritesPlayable(), { startAt: track });
     },
-    [tracks, favoritesSource, fetchRemaining, appendToQueue, playFromSource],
+    [playSource, favoritesPlayable],
   );
 
-  const handlePlayAll = async () => {
-    if (tracks.length === 0) return;
-    try {
-      await playAllFromSource(tracks, { source: favoritesSource(tracks) });
-
-      if (hasMoreRef.current && !bgFetchingRef.current) {
-        fetchRemaining(appendToQueue);
-      }
-    } catch (err) {
-      console.error("Failed to play loved tracks:", err);
-    }
+  const handlePlayAll = () => {
+    void playSource(favoritesPlayable());
   };
 
-  const handleShuffle = async () => {
-    if (tracks.length === 0) return;
-
-    if (hasMoreRef.current && !bgFetchingRef.current) {
-      await fetchRemaining();
-    }
-
-    const pool = (
-      allTracksRef.current.length > 0 ? allTracksRef.current : tracks
-    ).filter((t) => favoriteTrackIds.has(t.id));
-    if (pool.length === 0) return;
-
-    const firstIdx = Math.floor(Math.random() * pool.length);
-    const first = pool[firstIdx];
-    const rest = pool.filter((_, i) => i !== firstIdx);
-    try {
-      setShuffledQueue(rest, { source: favoritesSource(pool) });
-      await playTrack(first);
-    } catch (err) {
-      console.error("Failed to shuffle loved tracks:", err);
-    }
+  const handleShuffle = () => {
+    void playSource(favoritesPlayable(), { shuffle: true });
   };
 
-  // Video-tab counterparts of favoritesSource/handlePlayAll/handleShuffle. A
+  // Video-tab counterparts of favoritesPlayable/handlePlayAll/handleShuffle. A
   // distinct source id ("favorites-videos") lets the header play button reflect
   // the video queue independently of the tracks queue; type stays "favorites" so
   // "Playing from" still navigates back to this page.
-  const videosSource = useCallback(
-    (list: Track[]) => ({
-      type: "favorites" as const,
-      id: "favorites-videos" as const,
-      name: "Loved Videos",
-      allTracks: list,
-    }),
-    [],
-  );
-
-  // Grow the queue to the full favorite-video library in the background, so
-  // prev/next reach beyond the currently-loaded pages (mirrors the tracks tab).
-  const appendRemainingVideosToQueue = useCallback(() => {
-    if (hasMoreVideosRef.current && !bgFetchingVideosRef.current) {
-      fetchRemainingVideos((vids) => appendToQueue(vids.map(videoToTrack)));
-    }
-  }, [fetchRemainingVideos, appendToQueue]);
+  const videosPlayable = useCallback((): PlayableSource => {
+    const userId = authTokens?.user_id;
+    const filterLoved = favIdsHydrated || favoriteVideoIds.size > 0;
+    return {
+      meta: { type: "favorites", id: "favorites-videos", name: "Loved Videos" },
+      loaded: rawVideosRef.current.map(videoToTrack),
+      nextOffset: videosOffsetRef.current,
+      hasMore: userId != null && hasMoreVideosRef.current,
+      fetchPage: userId != null ? favoriteVideosPager(userId) : undefined,
+      include: (t) => !filterLoved || favoriteVideoIds.has(t.id),
+    };
+  }, [authTokens?.user_id, favIdsHydrated, favoriteVideoIds]);
 
   const handlePlayVideo = useCallback(
-    async (video: TidalVideo) => {
-      const list = displayedVideos.map(videoToTrack);
-      try {
-        await playFromSource(videoToTrack(video), list, {
-          source: videosSource(list),
-        });
-        appendRemainingVideosToQueue();
-      } catch (err) {
-        console.error("Failed to play video:", err);
-      }
+    (video: TidalVideo) => {
+      void playSource(videosPlayable(), { startAt: videoToTrack(video) });
     },
-    [
-      displayedVideos,
-      playFromSource,
-      videosSource,
-      appendRemainingVideosToQueue,
-    ],
+    [playSource, videosPlayable],
   );
 
-  const handlePlayAllVideos = async () => {
-    const list = displayedVideos.map(videoToTrack);
-    if (list.length === 0) return;
-    try {
-      await playAllFromSource(list, { source: videosSource(list) });
-      appendRemainingVideosToQueue();
-    } catch (err) {
-      console.error("Failed to play loved videos:", err);
-    }
+  const handlePlayAllVideos = () => {
+    void playSource(videosPlayable());
   };
 
-  const handleShuffleVideos = async () => {
-    const pool = displayedVideos.map(videoToTrack);
-    if (pool.length === 0) return;
-    const firstIdx = Math.floor(Math.random() * pool.length);
-    const first = pool[firstIdx];
-    const rest = pool.filter((_, i) => i !== firstIdx);
-    try {
-      setShuffledQueue(rest, { source: videosSource(pool) });
-      await playTrack(first);
-      appendRemainingVideosToQueue();
-    } catch (err) {
-      console.error("Failed to shuffle loved videos:", err);
-    }
+  const handleShuffleVideos = () => {
+    void playSource(videosPlayable(), { shuffle: true });
   };
 
   if (loading) {

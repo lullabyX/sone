@@ -21,7 +21,7 @@ import {
 import { useAtom, useAtomValue } from "jotai";
 import { trackSortPrefsAtom } from "../atoms/favorites";
 import { authTokensAtom, userNameAtom } from "../atoms/auth";
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { usePlaySource } from "../hooks/usePlaySource";
 import { useFavorites } from "../hooks/useFavorites";
 import { usePlaylists } from "../hooks/usePlaylists";
 import { useRestoreLoader } from "../hooks/useRestoreLoader";
@@ -49,6 +49,11 @@ import PageContainer from "./PageContainer";
 import { EditPlaylistModal } from "./AddToPlaylistMenu";
 import { DetailPageSkeleton } from "./PageSkeleton";
 import SourcePlayButton from "./SourcePlayButton";
+import {
+  PLAYLIST_PAGE_SIZE,
+  playlistTracksPager,
+  type PlayableSource,
+} from "../lib/trackSources";
 
 interface PlaylistViewProps {
   playlistId: string;
@@ -72,16 +77,6 @@ export default function PlaylistView({
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
   const userName = useAtomValue(userNameAtom);
   const userId = useAtomValue(authTokensAtom)?.user_id;
-  const {
-    playTrack,
-    setShuffledQueue,
-    appendToQueue,
-    playFromSource,
-    playAllFromSource,
-  } = usePlaybackActions();
-
-  const PAGE_SIZE = 100;
-
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [totalTracks, setTotalTracks] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -164,7 +159,7 @@ export default function PlaylistView({
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
   const bgFetchingRef = useRef(false);
-  const allTracksRef = useRef<Track[]>([]);
+  const rawTracksRef = useRef<Track[]>([]);
 
   // Recommendations state
   const RECS_BATCH = 50;
@@ -176,10 +171,6 @@ export default function PlaylistView({
   const [loadingRecs, setLoadingRecs] = useState(false);
   const { userPlaylists, addTrackToPlaylist, updatePlaylist } = usePlaylists();
   const { showToast } = useToast();
-
-  useEffect(() => {
-    allTracksRef.current = allTracks;
-  }, [allTracks]);
 
   // Fetch a batch of recommendations
   const fetchRecBatch = useCallback(
@@ -280,6 +271,7 @@ export default function PlaylistView({
     }
 
     offsetRef.current = 0;
+    rawTracksRef.current = [];
     hasMoreRef.current = true;
 
     const loadFirstPage = async () => {
@@ -287,7 +279,7 @@ export default function PlaylistView({
         const firstPage = await getPlaylistTracksPage(
           playlistId,
           0,
-          PAGE_SIZE,
+          PLAYLIST_PAGE_SIZE,
           sortColumn ?? undefined,
           sortDirection ?? undefined,
         );
@@ -296,6 +288,7 @@ export default function PlaylistView({
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
         offsetRef.current = firstPage.items.length;
+        rawTracksRef.current = firstPage.items;
         hasMoreRef.current =
           firstPage.items.length < firstPage.totalNumberOfItems;
       } catch (err: any) {
@@ -327,46 +320,40 @@ export default function PlaylistView({
   }, [playlistId, fetchRecBatch]);
 
   // Fetch all remaining pages in the background
-  const fetchRemaining = useCallback(
-    async (onPageFetched?: (items: Track[]) => void) => {
-      if (bgFetchingRef.current || !hasMoreRef.current) return;
-      const gen = generationRef.current;
+  const fetchRemaining = useCallback(async () => {
+    if (bgFetchingRef.current || !hasMoreRef.current) return;
+    const gen = generationRef.current;
 
-      bgFetchingRef.current = true;
-      try {
-        while (hasMoreRef.current && generationRef.current === gen) {
-          const page = await getPlaylistTracksPage(
-            playlistId,
-            offsetRef.current,
-            PAGE_SIZE,
-            sortColumn ?? undefined,
-            sortDirection ?? undefined,
-          );
-          if (generationRef.current !== gen) return;
+    bgFetchingRef.current = true;
+    try {
+      while (hasMoreRef.current && generationRef.current === gen) {
+        const page = await getPlaylistTracksPage(
+          playlistId,
+          offsetRef.current,
+          PLAYLIST_PAGE_SIZE,
+          sortColumn ?? undefined,
+          sortDirection ?? undefined,
+        );
+        if (generationRef.current !== gen) return;
 
-          const newItems = page.items;
-          startTransition(() => {
-            setAllTracks((prev) => {
-              const seen = new Set(prev.map((t) => t.id));
-              return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
-            });
-            setTotalTracks(page.totalNumberOfItems);
+        const newItems = page.items;
+        startTransition(() => {
+          setAllTracks((prev) => {
+            const seen = new Set(prev.map((t) => t.id));
+            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
           });
-          offsetRef.current += newItems.length;
-          hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
-
-          if (onPageFetched) {
-            onPageFetched(newItems);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to background-fetch playlist tracks:", err);
-      } finally {
-        bgFetchingRef.current = false;
+          setTotalTracks(page.totalNumberOfItems);
+        });
+        offsetRef.current += newItems.length;
+        rawTracksRef.current = [...rawTracksRef.current, ...newItems];
+        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
       }
-    },
-    [playlistId, sortColumn, sortDirection],
-  );
+    } catch (err) {
+      console.error("Failed to background-fetch playlist tracks:", err);
+    } finally {
+      bgFetchingRef.current = false;
+    }
+  }, [playlistId, sortColumn, sortDirection]);
 
   // Manual load-more for infinite scroll
   const loadMore = useCallback(async () => {
@@ -378,7 +365,7 @@ export default function PlaylistView({
       const page = await getPlaylistTracksPage(
         playlistId,
         offsetRef.current,
-        PAGE_SIZE,
+        PLAYLIST_PAGE_SIZE,
         sortColumn ?? undefined,
         sortDirection ?? undefined,
       );
@@ -390,6 +377,7 @@ export default function PlaylistView({
       });
       setTotalTracks(page.totalNumberOfItems);
       offsetRef.current += page.items.length;
+      rawTracksRef.current = [...rawTracksRef.current, ...page.items];
       hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
     } catch (err) {
       console.error("Failed to load more playlist tracks:", err);
@@ -451,91 +439,71 @@ export default function PlaylistView({
     [playlistId, setTrackSortPrefs],
   );
 
-  const playlistSource = (allTracks: Track[]) => ({
-    type: "playlist" as const,
-    id: playlistId,
-    name: effectiveInfo?.title || "Playlist",
-    image: effectiveInfo?.image,
-    allTracks,
-  });
+  const playSource = usePlaySource();
+
+  const playlistPlayable = useCallback(
+    (): PlayableSource => ({
+      meta: {
+        type: "playlist",
+        id: playlistId,
+        name: effectiveInfo?.title || "Playlist",
+        image: effectiveInfo?.image,
+      },
+      loaded: rawTracksRef.current,
+      nextOffset: offsetRef.current,
+      hasMore: hasMoreRef.current,
+      fetchPage: playlistTracksPager(
+        playlistId,
+        sortColumn ?? undefined,
+        sortDirection ?? undefined,
+      ),
+    }),
+    [
+      playlistId,
+      effectiveInfo?.title,
+      effectiveInfo?.image,
+      sortColumn,
+      sortDirection,
+    ],
+  );
 
   const handlePlayTrack = useCallback(
-    async (track: Track, _index: number) => {
-      try {
-        await playFromSource(track, tracks, {
-          source: playlistSource(tracks),
-        });
-
-        // Fire-and-forget: append remaining pages to queue as they arrive
-        if (hasMoreRef.current && !bgFetchingRef.current) {
-          fetchRemaining((items) => appendToQueue(items));
-        }
-      } catch (err) {
-        console.error("Failed to play playlist track:", err);
-      }
+    (track: Track, _index: number) => {
+      void playSource(playlistPlayable(), { startAt: track });
     },
-    [tracks, playlistSource, fetchRemaining, appendToQueue, playFromSource],
+    [playSource, playlistPlayable],
   );
 
   const handlePlayRec = useCallback(
-    async (track: Track, _index: number) => {
-      try {
-        await playFromSource(track, visibleRecs, {
-          source: {
+    (track: Track, _index: number) => {
+      void playSource(
+        {
+          meta: {
             type: "playlist-recs",
             id: playlistId,
             name: `${effectiveInfo?.title || "Playlist"}: Recommended`,
             image: effectiveInfo?.image,
-            allTracks: visibleRecs,
           },
-        });
-      } catch (err) {
-        console.error("Failed to play recommended track:", err);
-      }
+          loaded: visibleRecs,
+        },
+        { startAt: track },
+      );
     },
     [
+      playSource,
       visibleRecs,
       playlistId,
       effectiveInfo?.title,
       effectiveInfo?.image,
-      playFromSource,
     ],
   );
 
-  const handlePlayAll = async () => {
-    if (tracks.length === 0) return;
-    try {
-      await playAllFromSource(tracks, {
-        source: playlistSource(tracks),
-      });
-
-      if (hasMoreRef.current && !bgFetchingRef.current) {
-        fetchRemaining((items) => appendToQueue(items));
-      }
-    } catch (err) {
-      console.error("Failed to play playlist:", err);
-    }
+  const handlePlayAll = () => {
+    void playSource(playlistPlayable());
   };
 
-  const handleShuffle = async () => {
-    if (tracks.length === 0) return;
-
-    // If we have more pages, fetch everything first so shuffle includes all tracks
-    if (hasMoreRef.current && !bgFetchingRef.current) {
-      await fetchRemaining();
-    }
-
-    const all = allTracksRef.current.length > 0 ? allTracksRef.current : tracks;
-    if (all.length === 0) return;
-    const firstIdx = Math.floor(Math.random() * all.length);
-    const first = all[firstIdx];
-    const rest = all.filter((_, i) => i !== firstIdx);
-    try {
-      setShuffledQueue(rest, { source: playlistSource(all) });
-      await playTrack(first);
-    } catch (err) {
-      console.error("Failed to shuffle play:", err);
-    }
+  const handleShuffle = () => {
+    void playSource(playlistPlayable(), { shuffle: true });
   };
 
   // Favorite state — driven by atom for instant updates everywhere
