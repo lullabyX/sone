@@ -291,6 +291,58 @@ describe("usePlaySource", () => {
     expect(store.get(queueAtom)).toHaveLength(49);
   });
 
+  it("a failed newer press does not stop the current source loading", async () => {
+    const { store, result } = setup();
+    const page = deferred<TrackPage>();
+    await act(async () => {
+      await result.current.play({
+        meta,
+        loaded: range(1, 50),
+        fetchPage: () => page.promise,
+      });
+    });
+    store.set(allowExplicitAtom, false);
+    let started = true;
+    await act(async () => {
+      started = await result.current.play({
+        meta: { type: "album", id: 9, name: "E" },
+        loaded: range(201, 203, { explicit: true }),
+      });
+    });
+    expect(started).toBe(false);
+    expect(screen.getByText("No playable tracks")).toBeTruthy();
+    await act(async () => {
+      page.resolve({ items: range(51, 60), hasMore: false });
+    });
+    await waitFor(() => expect(store.get(queueAtom)).toHaveLength(59));
+    expect(ids(store.get(queueAtom))).toEqual(ids(range(2, 60)));
+  });
+
+  it("dedupe + include keeps paging past a page whose new ids are all excluded", async () => {
+    const { store, result } = setup();
+    const fetchPage = vi.fn(
+      async (offset: number): Promise<TrackPage> =>
+        offset === 50
+          ? { items: range(51, 60), hasMore: true }
+          : { items: range(61, 70), hasMore: false },
+    );
+    await act(async () => {
+      await result.current.play({
+        meta,
+        loaded: range(1, 50),
+        fetchPage,
+        dedupe: true,
+        include: (t) => t.id <= 50 || t.id > 60,
+      });
+    });
+    await waitFor(() => expect(store.get(queueAtom)).toHaveLength(59));
+    expect(fetchPage).toHaveBeenCalledWith(60);
+    expect(ids(store.get(queueAtom))).toEqual([
+      ...ids(range(2, 50)),
+      ...ids(range(61, 70)),
+    ]);
+  });
+
   it("non-dedupe sources keep repeated entries", async () => {
     const { store, result } = setup();
     await act(async () => {

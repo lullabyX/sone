@@ -43,17 +43,19 @@ export function usePlaySource() {
       let playableCount = 0;
       const take = (items: Track[]) => {
         const fresh: Track[] = [];
+        let newIds = 0;
         for (const t of items) {
-          if (src.include && !src.include(t)) continue;
           if (src.dedupe) {
             if (seen.has(t.id)) continue;
             seen.add(t.id);
+            newIds++;
           }
+          if (src.include && !src.include(t)) continue;
           fresh.push(t);
           if (isPlayable(t)) playableCount++;
         }
         tracks.push(...fresh);
-        return fresh;
+        return { fresh, newIds };
       };
       take(src.loaded);
 
@@ -64,12 +66,12 @@ export function usePlaySource() {
         const page = await src.fetchPage!(offset);
         pages++;
         offset += page.items.length;
-        const fresh = take(page.items);
+        const { fresh, newIds } = take(page.items);
         hasMore =
           page.hasMore &&
           page.items.length > 0 &&
           pages < MAX_PAGES &&
-          (!src.dedupe || fresh.length > 0);
+          (!src.dedupe || newIds > 0);
         return fresh;
       };
 
@@ -127,8 +129,7 @@ export function usePlaySource() {
 
       // playFromSource / playAllFromSource replace the queue exactly once.
       const ourEpoch = epochAtRequest + 1;
-      const stillOurs = () =>
-        request === latestRequest && store.get(queueEpochAtom) === ourEpoch;
+      const stillOurs = () => store.get(queueEpochAtom) === ourEpoch;
       const shuffleAppend = !!opts.shuffle && !shuffleModeAtStart;
 
       if (hasMore) {
