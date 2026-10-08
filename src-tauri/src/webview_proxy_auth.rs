@@ -48,17 +48,22 @@ fn webview_proxy_auth_action(
 
 #[cfg(target_os = "linux")]
 pub(crate) fn install(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("[proxy] main webview unavailable; proxy auth handler not installed");
+        return;
+    };
+    install_window(&window);
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn install_window(window: &tauri::WebviewWindow) {
     use webkit2gtk::glib::translate::{ToGlibPtr, ToGlibPtrMut};
     use webkit2gtk::{
         AuthenticationRequestExt, Credential, CredentialPersistence, WebViewExt,
     };
 
-    let Some(window) = app.get_webview_window("main") else {
-        log::warn!("[proxy] main webview unavailable; proxy auth handler not installed");
-        return;
-    };
-
-    let app_handle = app.clone();
+    let app_handle = window.app_handle().clone();
+    let label = window.label().to_string();
     if let Err(e) = window.with_webview(move |webview| {
         let wv: webkit2gtk::WebView = webview.inner();
         let app_handle = app_handle.clone();
@@ -120,7 +125,11 @@ pub(crate) fn install(app: &tauri::AppHandle) {
             }
         });
     }) {
-        log::warn!("[proxy] failed to install WebKit proxy auth handler: {e}");
+        log::warn!(
+            "[proxy] failed to install WebKit proxy auth handler for {label}: {e}"
+        );
+    } else {
+        log::debug!("[proxy] installed WebKit proxy auth handler for {label}");
     }
 }
 

@@ -371,6 +371,15 @@ pub fn set_discord_status_text(state: State<'_, AppState>, text: String) -> Resu
 }
 
 #[tauri::command]
+pub fn install_current_webview_proxy_auth(window: tauri::WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    crate::webview_proxy_auth::install_window(&window);
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+}
+
+#[tauri::command]
 pub fn get_proxy_settings(state: State<'_, AppState>) -> crate::ProxySettings {
     state.load_settings().map(|s| s.proxy).unwrap_or_default()
 }

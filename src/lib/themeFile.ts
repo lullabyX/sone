@@ -29,7 +29,8 @@ function warnWrite(err: unknown) {
  * write-through subscription in `AppInitializer` fires once on mount even
  * when nothing changed. Guarding on what we *would write* (rather than on the
  * bytes on disk) means a hand-written file is left alone until the theme
- * genuinely changes.
+ * genuinely changes. `applyExternalThemeFile` also uses it to skip a pushed
+ * file that carries nothing new.
  */
 let lastPersisted = "";
 
@@ -129,14 +130,14 @@ export async function recreateThemeFile(theme: Theme): Promise<void> {
 /**
  * Apply a `theme.json` payload pushed by the backend watcher.
  *
- * Synchronous and side-effect-light on purpose: the watcher already did the
- * read, so there is nothing to await, and no window in which a concurrent
- * in-app change could be clobbered.
+ * Synchronous on purpose: the watcher already did the read, so there is
+ * nothing to await.
  *
- * SONE's own writes also come back through here. `themesEqual` makes that a
- * no-op, which is what keeps write -> watch -> apply -> write from looping.
- * That only holds because `themeToFile(resolveThemeFile(f))` is an identity,
- * so the loop guard is asserted in the tests rather than left implicit.
+ * A payload equal to `lastPersisted` is ignored: it is either an echo of
+ * SONE's own write or a read taken before the debounced write of a newer
+ * in-app pick landed, and applying it would revert that pick. That only holds
+ * because `themeToFile(resolveThemeFile(f))` is an identity, so the loop
+ * guard is asserted in the tests rather than left implicit.
  */
 export function applyExternalThemeFile(
   file: ThemeFile | null,
@@ -145,6 +146,7 @@ export function applyExternalThemeFile(
 ): void {
   const resolved = resolveThemeFile(file);
   if (!resolved) return;
+  if (JSON.stringify(themeToFile(resolved)) === lastPersisted) return;
   // Armed before `setCurrent`, not after: that call writes through to storage
   // and can throw, which would strand the guard and let the write-through it
   // triggers rewrite a hand-edited file. Recorded even when nothing changed,

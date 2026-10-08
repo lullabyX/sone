@@ -807,18 +807,28 @@ export function AppInitializer() {
   //  change, so an edit lands even while unfocused or in the tray
   // ================================================================
   useEffect(() => {
+    const apply = (file: ThemeFile) =>
+      applyExternalThemeFile(
+        file,
+        () => store.get(themeAtom),
+        (t) => store.set(themeAtom, t),
+      );
     const unlisten = listen<ThemeFile | null>("theme-file-changed", (event) => {
       if (event.payload === null) {
         // Deleted while running -- put it back from the live theme.
         void recreateThemeFile(store.get(themeAtom));
         return;
       }
-      applyExternalThemeFile(
-        event.payload,
-        () => store.get(themeAtom),
-        (t) => store.set(themeAtom, t),
-      );
+      apply(event.payload);
     });
+    // An edit made between the pre-render read and this listener attaching
+    // was reported to nobody, and the watcher won't report it again.
+    void unlisten
+      .then(() => invoke<ThemeFile | null>("theme_file_get"))
+      .then((file) => {
+        if (file) apply(file);
+      })
+      .catch(() => {});
     return () => {
       void unlisten.then((fn) => fn());
     };

@@ -1138,6 +1138,7 @@ pub fn run() {
             commands::utility::set_report_plays,
             commands::utility::get_discord_status_text,
             commands::utility::set_discord_status_text,
+            commands::utility::install_current_webview_proxy_auth,
             commands::utility::get_proxy_settings,
             commands::utility::set_proxy_settings,
             commands::utility::get_proxy_status,

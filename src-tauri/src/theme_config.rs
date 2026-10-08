@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 /// Current schema version.
 pub const THEME_FILE_VERSION: u32 = 1;
@@ -195,16 +196,48 @@ pub fn write_theme_file(path: &Path, file: &ThemeFile) -> Result<(), String> {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
+/// Last `theme.json` content SONE wrote, read or reported to the frontend.
+///
+/// The watcher sees SONE's own writes, and a read taken just before a write
+/// lands can be reported after it, carrying the old file. Holding this lock
+/// across both the write and the watcher's read-and-compare means the watcher
+/// only reports content that differs from what SONE last wrote, read or
+/// reported.
+static LAST_KNOWN: Mutex<Option<ThemeFile>> = Mutex::new(None);
+
+fn last_known() -> MutexGuard<'static, Option<ThemeFile>> {
+    LAST_KNOWN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Record `current` as the on-disk state and return whether it is news.
+///
+/// Absence is always news: the frontend re-creates the file, and that write
+/// records the new content.
+fn note_disk_state(last: &mut Option<ThemeFile>, current: &Option<ThemeFile>) -> bool {
+    if current.is_some() && last == current {
+        return false;
+    }
+    *last = current.clone();
+    true
+}
+
 #[tauri::command]
 pub fn theme_file_get() -> Result<Option<ThemeFile>, String> {
     let dir = config_sone_dir()?;
-    read_theme_file(&dir.join("theme.json"))
+    let mut last = last_known();
+    let file = read_theme_file(&dir.join("theme.json"))?;
+    *last = file.clone();
+    Ok(file)
 }
 
 #[tauri::command]
 pub fn theme_file_set(file: ThemeFile) -> Result<(), String> {
     let dir = config_sone_dir()?;
-    write_theme_file(&dir.join("theme.json"), &file)
+    let normalized = validate(&file)?;
+    let mut last = last_known();
+    write_theme_file(&dir.join("theme.json"), &normalized)?;
+    *last = Some(normalized);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +259,18 @@ pub struct ThemeWatcher(#[allow(dead_code)] std::sync::Mutex<Box<dyn std::any::A
 /// which is why the watch is on the directory and the filter is on the name.
 fn event_touches(paths: &[PathBuf], target: &Path) -> bool {
     paths.iter().any(|p| p == target)
+}
+
+/// True for events that can change the file's content.
+///
+/// notify 8 also reports opens, so without this the watcher's own read of
+/// `theme.json` re-triggers it every debounce period, forever.
+fn is_content_change(kind: &notify::EventKind) -> bool {
+    use notify::EventKind;
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    )
 }
 
 /// Watch `theme.json` and emit [`THEME_FILE_CHANGED_EVENT`] when it changes.
@@ -259,18 +304,22 @@ pub fn spawn_theme_watcher(app: tauri::AppHandle) {
                     return;
                 }
             };
-            if !events.iter().any(|e| event_touches(&e.paths, &path)) {
+            if !events
+                .iter()
+                .any(|e| is_content_change(&e.kind) && event_touches(&e.paths, &path))
+            {
                 return;
             }
+            let mut last = last_known();
             match read_theme_file(&path) {
-                // The frontend ignores an echo of its own write, so emitting
-                // unconditionally is safe and keeps this side stateless.
-                //
                 // `None` means the file is gone, and the frontend re-creates it
                 // from the live theme. Debouncing means a delete-then-rewrite
                 // still reads as `Some` -- only a lasting deletion gets here.
                 Ok(file) => {
-                    let _ = tauri::Emitter::emit(&app, THEME_FILE_CHANGED_EVENT, file);
+                    if note_disk_state(&mut last, &file) {
+                        drop(last);
+                        let _ = tauri::Emitter::emit(&app, THEME_FILE_CHANGED_EVENT, file);
+                    }
                 }
                 Err(e) => log::warn!("theme: ignoring external change: {e}"),
             }
@@ -506,7 +555,7 @@ mod tests {
             move |res: DebounceEventResult| {
                 if let Ok(events) = res {
                     for e in events {
-                        let _ = tx.send(e.paths.clone());
+                        let _ = tx.send((e.kind, e.paths.clone()));
                     }
                 }
             },
@@ -524,8 +573,8 @@ mod tests {
         let mut saw_target = false;
         while std::time::Instant::now() < deadline {
             match rx.recv_timeout(Duration::from_millis(250)) {
-                Ok(paths) => {
-                    if event_touches(&paths, &path) {
+                Ok((kind, paths)) => {
+                    if is_content_change(&kind) && event_touches(&paths, &path) {
                         saw_target = true;
                         break;
                     }
@@ -538,6 +587,101 @@ mod tests {
             saw_target,
             "directory watch never reported an event naming theme.json"
         );
+    }
+
+    /// The watcher reads `theme.json` after every event, and notify 8 reports
+    /// that open. If a read counted as a change, the watcher would re-fire
+    /// every debounce period and push stale content over in-app changes.
+    #[test]
+    fn reading_the_file_is_not_a_content_change() {
+        use notify::RecursiveMode;
+        use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.json");
+        write_theme_file(&path, &custom("#3B82F6", "#0E1118")).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let mut debouncer = new_debouncer(
+            Duration::from_millis(80),
+            None,
+            move |res: DebounceEventResult| {
+                if let Ok(events) = res {
+                    for e in events {
+                        let _ = tx.send((e.kind, e.paths.clone()));
+                    }
+                }
+            },
+        )
+        .unwrap();
+        debouncer
+            .watch(dir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+
+        read_theme_file(&path).unwrap();
+
+        let mut saw_open = false;
+        let deadline = std::time::Instant::now() + Duration::from_millis(600);
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok((kind, paths)) if event_touches(&paths, &path) => {
+                    saw_open |= matches!(kind, notify::EventKind::Access(_));
+                    assert!(
+                        !is_content_change(&kind),
+                        "a read was reported as a content change: {kind:?}"
+                    );
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        // Not asserted: the open event is backend-specific. Logged so a
+        // future notify upgrade that drops it is visible.
+        eprintln!("read produced an access event: {saw_open}");
+    }
+
+    #[test]
+    fn content_change_kinds() {
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode,
+        };
+        use notify::EventKind;
+
+        assert!(!is_content_change(&EventKind::Access(AccessKind::Open(
+            AccessMode::Any
+        ))));
+        assert!(!is_content_change(&EventKind::Access(AccessKind::Close(
+            AccessMode::Write
+        ))));
+        assert!(is_content_change(&EventKind::Create(CreateKind::File)));
+        assert!(is_content_change(&EventKind::Modify(ModifyKind::Data(
+            DataChange::Any
+        ))));
+        assert!(is_content_change(&EventKind::Modify(ModifyKind::Name(
+            RenameMode::Both
+        ))));
+        assert!(is_content_change(&EventKind::Remove(RemoveKind::File)));
+    }
+
+    #[test]
+    fn note_disk_state_reports_only_news() {
+        let ocean = Some(custom("#3B82F6", "#0E1118"));
+        let forest = Some(custom("#22C55E", "#0E1410"));
+        let mut last = None;
+
+        assert!(note_disk_state(&mut last, &ocean));
+        // SONE's own write, or a stale read of it, is not news.
+        assert!(!note_disk_state(&mut last, &ocean));
+        assert!(note_disk_state(&mut last, &forest));
+        // A revert to earlier content is a real edit.
+        assert!(note_disk_state(&mut last, &ocean));
+        // Deletion is always reported, and resets the record.
+        assert!(note_disk_state(&mut last, &None));
+        assert!(note_disk_state(&mut last, &None));
+        assert_eq!(last, None);
+        assert!(note_disk_state(&mut last, &ocean));
     }
 
     #[cfg(unix)]
