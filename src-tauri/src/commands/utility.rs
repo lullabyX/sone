@@ -98,7 +98,8 @@ pub async fn clear_disk_cache(state: State<'_, AppState>) -> Result<(), SoneErro
     Ok(())
 }
 
-/// Whether WebKitGTK paints this webview without accelerated compositing.
+/// Whether an environment override turns WebKitGTK's accelerated
+/// compositing off for this webview.
 ///
 /// main.rs turns the DMA-BUF renderer off when an NVIDIA module is loaded.
 /// On WebKitGTK 2.54 that leaves no compositing path (no compositor thread
@@ -114,16 +115,16 @@ pub fn is_software_rendering() -> bool {
         )
 }
 
-/// Either WebKit override set to anything but "0" turns compositing off;
-/// "0" is how a user keeps the DMA-BUF renderer on despite the NVIDIA default.
+/// Mirrors how WebKitGTK 2.54 reads the two overrides: the DMA-BUF renderer is
+/// off for any value but "0" (an empty value included), and compositing mode
+/// is off for any non-empty value but "0". "0" is how a user keeps the DMA-BUF
+/// renderer on despite the NVIDIA default.
 fn compositing_disabled(
     dmabuf_renderer: Option<&std::ffi::OsStr>,
     compositing_mode: Option<&std::ffi::OsStr>,
 ) -> bool {
-    [dmabuf_renderer, compositing_mode]
-        .into_iter()
-        .flatten()
-        .any(|value| value != "0")
+    dmabuf_renderer.is_some_and(|value| value != "0")
+        || compositing_mode.is_some_and(|value| !value.is_empty() && value != "0")
 }
 
 #[tauri::command]
@@ -780,6 +781,10 @@ mod tests {
         assert!(compositing_disabled(off, on));
         assert!(compositing_disabled(None, on));
         assert!(!compositing_disabled(off, off));
+        // An empty value disables the DMA-BUF renderer but not compositing mode.
+        let empty = Some(OsStr::new(""));
+        assert!(compositing_disabled(empty, None));
+        assert!(!compositing_disabled(None, empty));
     }
 
     fn caps() -> crate::proxy::HostCaps {

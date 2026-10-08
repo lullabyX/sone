@@ -1,6 +1,9 @@
 // Animated "Living Heart" backdrop for the Loved Tracks header. Three soft
 // gradient blobs in the signature heart colors drift slowly behind the header,
-// mirroring CoverBanner's overlay structure so it sits consistently with other pages.
+// darkening toward the right edge like CoverBanner so it sits consistently with
+// other pages. The blobs hold still while the window is unfocused, while the
+// banner is offscreen or under the Now Playing drawer, and always when WebKit
+// paints without compositing (see App.css).
 
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
@@ -55,8 +58,8 @@ export default function LovedTracksBanner() {
           keeps the title readable on light or dark themes. One layer instead
           of a flat 60% fill under a transparent-to-60% ramp: both are the base
           color, so 60% + 40% x (0%, 20%, 60%) composites to exactly
-          (60%, 68%, 84%). The /srgb interpolation renders the same pixels for a
-          single-color alpha ramp, and the default (oklab) one costs WebKitGTK
+          (60%, 68%, 84%). The /srgb interpolation renders a single-color alpha
+          ramp within 2/255 of the oklab one, and the default (oklab) one costs WebKitGTK
           several times more to rasterize each time this area repaints. */}
       <div className="absolute inset-0 bg-linear-to-r/srgb from-th-base/60 via-th-base/68 to-th-base/84" />
       <div className="absolute inset-0 bg-linear-to-b/srgb from-transparent from-70% to-th-surface" />

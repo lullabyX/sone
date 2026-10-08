@@ -12,8 +12,8 @@ import { trackWindowFocus } from "./lib/windowFocus";
  * visible switch a few hundred ms in. bootstrapThemeFile pushes the resolved
  * theme straight into themeAtom -- the atom is constructed at module-eval,
  * before this runs, so writing localStorage alone would not reach it. The
- * render-mode flag rides the same gate so no software-painted page starts
- * animating before it lands.
+ * render-mode flag rides the same gate, so when its answer arrives within the
+ * timeout no software-painted page starts animating before it lands.
  *
  * Raced against a timeout so a stuck IPC cannot block startup.
  */
