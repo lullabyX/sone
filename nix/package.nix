@@ -34,10 +34,10 @@ rustPlatform.buildRustPackage (finalAttrs: {
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
     pnpm = pnpm_11;
-    fetcherVersion = 3;
+    fetcherVersion = 4;
     # Update when pnpm-lock.yaml changes: set to lib.fakeHash, build, paste the
     # `got: sha256-...` value the build prints.
-    hash = "sha256-5Tj9Dp89JCVNBq9H5zfwqZe0wNqfL5fVRrF353HaG28=";
+    hash = "sha256-uvl8wfMgeuwC4GZGU0NWF1Tqju8QISEEtTnPtwkfHDE=";
   };
 
   nativeBuildInputs = [
