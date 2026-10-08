@@ -29,7 +29,8 @@ const getFavoriteTracks = vi.fn(
     offset: number,
     limit: number,
   ): Promise<PaginatedTracks> => {
-    // A paging loop that never advances would otherwise hang the test run.
+    // A paging loop that never advances would keep requesting until
+    // MAX_PAGES (200 requests); fail the test early instead.
     if (getFavoriteTracks.mock.calls.length > MAX_CALLS) {
       return Promise.reject(new Error("paging did not terminate"));
     }
@@ -137,7 +138,7 @@ describe("usePlaySource over TIDAL's short favorites pages", () => {
   it("stops on an empty page from a pager that advances by the items received", async () => {
     const { store, play } = setup();
     // No nextOffset and a stale hasMore: requesting again would ask for the
-    // same offset forever.
+    // same offset until MAX_PAGES.
     const fetchPage = vi.fn(
       async (): Promise<TrackPage> => ({ items: [], hasMore: true }),
     );
