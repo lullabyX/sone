@@ -102,6 +102,8 @@ pub struct TidalTrack {
     #[serde(default)]
     pub explicit: Option<bool>,
     #[serde(default)]
+    pub ai: Option<bool>,
+    #[serde(default)]
     pub popularity: Option<u32>,
     #[serde(default)]
     pub replay_gain: Option<f64>,
@@ -238,6 +240,8 @@ pub struct TidalAlbumDetail {
     pub copyright: Option<String>,
     #[serde(default)]
     pub explicit: Option<bool>,
+    #[serde(default)]
+    pub ai: Option<bool>,
     #[serde(default)]
     pub popularity: Option<u32>,
     #[serde(default)]
@@ -7063,6 +7067,53 @@ mod direct_hit_tests {
         });
         let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
         assert!(hit.track.is_none());
+    }
+
+    #[test]
+    fn track_deserializes_ai_flag() {
+        let t: TidalTrack = serde_json::from_value(serde_json::json!({
+            "id": 440427618, "title": "Dust on the Wind", "duration": 174, "ai": true
+        }))
+        .unwrap();
+        assert_eq!(t.ai, Some(true));
+    }
+
+    #[test]
+    fn track_without_ai_flag_stays_none() {
+        let t: TidalTrack = serde_json::from_value(serde_json::json!({
+            "id": 1, "title": "x", "duration": 1
+        }))
+        .unwrap();
+        assert_eq!(t.ai, None);
+    }
+
+    #[test]
+    fn track_serializes_ai_for_the_frontend() {
+        let t: TidalTrack = serde_json::from_value(serde_json::json!({
+            "id": 1, "title": "x", "duration": 1, "ai": false
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&t).unwrap()["ai"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn album_detail_deserializes_ai_flag() {
+        let a: TidalAlbumDetail = serde_json::from_value(serde_json::json!({
+            "id": 446783288, "title": "Paper Sun Rebellion", "ai": true
+        }))
+        .unwrap();
+        assert_eq!(a.ai, Some(true));
+    }
+
+    #[test]
+    fn track_hit_carries_ai_flag() {
+        let mut hit = tv_off_hit();
+        hit["value"]["ai"] = serde_json::json!(true);
+        let hit = DirectHitItem::from_typed_value(&hit).expect("TRACKS hit must parse");
+        assert_eq!(hit.track.and_then(|t| t.ai), Some(true));
     }
 }
 
