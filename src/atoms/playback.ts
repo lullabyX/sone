@@ -76,7 +76,15 @@ export const contextSourceAtom = atom<PlaybackSource | null>(null);
 /** Incremented whenever the context queue is replaced wholesale. */
 export const queueEpochAtom = atom(0);
 
-export const allowExplicitAtom = atomWithStorage("sone.allowExplicit.v1", true);
+export const allowExplicitAtom = atomWithStorage(
+  "sone.allowExplicit.v1",
+  true,
+  undefined,
+  { getOnInit: true },
+);
+export const allowAiAtom = atomWithStorage("sone.allowAi.v1", true, undefined, {
+  getOnInit: true,
+});
 
 export const exclusiveModeAtom = atom(false);
 export const bitPerfectAtom = atom(false);

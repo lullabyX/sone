@@ -105,6 +105,7 @@ export interface Track {
   dateAdded?: string;
   isrc?: string;
   explicit?: boolean;
+  ai?: boolean;
   popularity?: number;
   replayGain?: number;
   peak?: number;
@@ -177,6 +178,7 @@ export interface AlbumDetail {
   albumType?: string;
   copyright?: string;
   explicit?: boolean;
+  ai?: boolean;
   popularity?: number;
   url?: string;
   audioQuality?: string;
