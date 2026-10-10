@@ -362,9 +362,15 @@ pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneErro
     Ok(())
 }
 
+// Off the main thread: a sync command runs there, and a wait on a stalled
+// audio thread froze the whole window.
 #[tauri::command]
-pub fn get_playback_position(state: State<'_, AppState>) -> Result<f32, SoneError> {
-    state.audio_player.get_position().map_err(SoneError::Audio)
+pub async fn get_playback_position(state: State<'_, AppState>) -> Result<f32, SoneError> {
+    let player = state.audio_player.clone();
+    tokio::task::spawn_blocking(move || player.get_position())
+        .await
+        .map_err(|e| SoneError::Audio(e.to_string()))?
+        .map_err(SoneError::Audio)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -387,8 +393,12 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
 }
 
 #[tauri::command]
-pub fn is_track_finished(state: State<'_, AppState>) -> Result<bool, SoneError> {
-    state.audio_player.is_finished().map_err(SoneError::Audio)
+pub async fn is_track_finished(state: State<'_, AppState>) -> Result<bool, SoneError> {
+    let player = state.audio_player.clone();
+    tokio::task::spawn_blocking(move || player.is_finished())
+        .await
+        .map_err(|e| SoneError::Audio(e.to_string()))?
+        .map_err(SoneError::Audio)
 }
 
 #[tauri::command(rename_all = "camelCase")]

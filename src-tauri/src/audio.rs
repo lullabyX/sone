@@ -1653,6 +1653,35 @@ fn spawn_alsa_writer(
     Ok((tx, handle, negotiated_fmt, supported_gst_formats, supported_rates))
 }
 
+/// Flushing seek on a DirectAlsa pipeline. `frames_written` is the only
+/// position this backend reports, and the writer has to be unpaused to take
+/// the Flush and to keep draining the appsink while the seek waits on the
+/// streaming thread. A paused track stays paused.
+fn direct_alsa_seek(
+    pipeline: &gst::Pipeline,
+    position_secs: f32,
+    paused: &AtomicBool,
+    writer_tx: Option<&crossbeam_channel::Sender<WriterCommand>>,
+    frames_written: &AtomicU64,
+    sample_rate: &AtomicU32,
+) -> Result<(), String> {
+    let was_paused = paused.load(Ordering::Acquire);
+    paused.store(false, Ordering::Release);
+    if let Some(tx) = writer_tx {
+        let _ = tx.send(WriterCommand::Flush);
+    }
+    let pos = gst::ClockTime::from_nseconds((position_secs as f64 * 1_000_000_000.0) as u64);
+    let seek_frames = (position_secs as f64 * sample_rate.load(Ordering::Relaxed) as f64) as u64;
+    frames_written.store(seek_frames, Ordering::Relaxed);
+    let result = pipeline
+        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, pos)
+        .map_err(|e| format!("Seek failed: {e}"));
+    if was_paused {
+        paused.store(true, Ordering::Release);
+    }
+    result
+}
+
 // ── Audio command protocol ─────────────────────────────────────────────
 
 enum AudioCommand {
@@ -1684,6 +1713,13 @@ enum AudioCommand {
     Seek {
         position_secs: f32,
         reply: Reply<Result<(), String>>,
+    },
+    /// Posted by a DirectAlsa rebuild's preroll waiter: the seek back to where
+    /// the torn-down pipeline was. Abandoned if `generation` is no longer
+    /// current.
+    ResumeSeek {
+        generation: u64,
+        position_secs: f32,
     },
     GetPosition {
         reply: Reply<Result<f32, String>>,
@@ -2627,10 +2663,7 @@ impl AudioPlayer {
                                         let resume_gen = track_generation;
                                         let pipeline = pipeline.clone();
                                         let writer_gen = Arc::clone(&writer_gen);
-                                        let frames_written = Arc::clone(&frames_written);
-                                        let sample_rate = Arc::clone(&current_sample_rate);
-                                        let paused = Arc::clone(&paused);
-                                        let writer_tx = writer_tx.clone();
+                                        let cmd_tx_resume = cmd_tx_worker.clone();
                                         std::thread::spawn(move || {
                                             let (ret, cur, pend) =
                                                 pipeline.state(gst::ClockTime::from_seconds(10));
@@ -2646,29 +2679,15 @@ impl AudioPlayer {
                                             {
                                                 return;
                                             }
-                                            // `frames_written` is the only position
-                                            // this backend reports, and the writer
-                                            // has to be unblocked to take the Flush.
-                                            let was_paused = paused.load(Ordering::Acquire);
-                                            paused.store(false, Ordering::Release);
-                                            if let Some(ref tx) = writer_tx {
-                                                let _ = tx.send(WriterCommand::Flush);
-                                            }
-                                            let seek_frames = (position_secs as f64
-                                                * sample_rate.load(Ordering::Relaxed) as f64)
-                                                as u64;
-                                            frames_written.store(seek_frames, Ordering::Relaxed);
-                                            if let Err(e) = pipeline.seek_simple(
-                                                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                                                pos,
-                                            ) {
-                                                log::warn!(
-                                                    "[audio] resume at {position_secs}s failed: {e}"
-                                                );
-                                            }
-                                            if was_paused {
-                                                paused.store(true, Ordering::Release);
-                                            }
+                                            // The seek itself runs on the worker so its
+                                            // save/restore of `paused` is ordered with
+                                            // Pause and Resume; done here, a Resume
+                                            // landing mid-seek left `paused` set on a
+                                            // playing pipeline.
+                                            let _ = cmd_tx_resume.send(AudioCommand::ResumeSeek {
+                                                generation: resume_gen,
+                                                position_secs,
+                                            });
                                         });
                                     }
                                     None => {}
@@ -2692,11 +2711,25 @@ impl AudioPlayer {
                                 .map(|_| ())
                                 .map_err(|e| format!("Failed to pause: {e}")),
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
-                                paused.store(true, Ordering::Release);
-                                pipeline
+                                // The writer must keep draining until the pipeline
+                                // is paused: the appsink callback blocks in `send`
+                                // while holding the sink's preroll lock, which the
+                                // PLAYING→PAUSED transition needs. Freezing the
+                                // writer first deadlocks this thread (#233).
+                                let (_, cur, pending) = pipeline.state(gst::ClockTime::ZERO);
+                                let target =
+                                    if pending == gst::State::VoidPending { cur } else { pending };
+                                if target != gst::State::Paused {
+                                    paused.store(false, Ordering::Release);
+                                }
+                                let result = pipeline
                                     .set_state(gst::State::Paused)
                                     .map(|_| ())
-                                    .map_err(|e| format!("Failed to pause decode: {e}"))
+                                    .map_err(|e| format!("Failed to pause decode: {e}"));
+                                if result.is_ok() {
+                                    paused.store(true, Ordering::Release);
+                                }
+                                result
                             }
                             None => Err("No active pipeline".into()),
                         };
@@ -2757,17 +2790,38 @@ impl AudioPlayer {
                                 if let Some(bus) = pipeline.bus() {
                                     bus.set_flushing(true);
                                 }
-                                if let Some(tx) = writer_tx.take() {
-                                    let _ = tx.send_timeout(
-                                        WriterCommand::Shutdown,
-                                        std::time::Duration::from_millis(200),
-                                    );
-                                }
+                                let tx = writer_tx.take();
+                                // A disconnected writer has already exited.
+                                let send_shutdown = |ms| {
+                                    tx.as_ref().is_none_or(|tx| {
+                                        !matches!(
+                                            tx.send_timeout(
+                                                WriterCommand::Shutdown,
+                                                std::time::Duration::from_millis(ms),
+                                            ),
+                                            Err(crossbeam_channel::SendTimeoutError::Timeout(_))
+                                        )
+                                    })
+                                };
+                                let mut shutdown_sent = send_shutdown(200);
                                 pipeline.set_state(gst::State::Null).ok();
                                 let _ = pipeline.state(gst::ClockTime::from_mseconds(500));
                                 drop(pipeline);
+                                // With the pipeline down nothing refills the channel,
+                                // so a Shutdown refused while it was full fits now.
+                                if !shutdown_sent {
+                                    shutdown_sent = send_shutdown(500);
+                                }
+                                drop(tx);
                                 if let Some(h) = writer_thread.take() {
-                                    h.join().ok();
+                                    // The bus watcher holds a sender too, so a writer
+                                    // that never got Shutdown never sees a disconnect:
+                                    // joining it would hang this thread.
+                                    if shutdown_sent {
+                                        h.join().ok();
+                                    } else {
+                                        log::warn!("[audio] stop: writer did not take Shutdown, detaching it");
+                                    }
                                 }
                                 eos.store(false, Ordering::SeqCst);
                                 has_uri.store(false, Ordering::SeqCst);
@@ -2777,6 +2831,7 @@ impl AudioPlayer {
                             }
                             None => {
                                 // Clean up orphaned writer (e.g. pipeline build failed after spawn)
+                                paused.store(false, Ordering::Release);
                                 if let Some(tx) = writer_tx.take() {
                                     let _ = tx.send(WriterCommand::Shutdown);
                                 }
@@ -2845,34 +2900,44 @@ impl AudioPlayer {
                                     .map_err(|e| format!("Seek failed: {e}"))
                             }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
-                                let was_paused = paused.load(Ordering::Acquire);
-                                paused.store(false, Ordering::Release);
                                 track_generation += 1;
                                 writer_gen.store(track_generation, Ordering::Release);
-                                if let Some(ref tx) = writer_tx {
-                                    let _ = tx.send(WriterCommand::Flush);
-                                }
-                                let pos = gst::ClockTime::from_nseconds(
-                                    (position_secs as f64 * 1_000_000_000.0) as u64,
-                                );
-                                let seek_frames = (position_secs as f64
-                                    * current_sample_rate.load(Ordering::Relaxed) as f64)
-                                    as u64;
-                                frames_written.store(seek_frames, Ordering::Relaxed);
-                                let result = pipeline
-                                    .seek_simple(
-                                        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                                        pos,
-                                    )
-                                    .map_err(|e| format!("Seek failed: {e}"));
-                                if was_paused {
-                                    paused.store(true, Ordering::Release);
-                                }
-                                result
+                                direct_alsa_seek(
+                                    pipeline,
+                                    position_secs,
+                                    &paused,
+                                    writer_tx.as_ref(),
+                                    &frames_written,
+                                    &current_sample_rate,
+                                )
                             }
                             None => Err("No active pipeline".into()),
                         };
                         reply.send(result).ok();
+                    }
+
+                    AudioCommand::ResumeSeek {
+                        generation,
+                        position_secs,
+                    } => {
+                        // A seek, stop or new track since the rebuild bumped the
+                        // generation and owns the position now.
+                        if generation == track_generation {
+                            if let Some(PlaybackBackend::DirectAlsa { pipeline, .. }) =
+                                backend.as_ref()
+                            {
+                                if let Err(e) = direct_alsa_seek(
+                                    pipeline,
+                                    position_secs,
+                                    &paused,
+                                    writer_tx.as_ref(),
+                                    &frames_written,
+                                    &current_sample_rate,
+                                ) {
+                                    log::warn!("[audio] resume at {position_secs}s failed: {e}");
+                                }
+                            }
+                        }
                     }
 
                     AudioCommand::GetPosition { reply } => {
@@ -3474,6 +3539,36 @@ impl AudioPlayer {
         rx.recv().expect("Audio thread dead")
     }
 
+    /// For commands whose reply is always `Ok`: queued in order without waiting,
+    /// so a busy or stalled audio thread can't block the caller.
+    fn post_cmd(
+        &self,
+        build: impl FnOnce(Reply<Result<(), String>>) -> AudioCommand,
+    ) -> Result<(), String> {
+        let (tx, _rx) = mpsc::channel();
+        self.cmd_tx
+            .send(build(tx))
+            .map_err(|_| "Audio thread dead".to_string())
+    }
+
+    /// For read-only queries: gives up after `timeout` instead of hanging. The
+    /// late reply goes to a dropped receiver, which the worker ignores.
+    fn query_cmd<T>(
+        &self,
+        timeout: std::time::Duration,
+        build: impl FnOnce(Reply<Result<T, String>>) -> AudioCommand,
+    ) -> Result<T, String> {
+        let (tx, rx) = mpsc::channel();
+        self.cmd_tx
+            .send(build(tx))
+            .map_err(|_| "Audio thread dead".to_string())?;
+        match rx.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => Err("Audio thread busy".into()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err("Audio thread dead".into()),
+        }
+    }
+
     pub fn play_url(&self, uri: &str, start_secs: Option<f32>) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::PlayUrl {
             uri: uri.to_string(),
@@ -3491,10 +3586,10 @@ impl AudioPlayer {
         self.send_cmd(|reply| AudioCommand::Stop { reply })
     }
     pub fn set_volume(&self, level: f32) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetVolume { level, reply })
+        self.post_cmd(|reply| AudioCommand::SetVolume { level, reply })
     }
     pub fn set_normalization_gain(&self, gain: f64) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetNormalizationGain { gain, reply })
+        self.post_cmd(|reply| AudioCommand::SetNormalizationGain { gain, reply })
     }
     pub fn seek(&self, position_secs: f32) -> Result<(), String> {
         self.send_cmd(|reply| AudioCommand::Seek {
@@ -3503,26 +3598,31 @@ impl AudioPlayer {
         })
     }
     pub fn get_position(&self) -> Result<f32, String> {
-        self.send_cmd(|reply| AudioCommand::GetPosition { reply })
+        self.query_cmd(std::time::Duration::from_secs(2), |reply| {
+            AudioCommand::GetPosition { reply }
+        })
     }
     pub fn is_finished(&self) -> Result<bool, String> {
-        self.send_cmd(|reply| AudioCommand::IsFinished { reply })
+        // Generous: a timeout here fails a resume outright.
+        self.query_cmd(std::time::Duration::from_secs(5), |reply| {
+            AudioCommand::IsFinished { reply }
+        })
     }
     pub fn set_exclusive_mode(&self, enabled: bool, device: Option<String>) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetExclusiveMode {
+        self.post_cmd(|reply| AudioCommand::SetExclusiveMode {
             enabled,
             device,
             reply,
         })
     }
     pub fn set_bit_perfect(&self, enabled: bool) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
+        self.post_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
     }
     pub fn set_proxy_settings(&self, settings: crate::ProxySettings) {
         self.send_cmd(|reply| AudioCommand::SetProxySettings { settings, reply });
     }
     pub fn set_gapless(&self, enabled: bool) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
+        self.post_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
     }
     #[allow(clippy::too_many_arguments)]
     pub fn set_next_track(
@@ -3547,7 +3647,7 @@ impl AudioPlayer {
         })
     }
     pub fn clear_next_track(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::ClearNextTrack { reply })
+        self.post_cmd(|reply| AudioCommand::ClearNextTrack { reply })
     }
     pub fn list_devices(&self) -> Result<Vec<AudioDevice>, String> {
         self.send_cmd(|reply| AudioCommand::ListDevices { reply })
