@@ -463,6 +463,12 @@ fn fixed_rate(sink: &PactlObject) -> Option<u32> {
     })
 }
 
+/// A hardware mixer attenuates in the DAC, not by scaling samples.
+fn hw_volume(sink: &PactlObject) -> bool {
+    sink.field("Flags")
+        .is_some_and(|f| f.split_whitespace().any(|flag| flag == "HW_VOLUME_CTRL"))
+}
+
 /// Fill the mixer from the route our stream takes. PipeWire virtual sinks
 /// report a fixed float32 spec at the default rate and a suspended device
 /// reports its fallback rate, so on PipeWire unpinned hops run at the
@@ -497,7 +503,10 @@ pub fn apply_route(
             mixer.sink_format = fmt;
             mixer.sink_channels = ch;
         }
-        None => mixer.sink_format.clear(),
+        None => {
+            mixer.sink_format.clear();
+            mixer.sink_channels = 0;
+        }
     }
 
     let device_rate = match dac {
@@ -530,21 +539,41 @@ pub fn apply_route(
             .chain(route.hardware);
         stages.fold((1.0f32, false), |(volume, muted), obj| {
             let (v, _, m) = object_volume(obj);
-            // A hardware mixer attenuates in the DAC, not by scaling samples.
-            let hw = obj
-                .field("Flags")
-                .is_some_and(|f| f.split_whitespace().any(|flag| flag == "HW_VOLUME_CTRL"));
-            (if hw { volume } else { volume * v }, muted || m)
+            (if hw_volume(obj) { volume } else { volume * v }, muted || m)
         })
     } else {
         // PulseAudio virtual sinks share their master's volume by default;
         // our own stream's mute applies regardless.
-        let (v, _, m) = object_volume(route.hardware.unwrap_or(route.connected));
-        (v, m || own.is_some_and(|o| object_volume(o).2))
+        let dev = route.hardware.unwrap_or(route.connected);
+        let (v, _, m) = object_volume(dev);
+        (if hw_volume(dev) { 1.0 } else { v }, m || own.is_some_and(|o| object_volume(o).2))
     };
     mixer.sink_volume = volume;
     mixer.sink_volume_percent = (volume.cbrt() * 100.0).round().max(0.0) as u32;
     mixer.sink_muted = muted;
+}
+
+/// Normal covers every state but DirectAlsa, including before anything has
+/// played: then there is no stream of ours and nothing to claim.
+fn is_normal(backend: Option<&str>) -> bool {
+    backend != Some("DirectAlsa")
+}
+
+/// Sink our audio enters. Normal: only the sink our own stream feeds — no
+/// linked stream, no claims. DirectAlsa: the default sink, for context only.
+fn route_start(
+    normal: bool,
+    own: Option<&PactlObject>,
+    mixer: Option<&OsMixerInfo>,
+    sinks: &[PactlObject],
+) -> Option<u32> {
+    if normal {
+        own.and_then(|i| i.field("Sink")?.parse().ok())
+    } else {
+        mixer
+            .and_then(|m| sinks.iter().find(|s| s.field("Name") == Some(m.default_sink_name.as_str())))
+            .map(|s| s.index)
+    }
 }
 
 fn own_binary_name() -> Option<String> {
@@ -572,13 +601,9 @@ impl PipelineProbe {
     /// Tauri command handler thread; at most three pactl shell-outs. Never
     /// blocks on audio thread.
     pub fn refresh(&self) {
-        // 1. Pad caps cells (mutex reads, very fast).
-        let decoded = self.audio_player.snapshot_decoded_caps();
-        let output = self.audio_player.snapshot_output_caps();
-
-        // 2. OS mixer state via pactl. Best-effort; None on failure.
+        // 1. OS mixer state via pactl. Best-effort; None on failure.
         let backend = self.signal_path.snapshot().backend;
-        let normal = backend.as_deref() == Some("Normal");
+        let normal = is_normal(backend.as_deref());
         let mut mixer = run_pactl(&["info"]).as_deref().and_then(parse_pactl_info);
         let sinks = run_pactl(&["list", "sinks"])
             .as_deref()
@@ -593,44 +618,38 @@ impl PipelineProbe {
             Vec::new()
         };
 
-        // 3. Route. Normal: only the sink our own stream feeds says anything
-        //    about our audio — no linked stream, no claims. DirectAlsa: the
-        //    default sink, for context only.
+        // 2. Route.
         let own = if normal {
             find_own_sink_input(&inputs, std::process::id(), own_binary_name().as_deref())
         } else {
             None
         };
-        let start = if normal {
-            own.and_then(|i| i.field("Sink")?.parse().ok())
-        } else {
-            mixer
-                .as_ref()
-                .and_then(|m| sinks.iter().find(|s| s.field("Name") == Some(m.default_sink_name.as_str())))
-                .map(|s| s.index)
-        };
+        let start = route_start(normal, own, mixer.as_ref(), &sinks);
         let stream_active = own.is_some_and(|i| i.field("Corked") == Some("no"));
         let route = start.and_then(|s| resolve_sink_route(s, &sinks, &inputs, stream_active));
 
-        // 4. Kernel hw_params of the device actually in use.
-        let card = match backend.as_deref() {
-            Some("DirectAlsa") => self
-                .audio_player
+        // 3. Kernel hw_params of the device actually in use.
+        let card = if normal {
+            route
+                .as_ref()
+                .and_then(|r| r.hardware)
+                .and_then(|h| sink_alsa_location(h, &card_index_to_name))
+        } else {
+            self.audio_player
                 .exclusive_device()
                 .as_deref()
                 .and_then(parse_alsa_card_from_device)
-                .map(|c| (c, None)),
-            Some("Normal") => route
-                .as_ref()
-                .and_then(|r| r.hardware)
-                .and_then(|h| sink_alsa_location(h, &card_index_to_name)),
-            _ => None,
+                .map(|c| (c, None))
         };
         let dac = card.and_then(|(name, pcm)| read_hw_params(&name, pcm));
 
         if let Some(m) = mixer.as_mut() {
             apply_route(m, route.as_ref(), own, if normal { dac.as_ref() } else { None });
         }
+        // 4. Pad caps last, so a track change during pactl can't republish
+        //    the previous track's caps.
+        let decoded = self.audio_player.snapshot_decoded_caps();
+        let output = self.audio_player.snapshot_output_caps();
         self.signal_path.apply_probe(decoded, output, mixer, dac);
     }
 }
@@ -1523,6 +1542,37 @@ Sink #5
     }
 
     #[test]
+    fn no_claims_before_playback_starts() {
+        // No backend yet: the default sink carries someone else's audio.
+        let (sinks, inputs) = chain();
+        let mut m = pw_mixer();
+        m.default_sink_name = "effect_input.bs2b".into();
+        assert_eq!(route_start(is_normal(Some("DirectAlsa")), None, Some(&m), &sinks), Some(70));
+        let start = route_start(is_normal(None), None, Some(&m), &sinks);
+        assert_eq!(start, None);
+        let route = start.and_then(|s| resolve_sink_route(s, &sinks, &inputs, false));
+        apply_route(&mut m, route.as_ref(), None, None);
+        assert_eq!(m.sink_name, "");
+        assert_eq!(m.sink_rate, None);
+        assert_eq!(m.device_rate, None);
+        assert!(m.virtual_route.is_empty());
+        assert_eq!((m.sink_volume, m.sink_volume_percent, m.sink_muted), (1.0, 100, false));
+    }
+
+    #[test]
+    fn unparsed_sink_spec_claims_no_channels() {
+        let garbled = CHAIN_SINKS.replacen(
+            "\tSample Specification: float32le 2ch 48000Hz\n\tMute: no\n\tVolume: front-left: 39322",
+            "\tSample Specification: n/a\n\tMute: no\n\tVolume: front-left: 39322",
+            1,
+        );
+        assert_ne!(garbled, CHAIN_SINKS, "fixture edit must apply");
+        let m = mixer_for(&garbled, CHAIN_INPUTS, 70, pw_mixer(), Some(&active_dac(44100)));
+        assert_eq!(m.sink_format, "");
+        assert_eq!(m.sink_channels, 0);
+    }
+
+    #[test]
     fn volume_multiplies_along_route() {
         // Our stream at 50% (0.125) × bs2b at 60% (0.2158) → slider-equivalent 30%.
         let inputs = CHAIN_INPUTS.replacen(
@@ -1564,6 +1614,24 @@ Sink #5
         let m = mixer_for(CHAIN_SINKS, CHAIN_INPUTS, 70, parse_pactl_info(PACTL_INFO_PULSE).unwrap(), Some(&active_dac(44100)));
         assert_eq!(m.sink_volume_percent, 100);
         assert!(!m.sink_muted);
+    }
+
+    #[test]
+    fn pulseaudio_hardware_volume_is_not_sample_scaling() {
+        let hw = CHAIN_SINKS
+            .replacen("Flags: HARDWARE DECIBEL_VOLUME LATENCY", "Flags: HARDWARE HW_VOLUME_CTRL DECIBEL_VOLUME LATENCY", 1)
+            .replacen(
+                "\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB",
+                "\tVolume: front-left: 26214 /  40% / -23.88 dB,   front-right: 26214 /  40% / -23.88 dB",
+                1,
+            );
+        assert_ne!(hw, CHAIN_SINKS, "fixture edit must apply");
+        let pulse = || parse_pactl_info(PACTL_INFO_PULSE).unwrap();
+        let m = mixer_for(&hw, CHAIN_INPUTS, 70, pulse(), Some(&active_dac(44100)));
+        assert_eq!((m.sink_volume, m.sink_volume_percent, m.sink_muted), (1.0, 100, false));
+        let muted = hw.replacen("\tMute: no", "\tMute: yes", 1);
+        let m = mixer_for(&muted, CHAIN_INPUTS, 70, pulse(), Some(&active_dac(44100)));
+        assert!(m.sink_muted);
     }
 
     #[test]
