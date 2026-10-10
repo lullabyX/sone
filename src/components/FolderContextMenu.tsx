@@ -197,7 +197,7 @@ export default function FolderContextMenu({
     <MenuPortal>
       <div
         ref={menuRef}
-        className="z-[9999] w-[240px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
+        className="z-[9999] w-[240px] bg-th-surface rounded-xl border border-th-border-popover shadow-2xl shadow-black/60 overflow-hidden flex flex-col py-1"
         style={style}
         onClick={(e) => e.stopPropagation()}
         onContextMenu={(e) => e.stopPropagation()}
