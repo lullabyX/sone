@@ -25,6 +25,7 @@ import TidalVideoCover from "./TidalVideoCover";
 import CoverBanner from "./CoverBanner";
 import { getTidalImageUrl, getTidalArtistImageUrl } from "../types";
 import TrackList from "./TrackList";
+import AiBadge from "./AiBadge";
 import { TrackArtists } from "./TrackArtists";
 import MediaContextMenu from "./MediaContextMenu";
 import { DetailPageSkeleton } from "./PageSkeleton";
@@ -411,9 +412,10 @@ export default function AlbumView({
                 </div>
               )}
 
-              {(releaseYear || qualityBadge) && (
+              {(releaseYear || qualityBadge || album?.ai) && (
                 <div className="flex items-center gap-2 text-[12px] text-th-text-muted">
                   {releaseYear && <span>{releaseYear}</span>}
+                  {album?.ai && <AiBadge />}
                   {qualityBadge && (
                     <span
                       className={`px-2 py-0.5 text-[10px] font-semibold rounded tracking-wider leading-none ${qualityBadgeClass}`}

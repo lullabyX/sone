@@ -27,6 +27,7 @@ import {
   getTrackArtistDisplay,
 } from "../utils/itemHelpers";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
 import TidalImage from "./TidalImage";
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
@@ -756,6 +757,7 @@ function TopHitsList({
                     {getTrackDisplayTitle(trackObj)}
                   </span>
                   {trackObj.explicit && <ExplicitBadge />}
+                  {trackObj.ai && <AiBadge />}
                 </div>
                 <p className="text-[12px] text-th-text-faint truncate">
                   Track &middot; {getTrackArtistDisplay(trackObj)}
