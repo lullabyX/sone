@@ -65,11 +65,17 @@ export function usePlaySource() {
       const fetchNext = async () => {
         const page = await src.fetchPage!(offset);
         pages++;
-        offset += page.items.length;
+        // A pager that windows by position says where the next page starts; an
+        // empty window there is skipped, not the end. Otherwise the offset moves
+        // by the items received, so an empty page ends the source rather than
+        // requesting the same offset again.
+        const next = page.nextOffset ?? offset + page.items.length;
+        const advanced = next > offset;
+        offset = next;
         const { fresh, newIds } = take(page.items);
         hasMore =
           page.hasMore &&
-          page.items.length > 0 &&
+          advanced &&
           pages < MAX_PAGES &&
           (!src.dedupe || newIds > 0);
         return fresh;

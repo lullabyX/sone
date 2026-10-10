@@ -138,6 +138,7 @@ export default function LibraryViewAll({
 
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
+  const [hasMoreItems, setHasMoreItems] = useState(false);
   const bgFetchingRef = useRef(false);
   const cancelledRef = useRef(false);
 
@@ -150,11 +151,25 @@ export default function LibraryViewAll({
 
   // ==================== Data Fetching ====================
 
+  // `nextOffset` is where the following page starts. The offset endpoints
+  // advance by the window requested, not by the items received: a page can come
+  // back shorter than its window while still counting toward the offset and the
+  // total, and an empty one would then be re-requested forever (see the comment
+  // on FavoritesView's offsetRef). Playlists page by cursor instead, so they
+  // advance by what was received and stop once the cursor stops moving.
   const fetchPage = useCallback(
     async (
       offset: number,
       limit: number,
-    ): Promise<{ items: any[]; totalNumberOfItems: number }> => {
+    ): Promise<{
+      items: any[];
+      totalNumberOfItems: number;
+      nextOffset: number;
+    }> => {
+      const byWindow = <T extends object>(page: T) => ({
+        ...page,
+        nextOffset: offset + limit,
+      });
       switch (libraryType) {
         case "playlists": {
           const cursor =
@@ -172,38 +187,51 @@ export default function LibraryViewAll({
           const normalized = normalizePlaylistFolders(response);
           playlistCursorRef.current = normalized.cursor;
           playlistApiTotalRef.current = normalized.totalNumberOfItems;
-          const total =
-            normalized.cursor && normalized.items.length > 0
-              ? offset + normalized.items.length + 1
-              : offset + normalized.items.length;
-          return { items: normalized.items, totalNumberOfItems: total };
+          const nextOffset = offset + normalized.items.length;
+          const more =
+            !!normalized.cursor &&
+            normalized.cursor !== cursor &&
+            normalized.items.length > 0;
+          return {
+            items: normalized.items,
+            totalNumberOfItems: more ? nextOffset + 1 : nextOffset,
+            nextOffset,
+          };
         }
         case "albums": {
-          if (!userId) return { items: [], totalNumberOfItems: 0 };
-          return getFavoriteAlbums(
-            userId,
-            offset,
-            limit,
-            currentSort?.order ?? "DATE",
-            currentSort?.direction ?? "DESC",
+          if (!userId)
+            return { items: [], totalNumberOfItems: 0, nextOffset: 0 };
+          return byWindow(
+            await getFavoriteAlbums(
+              userId,
+              offset,
+              limit,
+              currentSort?.order ?? "DATE",
+              currentSort?.direction ?? "DESC",
+            ),
           );
         }
         case "artists": {
-          if (!userId) return { items: [], totalNumberOfItems: 0 };
-          return getFavoriteArtists(
-            userId,
-            offset,
-            limit,
-            currentSort?.order ?? "DATE",
-            currentSort?.direction ?? "DESC",
+          if (!userId)
+            return { items: [], totalNumberOfItems: 0, nextOffset: 0 };
+          return byWindow(
+            await getFavoriteArtists(
+              userId,
+              offset,
+              limit,
+              currentSort?.order ?? "DATE",
+              currentSort?.direction ?? "DESC",
+            ),
           );
         }
         case "mixes": {
-          return getFavoriteMixes(
-            offset,
-            limit,
-            currentSort?.order ?? "DATE",
-            currentSort?.direction ?? "DESC",
+          return byWindow(
+            await getFavoriteMixes(
+              offset,
+              limit,
+              currentSort?.order ?? "DATE",
+              currentSort?.direction ?? "DESC",
+            ),
           );
         }
       }
@@ -218,6 +246,7 @@ export default function LibraryViewAll({
     playlistCursorRef.current = null;
     setItems([]);
     setTotalCount(0);
+    setHasMoreItems(false);
     setLoading(true);
     offsetRef.current = 0;
     hasMoreRef.current = true;
@@ -228,8 +257,9 @@ export default function LibraryViewAll({
         if (cancelledRef.current) return;
         setItems(page.items);
         setTotalCount(page.totalNumberOfItems);
-        offsetRef.current = page.items.length;
-        hasMoreRef.current = page.items.length < page.totalNumberOfItems;
+        offsetRef.current = page.nextOffset;
+        hasMoreRef.current = page.nextOffset < page.totalNumberOfItems;
+        setHasMoreItems(hasMoreRef.current);
       } catch (err) {
         console.error("Failed to load library items:", err);
       } finally {
@@ -250,6 +280,9 @@ export default function LibraryViewAll({
       while (hasMoreRef.current && !cancelledRef.current) {
         const page = await fetchPage(offsetRef.current, PAGE_SIZE);
         if (cancelledRef.current) return;
+        offsetRef.current = page.nextOffset;
+        hasMoreRef.current = page.nextOffset < page.totalNumberOfItems;
+        const more = hasMoreRef.current;
         startTransition(() => {
           setItems((prev) => {
             if (libraryType === "playlists") {
@@ -271,9 +304,8 @@ export default function LibraryViewAll({
             }
           });
           setTotalCount(page.totalNumberOfItems);
+          setHasMoreItems(more);
         });
-        offsetRef.current += page.items.length;
-        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
       }
     } catch (err) {
       console.error("Failed to background-fetch library items:", err);
@@ -307,8 +339,9 @@ export default function LibraryViewAll({
         }
       });
       setTotalCount(page.totalNumberOfItems);
-      offsetRef.current += page.items.length;
-      hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+      offsetRef.current = page.nextOffset;
+      hasMoreRef.current = page.nextOffset < page.totalNumberOfItems;
+      setHasMoreItems(hasMoreRef.current);
     } catch (err) {
       console.error("Failed to load more:", err);
     } finally {
@@ -626,7 +659,7 @@ export default function LibraryViewAll({
 
   // ==================== Render ====================
 
-  const hasMore = !isFiltering && items.length < totalCount;
+  const hasMore = !isFiltering && hasMoreItems;
 
   // Lets an in-flight scroll restore pull the pages it needs directly, rather
   // than the viewport tripping the pagination sentinel page by page.

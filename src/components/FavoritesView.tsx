@@ -92,8 +92,15 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
   const generationRef = useRef(0);
   const isFirstLoadRef = useRef(true);
 
+  // TIDAL counts favorites that are no longer available in totalNumberOfItems
+  // and in the offset, but leaves them out of `items`, so pages come back short
+  // and the last ones can come back empty while offset < total. Advance by the
+  // window requested, not by the items received: the latter re-reads part of
+  // the previous window, and after an empty page it requests the same page
+  // forever (from the in-memory cache, without yielding, so the page freezes).
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
+  const [hasMore, setHasMore] = useState(false);
 
   const bgFetchingRef = useRef(false);
   const rawTracksRef = useRef<Track[]>([]);
@@ -158,10 +165,11 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
 
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
-        offsetRef.current = firstPage.items.length;
+        offsetRef.current = FAVORITE_TRACKS_PAGE_SIZE;
         rawTracksRef.current = firstPage.items;
         hasMoreRef.current =
-          firstPage.items.length < firstPage.totalNumberOfItems;
+          FAVORITE_TRACKS_PAGE_SIZE < firstPage.totalNumberOfItems;
+        setHasMore(hasMoreRef.current);
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load favorites:", err);
@@ -307,16 +315,18 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         if (generationRef.current !== gen) return;
 
         const newItems = page.items;
+        offsetRef.current += FAVORITE_TRACKS_PAGE_SIZE;
+        rawTracksRef.current = [...rawTracksRef.current, ...newItems];
+        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+        const more = hasMoreRef.current;
         startTransition(() => {
           setAllTracks((prev) => {
             const seen = new Set(prev.map((t) => t.id));
             return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
           });
           setTotalTracks(page.totalNumberOfItems);
+          setHasMore(more);
         });
-        offsetRef.current += newItems.length;
-        rawTracksRef.current = [...rawTracksRef.current, ...newItems];
-        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
       }
     } catch (err) {
       console.error("Failed to background-fetch favorites:", err);
@@ -348,17 +358,16 @@ export default function FavoritesView({ onBack }: FavoritesViewProps) {
         return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
       });
       setTotalTracks(page.totalNumberOfItems);
-      offsetRef.current += page.items.length;
+      offsetRef.current += FAVORITE_TRACKS_PAGE_SIZE;
       rawTracksRef.current = [...rawTracksRef.current, ...page.items];
       hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+      setHasMore(hasMoreRef.current);
     } catch (err) {
       console.error("Failed to load more favorites:", err);
     } finally {
       setLoadingMore(false);
     }
   }, [loadingMore, authTokens?.user_id, sortColumn, sortDirection]);
-
-  const hasMore = allTracks.length < totalTracks;
 
   // Filter out unfavorited tracks in real-time
   const tracks = useMemo(
