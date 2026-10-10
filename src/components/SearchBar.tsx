@@ -19,6 +19,7 @@ import {
   getTrackArtistDisplay,
 } from "../utils/itemHelpers";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
 import TidalImage from "./TidalImage";
 import TrackContextMenu from "./TrackContextMenu";
 import MediaContextMenu from "./MediaContextMenu";
@@ -550,6 +551,7 @@ export default function SearchBar() {
                                 {getTrackDisplayTitle(trackObj)}
                               </span>
                               {trackObj.explicit && <ExplicitBadge />}
+                              {trackObj.ai && <AiBadge />}
                             </div>
                             <p className="text-[11px] text-th-text-faint truncate">
                               Track &middot; {getTrackArtistDisplay(trackObj)}

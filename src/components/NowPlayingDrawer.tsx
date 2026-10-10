@@ -13,6 +13,7 @@ import {
   Maximize2,
 } from "lucide-react";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
 import { parseLrc, type LrcLine } from "../lib/lrc";
 import { isNavigableSource } from "../lib/playbackSource";
 import {
@@ -48,6 +49,8 @@ import { useDrawer } from "../hooks/useDrawer";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { useContentPrefs } from "../hooks/useContentPrefs";
+import { isContentBlocked } from "../lib/contentFilter";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { useToast } from "../contexts/ToastContext";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
@@ -604,20 +607,25 @@ function SuggestedTrackRow({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  const contentPrefs = useContentPrefs();
+  const blocked = isContentBlocked(track, contentPrefs);
+
   const handleRowClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (blocked) return;
       onAddToQueue(track);
     },
-    [track, onAddToQueue],
+    [track, onAddToQueue, blocked],
   );
 
   const handlePlayClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (blocked) return;
       onPlay(track);
     },
-    [track, onPlay],
+    [track, onPlay, blocked],
   );
 
   const handleToggleFavorite = useCallback(
@@ -631,9 +639,10 @@ function SuggestedTrackRow({
   const handleAddToQueue = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (blocked) return;
       onAddToQueue(track);
     },
-    [track, onAddToQueue],
+    [track, onAddToQueue, blocked],
   );
 
   const handleDotsClick = useCallback((e: React.MouseEvent) => {
@@ -646,13 +655,17 @@ function SuggestedTrackRow({
       <div
         onClick={handleRowClick}
         onContextMenu={handleRightClick}
-        className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer group transition-[background-color] duration-150 ${
-          isActive ? "bg-th-hl-med" : "hover:bg-th-hl-faint"
+        className={`flex items-center gap-3 px-3 py-2 rounded-md transition-[background-color] duration-150 ${
+          blocked
+            ? "opacity-40 cursor-default"
+            : `cursor-pointer group ${isActive ? "bg-th-hl-med" : "hover:bg-th-hl-faint"}`
         }`}
       >
         {/* Album art with play overlay — scoped hover via group/image */}
         <div
-          className="w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative cursor-pointer group/image"
+          className={`w-10 h-10 rounded bg-th-surface-hover overflow-hidden shrink-0 relative ${
+            blocked ? "" : "cursor-pointer group/image"
+          }`}
           onClick={handlePlayClick}
         >
           <TidalImage
@@ -677,6 +690,7 @@ function SuggestedTrackRow({
               {getTrackDisplayTitle(track)}
             </p>
             {track.explicit && <ExplicitBadge />}
+            {track.ai && <AiBadge />}
           </div>
           <p className="text-[11px] text-th-text-muted truncate">
             <TrackArtists
@@ -1443,6 +1457,7 @@ function TrackRow({
               {getTrackDisplayTitle(track)}
             </p>
             {track.explicit && <ExplicitBadge />}
+            {track.ai && <AiBadge />}
           </div>
           <p className="text-[11px] text-th-text-muted truncate">
             <TrackArtists

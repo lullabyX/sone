@@ -18,6 +18,8 @@ import { useContextMenu } from "../hooks/useContextMenu";
 import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
 import { getTrackShareUrl, getVideoShareUrl } from "../utils/itemHelpers";
 import { isTrackUnavailable } from "../lib/trackAvailability";
+import { isContentBlocked } from "../lib/contentFilter";
+import { useContentPrefs } from "../hooks/useContentPrefs";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MenuPortal from "./MenuPortal";
 import { getTrack } from "../api/tidal";
@@ -60,7 +62,9 @@ export default function TrackContextMenu({
 
   const isFav = favoriteTrackIds.has(track.id);
   const canRemoveFromPlaylist = !!playlistId && !!isUserPlaylist;
-  const unavailable = isTrackUnavailable(track);
+  const contentPrefs = useContentPrefs();
+  const unavailable =
+    isTrackUnavailable(track) || isContentBlocked(track, contentPrefs);
 
   const { menuRef, style } = useContextMenu({
     cursorPosition,

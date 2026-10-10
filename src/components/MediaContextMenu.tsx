@@ -32,6 +32,12 @@ import { userPlaylistsAtom } from "../atoms/playlists";
 import { currentViewAtom } from "../atoms/navigation";
 import { getShareUrl } from "../utils/itemHelpers";
 import { replaceView } from "../lib/scrollMemory";
+import {
+  blockedMessage,
+  contentBlockReason,
+  isContentBlocked,
+} from "../lib/contentFilter";
+import { useContentPrefs } from "../hooks/useContentPrefs";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import MoveToFolderMenu from "./MoveToFolderMenu";
 import MenuPortal from "./MenuPortal";
@@ -65,6 +71,7 @@ export default function MediaContextMenu({
     removeFavoriteMix,
   } = useFavorites();
   const { showToast } = useToast();
+  const contentPrefs = useContentPrefs();
   const { deletePlaylist } = usePlaylists();
   const currentView = useAtomValue(currentViewAtom);
   const setCurrentView = useSetAtom(currentViewAtom);
@@ -164,10 +171,19 @@ export default function MediaContextMenu({
     ) => {
       setLoadingAction(actionName);
       try {
-        const tracks = await fetchMediaTracks(item);
+        const all = await fetchMediaTracks(item);
+        const tracks = all.filter((t) => !isContentBlocked(t, contentPrefs));
         if (tracks.length > 0) {
           action(tracks);
           if (successMsg) showToast(successMsg);
+        } else if (all.length > 0) {
+          const reason = all
+            .map((t) => contentBlockReason(t, contentPrefs))
+            .find((r) => r !== null);
+          showToast(
+            reason ? blockedMessage(reason) : "No playable tracks",
+            "info",
+          );
         }
       } catch (err) {
         console.error(`Failed to ${actionName}:`, err);
@@ -175,7 +191,7 @@ export default function MediaContextMenu({
       }
       onClose();
     },
-    [item, fetchMediaTracks, onClose, showToast],
+    [item, fetchMediaTracks, onClose, showToast, contentPrefs],
   );
 
   const playMedia = useMediaPlay();

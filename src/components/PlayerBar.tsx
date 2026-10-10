@@ -15,6 +15,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getTidalImageUrl, getTrackDisplayTitle, type Track } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
 import { formatTime } from "../lib/format";
 import { isNavigableSource } from "../lib/playbackSource";
 import { getTrackArtistDisplay } from "../utils/itemHelpers";
@@ -140,6 +141,7 @@ const TrackInfoSection = memo(function TrackInfoSection() {
             {getTrackDisplayTitle(currentTrack)}
           </span>
           {currentTrack.explicit && <ExplicitBadge />}
+          {currentTrack.ai && <AiBadge />}
         </div>
         <span className="text-th-text-secondary text-[11px] truncate mt-0.5">
           <TrackArtists
