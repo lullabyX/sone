@@ -422,6 +422,88 @@ pub fn find_own_sink_input<'a>(
         .max_by_key(|i| (i.field("Corked") == Some("no"), i.index))
 }
 
+#[derive(Debug, PartialEq)]
+pub struct SinkRoute<'a> {
+    /// Sink SONE's stream feeds.
+    pub connected: &'a PactlObject,
+    /// Device at the end of the route; None when it can't be determined.
+    pub hardware: Option<&'a PactlObject>,
+    /// Virtual sinks passed through before `hardware`, in order.
+    pub virtual_sinks: Vec<&'a PactlObject>,
+    /// Streams carrying a virtual sink's output on to the next sink.
+    pub links: Vec<&'a PactlObject>,
+}
+
+const MAX_ROUTE_HOPS: usize = 8;
+
+fn is_device(sink: &PactlObject) -> bool {
+    sink.prop("device.api").is_some() || sink.prop("alsa.card").is_some()
+}
+
+/// Follow virtual sinks to the device. PipeWire modules (filter-chain,
+/// loopback, echo-cancel, combine-stream) share `node.link-group` between a
+/// virtual sink and the stream carrying its output; PulseAudio virtual sinks
+/// name their master in `device.master_device`.
+pub fn resolve_sink_route<'a>(
+    start: u32,
+    sinks: &'a [PactlObject],
+    inputs: &'a [PactlObject],
+    stream_active: bool,
+) -> Option<SinkRoute<'a>> {
+    let connected = sinks.iter().find(|s| s.index == start)?;
+    let mut route = SinkRoute { connected, hardware: None, virtual_sinks: Vec::new(), links: Vec::new() };
+    let mut cur = connected;
+    for _ in 0..MAX_ROUTE_HOPS {
+        if is_device(cur) {
+            route.hardware = Some(cur);
+            break;
+        }
+        route.virtual_sinks.push(cur);
+        let next = match cur.prop("node.link-group") {
+            Some(group) => {
+                let outs: Vec<(&PactlObject, u32)> = inputs
+                    .iter()
+                    .filter(|i| i.prop("node.link-group") == Some(group))
+                    .filter_map(|i| Some((i, i.field("Sink")?.parse().ok()?)))
+                    .collect();
+                let mut targets: Vec<u32> = outs.iter().map(|(_, t)| *t).collect();
+                targets.sort_unstable();
+                targets.dedup();
+                match targets.as_slice() {
+                    [t] => {
+                        if let Some((link, _)) = outs.iter().find(|(_, s)| s == t) {
+                            route.links.push(link);
+                        }
+                        sinks.iter().find(|s| s.index == *t)
+                    }
+                    _ => None,
+                }
+            }
+            None => cur
+                .prop("device.master_device")
+                .and_then(|m| sinks.iter().find(|s| s.field("Name") == Some(m))),
+        };
+        match next {
+            Some(s) if !route.virtual_sinks.iter().any(|v| v.index == s.index) => cur = s,
+            _ => break,
+        }
+    }
+    // EasyEffects (>= 8.2.9) links its effect nodes outside pactl's view;
+    // while our stream plays, the only RUNNING device must be its output.
+    let ends_in_easyeffects = route
+        .virtual_sinks
+        .last()
+        .and_then(|s| s.prop("node.link-group"))
+        == Some("ee_sink_group");
+    if route.hardware.is_none() && stream_active && ends_in_easyeffects {
+        let mut running = sinks.iter().filter(|s| is_device(s) && s.field("State") == Some("RUNNING"));
+        if let (Some(only), None) = (running.next(), running.next()) {
+            route.hardware = Some(only);
+        }
+    }
+    Some(route)
+}
+
 use std::process::Command;
 use std::sync::Arc;
 
@@ -1079,6 +1161,174 @@ Sink Input #4
 ";
         let inputs = parse_pactl_objects(text, "Sink Input");
         assert_eq!(find_own_sink_input(&inputs, 7, None).map(|i| i.index), Some(5));
+    }
+
+    #[test]
+    fn route_walks_filter_chain_to_hardware() {
+        let (sinks, inputs) = chain();
+        let r = resolve_sink_route(70, &sinks, &inputs, true).unwrap();
+        assert_eq!(r.connected.index, 70);
+        assert_eq!(r.hardware.map(|h| h.index), Some(62));
+        assert_eq!(r.virtual_sinks.iter().map(|s| s.index).collect::<Vec<_>>(), vec![70, 72]);
+        assert_eq!(r.links.iter().map(|s| s.index).collect::<Vec<_>>(), vec![80, 81]);
+    }
+
+    #[test]
+    fn route_direct_to_hardware_has_no_hops() {
+        let (sinks, inputs) = chain();
+        let r = resolve_sink_route(62, &sinks, &inputs, true).unwrap();
+        assert_eq!(r.hardware.map(|h| h.index), Some(62));
+        assert!(r.virtual_sinks.is_empty());
+        assert!(r.links.is_empty());
+    }
+
+    #[test]
+    fn route_none_for_unlinked_stream() {
+        // pipewire-pulse reports an unlinked stream as Sink: 4294967295.
+        let (sinks, inputs) = chain();
+        assert!(resolve_sink_route(u32::MAX, &sinks, &inputs, true).is_none());
+    }
+
+    #[test]
+    fn route_follows_pulseaudio_master_device() {
+        let sinks = parse_pactl_objects("\
+Sink #1
+\tName: alsa_output.dac
+\tProperties:
+\t\talsa.card = \"1\"
+\t\tdevice.api = \"alsa\"
+Sink #2
+\tName: eq_sink
+\tDescription: Equalizer
+\tProperties:
+\t\tdevice.master_device = \"alsa_output.dac\"
+", "Sink");
+        let r = resolve_sink_route(2, &sinks, &[], true).unwrap();
+        assert_eq!(r.hardware.map(|h| h.index), Some(1));
+        assert_eq!(r.virtual_sinks.iter().map(|s| s.index).collect::<Vec<_>>(), vec![2]);
+    }
+
+    const EE_SINKS: &str = "\
+Sink #10
+\tState: RUNNING
+\tName: easyeffects_sink
+\tDescription: Easy Effects Sink
+\tSample Specification: float32le 2ch 48000Hz
+\tProperties:
+\t\tnode.link-group = \"ee_sink_group\"
+Sink #11
+\tState: RUNNING
+\tName: alsa_output.dac
+\tSample Specification: s32le 2ch 48000Hz
+\tProperties:
+\t\talsa.card = \"1\"
+\t\tdevice.api = \"alsa\"
+Sink #12
+\tState: SUSPENDED
+\tName: alsa_output.hdmi
+\tProperties:
+\t\talsa.card = \"0\"
+\t\tdevice.api = \"alsa\"
+";
+
+    #[test]
+    fn route_infers_only_running_device_when_playing() {
+        // EasyEffects >= 8.2.9: link-group set, but its effect nodes are not sink-inputs.
+        let sinks = parse_pactl_objects(EE_SINKS, "Sink");
+        let r = resolve_sink_route(10, &sinks, &[], true).unwrap();
+        assert_eq!(r.hardware.map(|h| h.index), Some(11));
+        assert_eq!(r.virtual_sinks.iter().map(|s| s.index).collect::<Vec<_>>(), vec![10]);
+    }
+
+    #[test]
+    fn route_no_inference_when_paused_or_ambiguous() {
+        let sinks = parse_pactl_objects(EE_SINKS, "Sink");
+        assert!(resolve_sink_route(10, &sinks, &[], false).unwrap().hardware.is_none());
+        let both = EE_SINKS.replace("State: SUSPENDED", "State: RUNNING");
+        let sinks = parse_pactl_objects(&both, "Sink");
+        assert!(resolve_sink_route(10, &sinks, &[], true).unwrap().hardware.is_none());
+    }
+
+    #[test]
+    fn route_no_inference_outside_easyeffects() {
+        // A filter-chain whose output stream isn't linked, or a null sink
+        // captured by OBS: never borrow another app's running device.
+        for group in ["filter-chain-1-2", ""] {
+            let text = EE_SINKS.replace("ee_sink_group", group);
+            let sinks = parse_pactl_objects(&text, "Sink");
+            assert!(resolve_sink_route(10, &sinks, &[], true).unwrap().hardware.is_none(), "group={group:?}");
+        }
+    }
+
+    #[test]
+    fn route_stops_on_fan_out() {
+        // combine-stream: one virtual sink feeding two devices.
+        let sinks = parse_pactl_objects("\
+Sink #1
+\tName: combined
+\tProperties:
+\t\tnode.link-group = \"combine-x\"
+Sink #2
+\tName: dac_a
+\tProperties:
+\t\tdevice.api = \"alsa\"
+Sink #3
+\tName: dac_b
+\tProperties:
+\t\tdevice.api = \"alsa\"
+", "Sink");
+        let inputs = parse_pactl_objects("\
+Sink Input #20
+\tSink: 2
+\tProperties:
+\t\tnode.link-group = \"combine-x\"
+Sink Input #21
+\tSink: 3
+\tProperties:
+\t\tnode.link-group = \"combine-x\"
+", "Sink Input");
+        let r = resolve_sink_route(1, &sinks, &inputs, false).unwrap();
+        assert!(r.hardware.is_none());
+        assert_eq!(r.virtual_sinks.len(), 1);
+    }
+
+    #[test]
+    fn route_terminates_on_cycle() {
+        let sinks = parse_pactl_objects("\
+Sink #1
+\tName: a
+\tProperties:
+\t\tnode.link-group = \"g1\"
+Sink #2
+\tName: b
+\tProperties:
+\t\tnode.link-group = \"g2\"
+", "Sink");
+        let inputs = parse_pactl_objects("\
+Sink Input #11
+\tSink: 2
+\tProperties:
+\t\tnode.link-group = \"g1\"
+Sink Input #12
+\tSink: 1
+\tProperties:
+\t\tnode.link-group = \"g2\"
+", "Sink Input");
+        let r = resolve_sink_route(1, &sinks, &inputs, false).unwrap();
+        assert!(r.hardware.is_none());
+        assert_eq!(r.virtual_sinks.iter().map(|s| s.index).collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[test]
+    fn route_treats_bluetooth_sink_as_hardware() {
+        let sinks = parse_pactl_objects("\
+Sink #5
+\tName: bluez_output.AA_BB.1
+\tProperties:
+\t\tdevice.api = \"bluez5\"
+", "Sink");
+        let r = resolve_sink_route(5, &sinks, &[], true).unwrap();
+        assert_eq!(r.hardware.map(|h| h.index), Some(5));
     }
 }
 
