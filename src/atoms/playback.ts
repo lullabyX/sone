@@ -14,17 +14,31 @@ export interface DacHwParams {
   state: "Active" | "Closed";
 }
 
+export interface VirtualHop {
+  name: string;
+  /** Rate this hop runs at; null when unknown. */
+  rate: number | null;
+}
+
 export interface OsMixerInfo {
   server: string; // "PipeWire" | "PulseAudio" | "Unknown"
   defaultSinkName: string;
+  /** Sink SONE's stream feeds. */
+  sinkName: string;
+  /** Empty when unknown. */
   sinkFormat: string;
-  sinkRate: number;
+  /** Rate the mixer runs at; null when it can't be determined. */
+  sinkRate: number | null;
   sinkChannels: number;
-  /** Linear amplitude multiplier the OS mixer applies. 1.0 = unity, 0.0 = mute. */
+  /** Linear amplitude multiplier the OS applies along the route. 1.0 = unity, 0.0 = mute. */
   sinkVolume: number;
-  /** Slider-scale percent as `pactl` prints it — matches the OS volume widget. */
+  /** `sinkVolume` on the cubic slider scale the OS volume widget uses. */
   sinkVolumePercent: number;
   sinkMuted: boolean;
+  /** Virtual sinks (effects, loopbacks) between `sinkName` and the device. */
+  virtualRoute: VirtualHop[];
+  /** Rate at the device; null when unknown. */
+  deviceRate: number | null;
 }
 
 export interface SignalPath {
