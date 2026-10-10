@@ -1368,8 +1368,8 @@ Sink #5
     #[test]
     fn alsa_location_prefers_card_index() {
         let (sinks, _) = chain();
-        let loc = sink_alsa_location(&sinks[0], &|i| (i == 3).then(|| "MICRO".to_string()));
-        assert_eq!(loc, Some(("MICRO".to_string(), Some(0))));
+        let loc = sink_alsa_location(&sinks[0], &|i| (i == 3).then(|| "Generic_1".to_string()));
+        assert_eq!(loc, Some(("Generic_1".to_string(), Some(0))));
     }
 
     #[test]
