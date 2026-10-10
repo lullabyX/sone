@@ -187,7 +187,7 @@ impl DiskCacheInner {
 
 const MAX_DISK_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 const EVICT_TARGET: u64 = MAX_DISK_BYTES * 9 / 10; // 1.8 GB
-const CURRENT_SCHEMA_VERSION: u8 = 5;
+const CURRENT_SCHEMA_VERSION: u8 = 6;
 
 pub struct DiskCache {
     base_dir: PathBuf,
@@ -655,4 +655,12 @@ fn hash_key(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod schema_tests {
+    #[test]
+    fn schema_bumped_for_ai_field() {
+        const { assert!(super::CURRENT_SCHEMA_VERSION >= 6) };
+    }
 }
