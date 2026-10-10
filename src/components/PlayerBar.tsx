@@ -404,7 +404,7 @@ const VideoProgressScrubber = memo(function VideoProgressScrubber() {
   const clampedProgress = Math.min(100, Math.max(0, progress));
 
   return (
-    <div className="w-full flex items-center gap-2 text-th-text-muted">
+    <div className="progress-row w-full flex items-center gap-2 text-th-text-muted">
       <span className="min-w-[40px] text-right text-[11px] tabular-nums select-none">
         {formatTime(position)}
       </span>
@@ -470,7 +470,7 @@ const ProgressScrubber = memo(function ProgressScrubber() {
   const [showTimeLeft, setShowTimeLeft] = useState(false);
 
   return (
-    <div className="w-full flex items-center gap-2 text-th-text-muted">
+    <div className="progress-row w-full flex items-center gap-2 text-th-text-muted">
       <span className="min-w-[40px] text-right text-[11px] tabular-nums select-none">
         {formatTime(displayTime)}
       </span>
