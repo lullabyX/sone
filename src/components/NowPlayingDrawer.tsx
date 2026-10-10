@@ -1697,9 +1697,13 @@ export default function NowPlayingDrawer() {
             ref={coverTextRef}
             className="shrink-0 text-center w-full max-w-[520px]"
           >
-            <h2 className="text-[22px] font-bold text-th-text-primary truncate">
-              {getTrackDisplayTitle(currentTrack)}
-            </h2>
+            <div className="flex items-center justify-center gap-2 min-w-0">
+              <h2 className="text-[22px] font-bold text-th-text-primary truncate min-w-0">
+                {getTrackDisplayTitle(currentTrack)}
+              </h2>
+              {currentTrack.explicit && <ExplicitBadge />}
+              {currentTrack.ai && <AiBadge />}
+            </div>
             <p className="text-[15px] text-th-text-muted truncate mt-1">
               {getTrackArtistDisplay(currentTrack)}
             </p>

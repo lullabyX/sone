@@ -317,6 +317,8 @@ export interface DirectHitItem {
   albumCover?: string;
   duration?: number;
   numberOfTracks?: number;
+  /** ALBUMS hits only; TRACKS hits carry it on `track`. */
+  ai?: boolean;
   /** Present on TRACKS hits: the complete track entity, carrying the artists[],
    *  explicit flag and album vibrantColor the flat fields above have no room for.
    *  Read it via buildTrackFromHit() rather than re-projecting the flat fields. */

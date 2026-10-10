@@ -23,6 +23,8 @@ import AiBadge from "./AiBadge";
 import TidalImage from "./TidalImage";
 import TrackContextMenu from "./TrackContextMenu";
 import MediaContextMenu from "./MediaContextMenu";
+import { useContentPrefs } from "../hooks/useContentPrefs";
+import { isContentBlocked } from "../lib/contentFilter";
 
 const HISTORY_KEY = "sone.search-history";
 const MAX_HISTORY = 10;
@@ -52,6 +54,7 @@ function saveHistory(history: string[]) {
 
 export default function SearchBar() {
   const { playSingle } = usePlaybackActions();
+  const contentPrefs = useContentPrefs();
   const {
     navigateToAlbum,
     navigateToArtist,
@@ -469,9 +472,12 @@ export default function SearchBar() {
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] text-th-text-primary truncate">
-                              {hit.title}
-                            </p>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <p className="text-[14px] text-th-text-primary truncate min-w-0">
+                                {hit.title}
+                              </p>
+                              {hit.ai === true && <AiBadge />}
+                            </div>
                             <p className="text-[11px] text-th-text-faint truncate">
                               Album &middot; {hit.artistName || "Unknown"}
                             </p>
@@ -506,7 +512,7 @@ export default function SearchBar() {
                           key={`dh-${idx}`}
                           className={`flex items-center gap-3 px-3 py-3 hover:bg-th-border-subtle transition-colors text-left group/track ${
                             hit.albumId ? "cursor-pointer" : ""
-                          }`}
+                          }${isContentBlocked(trackObj, contentPrefs) ? " opacity-50" : ""}`}
                           onClick={() => {
                             if (!hit.albumId) return;
                             setSearchOpen(false);
