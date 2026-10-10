@@ -84,6 +84,23 @@ describe("content toggles", () => {
     expect(store.get(queueAtom)).toHaveLength(1);
   });
 
+  it("turns explicit on without prompting, clearing, or stopping", () => {
+    const store = loaded();
+    store.set(allowExplicitAtom, false);
+    const { getByText, queryByText } = render(
+      <Provider store={store}>
+        <PlaybackTab />
+      </Provider>,
+    );
+    fireEvent.click(toggleFor(getByText, "Allow explicit content"));
+    expect(
+      queryByText("Turning this off clears your current queue."),
+    ).toBeNull();
+    expect(store.get(allowExplicitAtom)).toBe(true);
+    expect(store.get(queueAtom)).toHaveLength(1);
+    expect(invokeMock).not.toHaveBeenCalledWith("stop_track");
+  });
+
   it("turns off immediately when nothing is loaded", () => {
     const store = createStore();
     const { getByText, queryByText } = render(

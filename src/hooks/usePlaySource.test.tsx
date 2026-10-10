@@ -19,6 +19,7 @@ import {
   contextSourceAtom,
   allowExplicitAtom,
   allowAiAtom,
+  queueEpochAtom,
 } from "../atoms/playback";
 import type { TrackPage } from "../lib/trackSources";
 import type { Track } from "../types";
@@ -485,6 +486,7 @@ describe("usePlaySource", () => {
     store.set(allowAiAtom, false);
     const loaded = range(1, 3);
     const blocked = { ...loaded[1], ai: true };
+    const epoch = store.get(queueEpochAtom);
     let started = true;
     await act(async () => {
       started = await result.current.play(
@@ -494,9 +496,40 @@ describe("usePlaySource", () => {
     });
     expect(started).toBe(false);
     expect(store.get(currentTrackAtom)).toBeNull();
+    expect(store.get(queueEpochAtom)).toBe(epoch);
     expect(
       screen.getByText("AI content is turned off in Settings"),
     ).toBeTruthy();
+  });
+
+  it("a refused blocked click does not cancel an in-flight play", async () => {
+    const { store, result } = setup();
+    store.set(allowAiAtom, false);
+    const page = deferred<TrackPage>();
+    let first: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      first = result.current.play({
+        meta,
+        loaded: range(1, 4),
+        nextOffset: 0,
+        fetchPage: () => page.promise,
+        dedupe: true,
+      });
+    });
+    const blocked = mk(99, { ai: true });
+    await act(async () => {
+      await result.current.play(
+        { meta, loaded: [blocked] },
+        { startAt: blocked },
+      );
+    });
+    let started = false;
+    await act(async () => {
+      page.resolve({ items: range(1, 50), hasMore: false });
+      started = await first;
+    });
+    expect(started).toBe(true);
+    expect(store.get(currentTrackAtom)?.id).toBe(1);
   });
 
   it("keeps what it has when a background page fails", async () => {

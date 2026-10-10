@@ -648,6 +648,7 @@ export type MediaItemType =
       imageId?: string;
       artist?: string;
       duration?: number;
+      explicit?: boolean;
     };
 
 export interface FavoriteMix {

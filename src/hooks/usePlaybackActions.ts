@@ -83,8 +83,8 @@ type PlayResult =
       ok: false;
       /** `blocked` is deliberately NOT `unplayable`: the track is fine, egress
        *  is refused, and every following track would fail identically. It must
-       *  never reach the skip drain. */
-      /** "filtered": refused by the explicit/AI content setting; never skip-drained. */
+       *  never reach the skip drain. `filtered`: refused by the explicit/AI
+       *  content setting; also never skip-drained. */
       reason:
         | "network"
         | "unplayable"

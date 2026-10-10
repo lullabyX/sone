@@ -308,6 +308,7 @@ export function buildMediaItem(
         imageId: item.imageId,
         artist: item.artist?.name || item.artists?.[0]?.name,
         duration: item.duration,
+        explicit: item.explicit,
       };
     }
     return null;

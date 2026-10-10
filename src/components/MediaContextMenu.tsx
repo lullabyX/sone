@@ -177,13 +177,8 @@ export default function MediaContextMenu({
           action(tracks);
           if (successMsg) showToast(successMsg);
         } else if (all.length > 0) {
-          const reason = all
-            .map((t) => contentBlockReason(t, contentPrefs))
-            .find((r) => r !== null);
-          showToast(
-            reason ? blockedMessage(reason) : "No playable tracks",
-            "info",
-          );
+          const reason = contentBlockReason(all[0], contentPrefs);
+          if (reason) showToast(blockedMessage(reason), "info");
         }
       } catch (err) {
         console.error(`Failed to ${actionName}:`, err);
