@@ -1118,6 +1118,7 @@ pub fn run() {
             commands::utility::open_log_folder,
             commands::utility::get_decorations,
             commands::utility::set_decorations,
+            commands::utility::is_software_rendering,
             commands::utility::get_volume_normalization,
             commands::utility::set_volume_normalization,
             commands::utility::update_tray_tooltip,
