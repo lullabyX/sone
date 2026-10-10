@@ -550,17 +550,47 @@ impl PipelineProbe {
             None
         };
 
-        let dac = card.as_deref().and_then(read_hw_params);
+        let dac = card.as_deref().and_then(|c| read_hw_params(c, None));
         self.signal_path.set_dac(dac);
     }
 }
 
-/// Read /proc/asound/<card>/pcm0p/sub0/hw_params and return a populated
-/// DacHwParams. Tries multiple PCM subdevices if pcm0p/sub0 is closed,
-/// to handle hardware with non-default PCM indices.
-pub fn read_hw_params(card_name: &str) -> Option<DacHwParams> {
-    let base = format!("/proc/asound/{card_name}");
-    let card_index = read_card_index(card_name).unwrap_or(0);
+/// Read kernel hw_params for the card's playback PCM. With `preferred_pcm`
+/// (the sink's `alsa.device`) only that PCM is read, first active
+/// subdevice wins; without it the legacy pcm0..3 grid is scanned.
+pub fn read_hw_params(card_name: &str, preferred_pcm: Option<u32>) -> Option<DacHwParams> {
+    read_hw_params_at("/proc/asound", card_name, preferred_pcm)
+}
+
+fn read_hw_params_at(root: &str, card_name: &str, preferred_pcm: Option<u32>) -> Option<DacHwParams> {
+    let base = format!("{root}/{card_name}");
+    let to_dac = |pcm: u32, parsed: ParsedHwParams| DacHwParams {
+        card_index: read_card_index(card_name).unwrap_or(0),
+        card_name: read_card_longname(card_name).unwrap_or_else(|| card_name.to_string()),
+        pcm_device: format!("hw:CARD={card_name},DEV={pcm}"),
+        format: parsed.format,
+        rate: parsed.rate,
+        channels: parsed.channels,
+        period_size: parsed.period_size,
+        buffer_size: parsed.buffer_size,
+        state: parsed.state,
+    };
+
+    if let Some(pcm) = preferred_pcm {
+        let mut closed = None;
+        for sub in 0..2u32 {
+            let path = format!("{base}/pcm{pcm}p/sub{sub}/hw_params");
+            let Ok(contents) = std::fs::read_to_string(&path) else { continue };
+            let Some(parsed) = parse_hw_params_file(&contents) else { continue };
+            if parsed.state == HwParamsState::Active {
+                return Some(to_dac(pcm, parsed));
+            }
+            if closed.is_none() {
+                closed = Some(parsed);
+            }
+        }
+        return closed.map(|p| to_dac(pcm, p));
+    }
 
     // Probe a small grid of pcm/sub combinations (covers ~all hardware).
     for pcm in 0..4u32 {
@@ -571,20 +601,24 @@ pub fn read_hw_params(card_name: &str) -> Option<DacHwParams> {
             if parsed.state == HwParamsState::Closed && (pcm != 0 || sub != 0) {
                 continue; // try the next subdevice
             }
-            return Some(DacHwParams {
-                card_index,
-                card_name: read_card_longname(card_name).unwrap_or_else(|| card_name.to_string()),
-                pcm_device: format!("hw:CARD={card_name},DEV={pcm}"),
-                format: parsed.format,
-                rate: parsed.rate,
-                channels: parsed.channels,
-                period_size: parsed.period_size,
-                buffer_size: parsed.buffer_size,
-                state: parsed.state,
-            });
+            return Some(to_dac(pcm, parsed));
         }
     }
     None
+}
+
+/// `/proc/asound` directory name and PCM device of an ALSA-backed sink.
+pub fn sink_alsa_location(
+    sink: &PactlObject,
+    card_name_for_index: &dyn Fn(u32) -> Option<String>,
+) -> Option<(String, Option<u32>)> {
+    let card = sink
+        .prop("alsa.card")
+        .and_then(|c| c.parse().ok())
+        .and_then(card_name_for_index)
+        .or_else(|| sink.prop("alsa.id").map(str::to_string))?;
+    let device = sink.prop("alsa.device").and_then(|d| d.parse().ok());
+    Some((card, device))
 }
 
 fn read_card_index(card_name: &str) -> Option<u32> {
@@ -1329,6 +1363,78 @@ Sink #5
 ", "Sink");
         let r = resolve_sink_route(5, &sinks, &[], true).unwrap();
         assert_eq!(r.hardware.map(|h| h.index), Some(5));
+    }
+
+    #[test]
+    fn alsa_location_prefers_card_index() {
+        let (sinks, _) = chain();
+        let loc = sink_alsa_location(&sinks[0], &|i| (i == 3).then(|| "MICRO".to_string()));
+        assert_eq!(loc, Some(("MICRO".to_string(), Some(0))));
+    }
+
+    #[test]
+    fn alsa_location_falls_back_to_alsa_id() {
+        let (sinks, _) = chain();
+        let loc = sink_alsa_location(&sinks[0], &|_| None);
+        assert_eq!(loc, Some(("MICRO".to_string(), Some(0))));
+    }
+
+    #[test]
+    fn alsa_location_none_for_bluetooth() {
+        let sinks = parse_pactl_objects("Sink #5\n\tName: bt\n\tProperties:\n\t\tdevice.api = \"bluez5\"\n", "Sink");
+        assert!(sink_alsa_location(&sinks[0], &|_| Some("x".into())).is_none());
+    }
+
+    fn write_pcm(root: &std::path::Path, card: &str, pcm: u32, sub: u32, contents: &str) {
+        let dir = root.join(card).join(format!("pcm{pcm}p")).join(format!("sub{sub}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hw_params"), contents).unwrap();
+    }
+
+    #[test]
+    fn preferred_pcm_reads_that_device() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_pcm(tmp.path(), "NVidia", 0, 0, CLOSED);
+        write_pcm(tmp.path(), "NVidia", 7, 0, ACTIVE_HW_PARAMS_S16);
+        let p = read_hw_params_at(tmp.path().to_str().unwrap(), "NVidia", Some(7)).unwrap();
+        assert_eq!(p.state, HwParamsState::Active);
+        assert_eq!(p.rate, 44100);
+        assert_eq!(p.pcm_device, "hw:CARD=NVidia,DEV=7");
+    }
+
+    #[test]
+    fn preferred_pcm_uses_active_subdevice() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_pcm(tmp.path(), "Audio", 0, 0, CLOSED);
+        write_pcm(tmp.path(), "Audio", 0, 1, ACTIVE_HW_PARAMS);
+        let p = read_hw_params_at(tmp.path().to_str().unwrap(), "Audio", Some(0)).unwrap();
+        assert_eq!(p.state, HwParamsState::Active);
+        assert_eq!(p.rate, 96000);
+    }
+
+    #[test]
+    fn preferred_pcm_closed_reports_closed() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_pcm(tmp.path(), "Audio", 0, 0, CLOSED);
+        let p = read_hw_params_at(tmp.path().to_str().unwrap(), "Audio", Some(0)).unwrap();
+        assert_eq!(p.state, HwParamsState::Closed);
+    }
+
+    #[test]
+    fn preferred_pcm_missing_is_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(read_hw_params_at(tmp.path().to_str().unwrap(), "Audio", Some(3)).is_none());
+    }
+
+    #[test]
+    fn default_scan_keeps_pcm0_sub0_closed_semantics() {
+        // DirectAlsa path (preferred = None) must behave exactly as before:
+        // pcm0/sub0 closed is reported as Closed without scanning further.
+        let tmp = tempfile::tempdir().unwrap();
+        write_pcm(tmp.path(), "Audio", 0, 0, CLOSED);
+        write_pcm(tmp.path(), "Audio", 1, 0, ACTIVE_HW_PARAMS);
+        let p = read_hw_params_at(tmp.path().to_str().unwrap(), "Audio", None).unwrap();
+        assert_eq!(p.state, HwParamsState::Closed);
     }
 }
 
