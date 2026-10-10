@@ -214,7 +214,10 @@ impl MprisHandle {
                         else {
                             continue;
                         };
-                        if let Ok(secs) = state.audio_player.get_position() {
+                        // Blocking pool: this runtime also serves D-Bus.
+                        let player = state.audio_player.clone();
+                        let pos = tokio::task::spawn_blocking(move || player.get_position()).await;
+                        if let Ok(Ok(secs)) = pos {
                             let micros = (secs as f64 * 1_000_000.0) as i64;
                             player_for_tick.set_position(Time::from_micros(micros));
                         }
