@@ -12,6 +12,7 @@ import {
   Tv2,
   type LucideIcon,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useEscapeDismiss } from "../../hooks/useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../../lib/dismissStack";
 import PlaybackTab from "./PlaybackTab";
@@ -95,10 +96,30 @@ export default function SettingsSheet({
 }) {
   const [active, setActive] = useState<TabId>(initialTab);
   const panelRef = useRef<HTMLDivElement>(null);
+  // RP cannot reach Discord's socket under Snap confinement -> hide it
+  const [discordSupported, setDiscordSupported] = useState(true);
+
+  useEffect(() => {
+    invoke<boolean>("discord_rpc_supported")
+      .then(setDiscordSupported)
+      .catch(() => {});
+  }, []);
+
+  const groups = discordSupported
+    ? GROUPS
+    : GROUPS.map((g) => ({
+        ...g,
+        tabs: g.tabs.filter((t) => t.id !== "discord"),
+      })).filter((g) => g.tabs.length > 0);
 
   useEffect(() => {
     if (open) setActive(initialTab);
   }, [open, initialTab]);
+
+  const activeTab: TabId =
+    active === "discord" && !discordSupported
+      ? (groups[0]?.tabs[0]?.id ?? "playback")
+      : active;
 
   useEffect(() => {
     if (!open) return;
@@ -134,13 +155,13 @@ export default function SettingsSheet({
 
         <div className="flex flex-1 min-h-0">
           <nav className="w-[204px] shrink-0 border-r border-th-border-subtle py-4 px-3 flex flex-col gap-0.5 overflow-y-auto">
-            {GROUPS.map((group) => (
+            {groups.map((group) => (
               <Fragment key={group.label}>
                 <p className="text-[9.5px] font-bold tracking-[1.1px] uppercase text-th-text-faint px-[11px] mt-3.5 mb-1 first:mt-0.5">
                   {group.label}
                 </p>
                 {group.tabs.map(({ id, label, icon: Icon }) => {
-                  const on = active === id;
+                  const on = activeTab === id;
                   return (
                     <button
                       key={id}
@@ -169,15 +190,15 @@ export default function SettingsSheet({
 
           <div className="flex-1 overflow-y-auto px-6 py-6">
             <div className="max-w-[600px] mx-auto">
-              {active === "playback" && <PlaybackTab />}
-              {active === "themes" && <ThemesTab />}
-              {active === "scrobble" && <ScrobbleTab />}
-              {active === "discord" && <DiscordTab />}
-              {active === "general" && <GeneralTab />}
-              {active === "network" && <NetworkTab />}
-              {active === "utilities" && <UtilitiesTab />}
-              {active === "mcp" && <McpTab />}
-              {active === "overlay" && <OverlayTab />}
+              {activeTab === "playback" && <PlaybackTab />}
+              {activeTab === "themes" && <ThemesTab />}
+              {activeTab === "scrobble" && <ScrobbleTab />}
+              {activeTab === "discord" && <DiscordTab />}
+              {activeTab === "general" && <GeneralTab />}
+              {activeTab === "network" && <NetworkTab />}
+              {activeTab === "utilities" && <UtilitiesTab />}
+              {activeTab === "mcp" && <McpTab />}
+              {activeTab === "overlay" && <OverlayTab />}
             </div>
           </div>
         </div>
