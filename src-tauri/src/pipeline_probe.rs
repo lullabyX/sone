@@ -475,6 +475,7 @@ pub fn apply_route(
     dac: Option<&DacHwParams>,
 ) {
     let Some(route) = route else {
+        mixer.sink_name.clear();
         mixer.sink_format.clear();
         mixer.sink_channels = 0;
         mixer.sink_rate = None;
@@ -1511,6 +1512,8 @@ Sink #5
     fn no_claims_without_route() {
         let mut m = pw_mixer();
         apply_route(&mut m, None, None, Some(&active_dac(44100)));
+        assert_eq!(m.sink_name, "");
+        assert_eq!(m.default_sink_name, "alsa_output.pci-0000_01_00.1.hdmi-stereo");
         assert_eq!(m.sink_format, "");
         assert_eq!(m.sink_channels, 0);
         assert_eq!(m.sink_rate, None);
