@@ -533,11 +533,13 @@ export function usePlaybackActions() {
    *  playback source (so gapless never changes the "Playing from" context wrongly).
    *  Read-only: never mutates any atom. */
   const predictNextTrack = useCallback((): Track | null => {
+    const prefs = readContentPrefs(store);
     return pickGaplessNext({
       repeat: store.get(repeatAtom),
       manualHead: store.get(manualQueueAtom)[0] ?? null,
       contextHead: store.get(queueAtom)[0] ?? null,
       currentSourceId: store.get(playbackSourceAtom)?.id,
+      isBlocked: (t) => isContentBlocked(t, prefs),
     });
   }, [store]);
 

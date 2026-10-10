@@ -122,6 +122,11 @@ import {
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
 import {
+  filterSnapshotTracks,
+  isContentBlocked,
+  readContentPrefs,
+} from "../lib/contentFilter";
+import {
   clearOffset,
   pushView,
   replaceView,
@@ -574,63 +579,86 @@ export function AppInitializer() {
 
     const restoreSnapshot = (raw: string) => {
       const parsed = JSON.parse(raw) as Partial<PlaybackSnapshot>;
+      const prefs = readContentPrefs(store);
 
-      const restoredCurrentTrack =
+      const parsedCurrent =
         parsed.currentTrack && typeof parsed.currentTrack.id === "number"
           ? stripRuntimeTrackFields(parsed.currentTrack as Track)
           : null;
+      const restoredCurrentTrack =
+        parsedCurrent && !isContentBlocked(parsedCurrent, prefs)
+          ? parsedCurrent
+          : null;
 
-      const restoredQueue = Array.isArray(parsed.queue)
-        ? parsed.queue
-            .filter((t): t is Track => !!t && typeof t.id === "number")
-            .map(stripRuntimeTrackFields)
-        : [];
+      const restoredQueue = filterSnapshotTracks(
+        Array.isArray(parsed.queue)
+          ? parsed.queue
+              .filter((t): t is Track => !!t && typeof t.id === "number")
+              .map(stripRuntimeTrackFields)
+          : [],
+        prefs,
+      );
 
-      const restoredHistory = Array.isArray(parsed.history)
-        ? parsed.history
-            .filter((t): t is Track => !!t && typeof t.id === "number")
-            .map(stripRuntimeTrackFields)
-        : [];
+      const restoredHistory = filterSnapshotTracks(
+        Array.isArray(parsed.history)
+          ? parsed.history
+              .filter((t): t is Track => !!t && typeof t.id === "number")
+              .map(stripRuntimeTrackFields)
+          : [],
+        prefs,
+      );
       const cappedHistory =
         restoredHistory.length > MAX_HISTORY_TRACKS
           ? restoredHistory.slice(restoredHistory.length - MAX_HISTORY_TRACKS)
           : restoredHistory;
 
       const restoredOriginalQueue = Array.isArray(parsed.originalQueue)
-        ? parsed.originalQueue
-            .filter(isValidTrack)
-            .map((t) =>
-              ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
-            )
-        : null;
-
-      const restoredManualQueue = Array.isArray(parsed.manualQueue)
-        ? parsed.manualQueue
-            .filter(isValidTrack)
-            .map((t) =>
-              ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
-            )
-        : [];
-
-      const restoredPlaybackSource = parsed.playbackSource
-        ? {
-            ...parsed.playbackSource,
-            tracks: parsed.playbackSource.tracks
+        ? filterSnapshotTracks(
+            parsed.originalQueue
               .filter(isValidTrack)
               .map((t) =>
                 ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
               ),
+            prefs,
+          )
+        : null;
+
+      const restoredManualQueue = filterSnapshotTracks(
+        Array.isArray(parsed.manualQueue)
+          ? parsed.manualQueue
+              .filter(isValidTrack)
+              .map((t) =>
+                ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+              )
+          : [],
+        prefs,
+      );
+
+      const restoredPlaybackSource = parsed.playbackSource
+        ? {
+            ...parsed.playbackSource,
+            tracks: filterSnapshotTracks(
+              parsed.playbackSource.tracks
+                .filter(isValidTrack)
+                .map((t) =>
+                  ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+                ),
+              prefs,
+            ),
           }
         : null;
 
       const restoredContextSource = parsed.contextSource
         ? {
             ...parsed.contextSource,
-            tracks: parsed.contextSource.tracks
-              .filter(isValidTrack)
-              .map((t) =>
-                ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
-              ),
+            tracks: filterSnapshotTracks(
+              parsed.contextSource.tracks
+                .filter(isValidTrack)
+                .map((t) =>
+                  ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+                ),
+              prefs,
+            ),
           }
         : null;
 

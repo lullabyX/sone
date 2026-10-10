@@ -21,6 +21,12 @@ export function isContentBlocked(item: Flagged, prefs: ContentPrefs): boolean {
   return contentBlockReason(item, prefs) !== null;
 }
 
+export function filterSnapshotTracks<
+  T extends { explicit?: boolean; ai?: boolean },
+>(list: T[], prefs: ContentPrefs): T[] {
+  return list.filter((t) => !isContentBlocked(t, prefs));
+}
+
 export function blockedMessage(reason: BlockReason): string {
   return reason === "ai"
     ? "AI content is turned off in Settings"
