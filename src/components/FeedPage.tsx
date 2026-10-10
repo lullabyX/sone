@@ -18,6 +18,7 @@ import type { FeedItem, MediaItemType } from "../types";
 import MediaContextMenu from "./MediaContextMenu";
 import { MediaGridError, MediaGridEmpty } from "./MediaGrid";
 import PageContainer from "./PageContainer";
+import AiBadge from "./AiBadge";
 
 /** Album rows read "Single by Artist" / "Album by Artist"; everything else
  *  falls back to the shared subtitle helper. */
@@ -145,8 +146,11 @@ function FeedRow({
 
       {/* flex-1 so the trailing menu button is pushed to the far right */}
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-th-text-primary truncate">
-          {title}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="text-sm font-semibold text-th-text-primary truncate">
+            {title}
+          </div>
+          {entry.item?.ai === true && <AiBadge />}
         </div>
         {subtitle && (
           <div className="text-sm text-th-text-secondary truncate">

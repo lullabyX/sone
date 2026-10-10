@@ -37,6 +37,10 @@ import {
 } from "../utils/itemHelpers";
 import { getTidalPromoImageUrl } from "../types";
 import TidalImage from "./TidalImage";
+import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
+import { useContentPrefs } from "../hooks/useContentPrefs";
+import { isContentBlocked } from "../lib/contentFilter";
 
 interface HomeSectionProps {
   section: HomeSectionType;
@@ -286,9 +290,12 @@ export default function HomeSection({ section }: HomeSectionProps) {
               <p className="text-[13px] text-th-text-muted truncate">
                 {section.title}
               </p>
-              <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight truncate group-hover/context:underline">
-                {getItemTitle(contextItem)}
-              </h2>
+              <div className="flex items-center gap-2 min-w-0">
+                <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight truncate min-w-0 group-hover/context:underline">
+                  {getItemTitle(contextItem)}
+                </h2>
+                {contextItem.ai === true && <AiBadge />}
+              </div>
             </div>
           </div>
         ) : (
@@ -512,6 +519,7 @@ function TrackListSection({
   const { playFromSource } = usePlaybackActions();
   const { navigateToAlbum, navigateToViewAll, navigateToFavorites } =
     useNavigation();
+  const contentPrefs = useContentPrefs();
   const [trackContextMenu, setTrackContextMenu] = useState<{
     track: any;
     index: number;
@@ -576,14 +584,23 @@ function TrackListSection({
       >
         {displayItems.map((item: any, idx: number) => {
           const myTracks = isMyTracksItem(item);
+          const blocked = !myTracks && isContentBlocked(item, contentPrefs);
           return (
             <div
               key={getItemId(item)}
-              onClick={() => handlePlayTrack(item, idx)}
+              onClick={() => {
+                if (!blocked) handlePlayTrack(item, idx);
+              }}
               onContextMenu={
-                myTracks ? undefined : (e) => openTrackMenu(e, item, idx)
+                myTracks || blocked
+                  ? undefined
+                  : (e) => openTrackMenu(e, item, idx)
               }
-              className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
+              className={`flex items-center gap-3 p-2 rounded-md transition-colors ${
+                blocked
+                  ? "opacity-50 cursor-default"
+                  : "hover:bg-th-inset cursor-pointer group"
+              }`}
             >
               <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
                 {myTracks ? (
@@ -613,26 +630,30 @@ function TrackListSection({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate font-medium">
-                  {myTracks ? (
-                    "Loved Tracks"
-                  ) : item.album ? (
-                    <span
-                      className="hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigateToAlbum(item.album.id, {
-                          title: item.album.title,
-                          cover: item.album.cover,
-                        });
-                      }}
-                    >
-                      {getItemTitle(item)}
-                    </span>
-                  ) : (
-                    getItemTitle(item)
-                  )}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-[14px] text-th-text-primary truncate font-medium min-w-0">
+                    {myTracks ? (
+                      "Loved Tracks"
+                    ) : item.album ? (
+                      <span
+                        className="hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigateToAlbum(item.album.id, {
+                            title: item.album.title,
+                            cover: item.album.cover,
+                          });
+                        }}
+                      >
+                        {getItemTitle(item)}
+                      </span>
+                    ) : (
+                      getItemTitle(item)
+                    )}
+                  </p>
+                  {!myTracks && item.explicit && <ExplicitBadge />}
+                  {!myTracks && item.ai && <AiBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-muted truncate">
                   {myTracks ? (
                     "Collection"
@@ -695,6 +716,7 @@ function CompactGridSection({
 }) {
   const { navigateToViewAll, navigateToAlbum } = useNavigation();
   const { playFromSource } = usePlaybackActions();
+  const contentPrefs = useContentPrefs();
   const playMedia = useMediaPlay();
   const { gridRef, columns } = useGridColumns(items.length);
   const displayItems = fitRows(items, columns);
@@ -829,16 +851,27 @@ function CompactGridSection({
         {displayItems.map((item: any, idx: number) => {
           const isTrack = isTrackItem(item, typeHint);
           const myTracks = isMyTracksItem(item);
+          const restricted = isTrack
+            ? isContentBlocked(item, contentPrefs)
+            : !contentPrefs.allowAi && item.ai === true;
           // Deep links and artifact-less promo cards have nothing to play.
-          const canPlay = isTrack || buildMediaItem(item, typeHint) !== null;
+          const canPlay =
+            !restricted && (isTrack || buildMediaItem(item, typeHint) !== null);
           return (
             <div
               key={getItemId(item)}
-              onClick={() => handleRowClick(item)}
+              onClick={() => {
+                if (isTrack && restricted && !item.album?.id) return;
+                handleRowClick(item);
+              }}
               onContextMenu={
-                myTracks ? undefined : (e) => openMenu(e, item, idx)
+                myTracks || (isTrack && restricted)
+                  ? undefined
+                  : (e) => openMenu(e, item, idx)
               }
-              className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
+              className={`flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors${
+                restricted ? " opacity-50" : ""
+              }`}
             >
               <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
                 {myTracks ? (
@@ -872,17 +905,21 @@ function CompactGridSection({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate font-medium">
-                  {myTracks ? (
-                    "Loved Tracks"
-                  ) : isTrack && item.album ? (
-                    <span className="hover:underline">
-                      {getItemTitle(item)}
-                    </span>
-                  ) : (
-                    getItemTitle(item)
-                  )}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-[14px] text-th-text-primary truncate font-medium min-w-0">
+                    {myTracks ? (
+                      "Loved Tracks"
+                    ) : isTrack && item.album ? (
+                      <span className="hover:underline">
+                        {getItemTitle(item)}
+                      </span>
+                    ) : (
+                      getItemTitle(item)
+                    )}
+                  </p>
+                  {isTrack && item.explicit && <ExplicitBadge />}
+                  {!myTracks && item.ai === true && <AiBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-muted truncate">
                   {myTracks ? (
                     "Collection"

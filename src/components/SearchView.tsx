@@ -35,6 +35,8 @@ import MediaCard from "./MediaCard";
 import ReusableTrackList from "./TrackList";
 import PageContainer from "./PageContainer";
 import { SearchPageSkeleton } from "./PageSkeleton";
+import { useContentPrefs } from "../hooks/useContentPrefs";
+import { isContentBlocked } from "../lib/contentFilter";
 
 const TABS: { id: SearchTab; label: string }[] = [
   { id: "all", label: "All Results" },
@@ -693,6 +695,7 @@ function TopHitsList({
     position: { x: number; y: number },
   ) => void;
 }) {
+  const contentPrefs = useContentPrefs();
   // Track context menu state (managed locally)
   const [ctxTrack, setCtxTrack] = useState<{
     track: Track;
@@ -725,7 +728,7 @@ function TopHitsList({
               key={`th-${idx}`}
               className={`flex items-center gap-4 px-3 py-3 hover:bg-th-border-subtle rounded-md transition-colors text-left group/track ${
                 hit.albumId ? "cursor-pointer" : ""
-              }`}
+              }${isContentBlocked(trackObj, contentPrefs) ? " opacity-50" : ""}`}
               onClick={() => onTrackAlbumClick(hit)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -888,9 +891,12 @@ function TopHitsList({
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate">
-                  {hit.title}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-[14px] text-th-text-primary truncate min-w-0">
+                    {hit.title}
+                  </p>
+                  {hit.ai === true && <AiBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-faint truncate">
                   Album &middot; {hit.artistName || "Unknown"}
                   {hit.numberOfTracks ? ` · ${hit.numberOfTracks} tracks` : ""}

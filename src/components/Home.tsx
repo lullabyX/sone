@@ -25,6 +25,7 @@ import {
   isDeepLinkItem,
 } from "../utils/itemHelpers";
 import PageContainer from "./PageContainer";
+import AiBadge from "./AiBadge";
 
 // Per-tab in-memory cache to prevent skeleton flash on navigation and to keep
 // each tab's sections/cursor/pagination state independent across switches.
@@ -550,10 +551,11 @@ export default function Home() {
                         />
                       </div>
                     </div>
-                    <div className="flex-1 flex items-center px-3 min-w-0">
+                    <div className="flex-1 flex items-center gap-1.5 px-3 min-w-0">
                       <span className="font-bold text-[13px] text-th-text-primary truncate">
                         {getItemTitle(item)}
                       </span>
+                      {item.ai === true && <AiBadge />}
                     </div>
                   </div>
                 ))}

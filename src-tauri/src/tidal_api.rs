@@ -935,6 +935,9 @@ pub struct DirectHitItem {
     pub duration: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_tracks: Option<u32>,
+    /// ALBUMS hits only; TRACKS hits carry it on `track`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai: Option<bool>,
     /// The complete track entity for TRACKS hits. The payload is a full track —
     /// `artists[]`, `explicit`, `album.vibrantColor`, `mediaMetadata`, `mixes` —
     /// so carry it whole rather than re-projecting it onto the flat fields above
@@ -985,6 +988,7 @@ impl DirectHitItem {
                 album_cover: None,
                 duration: None,
                 number_of_tracks: None,
+                ai: None,
                 track: None,
                 video: None,
             }),
@@ -1022,6 +1026,7 @@ impl DirectHitItem {
                         .get("numberOfTracks")
                         .and_then(|v| v.as_u64())
                         .map(|n| n as u32),
+                    ai: val.get("ai").and_then(|v| v.as_bool()),
                     track: None,
                     video: None,
                 })
@@ -1070,6 +1075,7 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    ai: None,
                     track,
                     video: None,
                 })
@@ -1112,6 +1118,7 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    ai: None,
                     track: None,
                     video,
                 })
@@ -1140,6 +1147,7 @@ impl DirectHitItem {
                     .get("numberOfTracks")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as u32),
+                ai: None,
                 track: None,
                 video: None,
             }),
@@ -7114,6 +7122,18 @@ mod direct_hit_tests {
         hit["value"]["ai"] = serde_json::json!(true);
         let hit = DirectHitItem::from_typed_value(&hit).expect("TRACKS hit must parse");
         assert_eq!(hit.track.and_then(|t| t.ai), Some(true));
+    }
+
+    #[test]
+    fn album_hit_carries_ai_flag() {
+        let hit = DirectHitItem::from_typed_value(&serde_json::json!({
+            "type": "ALBUMS",
+            "value": { "id": 442725737, "title": "Dust and Silence", "ai": true }
+        }))
+        .expect("ALBUMS hit must parse");
+        assert_eq!(hit.ai, Some(true));
+        let json = serde_json::to_value(&hit).unwrap();
+        assert_eq!(json["ai"], serde_json::json!(true));
     }
 }
 

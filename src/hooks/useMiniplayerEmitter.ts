@@ -32,6 +32,7 @@ export interface MiniplayerState {
     artist: { id: number; name: string };
     artists?: { id: number; name: string }[];
     album: { id: number; cover?: string; vibrantColor?: string };
+    ai?: boolean;
   } | null;
   isPlaying: boolean;
   position: number;
@@ -85,6 +86,7 @@ export function useMiniplayerEmitter() {
               cover: track.album?.cover,
               vibrantColor: track.album?.vibrantColor,
             },
+            ai: track.ai,
           }
         : null,
       isPlaying,
