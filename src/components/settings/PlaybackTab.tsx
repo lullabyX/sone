@@ -18,6 +18,7 @@ import { resetPlaybackForContentChange } from "../../lib/playbackReset";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 import QualityPicker from "./QualityPicker";
+import ContentOffDialog from "./ContentOffDialog";
 
 type ContentKind = "explicit" | "ai";
 
@@ -66,27 +67,6 @@ export default function PlaybackTab() {
     if (hasPlayback()) setPendingOff(which);
     else applyOff(which);
   };
-
-  const confirmStrip = (which: ContentKind) =>
-    pendingOff === which ? (
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-th-inset text-[12px] text-th-text-secondary">
-        <span>Turning this off clears your current queue.</span>
-        <div className="flex gap-2 shrink-0">
-          <button
-            className="px-3 py-1 rounded-md hover:bg-th-button-hover text-th-text-primary"
-            onClick={() => setPendingOff(null)}
-          >
-            Not now
-          </button>
-          <button
-            className="px-3 py-1 rounded-md bg-th-accent text-th-on-accent font-semibold"
-            onClick={() => applyOff(which)}
-          >
-            Turn off
-          </button>
-        </div>
-      </div>
-    ) : null;
 
   return (
     <div>
@@ -192,7 +172,6 @@ export default function PlaybackTab() {
             <Toggle on={allowExplicit} />
           </button>
         </SettingRow>
-        {confirmStrip("explicit")}
 
         <SettingRow
           title="Allow AI content"
@@ -202,8 +181,15 @@ export default function PlaybackTab() {
             <Toggle on={allowAi} />
           </button>
         </SettingRow>
-        {confirmStrip("ai")}
       </div>
+
+      {pendingOff && (
+        <ContentOffDialog
+          label={pendingOff === "ai" ? "AI" : "explicit"}
+          onCancel={() => setPendingOff(null)}
+          onConfirm={() => applyOff(pendingOff)}
+        />
+      )}
     </div>
   );
 }
