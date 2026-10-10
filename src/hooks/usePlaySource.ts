@@ -1,12 +1,14 @@
 import { useCallback } from "react";
 import { useStore } from "jotai";
-import {
-  allowExplicitAtom,
-  queueEpochAtom,
-  shuffleAtom,
-} from "../atoms/playback";
+import { queueEpochAtom, shuffleAtom } from "../atoms/playback";
 import { useToast } from "../contexts/ToastContext";
 import { isTrackUnavailable } from "../lib/trackAvailability";
+import {
+  blockedMessage,
+  contentBlockReason,
+  isContentBlocked,
+  readContentPrefs,
+} from "../lib/contentFilter";
 import { usePlaybackActions } from "./usePlaybackActions";
 import type { PlayableSource } from "../lib/trackSources";
 import type { Track } from "../types";
@@ -35,8 +37,15 @@ export function usePlaySource() {
       const shuffleModeAtStart = store.get(shuffleAtom);
       const { meta } = src;
 
+      const prefs = readContentPrefs(store);
+      const startBlocked =
+        opts.startAt && contentBlockReason(opts.startAt, prefs);
+      if (startBlocked) {
+        showToast(blockedMessage(startBlocked), "info");
+        return false;
+      }
       const isPlayable = (t: Track) =>
-        !isTrackUnavailable(t) && (store.get(allowExplicitAtom) || !t.explicit);
+        !isTrackUnavailable(t) && !isContentBlocked(t, prefs);
 
       const seen = new Set<number>();
       const tracks: Track[] = [];
@@ -128,7 +137,13 @@ export function usePlaySource() {
         return false;
       }
       if (!started) {
-        showToast("No playable tracks", "info");
+        const reason = tracks
+          .map((t) => contentBlockReason(t, prefs))
+          .find((r) => r !== null);
+        showToast(
+          reason ? blockedMessage(reason) : "No playable tracks",
+          "info",
+        );
         return false;
       }
 
