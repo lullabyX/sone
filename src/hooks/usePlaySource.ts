@@ -32,11 +32,6 @@ export function usePlaySource() {
 
   return useCallback(
     async (src: PlayableSource, opts: PlaySourceOptions = {}) => {
-      const request = ++latestRequest;
-      const epochAtRequest = store.get(queueEpochAtom);
-      const shuffleModeAtStart = store.get(shuffleAtom);
-      const { meta } = src;
-
       const prefs = readContentPrefs(store);
       const startBlocked =
         opts.startAt && contentBlockReason(opts.startAt, prefs);
@@ -44,6 +39,11 @@ export function usePlaySource() {
         showToast(blockedMessage(startBlocked), "info");
         return false;
       }
+      const request = ++latestRequest;
+      const epochAtRequest = store.get(queueEpochAtom);
+      const shuffleModeAtStart = store.get(shuffleAtom);
+      const { meta } = src;
+
       const isPlayable = (t: Track) =>
         !isTrackUnavailable(t) && !isContentBlocked(t, prefs);
 

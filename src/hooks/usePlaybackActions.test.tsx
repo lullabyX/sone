@@ -482,6 +482,21 @@ describe("AI content filter", () => {
     expect(store.get(queueAtom)).toEqual([]);
     expect(store.get(consecutiveFailCountAtom)).toBe(0);
   });
+  it("playPrevious with empty history walks back past a blocked source track", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    store.set(playbackSourceAtom, {
+      type: "playlist",
+      id: "p1",
+      name: "P",
+      tracks: [human(1), synth(2), human(3)],
+    } as never);
+    store.set(currentTrackAtom, human(3));
+    await act(async () => {
+      await result.current.playPrevious();
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(1);
+  });
   it("playAllFromSource returns false when every track is ai", async () => {
     const { result, store } = setup();
     store.set(allowAiAtom, false);

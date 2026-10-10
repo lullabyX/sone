@@ -24,15 +24,16 @@ export function useMediaPlay() {
       // Video plays through the queue dispatch as a single-item video so
       // currentTrackAtom is set consistently with the audio path.
       if (item.type === "video") {
-        void playSingle({
+        const r = await playSingle({
           id: item.id,
           title: item.title,
           itemType: "video",
           imageId: item.imageId,
           duration: item.duration,
+          explicit: item.explicit,
           artist: item.artist ? { id: 0, name: item.artist } : undefined,
         } as Track);
-        return true;
+        return r.ok || r.reason !== "filtered";
       }
       try {
         const playable = await playableFromMedia(item);
