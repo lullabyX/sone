@@ -1,4 +1,5 @@
 import {
+  ChevronRight,
   ListEnd,
   ListPlus,
   Heart,
@@ -194,7 +195,7 @@ export default function TrackContextMenu({
     <MenuPortal>
       <div
         ref={menuRef}
-        className="z-[9999] w-[240px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
+        className="z-[9999] w-[240px] bg-th-surface rounded-xl border border-th-border-popover shadow-2xl shadow-black/60 overflow-hidden flex flex-col py-1"
         style={style}
         onClick={(e) => e.stopPropagation()}
       >
@@ -224,11 +225,15 @@ export default function TrackContextMenu({
         {/* Add to playlist */}
         <button
           ref={playlistBtnRef}
-          className={menuItemClass}
+          className={`${menuItemClass} ${showPlaylistSubmenu ? "bg-th-hl-faint" : ""}`}
           onClick={() => setShowPlaylistSubmenu(true)}
         >
           <ListMusic size={18} className="shrink-0 text-th-text-muted" />
           <span>Add to playlist</span>
+          <ChevronRight
+            size={16}
+            className="ml-auto shrink-0 text-th-text-muted"
+          />
         </button>
 
         {/* Add to / Remove from Loved tracks */}
@@ -288,6 +293,7 @@ export default function TrackContextMenu({
         <AddToPlaylistMenu
           trackIds={[track.id]}
           anchorRef={playlistBtnRef}
+          placement="side"
           onClose={() => {
             setShowPlaylistSubmenu(false);
             onClose();
