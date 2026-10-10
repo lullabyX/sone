@@ -36,20 +36,36 @@ const toggleFor = (getByText: (t: string) => HTMLElement, title: string) =>
 describe("content toggles", () => {
   it("asks before turning AI off while something is queued", () => {
     const store = loaded();
-    const { getByText, queryByText } = render(
+    const { getByText, getByRole, queryByText } = render(
       <Provider store={store}>
         <PlaybackTab />
       </Provider>,
     );
     fireEvent.click(toggleFor(getByText, "Allow AI content"));
-    expect(
-      getByText("Turning this off clears your current queue."),
-    ).toBeTruthy();
+    expect(getByRole("dialog").textContent).toContain(
+      "Turning this off clears your current queue.",
+    );
+    expect(getByText("Turn off AI content?")).toBeTruthy();
     expect(store.get(allowAiAtom)).toBe(true);
     fireEvent.click(getByText("Not now"));
     expect(
       queryByText("Turning this off clears your current queue."),
     ).toBeNull();
+    expect(store.get(queueAtom)).toHaveLength(1);
+  });
+
+  it("Escape dismisses the dialog without turning explicit off", () => {
+    const store = loaded();
+    const { getByText, queryByRole } = render(
+      <Provider store={store}>
+        <PlaybackTab />
+      </Provider>,
+    );
+    fireEvent.click(toggleFor(getByText, "Allow explicit content"));
+    expect(getByText("Turn off explicit content?")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queryByRole("dialog")).toBeNull();
+    expect(store.get(allowExplicitAtom)).toBe(true);
     expect(store.get(queueAtom)).toHaveLength(1);
   });
 
@@ -61,7 +77,7 @@ describe("content toggles", () => {
       </Provider>,
     );
     fireEvent.click(toggleFor(getByText, "Allow AI content"));
-    fireEvent.click(getByText("Turn off"));
+    fireEvent.click(getByText("Yes, turn off"));
     expect(store.get(allowAiAtom)).toBe(false);
     expect(store.get(currentTrackAtom)).toBeNull();
     expect(store.get(queueAtom)).toEqual([]);
