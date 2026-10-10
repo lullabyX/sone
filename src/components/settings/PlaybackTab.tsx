@@ -8,20 +8,18 @@ import {
   gaplessAtom,
   exclusiveModeAtom,
   allowExplicitAtom,
+  allowAiAtom,
   currentTrackAtom,
-  isPlayingAtom,
   queueAtom,
   manualQueueAtom,
-  originalQueueAtom,
-  historyAtom,
-  playbackSourceAtom,
-  contextSourceAtom,
-  queueEpochAtom,
 } from "../../atoms/playback";
 import { videoCoversAtom } from "../../atoms/ui";
+import { resetPlaybackForContentChange } from "../../lib/playbackReset";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 import QualityPicker from "./QualityPicker";
+
+type ContentKind = "explicit" | "ai";
 
 export default function PlaybackTab() {
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
@@ -30,6 +28,7 @@ export default function PlaybackTab() {
     volumeNormalizationAtom,
   );
   const [allowExplicit, setAllowExplicit] = useAtom(allowExplicitAtom);
+  const [allowAi, setAllowAi] = useAtom(allowAiAtom);
   const [gapless, setGapless] = useAtom(gaplessAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const exclusiveMode = useAtomValue(exclusiveModeAtom);
@@ -43,6 +42,51 @@ export default function PlaybackTab() {
   }, []);
 
   const gaplessDisabled = !gaplessSupported || exclusiveMode || bitPerfect;
+
+  const [pendingOff, setPendingOff] = useState<ContentKind | null>(null);
+
+  const hasPlayback = () =>
+    !!store.get(currentTrackAtom) ||
+    store.get(queueAtom).length > 0 ||
+    store.get(manualQueueAtom).length > 0;
+
+  const applyOff = (which: ContentKind) => {
+    if (which === "explicit") setAllowExplicit(false);
+    else setAllowAi(false);
+    resetPlaybackForContentChange(store);
+    setPendingOff(null);
+  };
+
+  const onContentToggle = (which: ContentKind, current: boolean) => {
+    if (!current) {
+      if (which === "explicit") setAllowExplicit(true);
+      else setAllowAi(true);
+      return;
+    }
+    if (hasPlayback()) setPendingOff(which);
+    else applyOff(which);
+  };
+
+  const confirmStrip = (which: ContentKind) =>
+    pendingOff === which ? (
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-th-inset text-[12px] text-th-text-secondary">
+        <span>Turning this off clears your current queue.</span>
+        <div className="flex gap-2 shrink-0">
+          <button
+            className="px-3 py-1 rounded-md hover:bg-th-button-hover text-th-text-primary"
+            onClick={() => setPendingOff(null)}
+          >
+            Not now
+          </button>
+          <button
+            className="px-3 py-1 rounded-md bg-th-accent text-th-on-accent font-semibold"
+            onClick={() => applyOff(which)}
+          >
+            Turn off
+          </button>
+        </div>
+      </div>
+    ) : null;
 
   return (
     <div>
@@ -144,24 +188,21 @@ export default function PlaybackTab() {
           title="Allow explicit content"
           subtitle="Allow playing tracks marked as explicit"
         >
-          <button
-            onClick={() => {
-              setAllowExplicit(!allowExplicit);
-              invoke("stop_track").catch(() => {});
-              store.set(currentTrackAtom, null);
-              store.set(isPlayingAtom, false);
-              store.set(queueAtom, []);
-              store.set(manualQueueAtom, []);
-              store.set(originalQueueAtom, null);
-              store.set(historyAtom, []);
-              store.set(playbackSourceAtom, null);
-              store.set(contextSourceAtom, null);
-              store.set(queueEpochAtom, store.get(queueEpochAtom) + 1);
-            }}
-          >
+          <button onClick={() => onContentToggle("explicit", allowExplicit)}>
             <Toggle on={allowExplicit} />
           </button>
         </SettingRow>
+        {confirmStrip("explicit")}
+
+        <SettingRow
+          title="Allow AI content"
+          subtitle="Allow playing tracks labeled as AI-generated"
+        >
+          <button onClick={() => onContentToggle("ai", allowAi)}>
+            <Toggle on={allowAi} />
+          </button>
+        </SettingRow>
+        {confirmStrip("ai")}
       </div>
     </div>
   );
