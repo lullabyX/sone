@@ -373,13 +373,24 @@ export default function FlowDiagramBody({
     upstreamRate !== null &&
     (!formatsEquivalent(sp.dac.format, upstreamFormat) ||
       sp.dac.rate !== upstreamRate);
+  // The source's bit depth only bounds what reaches the device when nothing
+  // rewrote the samples after hand-off: no virtual sinks, unity OS volume,
+  // and the mixer kept our rate.
+  const samplesUntouched =
+    !isDirectAlsa &&
+    virtualRoute.length === 0 &&
+    !osMuted &&
+    !osVolumeAltered &&
+    sp?.decodedRate != null &&
+    mixerRate !== null &&
+    mixerRate === sp.decodedRate;
   if (dacDiverges) {
     const dacState = conversionState(
       upstreamFormat,
       sp!.dac!.format,
       upstreamRate,
       sp!.dac!.rate,
-      isDirectAlsa ? null : sp?.decodedFormat,
+      samplesUntouched ? sp?.decodedFormat : null,
     );
     const dacRateChanged = sp!.dac!.rate !== upstreamRate;
     const dacServer = sp?.osMixer?.server ?? "OS mixer";

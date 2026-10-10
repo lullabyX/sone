@@ -85,6 +85,15 @@ function nodeText(sp: SignalPath, title: string) {
   return box?.textContent ?? "";
 }
 
+/** State of one alteration row, read from its label's colour. */
+function rowState(sp: SignalPath, label: string) {
+  const el = Array.from(renderFlow(sp).querySelectorAll("div")).find(
+    (d) => d.textContent === label,
+  );
+  if (!el) return null;
+  return el.className.includes("text-red-400") ? "lossy" : "altered";
+}
+
 describe("FlowDiagramBody mixer stage (issue #244)", () => {
   it("does not flag a resample when stream and device rates match through a filter chain", () => {
     const text = textOf(normalSp());
@@ -230,9 +239,46 @@ describe("FlowDiagramBody mixer stage (issue #244)", () => {
     expect(text).toContain("NOT PRISTINE — 2 LOSSY STAGES");
   });
 
-  it("16-bit source to S16 device via virtual sink is not lossy", () => {
-    const text = textOf(normalSp({ dac: { ...naos, format: "S16_LE" } }));
-    expect(text).not.toContain("LOSSY STAGE");
+  it("16-bit source to S16 device over a direct route is not lossy", () => {
+    const sp = normalSp({
+      dac: { ...naos, format: "S16_LE" },
+      osMixer: { ...bs2bMixer, sinkName: "alsa_output.naos", virtualRoute: [] },
+    });
+    expect(rowState(sp, "OS-LAYER CONVERSION")).toBe("altered");
+    expect(textOf(sp)).not.toContain("LOSSY STAGE");
+  });
+
+  it("16-bit source to S16 device via virtual sink is lossy", () => {
+    const sp = normalSp({ dac: { ...naos, format: "S16_LE" } });
+    expect(rowState(sp, "OS-LAYER CONVERSION")).toBe("lossy");
+    expect(textOf(sp)).toContain("reduced bit depth before it reached ALSA");
+  });
+
+  it("16-bit source to S16 device with OS volume applied is lossy", () => {
+    const sp = normalSp({
+      dac: { ...naos, format: "S16_LE" },
+      osMixer: {
+        ...bs2bMixer,
+        sinkName: "alsa_output.naos",
+        virtualRoute: [],
+        sinkVolume: 0.5,
+        sinkVolumePercent: 79,
+      },
+    });
+    expect(rowState(sp, "OS-LAYER CONVERSION")).toBe("lossy");
+  });
+
+  it("16-bit source to S16 device after a mixer resample is lossy", () => {
+    const sp = normalSp({
+      dac: { ...naos, format: "S16_LE", rate: 48000 },
+      osMixer: {
+        ...bs2bMixer,
+        sinkName: "alsa_output.naos",
+        sinkRate: 48000,
+        virtualRoute: [],
+      },
+    });
+    expect(rowState(sp, "OS-LAYER CONVERSION")).toBe("lossy");
   });
 
   it("24-bit source to S16 device is lossy", () => {
