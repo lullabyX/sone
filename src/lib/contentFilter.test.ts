@@ -3,6 +3,7 @@ import {
   contentBlockReason,
   isContentBlocked,
   blockedMessage,
+  filterSnapshotTracks,
 } from "./contentFilter";
 
 const all = { allowExplicit: true, allowAi: true };
@@ -43,5 +44,24 @@ describe("blockedMessage", () => {
     expect(blockedMessage("explicit")).toBe(
       "Explicit content is turned off in Settings",
     );
+  });
+});
+
+describe("filterSnapshotTracks", () => {
+  it("drops tracks blocked by current prefs", () => {
+    const list = [{ id: 1 }, { id: 2, ai: true }, { id: 3, explicit: true }];
+    expect(
+      filterSnapshotTracks(list, { allowExplicit: false, allowAi: false }).map(
+        (t) => t.id,
+      ),
+    ).toEqual([1]);
+  });
+  it("keeps everything when both prefs are on", () => {
+    expect(
+      filterSnapshotTracks([{ id: 1, ai: true }], {
+        allowExplicit: true,
+        allowAi: true,
+      }),
+    ).toHaveLength(1);
   });
 });
