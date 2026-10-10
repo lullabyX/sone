@@ -5,6 +5,7 @@
 //! the audio thread.
 
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,9 +154,8 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
     })
 }
 
-/// Parse the per-sink Mute and Volume lines for a target sink from
-/// `pactl list sinks` output. Returns (linear_amplitude_multiplier,
-/// slider_percent, muted).
+/// Parse a block's `Mute:` and `Volume:` fields. Returns
+/// (linear_amplitude_multiplier, slider_percent, muted).
 ///
 /// Volume line format (PipeWire/Pulse):
 ///   Volume: front-left: 39322 /  60% / -13.31 dB,   front-right: 39322 / ...
@@ -169,68 +169,51 @@ pub fn parse_pactl_info(stdout: &str) -> Option<OsMixerInfo> {
 ///
 /// We pick the channel with the largest |dB| from 0 as the representative,
 /// so any unbalanced cut surfaces honestly. `Base Volume:` lines are skipped.
-pub fn sink_volume_and_mute(stdout: &str, target_sink_name: &str) -> (f32, u32, bool) {
-    let mut in_target = false;
+pub fn object_volume(obj: &PactlObject) -> (f32, u32, bool) {
+    let muted = obj.field("Mute").is_some_and(|m| m.eq_ignore_ascii_case("yes"));
     let mut volume: f32 = 1.0;
     let mut percent: u32 = 100;
-    let mut muted = false;
 
-    for line in stdout.lines() {
-        let trimmed = line.trim_start();
-        if let Some(name) = trimmed.strip_prefix("Name:") {
-            in_target = name.trim() == target_sink_name;
-            continue;
-        }
-        if !in_target {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("Mute:") {
-            muted = rest.trim().eq_ignore_ascii_case("yes");
-        } else if let Some(rest) = trimmed.strip_prefix("Volume:") {
-            // Skip "Base Volume:" — strip_prefix("Volume:") only matches when
-            // the prefix is exactly "Volume:", but `Base Volume:` is reached
-            // only via the outer trimmed line "Base Volume:" which starts
-            // with "Base", so strip_prefix("Volume:") returns None for it.
-            let mut max_abs_db: f32 = 0.0;
-            let mut chosen_db: f32 = 0.0;
-            let mut chosen_percent: Option<u32> = None;
-            for part in rest.split(',') {
-                // Anchor on " dB" at the end of the channel segment.
-                let Some(db_end) = part.rfind(" dB") else { continue };
-                let before_db = &part[..db_end];
-                let Some(last_slash) = before_db.rfind('/') else { continue };
-                let db_str = before_db[last_slash + 1..].trim();
-                let Ok(db) = db_str.parse::<f32>() else { continue };
+    if let Some(rest) = obj.field("Volume") {
+        let mut max_abs_db: f32 = 0.0;
+        let mut chosen_db: f32 = 0.0;
+        let mut chosen_percent: Option<u32> = None;
+        for part in rest.split(',') {
+            // Anchor on " dB" at the end of the channel segment.
+            let Some(db_end) = part.rfind(" dB") else { continue };
+            let before_db = &part[..db_end];
+            let Some(last_slash) = before_db.rfind('/') else { continue };
+            let db_str = before_db[last_slash + 1..].trim();
+            let Ok(db) = db_str.parse::<f32>() else { continue };
 
-                // Walk back from the slash-before-dB to find the "<N>%"
-                // token sitting between two earlier slashes:
-                // "<raw> / <N>% / <dB> dB".
-                let part_percent: Option<u32> = (|| {
-                    let before_last_slash = &before_db[..last_slash];
-                    let pct_end = before_last_slash.rfind('%')?;
-                    let before_pct = &before_last_slash[..pct_end];
-                    let slash_before_pct = before_pct.rfind('/')?;
-                    before_last_slash[slash_before_pct + 1..pct_end]
-                        .trim()
-                        .parse::<f32>()
-                        .ok()
-                        .map(|f| f.round().max(0.0) as u32)
-                })();
+            // Walk back from the slash-before-dB to find the "<N>%"
+            // token sitting between two earlier slashes:
+            // "<raw> / <N>% / <dB> dB".
+            let part_percent: Option<u32> = (|| {
+                let before_last_slash = &before_db[..last_slash];
+                let pct_end = before_last_slash.rfind('%')?;
+                let before_pct = &before_last_slash[..pct_end];
+                let slash_before_pct = before_pct.rfind('/')?;
+                before_last_slash[slash_before_pct + 1..pct_end]
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .map(|f| f.round().max(0.0) as u32)
+            })();
 
-                if db.abs() > max_abs_db {
-                    max_abs_db = db.abs();
-                    chosen_db = db;
-                    chosen_percent = part_percent;
-                }
+            if db.abs() > max_abs_db {
+                max_abs_db = db.abs();
+                chosen_db = db;
+                chosen_percent = part_percent;
             }
-            if max_abs_db > 0.0 {
-                volume = 10f32.powf(chosen_db / 20.0);
-                percent = chosen_percent.unwrap_or_else(|| {
-                    // Fallback: PA's scale is cubic by default, so the
-                    // slider position is approximately cbrt(amplitude).
-                    (volume.cbrt() * 100.0).round().max(0.0) as u32
-                });
-            }
+        }
+        if max_abs_db > 0.0 {
+            volume = 10f32.powf(chosen_db / 20.0);
+            percent = chosen_percent.unwrap_or_else(|| {
+                // Fallback: PA's scale is cubic by default, so the
+                // slider position is approximately cbrt(amplitude).
+                (volume.cbrt() * 100.0).round().max(0.0) as u32
+            });
         }
     }
 
@@ -355,6 +338,88 @@ fn parse_sample_spec(spec: &str) -> (String, u32, u32) {
         }
     }
     (format, channels, rate)
+}
+
+/// One `Sink #N` / `Sink Input #N` block of `pactl list …` output.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PactlObject {
+    pub index: u32,
+    pub fields: HashMap<String, String>,
+    pub props: HashMap<String, String>,
+}
+
+impl PactlObject {
+    pub fn field(&self, key: &str) -> Option<&str> {
+        self.fields.get(key).map(String::as_str)
+    }
+
+    pub fn prop(&self, key: &str) -> Option<&str> {
+        self.props.get(key).map(String::as_str)
+    }
+
+    pub fn sample_spec(&self) -> Option<(String, u32, u32)> {
+        let (fmt, ch, rate) = parse_sample_spec(self.field("Sample Specification")?);
+        (!fmt.is_empty() && rate > 0).then_some((fmt, ch, rate))
+    }
+}
+
+/// Split `pactl list sinks|sink-inputs` output into blocks. `header` is the
+/// block title without its ` #N` suffix ("Sink", "Sink Input").
+pub fn parse_pactl_objects(stdout: &str, header: &str) -> Vec<PactlObject> {
+    let mut out: Vec<PactlObject> = Vec::new();
+    let mut in_props = false;
+    for line in stdout.lines() {
+        if let Some(index) = line
+            .strip_prefix(header)
+            .and_then(|r| r.strip_prefix(" #"))
+            .and_then(|n| n.trim().parse().ok())
+        {
+            out.push(PactlObject { index, ..Default::default() });
+            in_props = false;
+            continue;
+        }
+        let Some(obj) = out.last_mut() else { continue };
+        if let Some(rest) = line.strip_prefix("\t\t") {
+            if in_props {
+                if let Some((k, v)) = rest.split_once(" = ") {
+                    obj.props.insert(k.trim().to_string(), v.trim().trim_matches('"').to_string());
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix('\t') {
+            if rest.starts_with(char::is_whitespace) {
+                continue;
+            }
+            if let Some((k, v)) = rest.split_once(':') {
+                let k = k.trim();
+                in_props = k == "Properties";
+                obj.fields.insert(k.to_string(), v.trim().to_string());
+            }
+        }
+    }
+    out
+}
+
+fn strip_deleted(binary: &str) -> &str {
+    binary.trim_end_matches(" (deleted)")
+}
+
+/// SONE's own playback stream. libpulse fills `application.process.id` with
+/// getpid() (sandboxed PID under Flatpak, same as ours); the binary check
+/// guards against PID collisions between sandboxes.
+pub fn find_own_sink_input<'a>(
+    inputs: &'a [PactlObject],
+    pid: u32,
+    binary: Option<&str>,
+) -> Option<&'a PactlObject> {
+    let pid = pid.to_string();
+    inputs
+        .iter()
+        .filter(|i| i.prop("application.process.id") == Some(pid.as_str()))
+        .filter(|i| match (binary, i.prop("application.process.binary")) {
+            (Some(ours), Some(theirs)) => strip_deleted(ours) == strip_deleted(theirs),
+            _ => true,
+        })
+        .max_by_key(|i| (i.field("Corked") == Some("no"), i.index))
 }
 
 use std::process::Command;
@@ -485,10 +550,15 @@ pub fn query_os_mixer() -> Option<OsMixerInfo> {
             mixer.sink_channels = ch;
             mixer.sink_rate = rate;
         }
-        let (vol, pct, muted) = sink_volume_and_mute(&list_out, &mixer.default_sink_name);
-        mixer.sink_volume = vol;
-        mixer.sink_volume_percent = pct;
-        mixer.sink_muted = muted;
+        if let Some(sink) = parse_pactl_objects(&list_out, "Sink")
+            .iter()
+            .find(|s| s.field("Name") == Some(mixer.default_sink_name.as_str()))
+        {
+            let (vol, pct, muted) = object_volume(sink);
+            mixer.sink_volume = vol;
+            mixer.sink_volume_percent = pct;
+            mixer.sink_muted = muted;
+        }
     }
     Some(mixer)
 }
@@ -715,6 +785,11 @@ Sink #60
         assert!(discover_active_card(None, None, None).is_none());
     }
 
+    fn volume_of(text: &str, name: &str) -> (f32, u32, bool) {
+        let sinks = parse_pactl_objects(text, "Sink");
+        object_volume(sinks.iter().find(|s| s.field("Name") == Some(name)).unwrap())
+    }
+
     const PACTL_LIST_SINKS_WITH_VOLUME: &str = "\
 Sink #2
 \tState: RUNNING
@@ -757,7 +832,7 @@ Sink #5
 
     #[test]
     fn parses_attenuated_sink_volume() {
-        let (vol, pct, muted) = sink_volume_and_mute(
+        let (vol, pct, muted) = volume_of(
             PACTL_LIST_SINKS_WITH_VOLUME,
             "alsa_output.usb-iFi.iec958-stereo",
         );
@@ -770,14 +845,14 @@ Sink #5
     #[test]
     fn parses_muted_sink() {
         let (_vol, _pct, muted) =
-            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.muted-test");
+            volume_of(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.muted-test");
         assert!(muted);
     }
 
     #[test]
     fn parses_unity_sink_volume() {
         let (vol, pct, muted) =
-            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unity");
+            volume_of(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unity");
         assert!((vol - 1.0).abs() < 1e-6, "vol={vol}");
         assert_eq!(pct, 100);
         assert!(!muted);
@@ -789,19 +864,27 @@ Sink #5
         // The display percent must mirror pactl's "25%", not the 2% you'd
         // get by treating the amplitude factor as a percentage.
         let (vol, pct, muted) =
-            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.slider-25");
+            volume_of(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.slider-25");
         assert!((vol - 0.01567).abs() < 0.001, "vol={vol}");
         assert_eq!(pct, 25);
         assert!(!muted);
     }
 
     #[test]
-    fn returns_defaults_for_unknown_sink_volume() {
-        let (vol, pct, muted) =
-            sink_volume_and_mute(PACTL_LIST_SINKS_WITH_VOLUME, "alsa_output.unknown");
-        assert!((vol - 1.0).abs() < 1e-6);
-        assert_eq!(pct, 100);
-        assert!(!muted);
+    fn object_without_volume_is_unity() {
+        let sinks = parse_pactl_objects("Sink #1\n\tName: x\n", "Sink");
+        assert_eq!(object_volume(&sinks[0]), (1.0, 100, false));
+    }
+
+    #[test]
+    fn minus_inf_db_is_silence() {
+        let sinks = parse_pactl_objects(
+            "Sink #1\n\tName: x\n\tVolume: front-left: 0 /   0% / -inf dB,   front-right: 0 /   0% / -inf dB\n",
+            "Sink",
+        );
+        let (vol, pct, _) = object_volume(&sinks[0]);
+        assert_eq!(vol, 0.0);
+        assert_eq!(pct, 0);
     }
 
     #[test]
@@ -815,11 +898,187 @@ Sink #99
 \tName: alsa_output.only-base
 \tBase Volume: 65536 / 100% / 0.00 dB
 ";
-        let (vol, pct, muted) = sink_volume_and_mute(only_base, "alsa_output.only-base");
+        let (vol, pct, muted) = volume_of(only_base, "alsa_output.only-base");
         // No Volume: line ever matched → default 1.0 / 100%
         assert!((vol - 1.0).abs() < 1e-6);
         assert_eq!(pct, 100);
         assert!(!muted);
+    }
+
+    const CHAIN_SINKS: &str = "\
+Sink #62
+\tState: RUNNING
+\tName: alsa_output.usb-ULTRASONE_NAOS_MICRO_NAOS_MICRO-00.analog-stereo
+\tDescription: NAOS MICRO Analog Stereo
+\tDriver: PipeWire
+\tSample Specification: s32le 2ch 44100Hz
+\tChannel Map: front-left,front-right
+\tMute: no
+\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+\t        balance 0.00
+\tBase Volume: 65536 / 100% / 0.00 dB
+\tFlags: HARDWARE DECIBEL_VOLUME LATENCY
+\tProperties:
+\t\talsa.card = \"3\"
+\t\talsa.device = \"0\"
+\t\talsa.id = \"MICRO\"
+\t\tdevice.api = \"alsa\"
+\t\tmedia.class = \"Audio/Sink\"
+\tPorts:
+\t\tanalog-output: Analog Output (type: Unknown, priority: 9900, availability unknown)
+\tActive Port: analog-output
+\tFormats:
+\t\tpcm
+
+Sink #70
+\tState: RUNNING
+\tName: effect_input.bs2b
+\tDescription: bs2b
+\tDriver: PipeWire
+\tSample Specification: float32le 2ch 48000Hz
+\tMute: no
+\tVolume: front-left: 39322 /  60% / -13.31 dB,   front-right: 39322 /  60% / -13.31 dB
+\t        balance 0.00
+\tProperties:
+\t\tnode.name = \"effect_input.bs2b\"
+\t\tnode.link-group = \"filter-chain-1234-20\"
+\t\tnode.virtual = \"true\"
+\t\tmedia.class = \"Audio/Sink\"
+
+Sink #72
+\tState: RUNNING
+\tName: true_stereo_brir
+\tDescription: True Stereo BRIR
+\tDriver: PipeWire
+\tSample Specification: float32le 2ch 48000Hz
+\tMute: no
+\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+\tProperties:
+\t\tnode.link-group = \"filter-chain-1234-22\"
+\t\tnode.virtual = \"true\"
+\t\tmedia.class = \"Audio/Sink\"
+";
+
+    const CHAIN_INPUTS: &str = "\
+Sink Input #80
+\tDriver: PipeWire
+\tClient: n/a
+\tSink: 72
+\tSample Specification: float32le 2ch 48000Hz
+\tCorked: no
+\tMute: no
+\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+\tProperties:
+\t\tnode.name = \"effect_output.bs2b\"
+\t\tnode.link-group = \"filter-chain-1234-20\"
+\t\tmedia.class = \"Stream/Output/Audio\"
+
+Sink Input #81
+\tDriver: PipeWire
+\tClient: n/a
+\tSink: 62
+\tSample Specification: float32le 2ch 48000Hz
+\tCorked: no
+\tMute: no
+\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+\tProperties:
+\t\tnode.name = \"true_stereo_brir_out\"
+\t\tnode.link-group = \"filter-chain-1234-22\"
+\t\tmedia.class = \"Stream/Output/Audio\"
+
+Sink Input #90
+\tDriver: PipeWire
+\tClient: 89
+\tSink: 70
+\tSample Specification: s16le 2ch 44100Hz
+\tCorked: no
+\tMute: no
+\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+\tProperties:
+\t\tapplication.name = \"sone\"
+\t\tapplication.process.id = \"4242\"
+\t\tapplication.process.binary = \"sone\"
+\t\tmedia.class = \"Stream/Output/Audio\"
+
+Sink Input #91
+\tDriver: PipeWire
+\tClient: 95
+\tSink: 62
+\tSample Specification: float32le 2ch 48000Hz
+\tCorked: no
+\tProperties:
+\t\tapplication.name = \"Firefox\"
+\t\tapplication.process.id = \"4242\"
+\t\tapplication.process.binary = \"firefox\"
+";
+
+    fn chain() -> (Vec<PactlObject>, Vec<PactlObject>) {
+        (
+            parse_pactl_objects(CHAIN_SINKS, "Sink"),
+            parse_pactl_objects(CHAIN_INPUTS, "Sink Input"),
+        )
+    }
+
+    #[test]
+    fn parses_pactl_blocks() {
+        let (sinks, inputs) = chain();
+        assert_eq!(sinks.iter().map(|s| s.index).collect::<Vec<_>>(), vec![62, 70, 72]);
+        assert_eq!(inputs.iter().map(|s| s.index).collect::<Vec<_>>(), vec![80, 81, 90, 91]);
+        let dac = &sinks[0];
+        assert_eq!(dac.field("Name"), Some("alsa_output.usb-ULTRASONE_NAOS_MICRO_NAOS_MICRO-00.analog-stereo"));
+        assert_eq!(dac.prop("alsa.card"), Some("3"));
+        assert_eq!(dac.sample_spec(), Some(("s32le".to_string(), 2, 44100)));
+        // Ports/Formats entries after Properties must not leak into props.
+        assert!(!dac.props.keys().any(|k| k.contains("analog-output") || k == "pcm"));
+        // "\t        balance 0.00" is a continuation, not a field.
+        assert!(!dac.fields.keys().any(|k| k.contains("balance")));
+        assert_eq!(inputs[2].field("Sink"), Some("70"));
+    }
+
+    #[test]
+    fn sink_header_does_not_match_sink_input_blocks() {
+        assert!(parse_pactl_objects(CHAIN_INPUTS, "Sink").is_empty());
+    }
+
+    #[test]
+    fn own_stream_matches_pid_and_binary() {
+        let (_, inputs) = chain();
+        assert_eq!(find_own_sink_input(&inputs, 4242, Some("sone")).map(|i| i.index), Some(90));
+    }
+
+    #[test]
+    fn own_stream_rejects_pid_collision_with_other_binary() {
+        let (_, inputs) = chain();
+        assert!(find_own_sink_input(&inputs, 4242, Some("spotify")).is_none());
+    }
+
+    #[test]
+    fn own_stream_ignores_deleted_suffix() {
+        let (_, inputs) = chain();
+        assert_eq!(find_own_sink_input(&inputs, 4242, Some("sone (deleted)")).map(|i| i.index), Some(90));
+    }
+
+    #[test]
+    fn own_stream_prefers_uncorked_then_newest() {
+        let text = "\
+Sink Input #5
+\tSink: 1
+\tCorked: no
+\tProperties:
+\t\tapplication.process.id = \"7\"
+Sink Input #6
+\tSink: 2
+\tCorked: yes
+\tProperties:
+\t\tapplication.process.id = \"7\"
+Sink Input #4
+\tSink: 3
+\tCorked: no
+\tProperties:
+\t\tapplication.process.id = \"7\"
+";
+        let inputs = parse_pactl_objects(text, "Sink Input");
+        assert_eq!(find_own_sink_input(&inputs, 7, None).map(|i| i.index), Some(5));
     }
 }
 
