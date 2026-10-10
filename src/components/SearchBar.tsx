@@ -255,7 +255,7 @@ export default function SearchBar() {
       {showDropdown && (
         <div
           ref={dropdownRef}
-          className="absolute right-0 top-full mt-2 w-[420px] bg-th-surface rounded-lg shadow-2xl shadow-black/60 border border-th-border-subtle z-50 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent"
+          className="absolute right-0 top-full mt-2 w-[420px] bg-th-surface rounded-lg shadow-2xl shadow-black/60 border border-th-border-popover z-50 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent"
         >
           {/* Local history (when input is empty) */}
           {showLocalHistory && (

@@ -1,5 +1,6 @@
 import {
   Play,
+  ChevronRight,
   ListEnd,
   ListPlus,
   ListMusic,
@@ -347,7 +348,7 @@ export default function MediaContextMenu({
     <MenuPortal>
       <div
         ref={menuRef}
-        className="z-[9999] w-[240px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col py-1"
+        className="z-[9999] w-[240px] bg-th-surface rounded-xl border border-th-border-popover shadow-2xl shadow-black/60 overflow-hidden flex flex-col py-1"
         style={style}
         onClick={(e) => e.stopPropagation()}
         onContextMenu={(e) => e.stopPropagation()}
@@ -409,7 +410,7 @@ export default function MediaContextMenu({
         {/* Add to playlist */}
         <button
           ref={playlistBtnRef}
-          className={menuItemClass}
+          className={`${menuItemClass} ${showPlaylistSubmenu ? "bg-th-hl-faint" : ""}`}
           onClick={handleAddToPlaylist}
           disabled={fetchingForPlaylist}
         >
@@ -422,17 +423,25 @@ export default function MediaContextMenu({
             <ListMusic size={18} className="shrink-0 text-th-text-muted" />
           )}
           <span>Add to playlist</span>
+          <ChevronRight
+            size={16}
+            className="ml-auto shrink-0 text-th-text-muted"
+          />
         </button>
 
         {/* Move to folder */}
         {item.type === "playlist" && (
           <button
             ref={moveFolderBtnRef}
-            className={menuItemClass}
+            className={`${menuItemClass} ${showMoveToFolder ? "bg-th-hl-faint" : ""}`}
             onClick={() => setShowMoveToFolder(true)}
           >
             <FolderInput size={18} className="shrink-0 text-th-text-muted" />
             <span>Move to folder</span>
+            <ChevronRight
+              size={16}
+              className="ml-auto shrink-0 text-th-text-muted"
+            />
           </button>
         )}
 
@@ -540,6 +549,7 @@ export default function MediaContextMenu({
         <AddToPlaylistMenu
           trackIds={playlistTrackIds}
           anchorRef={playlistBtnRef}
+          placement="side"
           onClose={() => {
             setShowPlaylistSubmenu(false);
             onClose();
@@ -555,6 +565,7 @@ export default function MediaContextMenu({
           playlistImage={item.image}
           playlistCreatorName={item.creatorName}
           anchorRef={moveFolderBtnRef}
+          placement="side"
           sourceFolderId={sourceFolderId}
           onClose={() => {
             setShowMoveToFolder(false);
