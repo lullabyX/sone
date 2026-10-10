@@ -58,7 +58,7 @@ export default function SearchView({
   initialTab,
   onBack,
 }: SearchViewProps) {
-  const { playTrack, setQueueTracks, playFromSource } = usePlaybackActions();
+  const { playSingle, playFromSource } = usePlaybackActions();
   const playMedia = useMediaPlay();
   const { navigateToAlbum, navigateToPlaylist, navigateToArtist } =
     useNavigation();
@@ -488,12 +488,10 @@ export default function SearchView({
               <TopHitsList
                 topHits={results.topHits || []}
                 onPlayTrack={(hit) => {
-                  setQueueTracks([]);
-                  playTrack(buildTrackFromHit(hit));
+                  void playSingle(buildTrackFromHit(hit));
                 }}
                 onPlayVideo={(hit) => {
-                  setQueueTracks([]);
-                  playTrack(buildVideoTrackFromHit(hit));
+                  void playSingle(buildVideoTrackFromHit(hit));
                 }}
                 onAlbumClick={(hit) => {
                   if (hit.id)

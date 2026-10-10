@@ -50,7 +50,7 @@ function saveHistory(history: string[]) {
 }
 
 export default function SearchBar() {
-  const { playTrack, setQueueTracks } = usePlaybackActions();
+  const { playSingle } = usePlaybackActions();
   const {
     navigateToAlbum,
     navigateToArtist,
@@ -528,8 +528,7 @@ export default function SearchBar() {
                             title="Play"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setQueueTracks([]);
-                              playTrack(trackObj);
+                              void playSingle(trackObj);
                             }}
                           >
                             <TidalImage

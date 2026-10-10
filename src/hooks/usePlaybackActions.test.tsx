@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, screen, cleanup } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
+import { invoke } from "@tauri-apps/api/core";
 import type { PropsWithChildren } from "react";
 import { usePlaybackActions } from "./usePlaybackActions";
 import { ToastProvider } from "../contexts/ToastContext";
@@ -16,6 +17,7 @@ import {
   manualQueueAtom,
   consecutiveFailCountAtom,
   allowExplicitAtom,
+  allowAiAtom,
   queueEpochAtom,
 } from "../atoms/playback";
 import { getProxyBlockedReason } from "../lib/errorUtils";
@@ -386,5 +388,105 @@ describe("queue epoch and shuffle-play primitives", () => {
     });
     expect(store.get(queueAtom).map((t) => t.id)).not.toContain(10);
     expect(store.get(queueAtom).map((t) => t.id)).toContain(11);
+  });
+});
+
+describe("AI content filter", () => {
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.restoreAllMocks();
+    playResult = () => Promise.resolve({});
+    vi.mocked(invoke).mockClear();
+  });
+  const human = (id: number) => track({ id, title: `h${id}` });
+  const synth = (id: number) => track({ id, title: `ai${id}`, ai: true });
+
+  it("setQueueTracks drops ai tracks when AI is off", () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    act(() => result.current.setQueueTracks([human(1), synth(2), human(3)]));
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 3]);
+  });
+  it("setQueueTracks keeps ai tracks when AI is on", () => {
+    const { result, store } = setup();
+    act(() => result.current.setQueueTracks([human(1), synth(2)]));
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 2]);
+  });
+  it("addToQueue and playNextInQueue ignore ai tracks when AI is off", () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    act(() => {
+      result.current.addToQueue(synth(9));
+      result.current.playNextInQueue(synth(8));
+    });
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+  it("playTrack refuses an ai track without invoking playback", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    let res: unknown;
+    await act(async () => {
+      res = await result.current.playTrack(synth(5));
+    });
+    expect(res).toEqual({ ok: false, reason: "filtered" });
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
+      "play_tidal_track",
+      expect.anything(),
+    );
+    expect(store.get(currentTrackAtom)).toBeNull();
+    expect(
+      screen.getByText("AI content is turned off in Settings"),
+    ).toBeTruthy();
+  });
+  it("playSingle on a blocked track keeps the queue", async () => {
+    const { result, store } = setup();
+    act(() => result.current.setQueueTracks([human(1)]));
+    store.set(allowAiAtom, false);
+    await act(async () => {
+      await result.current.playSingle(synth(4));
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1]);
+    expect(store.get(queueEpochAtom)).toBe(1);
+  });
+  it("playFromSource on a blocked track leaves the queue untouched", async () => {
+    const { result, store } = setup();
+    act(() => result.current.setQueueTracks([human(1), human(2)]));
+    store.set(allowAiAtom, false);
+    vi.mocked(invoke).mockClear();
+    await act(async () => {
+      await result.current.playFromSource(synth(7), [
+        human(6),
+        synth(7),
+        human(8),
+      ]);
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 2]);
+    expect(store.get(queueEpochAtom)).toBe(1);
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
+      "play_tidal_track",
+      expect.anything(),
+    );
+  });
+  it("playNext skips an ai track sitting in the queue", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    store.set(queueAtom, [
+      { ...synth(2), _qid: "a" },
+      { ...human(3), _qid: "b" },
+    ]);
+    await act(async () => {
+      await result.current.playNext({ explicit: true });
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(3);
+    expect(store.get(queueAtom)).toEqual([]);
+    expect(store.get(consecutiveFailCountAtom)).toBe(0);
+  });
+  it("playAllFromSource returns false when every track is ai", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    expect(await result.current.playAllFromSource([synth(1), synth(2)])).toBe(
+      false,
+    );
   });
 });

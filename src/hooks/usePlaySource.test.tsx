@@ -18,6 +18,7 @@ import {
   playbackSourceAtom,
   contextSourceAtom,
   allowExplicitAtom,
+  allowAiAtom,
 } from "../atoms/playback";
 import type { TrackPage } from "../lib/trackSources";
 import type { Track } from "../types";
@@ -336,7 +337,9 @@ describe("usePlaySource", () => {
       });
     });
     expect(started).toBe(false);
-    expect(screen.getByText("No playable tracks")).toBeTruthy();
+    expect(
+      screen.getByText("Explicit content is turned off in Settings"),
+    ).toBeTruthy();
     await act(async () => {
       page.resolve({ items: range(51, 60), hasMore: false });
     });
@@ -444,7 +447,56 @@ describe("usePlaySource", () => {
     });
     expect(started).toBe(false);
     expect(store.get(currentTrackAtom)).toBeNull();
+    expect(
+      screen.getByText("Explicit content is turned off in Settings"),
+    ).toBeTruthy();
+  });
+
+  it("names the AI setting when every track is AI", async () => {
+    const { store, result } = setup();
+    store.set(allowAiAtom, false);
+    let started = true;
+    await act(async () => {
+      started = await result.current.play({
+        meta,
+        loaded: range(1, 3, { ai: true }),
+      });
+    });
+    expect(started).toBe(false);
+    expect(store.get(currentTrackAtom)).toBeNull();
+    expect(
+      screen.getByText("AI content is turned off in Settings"),
+    ).toBeTruthy();
+  });
+
+  it("keeps the generic toast when tracks are merely unavailable", async () => {
+    const { result } = setup();
+    await act(async () => {
+      await result.current.play({
+        meta,
+        loaded: range(1, 3, { streamReady: false }),
+      });
+    });
     expect(screen.getByText("No playable tracks")).toBeTruthy();
+  });
+
+  it("refuses a blocked startAt without touching the queue", async () => {
+    const { store, result } = setup();
+    store.set(allowAiAtom, false);
+    const loaded = range(1, 3);
+    const blocked = { ...loaded[1], ai: true };
+    let started = true;
+    await act(async () => {
+      started = await result.current.play(
+        { meta, loaded: [loaded[0], blocked, loaded[2]] },
+        { startAt: blocked },
+      );
+    });
+    expect(started).toBe(false);
+    expect(store.get(currentTrackAtom)).toBeNull();
+    expect(
+      screen.getByText("AI content is turned off in Settings"),
+    ).toBeTruthy();
   });
 
   it("keeps what it has when a background page fails", async () => {

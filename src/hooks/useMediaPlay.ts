@@ -8,7 +8,7 @@ import type { MediaItemType, Track } from "../types";
 const PLAY_REENTRY_GUARD_MS = 250;
 
 export function useMediaPlay() {
-  const { playTrack, setQueueTracks } = usePlaybackActions();
+  const { playSingle } = usePlaybackActions();
   const playSource = usePlaySource();
   const { showToast } = useToast();
   const lastInvokeRef = useRef(0);
@@ -24,8 +24,7 @@ export function useMediaPlay() {
       // Video plays through the queue dispatch as a single-item video so
       // currentTrackAtom is set consistently with the audio path.
       if (item.type === "video") {
-        setQueueTracks([]); // single video, no following queue
-        playTrack({
+        void playSingle({
           id: item.id,
           title: item.title,
           itemType: "video",
@@ -44,6 +43,6 @@ export function useMediaPlay() {
         return false;
       }
     },
-    [playTrack, setQueueTracks, playSource, showToast],
+    [playSingle, playSource, showToast],
   );
 }
