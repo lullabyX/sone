@@ -102,11 +102,34 @@ export async function bootstrapThemeFile(): Promise<void> {
   }
 }
 
+/**
+ * SONE's own recent writes, by serialized file, with when they were made.
+ *
+ * The watcher reports every write back, a few hundred ms later. When the
+ * theme changes again in that window (stepping through presets), the echo of
+ * the *earlier* write arrives after the newer theme is already live and
+ * would revert it; `lastPersisted` only recognises the latest write. An echo
+ * of one of our own recent writes is never news, so it is dropped.
+ */
+const recentWrites = new Map<string, number>();
+const ECHO_WINDOW_MS = 5000;
+
+function isRecentOwnWrite(serialized: string): boolean {
+  const now = Date.now();
+  for (const [key, at] of recentWrites) {
+    if (now - at > ECHO_WINDOW_MS) recentWrites.delete(key);
+  }
+  return recentWrites.has(serialized);
+}
+
 async function writeThemeFile(file: ThemeFile): Promise<void> {
+  const serialized = JSON.stringify(file);
+  recentWrites.set(serialized, Date.now());
   try {
     await invoke("theme_file_set", { file });
-    lastPersisted = JSON.stringify(file);
+    lastPersisted = serialized;
   } catch (err) {
+    recentWrites.delete(serialized);
     warnWrite(err);
   }
 }
@@ -146,7 +169,9 @@ export function applyExternalThemeFile(
 ): void {
   const resolved = resolveThemeFile(file);
   if (!resolved) return;
-  if (JSON.stringify(themeToFile(resolved)) === lastPersisted) return;
+  const serialized = JSON.stringify(themeToFile(resolved));
+  if (serialized === lastPersisted) return;
+  if (isRecentOwnWrite(serialized)) return;
   // Armed before `setCurrent`, not after: that call writes through to storage
   // and can throw, which would strand the guard and let the write-through it
   // triggers rewrite a hand-edited file. Recorded even when nothing changed,

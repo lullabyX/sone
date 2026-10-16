@@ -98,6 +98,19 @@ pub async fn clear_disk_cache(state: State<'_, AppState>) -> Result<(), SoneErro
     Ok(())
 }
 
+/// Whether these command-line arguments ask for the TV interface (`--tv`).
+pub fn args_request_tv_mode<S: AsRef<str>>(args: impl IntoIterator<Item = S>) -> bool {
+    args.into_iter().any(|a| a.as_ref() == "--tv")
+}
+
+/// `true` when SONE was launched with `--tv` or `SONE_TV_MODE=1`, so a media
+/// PC can autostart straight into the TV interface.
+#[tauri::command]
+pub fn get_launch_tv_mode() -> bool {
+    args_request_tv_mode(std::env::args().skip(1))
+        || std::env::var("SONE_TV_MODE").is_ok_and(|v| v == "1")
+}
+
 #[tauri::command]
 pub fn get_decorations(state: State<'_, AppState>) -> bool {
     state.decorations.load(Ordering::Relaxed)
@@ -1174,5 +1187,18 @@ mod tests {
             !cell.unreachable(),
             "and a cell that sent nothing has observed nothing"
         );
+    }
+}
+
+#[cfg(test)]
+mod tv_mode_tests {
+    use super::args_request_tv_mode;
+
+    #[test]
+    fn detects_tv_flag() {
+        assert!(args_request_tv_mode(["--tv"]));
+        assert!(args_request_tv_mode(["--minimized", "--tv"]));
+        assert!(!args_request_tv_mode(["--tvx", "tv"]));
+        assert!(!args_request_tv_mode(Vec::<String>::new()));
     }
 }
