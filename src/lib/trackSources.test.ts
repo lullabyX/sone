@@ -57,12 +57,13 @@ describe("pagers", () => {
       "ASC",
     );
     expect(page.hasMore).toBe(false);
+    expect(page.nextOffset).toBe(100 + PLAYLIST_PAGE_SIZE);
   });
 
   it("favorites pager derives hasMore from the total", async () => {
     vi.mocked(api.getFavoriteTracks).mockResolvedValue({
       items: [t(1)],
-      totalNumberOfItems: 5,
+      totalNumberOfItems: FAVORITE_TRACKS_PAGE_SIZE + 5,
     } as never);
     const page = await favoriteTracksPager(3, "DATE", "DESC")(0);
     expect(api.getFavoriteTracks).toHaveBeenCalledWith(
@@ -74,6 +75,47 @@ describe("pagers", () => {
     );
     expect(page.hasMore).toBe(true);
   });
+
+  // TIDAL counts unavailable tracks in the total and in the offset but leaves
+  // them out of `items`, so a window can come back short, or empty, before the
+  // total. The next page starts after the window requested, not after the items
+  // received, and hasMore comes from that window.
+  it.each([
+    [
+      "favorites",
+      () =>
+        vi.mocked(api.getFavoriteTracks).mockResolvedValue({
+          items: [t(1), t(2), t(3)],
+          totalNumberOfItems: 250,
+        } as never),
+      () => favoriteTracksPager(3, "DATE", "DESC"),
+      FAVORITE_TRACKS_PAGE_SIZE,
+    ],
+    [
+      "playlist",
+      () =>
+        vi.mocked(api.getPlaylistTracksPage).mockResolvedValue({
+          items: [t(1), t(2), t(3)],
+          totalNumberOfItems: 250,
+        } as never),
+      () => playlistTracksPager("p"),
+      PLAYLIST_PAGE_SIZE,
+    ],
+  ])(
+    "%s pager advances by the window when a page comes back short",
+    async (_name, mockPage, pager, size) => {
+      mockPage();
+      const first = await pager()(0);
+      expect(first.nextOffset).toBe(size);
+      expect(first.hasMore).toBe(size < 250);
+
+      // The window that reaches the total ends the source, however few items
+      // it held: a short last page is not a reason to ask for more.
+      const last = await pager()(200);
+      expect(last.nextOffset).toBe(200 + size);
+      expect(last.hasMore).toBe(false);
+    },
+  );
 
   it("video pager maps videos to tracks; a short page ends it", async () => {
     vi.mocked(api.getFavoriteVideos).mockResolvedValue([

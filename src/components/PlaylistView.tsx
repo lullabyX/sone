@@ -156,8 +156,13 @@ export default function PlaylistView({
     ? { ...playlistInfo, ...fetchedInfo }
     : playlistInfo;
 
+  // Advance by the window requested, not by the items received: a page can come
+  // back shorter than its window while still counting toward the offset and the
+  // total, and an empty one would then be re-requested forever (see the comment
+  // on FavoritesView's offsetRef).
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
+  const [hasMore, setHasMore] = useState(false);
   const bgFetchingRef = useRef(false);
   const rawTracksRef = useRef<Track[]>([]);
 
@@ -287,10 +292,10 @@ export default function PlaylistView({
 
         setAllTracks(firstPage.items);
         setTotalTracks(firstPage.totalNumberOfItems);
-        offsetRef.current = firstPage.items.length;
+        offsetRef.current = PLAYLIST_PAGE_SIZE;
         rawTracksRef.current = firstPage.items;
-        hasMoreRef.current =
-          firstPage.items.length < firstPage.totalNumberOfItems;
+        hasMoreRef.current = PLAYLIST_PAGE_SIZE < firstPage.totalNumberOfItems;
+        setHasMore(hasMoreRef.current);
       } catch (err: any) {
         if (generationRef.current !== gen) return;
         console.error("Failed to load playlist:", err);
@@ -337,16 +342,18 @@ export default function PlaylistView({
         if (generationRef.current !== gen) return;
 
         const newItems = page.items;
+        offsetRef.current += PLAYLIST_PAGE_SIZE;
+        rawTracksRef.current = [...rawTracksRef.current, ...newItems];
+        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+        const more = hasMoreRef.current;
         startTransition(() => {
           setAllTracks((prev) => {
             const seen = new Set(prev.map((t) => t.id));
             return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
           });
           setTotalTracks(page.totalNumberOfItems);
+          setHasMore(more);
         });
-        offsetRef.current += newItems.length;
-        rawTracksRef.current = [...rawTracksRef.current, ...newItems];
-        hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
       }
     } catch (err) {
       console.error("Failed to background-fetch playlist tracks:", err);
@@ -376,9 +383,10 @@ export default function PlaylistView({
         return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
       });
       setTotalTracks(page.totalNumberOfItems);
-      offsetRef.current += page.items.length;
+      offsetRef.current += PLAYLIST_PAGE_SIZE;
       rawTracksRef.current = [...rawTracksRef.current, ...page.items];
       hasMoreRef.current = offsetRef.current < page.totalNumberOfItems;
+      setHasMore(hasMoreRef.current);
     } catch (err) {
       console.error("Failed to load more playlist tracks:", err);
     } finally {
@@ -387,7 +395,6 @@ export default function PlaylistView({
   }, [loadingMore, playlistId, sortColumn, sortDirection]);
 
   const tracks = allTracks;
-  const hasMore = allTracks.length < totalTracks;
 
   // Lets an in-flight scroll restore pull the pages it needs directly, rather
   // than the viewport tripping the pagination sentinel page by page.
