@@ -98,6 +98,35 @@ pub async fn clear_disk_cache(state: State<'_, AppState>) -> Result<(), SoneErro
     Ok(())
 }
 
+/// Whether an environment override turns WebKitGTK's accelerated
+/// compositing off for this webview.
+///
+/// main.rs turns the DMA-BUF renderer off when an NVIDIA module is loaded.
+/// On WebKitGTK 2.54 that leaves no compositing path (no compositor thread
+/// runs), so every animation frame is then repainted in software on the web
+/// process main thread. The frontend reads this once at startup to hold
+/// full-width decorative animations still.
+#[tauri::command]
+pub fn is_software_rendering() -> bool {
+    cfg!(target_os = "linux")
+        && compositing_disabled(
+            std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").as_deref(),
+            std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").as_deref(),
+        )
+}
+
+/// Mirrors how WebKitGTK 2.54 reads the two overrides: the DMA-BUF renderer is
+/// off for any value but "0" (an empty value included), and compositing mode
+/// is off for any non-empty value but "0". "0" is how a user keeps the DMA-BUF
+/// renderer on despite the NVIDIA default.
+fn compositing_disabled(
+    dmabuf_renderer: Option<&std::ffi::OsStr>,
+    compositing_mode: Option<&std::ffi::OsStr>,
+) -> bool {
+    dmabuf_renderer.is_some_and(|value| value != "0")
+        || compositing_mode.is_some_and(|value| !value.is_empty() && value != "0")
+}
+
 #[tauri::command]
 pub fn get_decorations(state: State<'_, AppState>) -> bool {
     state.decorations.load(Ordering::Relaxed)
@@ -736,6 +765,27 @@ pub fn set_enable_logging(enabled: bool) -> Result<(), SoneError> {
 mod tests {
     use super::*;
     use crate::{ProxySettings, ProxyType};
+
+    #[test]
+    fn compositing_disabled_follows_the_webkit_overrides() {
+        use std::ffi::OsStr;
+        let on = Some(OsStr::new("1"));
+        let off = Some(OsStr::new("0"));
+
+        assert!(!compositing_disabled(None, None));
+        // main.rs's NVIDIA default, and a user pre-setting it to any value.
+        assert!(compositing_disabled(on, None));
+        assert!(compositing_disabled(Some(OsStr::new("true")), None));
+        // "0" keeps the DMA-BUF renderer, which is how the NVIDIA default is overridden.
+        assert!(!compositing_disabled(off, None));
+        assert!(compositing_disabled(off, on));
+        assert!(compositing_disabled(None, on));
+        assert!(!compositing_disabled(off, off));
+        // An empty value disables the DMA-BUF renderer but not compositing mode.
+        let empty = Some(OsStr::new(""));
+        assert!(compositing_disabled(empty, None));
+        assert!(!compositing_disabled(None, empty));
+    }
 
     fn caps() -> crate::proxy::HostCaps {
         crate::proxy::HostCaps::assume_all_present()
