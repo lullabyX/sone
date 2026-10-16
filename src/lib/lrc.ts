@@ -46,3 +46,10 @@ export function parseLrc(subtitles: string): LrcLine[] {
   lines.sort((a, b) => a.time - b.time);
   return lines;
 }
+
+export function findActiveLine(lines: LrcLine[], pos: number): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (pos >= lines[i].time) return i;
+  }
+  return -1;
+}
