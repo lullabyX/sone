@@ -70,6 +70,9 @@ pub struct CastStatus {
     /// True for exactly one poll cycle after an operator-initiated stop, so
     /// the natural play-to-stop transition is not reported as a track end.
     pub stop_commanded: bool,
+    /// Monotonic instant of the push that created this state; the
+    /// receiver-first-play confirmation is measured against it.
+    pub pushed_at: Instant,
     /// Last observed device volume (0-100); volume events only report deltas.
     pub last_vol: u64,
 }
@@ -81,6 +84,7 @@ impl CastStatus {
     /// a natural end.
     fn fresh(stop_commanded: bool) -> Self {
         Self {
+            pushed_at: Instant::now(),
             status: "stop".into(),
             pos_ms: 0.0,
             anchor_ms: 0.0,
@@ -186,6 +190,7 @@ impl LinkPlayClient {
                 anchor_at: Some(Instant::now()),
                 totlen_ms: s.totlen_ms,
                 stop_commanded: s.stop_commanded,
+                pushed_at: s.pushed_at,
                 last_vol: s.last_vol,
             },
             None => CastStatus::fresh(true),
@@ -241,6 +246,18 @@ impl LinkPlayClient {
                 if new_status == "play" {
                     // Clock restart: extrapolation resumes from anchor_ms.
                     cur.anchor_at = Some(Instant::now());
+                    // The first play confirmation after a push is the cast
+                    // startup latency; it is measured against pushed_at and
+                    // logged so a connection-time series can be derived from
+                    // the app log alone (see AGENTS.md section 5.3). The
+                    // intermediate "load" state some firmware reports between
+                    // stop and play is allowed to precede it.
+                    if cur.status == "stop" || cur.status == "load" {
+                        log::info!(
+                            "[cast-poller] receiver confirmed play {} ms after cast push",
+                            cur.pushed_at.elapsed().as_millis()
+                        );
+                    }
                 } else if new_status == "pause" {
                     // Freeze the anchor at the extrapolated position.
                     if let Some(started) = cur.anchor_at.take() {
