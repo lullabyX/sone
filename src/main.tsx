@@ -46,8 +46,25 @@ console.error = (...rest: unknown[]) => {
  *
  * Raced against a timeout so a stuck IPC cannot block startup.
  */
+/**
+ * Load the optional renderer FPS/long-task monitor when the running instance
+ * was started with SONE_PERF_MONITOR=1. The import is dynamic, so the
+ * shipped app (no switches) evaluates none of the sampler code.
+ */
+function maybeStartPerfMonitor(): void {
+  void invoke<{ monitor: boolean }>("get_perf_flags")
+    .then((flags) => {
+      if (flags.monitor) return import("./perf/perfMonitor");
+      return undefined;
+    })
+    .catch(() => {
+      /* gating must never break boot */
+    });
+}
+
 async function main() {
   trackWindowFocus();
+  maybeStartPerfMonitor();
   await Promise.race([
     bootstrapThemeFile().catch(() => {}),
     new Promise<void>((resolve) => setTimeout(resolve, 2000)),

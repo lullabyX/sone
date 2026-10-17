@@ -591,6 +591,10 @@ pub struct StreamInfo {
     /// `None` for BTS (single-URL) streams.
     #[serde(default)]
     pub manifest: Option<String>,
+    /// Base64-encoded MPD/DASH manifest when returned by TIDAL API.
+    /// Preserved so playback dispatch can construct data URIs without re-encoding.
+    #[serde(default)]
+    pub manifest_b64: Option<String>,
     /// "application/dash+xml" | "application/vnd.tidal.bts"
     #[serde(default)]
     pub manifest_mime_type: Option<String>,
@@ -3792,6 +3796,7 @@ impl TidalClient {
                 audio_mode: None,
                 asset_presentation: None,
                 manifest: Some(manifest_str),
+                manifest_b64: Some(data.manifest),
                 manifest_mime_type: None,
                 manifest_hash: None,
                 track_id: None,
@@ -3836,6 +3841,7 @@ impl TidalClient {
             audio_mode: None,
             asset_presentation: None,
             manifest: None,
+            manifest_b64: None,
             manifest_mime_type: None,
             manifest_hash: None,
             track_id: None,

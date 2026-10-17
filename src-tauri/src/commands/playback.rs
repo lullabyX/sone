@@ -118,8 +118,12 @@ pub async fn resolve_play_uri(
     let is_dash = stream_info.manifest.is_some();
     let uri = if let Some(ref mpd) = stream_info.manifest {
         // DASH: pass MPD manifest as a data URI for GStreamer's dashdemux.
-        use base64::Engine;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(mpd.as_bytes());
+        let b64 = if let Some(ref cached_b64) = stream_info.manifest_b64 {
+            cached_b64.clone()
+        } else {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(mpd.as_bytes())
+        };
         format!("data:application/dash+xml;base64,{}", b64)
     } else {
         // BTS: direct URL.
@@ -862,7 +866,6 @@ fn encode_display_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::encode_display_name;
     use super::quality_tiers;
     use crate::SoneError;
 

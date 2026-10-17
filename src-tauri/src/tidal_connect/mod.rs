@@ -71,10 +71,11 @@ pub async fn ensure_cast_poller(
         // empty responses for stretches; log the first failure, then only
         // one line every 30 consecutive failures.
         let mut consecutive_failures: u32 = 0;
+        let mut poll_interval = std::time::Duration::from_secs(1);
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(poll_interval).await;
             let Some(host) = cast_ref.cast_host.read().await.clone() else {
-                continue;
+                break;
             };
             let (raw, track_ended, volume) = match cast_ref.linkplay.poll(&host, &cast_ref.cast_status).await {
                 Ok(res) => {
@@ -91,8 +92,14 @@ pub async fn ensure_cast_poller(
                             e
                         );
                     }
+                    poll_interval = std::time::Duration::from_secs(1);
                     continue;
                 }
+            };
+            poll_interval = if raw.status == "pause" {
+                std::time::Duration::from_secs(2)
+            } else {
+                std::time::Duration::from_secs(1)
             };
             if let Some(vol) = volume {
                 use tauri::Emitter;

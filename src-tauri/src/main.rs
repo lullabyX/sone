@@ -4,6 +4,12 @@
 fn main() {
     #[cfg(target_os = "linux")]
     {
+        // Allow profilers (e.g. tools/flamegraph.py, gdb) to attach under
+        // Yama ptrace_scope=1 without requiring root.
+        unsafe {
+            libc::prctl(libc::PR_SET_PTRACER, libc::PR_SET_PTRACER_ANY, 0, 0, 0);
+        }
+
         // WebKitGTK's DMA-BUF renderer is unreliable on the NVIDIA proprietary
         // driver: GBM buffer allocation fails (blank/corrupt page rendering) and
         // the GStreamer video path tears and stutters (WebKit Bugzilla #261874

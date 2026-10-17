@@ -270,6 +270,7 @@ pub struct AppState {
     pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
     pub signal_path: Arc<SignalPathTracker>,
     pub tidal_connect: crate::tidal_connect::TidalConnectStateRef,
+    pub cached_settings: Arc<std::sync::RwLock<Option<Settings>>>,
 }
 
 /// The config directory, resolvable before `AppState` exists — `main.rs` needs
@@ -294,13 +295,24 @@ pub fn now_secs() -> u64 {
 /// refresh, including the automatic one after a 401 — without it the stored
 /// access token stays stale and each launch burns a 401 before the first
 /// request succeeds.
-fn persist_auth_tokens(path: &Path, crypto: &Crypto, tokens: &AuthTokens) {
+fn persist_auth_tokens(
+    path: &Path,
+    crypto: &Crypto,
+    tokens: &AuthTokens,
+    cached_settings: Option<&std::sync::RwLock<Option<Settings>>>,
+) {
     let mut settings = fs::read(path)
         .ok()
         .and_then(|data| crypto.decrypt(&data).ok())
         .and_then(|plain| serde_json::from_slice::<Settings>(&plain).ok())
         .unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
+
+    if let Some(cache) = cached_settings {
+        if let Ok(mut guard) = cache.write() {
+            *guard = Some(settings.clone());
+        }
+    }
 
     let write = || -> Result<(), SoneError> {
         let json = serde_json::to_string_pretty(&settings)?;
@@ -490,12 +502,15 @@ impl AppState {
             Arc::clone(&audio_player),
         ));
 
+        let cached_settings = Arc::new(std::sync::RwLock::new(saved.clone()));
+        let cached_for_persist = Arc::clone(&cached_settings);
+
         let mut tidal_client = TidalClient::new(proxied_http.clone());
         tidal_client.set_token_persist({
             let settings_path = settings_path.clone();
             let crypto = Arc::clone(&crypto);
             Arc::new(move |tokens: &AuthTokens| {
-                persist_auth_tokens(&settings_path, &crypto, tokens);
+                persist_auth_tokens(&settings_path, &crypto, tokens, Some(&cached_for_persist));
             })
         });
 
@@ -541,6 +556,7 @@ impl AppState {
                 tc.client.set_app_handle(app_handle);
                 tc
             },
+            cached_settings,
         }
     }
 
@@ -576,14 +592,32 @@ impl AppState {
         *caps = probed;
     }
 
+    pub fn invalidate_settings_cache(&self) {
+        if let Ok(mut guard) = self.cached_settings.write() {
+            *guard = None;
+        }
+    }
+
     pub fn load_settings(&self) -> Option<Settings> {
+        if let Ok(guard) = self.cached_settings.read() {
+            if let Some(ref settings) = *guard {
+                return Some(settings.clone());
+            }
+        }
         let data = fs::read(&self.settings_path).ok()?;
         let plain = self.crypto.decrypt(&data).ok()?;
         let text = String::from_utf8(plain).ok()?;
-        serde_json::from_str(&text).ok()
+        let settings = serde_json::from_str::<Settings>(&text).ok()?;
+        if let Ok(mut guard) = self.cached_settings.write() {
+            *guard = Some(settings.clone());
+        }
+        Some(settings)
     }
 
     pub fn save_settings(&self, settings: &Settings) -> Result<(), SoneError> {
+        if let Ok(mut guard) = self.cached_settings.write() {
+            *guard = Some(settings.clone());
+        }
         let json = serde_json::to_string_pretty(settings)?;
         let encrypted = self.crypto.encrypt(json.as_bytes())?;
         fs::write(&self.settings_path, encrypted)?;
@@ -917,24 +951,63 @@ pub fn run() {
                     let _ = window.set_icon(icon);
                 }
 
-                // WebKitGTK rendering settings for Linux
+                // WebKitGTK rendering settings for Linux.
+                //
+                // A/B switches for the performance investigation (2026-10-17):
+                //   SONE_HWACCEL       = always | demand | never
+                //       always -> HardwareAccelerationPolicy::Always  (full-time
+                //                  compositing; the OnDemand default keeps a GPU
+                //                  process boot on every frame batch, which shows
+                //                  up as scroll/animation stutter on some nodes)
+                //       demand -> OnDemand (Tauri default, behaves as "auto")
+                //       never  -> Never (pure software: baseline for CPU-bound
+                //                  measurement; do not ship)
+                //   SONE_SMOOTH_SCROLL = 0/1 (WebKit smooth-scroll animation;
+                //       on a raster-capped pipeline it can feel like input lag)
+                // Unset values keep the historical behavior exactly.
                 #[cfg(target_os = "linux")]
                 {
                     use webkit2gtk::{SettingsExt, WebViewExt};
-                    window
-                        .with_webview(|webview| {
-                            let wv = webview.inner();
-                            if let Some(settings) = wv.settings() {
-                                // Use OnDemand (default) — Always can cause severe lag
-                                // on dual-GPU systems (NVIDIA + iGPU) with WebKitGTK
-                                settings.set_hardware_acceleration_policy(
-                                    webkit2gtk::HardwareAccelerationPolicy::OnDemand,
-                                );
-                                settings.set_enable_webgl(true);
-                                settings.set_enable_smooth_scrolling(true);
-                            }
-                        })
-                        .ok();
+                    let hw_choice = std::env::var("SONE_HWACCEL")
+                        .ok()
+                        .map(|s| s.trim().to_ascii_lowercase())
+                        .unwrap_or_else(|| "demand".to_string());
+                    let smooth_choice = std::env::var("SONE_SMOOTH_SCROLL")
+                        .ok()
+                        .map(|s| s.trim().to_ascii_lowercase());
+
+                window
+                    .with_webview(move |webview| {
+                        let wv = webview.inner();
+                        if let Some(settings) = wv.settings() {
+                            // Use OnDemand (default) — Always can cause severe lag
+                            // on dual-GPU systems (NVIDIA + iGPU) with WebKitGTK
+                            let policy = match hw_choice.as_str() {
+                                "always" | "1" | "on" => {
+                                    webkit2gtk::HardwareAccelerationPolicy::Always
+                                }
+                                "never" | "0" | "off" => {
+                                    webkit2gtk::HardwareAccelerationPolicy::Never
+                                }
+                                _ => webkit2gtk::HardwareAccelerationPolicy::OnDemand,
+                            };
+                            settings.set_hardware_acceleration_policy(policy);
+                            settings.set_enable_webgl(true);
+                            let smooth = !matches!(
+                                smooth_choice.as_deref(),
+                                Some("0") | Some("off") | Some("false") | Some("no")
+                            );
+                            settings.set_enable_smooth_scrolling(smooth);
+                            log::info!(
+                                "[perf-flags] WebKit hardware-acceleration policy={} \
+                                 smooth-scrolling={} (override via SONE_HWACCEL / \
+                                 SONE_SMOOTH_SCROLL)",
+                                hw_choice,
+                                if smooth { "on" } else { "off" }
+                            );
+                        }
+                    })
+                    .ok();
                 }
 
                 // tauri.conf.json sets decorations: false, so the window is
@@ -1177,6 +1250,8 @@ pub fn run() {
             // utility
             commands::utility::get_image_bytes,
             commands::diagnostics::log_frontend_error,
+            commands::diagnostics::get_perf_flags,
+            commands::diagnostics::log_perf_sample,
             commands::utility::get_cache_stats,
             commands::utility::clear_disk_cache,
             commands::utility::quit_app,

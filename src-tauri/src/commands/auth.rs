@@ -453,6 +453,7 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
         settings.scrobble = Default::default();
         state.save_settings(&settings).ok();
     } else {
+        state.invalidate_settings_cache();
         fs::remove_file(&state.settings_path).ok();
     }
 

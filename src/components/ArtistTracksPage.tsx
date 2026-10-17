@@ -203,6 +203,7 @@ export default function ArtistTracksPage({
               onLoadMore={handleLoadMore}
               hasMore={hasMore}
               loadingMore={loadingMore}
+              virtualize
             />
           )}
         </div>

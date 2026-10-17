@@ -82,3 +82,9 @@ gdkwayland-sys = "0.18"
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = 1
