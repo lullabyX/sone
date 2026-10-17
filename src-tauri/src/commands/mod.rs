@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod diagnostics;
 pub mod feed;
 pub mod library;
 pub mod mcp;

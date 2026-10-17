@@ -688,6 +688,64 @@ pub fn run() {
                 });
             }
 
+            // Test-harness override: SONE_CAST_DEVICE=<lan-host> auto-selects
+            // the receiver after discovery settles, so cold-start cast runs
+            // need no modal click. Normal installs never inherit the env var.
+            if let Ok(host) = std::env::var("SONE_CAST_DEVICE") {
+                if !host.is_empty() {
+                    let app_handle_for_cast = app.handle().clone();
+                    let want_host = host.clone();
+                    tauri::async_runtime::spawn(async move {
+                        use tauri::Manager;
+                        {
+                            let state = app_handle_for_cast.state::<AppState>();
+                            let mut engine = state.tidal_connect.discovery.write().await;
+                            if let Err(e) = engine.start().await {
+                                log::warn!("[cast-autoselect] discovery failed for {}: {}", want_host, e);
+                                return;
+                            }
+                        }
+                        // The mDNS scan needs a few seconds; wait up to 15 s.
+                        let mut selected = None;
+                        for _ in 0..30 {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            let state = app_handle_for_cast.state::<AppState>();
+                            let engine = state.tidal_connect.discovery.read().await;
+                            let devices = engine.get_devices().await;
+                            if let Some(dev) = devices.iter().find(|d| {
+                                d.addresses.iter().any(|a| a == &want_host)
+                                    || d.host == want_host
+                            }) {
+                                selected = Some(dev.clone());
+                                break;
+                            }
+                        }
+                        let Some(dev) = selected else {
+                            log::warn!("[cast-autoselect] device {} not found via mDNS", want_host);
+                            return;
+                        };
+                        let select_result = {
+                            let state = app_handle_for_cast.state::<AppState>();
+                            crate::commands::tidal_connect::tidal_connect_select_device(
+                                app_handle_for_cast.clone(),
+                                state,
+                                dev.id.clone(),
+                            )
+                            .await
+                        };
+                        match select_result {
+                            Ok(()) => log::info!("[cast-autoselect] connected SONE_CAST_DEVICE {} ({})", want_host, dev.name),
+                            Err(e) => log::warn!("[cast-autoselect] selecting {} failed: {}", want_host, e),
+                        }
+                        let _ = crate::commands::tidal_connect::tidal_connect_stop_discovery(
+                            app_handle_for_cast.state::<AppState>(),
+                        )
+                        .await;
+                    });
+                    log::info!("[cast-autoselect] SONE_CAST_DEVICE={} requested", host);
+                }
+            }
+
             // Start Overlay server in background (if enabled).
             {
                 let handle_for_overlay = app.handle().clone();
@@ -1118,6 +1176,7 @@ pub fn run() {
             commands::scrobble::disconnect_provider,
             // utility
             commands::utility::get_image_bytes,
+            commands::diagnostics::log_frontend_error,
             commands::utility::get_cache_stats,
             commands::utility::clear_disk_cache,
             commands::utility::quit_app,

@@ -43,6 +43,7 @@ pub async fn tidal_connect_select_device(
 
     match selected {
         Some(dev) => {
+            let dev_for_notify = dev.clone();
             let target_host = dev
                 .addresses
                 .iter()
@@ -61,9 +62,20 @@ pub async fn tidal_connect_select_device(
             *active = Some(dev);
             drop(active);
 
+            // Notify the renderer so activeDeviceAtom mirrors backend-driven
+            // selection (SONE_CAST_DEVICE autoselect, or any future backend
+            // path). Without this the frontend still holds localDevice and
+            // routes set_volume to the local DAC instead of the receiver.
+            {
+                use tauri::Emitter;
+                let _ = app.emit("tidal-connect:device-selected", &dev_for_notify);
+            }
+
             // The 1 s poller drives push-URL cast events (track end, knob
             // volume changes via LinkPlay's own status). Cheap while idle.
+            // Takes ownership of app; the emit above must happen first.
             crate::tidal_connect::ensure_cast_poller(app, &state.tidal_connect).await;
+
             Ok(())
         }
         None => Err("Device not found".to_string()),
@@ -78,8 +90,7 @@ pub async fn tidal_connect_get_active_device(
     // With an active push-URL cast the TIDAL Connect WebSocket session is
     // irrelevant to playback; only drop the selection when neither session
     // nor cast exists.
-    let cast_alive = state.tidal_connect.cast_host.read().await.is_some();
-    if active.is_some() && !state.tidal_connect.client.is_connected().await && !cast_alive {
+    let cast_alive = state.tidal_connect.cast_host.read().await.is_some();    if active.is_some() && !state.tidal_connect.client.is_connected().await && !cast_alive {
         *active = None;
     }
     Ok(active.clone())

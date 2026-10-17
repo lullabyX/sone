@@ -297,7 +297,9 @@ export function useMcpBridge() {
     );
     unlisteners.push(
       listen("mcp:skip-next", () => {
-        actionsRef.current.playNext({ explicit: true }).catch(() => {});
+        actionsRef.current.playNext({ explicit: true }).catch((err) => {
+          console.error("[skip-next] playNext failed:", err);
+        });
       }),
     );
     unlisteners.push(

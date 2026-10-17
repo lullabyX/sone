@@ -1,7 +1,39 @@
 import ReactDOM from "react-dom/client";
+import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import { bootstrapThemeFile } from "./lib/themeFile";
 import { trackWindowFocus } from "./lib/windowFocus";
+
+/**
+ * Forward uncaught renderer errors to the backend log. The packaged webview
+ * has no visible console, so without this a broken boot is completely
+ * undiagnosable from the outside (commands/diagnostics.rs receives it).
+ * Registered before the app import executes, because a module-eval throw
+ * surfaces as an uncaught error here.
+ */
+function reportFrontendError(kind: string, detail: unknown) {
+  try {
+    const text = typeof detail === "string" ? detail : String((detail as Error)?.stack ?? detail);
+    void invoke("log_frontend_error", { message: `${kind}: ${text}` }).catch(() => {});
+  } catch {
+    /* reporting must never itself break boot */
+  }
+}
+window.addEventListener("error", (e) =>
+  reportFrontendError("error", (e as ErrorEvent).error ?? (e as ErrorEvent).message),
+);
+window.addEventListener("unhandledrejection", (e) =>
+  reportFrontendError("unhandledrejection", (e as PromiseRejectionEvent).reason),
+);
+const origConsoleError = console.error.bind(console);
+console.error = (...rest: unknown[]) => {
+  try {
+    reportFrontendError("console.error", rest.map(String).join(" "));
+  } catch {
+    // Reporting must never break the call site.
+  }
+  origConsoleError(...rest);
+};
 
 /**
  * Resolve the external theme file before the first render.

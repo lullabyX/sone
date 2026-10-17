@@ -462,7 +462,13 @@ pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> 
 /// `stop_track` command and `logout`.
 pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
     if state.tidal_connect.active_device.read().await.is_some() {
-        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
+        // Hoist the clone out of the `if let` scrutinee: Rust keeps if-let
+        // temporaries (here the cast_host read guard) alive for the whole
+        // block, so writing cast_host inside that block would hold readers
+        // forever and self-deadlock the write below.
+        let cast_host: Option<String> = state.tidal_connect.cast_host.read().await.clone();
+        if let Some(host) = cast_host {
+            log::debug!("[stop_playback] cast branch: stopping media on {}", host);
             let _ = state
                 .tidal_connect
                 .linkplay
@@ -504,29 +510,82 @@ pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 pub async fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
     let active_opt = state.tidal_connect.active_device.read().await.clone();
     if let Some(dev) = active_opt {
-        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
-            // Push-URL cast: volume rides LinkPlay's 0-100 scale (the failing
-            // loadLocalQueue envelope must never be built; see the session
-            // notes in findings/tidal_connect_protocol_spec.md).
-            let _ = state
-                .tidal_connect
-                .linkplay
-                .set_volume(&host, level as f64 * 100.0)
-                .await;
-        } else {
-            if !state.tidal_connect.client.is_connected().await {
-                let target_host = dev
-                    .addresses
+        // Preferred channel: LinkPlay httpapi (device DAC). The TIDAL
+        // Connect WS setVolume command acks with resultCode 0 but does not
+        // move the hardware volume on A98 firmware, so it is only a
+        // fallback for when httpapi is unreachable. While a push-URL cast
+        // is live, cast_host carries the confirmed host; otherwise fall
+        // back to the selected device's IPv4 address.
+        let host = state
+            .tidal_connect
+            .cast_host
+            .read()
+            .await
+            .clone()
+            .or_else(|| {
+                dev.addresses
                     .iter()
                     .find(|a| !a.contains(':'))
-                    .unwrap_or(&dev.host);
-                let _ = state.tidal_connect.client.connect(&dev.id, target_host, dev.port, None).await;
+                    .cloned()
+            });
+        if let Some(host) = host {
+            //
+            // Test-harness cap: SONE_MAX_VOLUME=<0-100> clamps pushes to the
+            // receiver so automated runs cannot blast the speakers. Normal
+            // installs never inherit the env var.
+            let mut target = level as f64;
+            if let Some(cap) = std::env::var("SONE_MAX_VOLUME")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|c| c.clamp(0.0, 100.0))
+            {
+                let clamped = target.min(cap / 100.0);
+                if clamped < target {
+                    log::debug!("[set_volume] capping receiver volume {:.2} -> {:.2} (SONE_MAX_VOLUME)", target, clamped);
+                    target = clamped;
+                }
             }
-            let _ = state
+            match state
                 .tidal_connect
-                .client
-                .set_volume(level as f64)
-                .await;
+                .linkplay
+                .set_volume(&host, target * 100.0)
+                .await
+            {
+                Ok(()) => log::info!(
+                    "[set_volume] receiver push level={:.3} target={:.3} -> {} via {}",
+                    level,
+                    target,
+                    (target * 100.0).round() as i64,
+                    host
+                ),
+                Err(e) => {
+                    // httpapi unreachable: fall back to the WS command for
+                    // non-LinkPlay receivers (A98 acks but applies nothing).
+                    log::warn!(
+                        "[set_volume] LinkPlay volume push to {} failed: {}; trying WS setVolume",
+                        host,
+                        e
+                    );
+                    if !state.tidal_connect.client.is_connected().await {
+                        let target_host = dev
+                            .addresses
+                            .iter()
+                            .find(|a| !a.contains(':'))
+                            .unwrap_or(&dev.host)
+                            .clone();
+                        let _ = state
+                            .tidal_connect
+                            .client
+                            .connect(&dev.id, &target_host, dev.port, None)
+                            .await;
+                    }
+                    let _ = state
+                        .tidal_connect
+                        .client
+                        .set_volume(level as f64)
+                        .await;
+                }
+            }
         }
     }
 

@@ -1038,6 +1038,18 @@ export function AppInitializer() {
       store.set(activeDeviceAtom, localDevice);
     });
 
+    // 2b. Backend-driven selection (SONE_CAST_DEVICE autoselect): the modal
+    // sets the atom locally on RPC select, but a backend select must mirror
+    // into the renderer or set_volume keeps targeting the local DAC.
+    const unlistenSel = listen<ConnectDevice>(
+      "tidal-connect:device-selected",
+      (e) => {
+        if (e.payload && !e.payload.isLocal) {
+          store.set(activeDeviceAtom, e.payload);
+        }
+      },
+    );
+
     // 3. Push-URL cast track end: the receiver finished the track on its own
     // (LinkPlay transport); advance the queue like a manual skip would.
     const unlistenEnded = listen("tidal-connect:track-ended", () => {
@@ -1048,20 +1060,39 @@ export function AppInitializer() {
       );
     });
 
-    // 3. Synchronize active device on startup
-    invoke<ConnectDevice | null>("tidal_connect_get_active_device")
-      .then((dev) => {
-        if (dev) {
-          store.set(activeDeviceAtom, dev);
-        } else {
-          store.set(activeDeviceAtom, localDevice);
-        }
-      })
-      .catch(() => {});
+    // 3. Synchronize active device on startup. Retried for ~12 s: on
+    // SONE_CAST_DEVICE autoselect the backend stores the selection one to
+    // two seconds in, i.e. after this first sync returns None and before
+    // any subsequent UI action would re-read it.
+    const syncActiveDevice = () =>
+      invoke<ConnectDevice | null>("tidal_connect_get_active_device")
+        .then((dev) => {
+          if (dev) store.set(activeDeviceAtom, dev);
+          else {
+            store.set(activeDeviceAtom, localDevice);
+            return false;
+          }
+          return true;
+        })
+        .catch(() => false);
+    void syncActiveDevice();
+    let syncTriesLeft = 5;
+    const syncRetry = window.setInterval(() => {
+      if (store.get(activeDeviceAtom)?.id !== localDevice.id) {
+        clearInterval(syncRetry);
+        return;
+      }
+      syncTriesLeft -= 1;
+      syncActiveDevice().then((selected) => {
+        if (selected || syncTriesLeft <= 0) clearInterval(syncRetry);
+      });
+    }, 2500);
 
     return () => {
+      clearInterval(syncRetry);
       unlistenVol.then((fn) => fn());
       unlistenDisc.then((fn) => fn());
+      unlistenSel.then((fn) => fn());
       unlistenEnded.then((fn) => fn());
     };
   }, [store]);
