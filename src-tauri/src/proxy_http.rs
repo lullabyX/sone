@@ -20,6 +20,27 @@ pub fn build_client(p: &ProxyPlan, env: &HostCaps) -> Result<reqwest::Client, Bl
     build_client_with(p, env, captured_system_proxy)
 }
 
+/// The HTTP client for LAN-local device transports: the LinkPlay httpapi of
+/// TIDAL Connect receivers.
+///
+/// Two of its properties are set by the destination rather than by any user
+/// configuration, and both break the assumptions `build_client` is built on:
+/// - the device presents a self-signed certificate, so this builder has to
+///   accept it and a plan-routed client never would;
+/// - a private-range address is reachable only from this machine, so any
+///   proxy that does not itself run on the LAN — the system's or a configured
+///   tunnel — cannot carry the request. Direct egress is not a silent
+///   degradation here but the only workable route.
+///
+/// It lives in this file beside the plan so the exception is visible and
+/// deliberate, exactly what the source guard exists to force.
+pub fn build_local_device_client() -> Result<reqwest::Client, BlockReason> {
+    reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| BlockReason::new(format!("could not build local device client: {e}")))
+}
+
 /// The system's proxy configuration as it stood before startup scrubbed it.
 ///
 /// The parser is supplied here rather than inside `proxy.rs` because building a

@@ -195,6 +195,7 @@ fn explain_block(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn play_tidal_track(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     track_id: u64,
     use_track_gain: bool,
@@ -219,16 +220,123 @@ pub async fn play_tidal_track(
         .last_peak_amplitude
         .store(peak.to_bits(), Ordering::Relaxed);
 
-    // Apply normalization gain BEFORE play_url so the pipeline builds with
-    // the correct current_norm_gain — prevents volume spike on track start.
-    let player = state.audio_player.clone();
-    tokio::task::spawn_blocking(move || {
-        player.set_normalization_gain(norm_gain)?;
-        player.play_url(&uri, None)
-    })
-        .await
-        .map_err(|e| SoneError::Audio(e.to_string()))?
-        .map_err(SoneError::Audio)?;
+    // Check if remote TIDAL Connect speaker is active
+    let active_device_opt = state.tidal_connect.active_device.read().await.clone();
+    let is_remote = if let Some(ref dev) = active_device_opt {
+        if !state.tidal_connect.client.is_connected().await {
+            log::info!("[play_tidal_track] Reconnecting to TIDAL Connect device {} ({}:{})", dev.name, dev.host, dev.port);
+            let target_host = dev
+                .addresses
+                .iter()
+                .find(|a| !a.contains(':'))
+                .unwrap_or(&dev.host);
+            state.tidal_connect.client.connect(&dev.id, target_host, dev.port, None).await.is_ok()
+        } else {
+            true
+        }
+    } else {
+        false
+    };
+    if is_remote {
+        // LinkPlay push-URL cast. The receiver's loadLocalQueue route crashes
+        // its process on any payload (findings/tidal_connect_protocol_spec.md
+        // section 6), so never build that envelope again. Instead, resolve a
+        // concrete URL and hand it to the receiver's LinkPlay player:
+        // - DASH: the resolved manifest is XML with ABSOLUTE segment URLs on
+        //   the TIDAL CDN; serve it locally so the receiver can fetch it.
+        // - BTS: the resolved URL is a plain stream URL; push it directly.
+        let dev = active_device_opt
+            .as_ref()
+            .expect("is_remote implies active device");
+        let target_host = dev
+            .addresses
+            .iter()
+            .find(|a| !a.contains(':'))
+            .unwrap_or(&dev.host)
+            .clone();
+
+        let push_url = if is_dash {
+            let mpd_xml = stream_info
+                .manifest
+                .clone()
+                .ok_or_else(|| SoneError::Audio("TIDAL Connect DASH manifest missing".into()))?;
+            let base = state
+                .tidal_connect
+                .manifest_server
+                .ensure_started(&target_host)
+                .await
+                .map_err(SoneError::Audio)?;
+            state
+                .tidal_connect
+                .manifest_server
+                .set(&mpd_xml)
+                .await
+                .map_err(SoneError::Audio)?;
+            // The receiver names the push after the URL it was handed, so put
+            // the track in the path: the WiiM Home app shows the decoded URL
+            // as the now-playing title. This firmware ignores every metadata
+            // write channel (setPlayerCmd:setMetaInfo?*, stream tags, ICY
+            // headers - verified 2026-10-17), so the named path is the only
+            // user-visible track identification for push-URL casts.
+            let display_name = {
+                let mut client = state.tidal_client.lock().await;
+                match client.get_track(track_id).await {
+                    Ok(track_val) => {
+                        let title = track_val
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Title unknown");
+                        let artist = track_val
+                            .get("artist")
+                            .or_else(|| track_val.get("artists").and_then(|v| v.get(0)))
+                            .and_then(|a| a.get("name"))
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("Artist unknown");
+                        format!("{} - {}", artist, title)
+                    }
+                    Err(_) => format!("track-{}", track_id),
+                }
+            };
+            format!("{}/{}.mpd", base, encode_display_name(&display_name))
+        } else {
+            if stream_info.url.is_empty() {
+                return Err(SoneError::Audio(
+                    "TIDAL Connect: no stream URL for non-DASH track".into(),
+                ));
+            }
+            stream_info.url.clone()
+        };
+
+        // Stop local GStreamer audio so user's headphones don't play simultaneously
+        let _ = state.audio_player.stop();
+
+        state
+            .tidal_connect
+            .linkplay
+            .push_url(&target_host, &push_url, &state.tidal_connect.cast_status)
+            .await
+            .map_err(|e| SoneError::Audio(format!("LinkPlay push-URL cast failed: {}", e)))?;
+
+        *state.tidal_connect.cast_host.write().await = Some(target_host.clone());
+        state.tidal_connect.client.set_cast_active(true);
+        crate::tidal_connect::ensure_cast_poller(app.clone(), &state.tidal_connect).await;
+        log::info!(
+            "[play_tidal_track] Cast track {} to {} via LinkPlay push-URL",
+            track_id,
+            target_host
+        );
+    } else {
+        // Apply normalization gain BEFORE play_url so the pipeline builds with
+        // the correct current_norm_gain — prevents volume spike on track start.
+        let player = state.audio_player.clone();
+        tokio::task::spawn_blocking(move || {
+            player.set_normalization_gain(norm_gain)?;
+            player.play_url(&uri, None)
+        })
+            .await
+            .map_err(|e| SoneError::Audio(e.to_string()))?
+            .map_err(SoneError::Audio)?;
+    }
 
     // Save last played track
     if let Some(mut settings) = state.load_settings() {
@@ -249,6 +357,10 @@ pub async fn set_next_track(
     let (info, uri, gain, rg, peak, is_dash) =
         resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
 
+    if state.tidal_connect.active_device.read().await.is_some() {
+        return Ok(info);
+    }
+
     // Advisory only, same fail-open caveat as `play_tidal_track`: a corrupt
     // settings file makes this pass silently. The audio thread is the
     // boundary; it refuses at pipeline build with the settings it holds.
@@ -264,6 +376,9 @@ pub async fn set_next_track(
 
 #[tauri::command]
 pub fn clear_next_track(state: State<'_, AppState>) -> Result<(), SoneError> {
+    if state.tidal_connect.active_device.blocking_read().is_some() {
+        return Ok(());
+    }
     state.audio_player.clear_next_track().map_err(SoneError::Audio)
 }
 
@@ -307,6 +422,16 @@ pub async fn get_video_metadata(
 #[tauri::command]
 pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[pause_track]");
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
+            let _ = state.tidal_connect.linkplay.pause(&host).await;
+        } else {
+            let _ = state.tidal_connect.client.pause().await;
+        }
+        state.tidal_reporter.on_pause().await;
+        state.scrobble_manager.on_pause().await;
+        return Ok(());
+    }
     let result = state.audio_player.pause().map_err(SoneError::Audio);
     state.tidal_reporter.on_pause().await;
     state.scrobble_manager.on_pause().await;
@@ -314,8 +439,18 @@ pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 }
 
 #[tauri::command]
-pub async fn resume_track(state: State<'_, AppState>) -> Result<(), SoneError> {
+pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[resume_track]");
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
+            let _ = state.tidal_connect.linkplay.resume(&host).await;
+        } else if let Some(track_id) = state.load_settings().and_then(|s| s.last_track_id) {
+            let _ = play_tidal_track(app, state.clone(), track_id, true).await;
+        }
+        state.tidal_reporter.on_resume().await;
+        state.scrobble_manager.on_resume().await;
+        return Ok(());
+    }
     let result = state.audio_player.resume().map_err(SoneError::Audio);
     state.tidal_reporter.on_resume().await;
     state.scrobble_manager.on_resume().await;
@@ -326,6 +461,30 @@ pub async fn resume_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 /// now-playing surfaces, and notify the scrobble manager. Shared by the
 /// `stop_track` command and `logout`.
 pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
+            let _ = state
+                .tidal_connect
+                .linkplay
+                .stop(&host, &state.tidal_connect.cast_status)
+                .await;
+            // The push-URL stream is gone once the receiver's player is
+            // stopped; dropping the cast context routes a later resume
+            // through the last-track re-push (play_tidal_track) rather than
+            // a receiver-side `resume` that has nothing to resume.
+            *state.tidal_connect.cast_host.write().await = None;
+            *state.tidal_connect.cast_status.write().await = None;
+        } else {
+            let _ = state.tidal_connect.client.stop().await;
+        }
+        #[cfg(target_os = "linux")]
+        state.mpris.send(crate::mpris::MprisCommand::Stop);
+        state.discord.send(crate::discord::DiscordCommand::Stop);
+        state.tidal_reporter.on_track_stopped().await;
+        state.scrobble_manager.on_track_stopped().await;
+        let _ = state.audio_player.stop();
+        return Ok(());
+    }
     let result = state.audio_player.stop().map_err(SoneError::Audio);
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::Stop);
@@ -342,7 +501,35 @@ pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 }
 
 #[tauri::command]
-pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
+pub async fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
+    let active_opt = state.tidal_connect.active_device.read().await.clone();
+    if let Some(dev) = active_opt {
+        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
+            // Push-URL cast: volume rides LinkPlay's 0-100 scale (the failing
+            // loadLocalQueue envelope must never be built; see the session
+            // notes in findings/tidal_connect_protocol_spec.md).
+            let _ = state
+                .tidal_connect
+                .linkplay
+                .set_volume(&host, level as f64 * 100.0)
+                .await;
+        } else {
+            if !state.tidal_connect.client.is_connected().await {
+                let target_host = dev
+                    .addresses
+                    .iter()
+                    .find(|a| !a.contains(':'))
+                    .unwrap_or(&dev.host);
+                let _ = state.tidal_connect.client.connect(&dev.id, target_host, dev.port, None).await;
+            }
+            let _ = state
+                .tidal_connect
+                .client
+                .set_volume(level as f64)
+                .await;
+        }
+    }
+
     state
         .audio_player
         .set_volume(level)
@@ -366,6 +553,19 @@ pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneErro
 // audio thread froze the whole window.
 #[tauri::command]
 pub async fn get_playback_position(state: State<'_, AppState>) -> Result<f32, SoneError> {
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if state.tidal_connect.cast_host.read().await.is_some() {
+            return Ok(state
+                .tidal_connect
+                .cast_status
+                .read()
+                .await
+                .as_ref()
+                .map(|s| (s.pos_ms / 1000.0) as f32)
+                .unwrap_or(0.0));
+        }
+        return Ok(state.tidal_connect.client.get_position().await);
+    }
     let player = state.audio_player.clone();
     tokio::task::spawn_blocking(move || player.get_position())
         .await
@@ -376,6 +576,27 @@ pub async fn get_playback_position(state: State<'_, AppState>) -> Result<f32, So
 #[tauri::command(rename_all = "camelCase")]
 pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Result<(), SoneError> {
     log::debug!("[seek_track]: position_secs={:.1}", position_secs);
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
+            let _ = state
+                .tidal_connect
+                .linkplay
+                .seek(&host, position_secs as f64 * 1000.0, &state.tidal_connect.cast_status)
+                .await;
+        } else {
+            let _ = state.tidal_connect.client.seek(position_secs as f64).await;
+        }
+        #[cfg(target_os = "linux")]
+        state.mpris.send(crate::mpris::MprisCommand::Seeked {
+            position_secs: position_secs as f64,
+        });
+        state.discord.send(crate::discord::DiscordCommand::Seeked {
+            position_secs: position_secs as f64,
+        });
+        state.tidal_reporter.on_seek().await;
+        state.scrobble_manager.on_seek().await;
+        return Ok(());
+    }
     let result = state
         .audio_player
         .seek(position_secs)
@@ -394,6 +615,18 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
 
 #[tauri::command]
 pub async fn is_track_finished(state: State<'_, AppState>) -> Result<bool, SoneError> {
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if state.tidal_connect.cast_host.read().await.is_some() {
+            // Push-URL cast: "stop" after the receiver played the track to
+            // its reported end is a finished track (not a user stop).
+            let slot = state.tidal_connect.cast_status.read().await;
+            if let Some(s) = slot.as_ref() {
+                return Ok(s.status == "stop" && s.totlen_ms > 0 && s.pos_ms >= s.totlen_ms as f64 - 1500.0);
+            }
+            return Ok(false);
+        }
+        return Ok(state.tidal_connect.client.is_finished().await);
+    }
     let player = state.audio_player.clone();
     tokio::task::spawn_blocking(move || player.is_finished())
         .await
@@ -540,8 +773,30 @@ pub fn update_mpris_loop_status(
     Ok(())
 }
 
+/// Percent-encode a track title for use as a URL path segment. The receiver
+/// displays the hex-decoded push URL as its now-playing title, so keep it
+/// human-readable: alphanumerics and `-_.()` untouched, everything else
+/// percent-encoded.
+fn encode_display_name(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars() {
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '(' | ')' => out.push(c),
+            ' ' => out.push_str("%20"),
+            _ => {
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    use super::encode_display_name;
     use super::quality_tiers;
     use crate::SoneError;
 

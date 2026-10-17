@@ -7381,6 +7381,49 @@ mod proxy_routing_tests {
             "a client built earlier must observe the swap"
         );
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn inspect_live_stream_manifest() {
+        let config_dir = dirs::config_dir().unwrap().join("sone");
+        let settings_path = config_dir.join("settings.json");
+        let crypto = crate::crypto::Crypto::new(&config_dir).expect("crypto init");
+        let data = std::fs::read(&settings_path).expect("read settings");
+        let plain = crypto.decrypt(&data).expect("decrypt settings");
+        let settings: crate::Settings =
+            serde_json::from_slice(&plain).expect("parse settings");
+
+        let tokens = settings.auth_tokens.expect("auth tokens present");
+        let caps = HostCaps::assume_all_present();
+        let http = ProxiedHttp::from_plan(&crate::proxy::ProxyPlan::Direct, &caps);
+        let mut client = TidalClient::new(http);
+        client.tokens = Some(tokens);
+        client.country_code = "US".into();
+
+        let track_id = 493533404;
+        println!("Testing track {}", track_id);
+
+        for quality in &["HI_RES_LOSSLESS", "LOSSLESS"] {
+            println!("=== Requesting quality: {} ===", quality);
+            match client.get_stream_url(track_id, quality).await {
+                Ok(info) => {
+                    println!(
+                        "Success: url='{}', codec={:?}, audio_quality={:?}, manifest_len={}",
+                        info.url,
+                        info.codec,
+                        info.audio_quality,
+                        info.manifest.as_ref().map(|m| m.len()).unwrap_or(0)
+                    );
+                    if let Some(ref m) = info.manifest {
+                        println!("Manifest content:\n{}", m);
+                    }
+                }
+                Err(e) => {
+                    println!("Error for {}: {:?}", quality, e);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -72,6 +72,11 @@ import {
 import { themeAtom } from "../atoms/theme";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import {
+  activeDeviceAtom,
+  localDevice,
+  type ConnectDevice,
+} from "../atoms/tidalConnect";
+import {
   syncThemeToFile,
   applyExternalThemeFile,
   recreateThemeFile,
@@ -1013,6 +1018,51 @@ export function AppInitializer() {
       .catch(() => {});
     return () => {
       unlisten.then((fn) => fn());
+    };
+  }, [store]);
+
+  // ================================================================
+  //  TIDAL CONNECT (remote casting & volume sync)
+  // ================================================================
+  useEffect(() => {
+    // 1. Listen for hardware volume changes from remote device (WiiM Amp)
+    const unlistenVol = listen<number>("tidal-connect:volume", (e) => {
+      const active = store.get(activeDeviceAtom);
+      if (active && !active.isLocal) {
+        store.set(volumeAtom, e.payload);
+      }
+    });
+
+    // 2. Listen for receiver disconnect / session closure
+    const unlistenDisc = listen("tidal-connect:disconnected", () => {
+      store.set(activeDeviceAtom, localDevice);
+    });
+
+    // 3. Push-URL cast track end: the receiver finished the track on its own
+    // (LinkPlay transport); advance the queue like a manual skip would.
+    const unlistenEnded = listen("tidal-connect:track-ended", () => {
+      const active = store.get(activeDeviceAtom);
+      if (!active || active.isLocal) return;
+      playNext().catch((err) =>
+        console.warn("[cast] failed to advance after track end", err),
+      );
+    });
+
+    // 3. Synchronize active device on startup
+    invoke<ConnectDevice | null>("tidal_connect_get_active_device")
+      .then((dev) => {
+        if (dev) {
+          store.set(activeDeviceAtom, dev);
+        } else {
+          store.set(activeDeviceAtom, localDevice);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      unlistenVol.then((fn) => fn());
+      unlistenDisc.then((fn) => fn());
+      unlistenEnded.then((fn) => fn());
     };
   }, [store]);
 

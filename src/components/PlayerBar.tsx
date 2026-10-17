@@ -49,6 +49,8 @@ import QualityBadge from "./QualityBadge";
 import SignalPathPanel from "./SignalPathPanel";
 import VolumeSlider from "./VolumeSlider";
 import TrackContextMenu from "./TrackContextMenu";
+import TidalConnectButton from "./TidalConnectButton";
+import TidalConnectModal from "./TidalConnectModal";
 
 /** Build a video-session input from a restored/queued video-typed track. */
 function videoInputFromTrack(t: Track) {
@@ -648,6 +650,7 @@ const DrawerButtons = memo(function DrawerButtons() {
       >
         <Mic2 size={16} strokeWidth={2} />
       </button>
+      <TidalConnectButton />
       <VolumeSlider />
       <button
         onClick={() => toggleDrawerTab("queue")}
@@ -767,6 +770,7 @@ export default function PlayerBar() {
         open={signalPathOpen}
         onClose={() => setSignalPathOpen(false)}
       />
+      <TidalConnectModal />
     </div>
   );
 }

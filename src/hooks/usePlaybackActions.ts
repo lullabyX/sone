@@ -33,6 +33,7 @@ import {
   userPausedAtom,
   queueEpochAtom,
 } from "../atoms/playback";
+import { activeDeviceAtom } from "../atoms/tidalConnect";
 import {
   currentVideoAtom,
   videoStreamAtom,
@@ -665,13 +666,15 @@ export function usePlaybackActions() {
     async (level: number) => {
       const bitPerfect = store.get(bitPerfectAtom);
       const isVideo = !!store.get(currentVideoAtom);
-      // Bit-perfect audio stays locked at unity; video audio is lossy, so the
-      // slider must still work for it.
-      if (bitPerfect && !isVideo) return;
+      const activeDevice = store.get(activeDeviceAtom);
+      const isRemote = activeDevice && !activeDevice.isLocal;
+      // Bit-perfect audio stays locked at unity for local DAC; video audio and remote
+      // casting devices (WiiM Amp DAC) must still work.
+      if (bitPerfect && !isVideo && !isRemote) return;
       store.set(volumeAtom, level); // the <video> element reads this atom
-      // Never push a non-unity level to the GStreamer pipeline while bit-perfect
-      // is on — that would attenuate (and un-bit-perfect) audio playback.
-      if (bitPerfect) return;
+      // Never push a non-unity level to the local GStreamer pipeline while bit-perfect
+      // is on, UNLESS we are casting to a remote device (where set_volume routes to the remote DAC).
+      if (bitPerfect && !isRemote) return;
       try {
         await invoke("set_volume", { level });
       } catch (error) {

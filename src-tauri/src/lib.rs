@@ -26,6 +26,7 @@ pub mod overlay;
 mod http_util;
 pub mod proxy;
 mod proxy_http;
+pub mod tidal_connect;
 
 pub use error::SoneError;
 pub use signal_path::{SignalPath, SignalPathTracker};
@@ -268,6 +269,7 @@ pub struct AppState {
     pub overlay_state: crate::overlay::OverlayStateRef,
     pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
     pub signal_path: Arc<SignalPathTracker>,
+    pub tidal_connect: crate::tidal_connect::TidalConnectStateRef,
 }
 
 /// The config directory, resolvable before `AppState` exists — `main.rs` needs
@@ -519,7 +521,7 @@ impl AppState {
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
             last_peak_amplitude: AtomicU64::new(f64::NAN.to_bits()),
             #[cfg(target_os = "linux")]
-            mpris: mpris::MprisHandle::new(app_handle),
+            mpris: mpris::MprisHandle::new(app_handle.clone()),
             scrobble_manager,
             tidal_reporter,
             discord: discord_handle,
@@ -532,6 +534,13 @@ impl AppState {
             },
             overlay_handle: Mutex::new(None),
             signal_path,
+            tidal_connect: {
+                let device_http = crate::proxy_http::build_local_device_client()
+                    .expect("local device HTTP client could not be built; TIDAL Connect casting cannot start");
+                let tc = crate::tidal_connect::new_state(device_http);
+                tc.client.set_app_handle(app_handle);
+                tc
+            },
         }
     }
 
@@ -1165,6 +1174,13 @@ pub fn run() {
             commands::utility::refresh_signal_path,
             // updates
             commands::updates::check_for_update,
+            // tidal connect
+            commands::tidal_connect::tidal_connect_start_discovery,
+            commands::tidal_connect::tidal_connect_stop_discovery,
+            commands::tidal_connect::tidal_connect_get_available_devices,
+            commands::tidal_connect::tidal_connect_select_device,
+            commands::tidal_connect::tidal_connect_get_active_device,
+            commands::tidal_connect::tidal_connect_send_command,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
