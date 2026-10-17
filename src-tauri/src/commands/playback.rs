@@ -200,8 +200,15 @@ pub async fn play_tidal_track(
     track_id: u64,
     use_track_gain: bool,
 ) -> Result<StreamInfo, SoneError> {
+    let t0 = std::time::Instant::now();
     let (stream_info, uri, norm_gain, rg, peak, is_dash) =
         resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+    log::info!(
+        "[latency] play_tidal_track {}: source resolved {} ms (dash={})",
+        track_id,
+        t0.elapsed().as_millis(),
+        is_dash
+    );
 
     // Advisory only, and deliberately fail-open: `load_settings()` returns
     // `None` on a read, decrypt, UTF-8 or JSON failure, and the default has
