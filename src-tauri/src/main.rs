@@ -4,19 +4,20 @@
 fn main() {
     #[cfg(target_os = "linux")]
     {
-        // WebKitGTK's DMA-BUF renderer is unreliable on the NVIDIA proprietary
-        // driver: GBM buffer allocation fails (blank/corrupt page rendering) and
-        // the GStreamer video path tears and stutters (WebKit Bugzilla #261874
-        // and #260654, tauri-apps/tauri#9394). This affects BOTH X11 and Wayland
-        // — the web process renders surfaceless, so the DMA-BUF renderer is used
-        // regardless of session type. Fall back to shared-memory rendering
-        // whenever an NVIDIA kernel module is loaded. Pre-set
-        // WEBKIT_DISABLE_DMABUF_RENDERER to override.
+        // WebKitGTK's hardware DMA-BUF transport is unreliable on the NVIDIA
+        // proprietary driver: GBM buffer allocation/mapping fails on X11, GTK3
+        // hits Wayland explicit-sync protocol errors (Error 71), and the
+        // GStreamer DMA-BUF video path tears and stutters (WebKit Bugzilla
+        // #261874 and #260654, tauri-apps/tauri#9394, tauri-apps/tauri#10702).
         //
-        // TODO: revisit when WebKitGTK resolves the NVIDIA DMA-BUF bug
-        // (upstream #262607 is WONTFIX as of 2026).
-        let already_overridden =
-            std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
+        // Use WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 rather than
+        // WEBKIT_DISABLE_DMABUF_RENDERER=1: the latter disables
+        // AcceleratedBackingStore altogether in WebKitGTK 2.44+ (forcing
+        // HardwareAccelerationPolicy::Never and CPU rendering), whereas
+        // FORCE_SHM keeps surfaceless GPU rendering and threaded GPU compositing
+        // active in the web process while transporting frames via shared memory.
+        let already_overridden = std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_some()
+            || std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
 
         if !already_overridden {
             let nvidia_loaded = std::fs::read_to_string("/proc/modules")
@@ -33,11 +34,11 @@ fn main() {
             if nvidia_loaded {
                 eprintln!(
                     "[sone] NVIDIA detected; setting \
-                     WEBKIT_DISABLE_DMABUF_RENDERER=1 to avoid WebKitGTK GBM \
-                     allocation failure and video corruption. Pre-set the \
-                     variable to override."
+                     WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 to avoid WebKitGTK GBM \
+                     allocation failure and video corruption while keeping GPU \
+                     rendering enabled. Pre-set the variable to override."
                 );
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+                std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
             }
         }
 
