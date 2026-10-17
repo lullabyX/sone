@@ -152,6 +152,15 @@ impl TidalConnectClient {
         let dev_id_clone = device_id.to_string();
         let cast_active_shared = Arc::clone(&self.cast_active);
         tokio::spawn(async move {
+            // A98 firmware answers every new session with a single
+            // notifyDeviceStatusChanged advertising the tisoc app layer's
+            // stale volume (observed constant 0.11) regardless of the actual
+            // audible LinkPlay volume register (httpapi `vol`). Trusting it
+            // snapped the renderer's volume indicator down on every
+            // skip/track switch because every push-URL cast re-establishes
+            // the idle-closed WS session. Suppress that one advertisement;
+            // later notifies are genuine mid-session hardware changes.
+            let mut suppress_next_volume = false;
             while let Some(msg_res) = read.next().await {
                 match msg_res {
                     Ok(Message::Text(text)) => {
@@ -165,8 +174,18 @@ impl TidalConnectClient {
                                             *lock = Some(sid.to_string());
                                             log::info!("TIDAL Connect session active: {}", sid);
                                         }
+                                        suppress_next_volume = true;
                                     }
                                     "notifyDeviceStatusChanged" => {
+                                        if suppress_next_volume {
+                                            suppress_next_volume = false;
+                                            log::debug!(
+                                                "TIDAL Connect [{}] suppressing session-start volume advertisement \
+                                                 (A98 reports stale tisoc-app volume; LinkPlay register is authoritative)",
+                                                dev_id_clone
+                                            );
+                                            continue;
+                                        }
                                         if let Some(vol) = parsed.get("volume") {
                                             if let Some(lvl) = vol
                                                 .get("level")
