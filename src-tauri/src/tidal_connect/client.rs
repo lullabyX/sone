@@ -68,7 +68,10 @@ impl TidalConnectClient {
         port: u16,
         app: Option<tauri::AppHandle>,
     ) -> Result<(), String> {
-        self.disconnect().await;
+        // Quiet teardown: an in-flight session being replaced by a new one is
+        // a transport re-establish, not a user-facing disconnect; the emitter
+        // lives on the explicit `disconnect()` path only.
+        self.teardown_session().await;
 
         if let Some(a) = app {
             if let Ok(mut lock) = self.app_handle.write() {
@@ -322,7 +325,14 @@ impl TidalConnectClient {
         Ok(())
     }
 
-    pub async fn disconnect(&self) {
+    /// Drop any live WS session without notifying the UI.
+    ///
+    /// Used by `connect_until_ok` housekeeping before establishing a new
+    /// session (reconnect after the receiver idle-closes the previous one). A
+    /// push-URL cast survives idle session closures, and emitting
+    /// `tidal-connect:disconnected` here would reset the renderer's
+    /// `activeDeviceAtom` to local mid-cast on EVERY skip or album switch.
+    async fn teardown_session(&self) {
         let mut lock = self.session.write().await;
         if let Some(session) = lock.take() {
             let end_cmd = json!({
@@ -330,9 +340,18 @@ impl TidalConnectClient {
             });
             let _ = session.tx.send(Message::Text(end_cmd.to_string())).await;
         }
+    }
+
+    pub async fn disconnect(&self) {
+        let was_device = self.connected_device_id().await;
+        self.teardown_session().await;
         let app_opt = self.app_handle.read().ok().and_then(|g| g.clone());
         if let Some(app) = app_opt {
             use tauri::Emitter;
+            log::info!(
+                "TIDAL Connect session for {:?} ended; notifying UI of disconnect",
+                was_device
+            );
             let _ = app.emit("tidal-connect:disconnected", ());
         }
     }

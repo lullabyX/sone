@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 
 pub mod client;
@@ -104,6 +105,50 @@ pub async fn ensure_cast_poller(
                 let _ = app.emit("tidal-connect:track-ended", ());
             }
             let _ = raw; // kept for future parity logging
+            // Jam recovery: a push that never reaches play within the grace
+            // window wedges the receiver (observed when a rapid skip pushes a
+            // new URL while the previous one is still priming: the player
+            // ends in "pause"/"load" with totlen=0 and stays there until an
+            // operator pause/play unblocks it). One bounded re-push is enough
+            // in practice. A "pause" with a loaded track is user intent, not
+            // a jam, and never triggers this.
+            const JAM_GRACE: std::time::Duration = std::time::Duration::from_secs(12);
+            let jammed_url = cast_ref.cast_status.read().await.as_ref().and_then(|s| {
+                if s.play_confirmed || s.repushes >= 1 {
+                    return None;
+                }
+                let stale = s.pushed_at.elapsed() >= JAM_GRACE;
+                let wedged = s.status == "load"
+                    || s.status == "stop"
+                    || (s.status == "pause" && s.totlen_ms == 0);
+                if stale && wedged {
+                    s.cast_url.clone()
+                } else {
+                    None
+                }
+            });
+            if let Some(url) = jammed_url {
+                log::info!(
+                    "[cast-poller] push jammed (no play within {:?}); re-pushing",
+                    JAM_GRACE
+                );
+                match cast_ref.linkplay.push_play(&host, &url).await {
+                    Ok(()) => {
+                        if let Ok(mut slot) = cast_ref.cast_status.try_write() {
+                            if let Some(s) = slot.as_mut() {
+                                s.repushes += 1;
+                                s.pushed_at = Instant::now();
+                                s.play_confirmed = false;
+                                s.status = "load".into();
+                                s.anchor_at = None;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[cast-poller] jam re-push failed: {}", e);
+                    }
+                }
+            }
         }
     });
     *state_ref.poller.write().await = Some(handle);

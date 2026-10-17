@@ -75,6 +75,14 @@ pub struct CastStatus {
     pub pushed_at: Instant,
     /// Last observed device volume (0-100); volume events only report deltas.
     pub last_vol: u64,
+    /// URL that was pushed to the receiver; the poller uses it for jam
+    /// recovery (re-push when the receiver never reached play).
+    pub cast_url: Option<String>,
+    /// Set on the first observed "play" after a push; a push still unplayed
+    /// when the jam grace window expires is re-pushed by the poller.
+    pub play_confirmed: bool,
+    /// How many jam-recovery re-pushes were issued for this cast.
+    pub repushes: u32,
 }
 
 impl CastStatus {
@@ -92,6 +100,9 @@ impl CastStatus {
             totlen_ms: 0,
             stop_commanded,
             last_vol: 0,
+            cast_url: None,
+            play_confirmed: false,
+            repushes: 0,
         }
     }
 }
@@ -151,7 +162,9 @@ impl LinkPlayClient {
     ) -> Result<(), String> {
         self.push_play(host, url).await?;
         let mut slot = status_slot.write().await;
-        *slot = Some(CastStatus::fresh(false));
+        let mut fresh = CastStatus::fresh(false);
+        fresh.cast_url = Some(url.to_string());
+        *slot = Some(fresh);
         Ok(())
     }
 
@@ -192,6 +205,9 @@ impl LinkPlayClient {
                 stop_commanded: s.stop_commanded,
                 pushed_at: s.pushed_at,
                 last_vol: s.last_vol,
+                cast_url: s.cast_url.clone(),
+                play_confirmed: s.play_confirmed,
+                repushes: s.repushes,
             },
             None => CastStatus::fresh(true),
         };
@@ -246,6 +262,7 @@ impl LinkPlayClient {
                 if new_status == "play" {
                     // Clock restart: extrapolation resumes from anchor_ms.
                     cur.anchor_at = Some(Instant::now());
+                    cur.play_confirmed = true;
                     // The first play confirmation after a push is the cast
                     // startup latency; it is measured against pushed_at and
                     // logged so a connection-time series can be derived from
