@@ -86,11 +86,18 @@ pub async fn tidal_connect_select_device(
 pub async fn tidal_connect_get_active_device(
     state: State<'_, AppState>,
 ) -> Result<Option<ConnectDevice>, String> {
+    // Predicates are read BEFORE the write lock: holding active_device.write()
+    // across `is_connected()` (session RwLock) and the cast_host read made this
+    // the one command a wedged client could use to stall every renderer
+    // refresh behind a foreign lock, while the lock carries no await of its
+    // own once the predicates are known.
+    let connected = state.tidal_connect.client.is_connected().await;
+    let cast_alive = state.tidal_connect.cast_host.read().await.is_some();
     let mut active = state.tidal_connect.active_device.write().await;
     // With an active push-URL cast the TIDAL Connect WebSocket session is
     // irrelevant to playback; only drop the selection when neither session
     // nor cast exists.
-    let cast_alive = state.tidal_connect.cast_host.read().await.is_some();    if active.is_some() && !state.tidal_connect.client.is_connected().await && !cast_alive {
+    if active.is_some() && !connected && !cast_alive {
         *active = None;
     }
     Ok(active.clone())

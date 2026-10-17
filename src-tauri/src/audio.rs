@@ -3781,6 +3781,42 @@ impl AudioPlayer {
         rx.recv().expect("Audio thread dead")
     }
 
+    /// Bounded command wait. A wedged audio worker must never freeze the app:
+    /// the 2026-10-17 incident had one stuck worker turn every in-app
+    /// play/pause/stop control dead and strip the progress bar, with the only
+    /// witness being an 8-minute gap in the log. After `timeout` the command
+    /// is abandoned; its late reply goes to a dropped receiver, which the
+    /// worker ignores, so nothing on the worker side changes.
+    fn send_cmd_t<T>(
+        &self,
+        timeout: std::time::Duration,
+        build: impl FnOnce(Reply<T>) -> AudioCommand,
+    ) -> Result<T, String> {
+        let (tx, rx) = mpsc::channel();
+        self.cmd_tx
+            .send(build(tx))
+            .map_err(|_| "Audio thread dead".to_string())?;
+        match rx.recv_timeout(timeout) {
+            Ok(result) => Ok(result),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+                "audio thread did not answer within {:.0}s (worker wedged; restart the app to recover audio)",
+                timeout.as_secs_f32()
+            )),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err("Audio thread dead".into()),
+        }
+    }
+
+    /// Bounded send for arms whose reply is `Result<(), String>`: flatten the
+    /// inner result so callers of `play_url`/`pause`/... keep their existing
+    /// error mapping.
+    fn send_cmd_ok(
+        &self,
+        timeout: std::time::Duration,
+        build: impl FnOnce(Reply<Result<(), String>>) -> AudioCommand,
+    ) -> Result<(), String> {
+        self.send_cmd_t(timeout, build).and_then(|inner| inner)
+    }
+
     /// For commands whose reply is always `Ok`: queued in order without waiting,
     /// so a busy or stalled audio thread can't block the caller.
     fn post_cmd(
@@ -3812,20 +3848,30 @@ impl AudioPlayer {
     }
 
     pub fn play_url(&self, uri: &str, start_secs: Option<f32>) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::PlayUrl {
-            uri: uri.to_string(),
-            start_secs,
-            reply,
+        // 15s covers cold DASH resolve + pipeline build + the 3s buffer target
+        // with margin; a wedged worker historically never answered at all.
+        self.send_cmd_ok(std::time::Duration::from_secs(15), |reply| {
+            AudioCommand::PlayUrl {
+                uri: uri.to_string(),
+                start_secs,
+                reply,
+            }
         })
     }
     pub fn pause(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Pause { reply })
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Pause { reply }
+        })
     }
     pub fn resume(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Resume { reply })
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Resume { reply }
+        })
     }
     pub fn stop(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Stop { reply })
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Stop { reply }
+        })
     }
     pub fn set_volume(&self, level: f32) -> Result<(), String> {
         self.post_cmd(|reply| AudioCommand::SetVolume { level, reply })
@@ -3834,9 +3880,11 @@ impl AudioPlayer {
         self.post_cmd(|reply| AudioCommand::SetNormalizationGain { gain, reply })
     }
     pub fn seek(&self, position_secs: f32) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Seek {
-            position_secs,
-            reply,
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Seek {
+                position_secs,
+                reply,
+            }
         })
     }
     pub fn get_position(&self) -> Result<f32, String> {
@@ -3861,7 +3909,11 @@ impl AudioPlayer {
         self.post_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
     }
     pub fn set_proxy_settings(&self, settings: crate::ProxySettings) {
-        self.send_cmd(|reply| AudioCommand::SetProxySettings { settings, reply });
+        // Bounded: a wedged audio thread must not hang the settings save
+        // forever; the timeline reply is dropped with the receiver.
+        let _ = self.send_cmd_t(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::SetProxySettings { settings, reply }
+        });
     }
     pub fn set_gapless(&self, enabled: bool) -> Result<(), String> {
         self.post_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
@@ -3877,15 +3929,17 @@ impl AudioPlayer {
         peak_amplitude: f64,
         is_dash: bool,
     ) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetNextTrack {
-            uri,
-            norm_gain,
-            track_id,
-            qid,
-            replay_gain,
-            peak_amplitude,
-            is_dash,
-            reply,
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::SetNextTrack {
+                uri,
+                norm_gain,
+                track_id,
+                qid,
+                replay_gain,
+                peak_amplitude,
+                is_dash,
+                reply,
+            }
         })
     }
     pub fn clear_next_track(&self) -> Result<(), String> {
