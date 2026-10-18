@@ -302,10 +302,10 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
     Ok(devices)
 }
 
-/// Whether Discord Rich Presence can work at all in this build -> SNAP exception
+/// Snap confinement blocks the Discord socket unless the user runs a relay.
 #[tauri::command]
-pub fn discord_rpc_supported() -> bool {
-    std::env::var("SNAP").is_err()
+pub fn is_snap() -> bool {
+    std::env::var("SNAP").is_ok()
 }
 
 #[tauri::command]
