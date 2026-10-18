@@ -147,15 +147,15 @@ describe("getMediaQualityBadge", () => {
 });
 
 describe("getArtistImage", () => {
-  it("prefers artworkId and uses artist CDN sizes", () => {
+  it("prefers picture over artworkId and uses artist CDN sizes", () => {
     expect(
       getArtistImage({ artworkId: "aaaa-bbbb", picture: "cccc-dddd" }, 480),
-    ).toBe("https://resources.tidal.com/images/aaaa/bbbb/480x480.jpg");
+    ).toBe("https://resources.tidal.com/images/cccc/dddd/480x480.jpg");
   });
 
-  it("falls back to the legacy picture UUID", () => {
-    expect(getArtistImage({ picture: "cccc-dddd" }, 320)).toBe(
-      "https://resources.tidal.com/images/cccc/dddd/320x320.jpg",
+  it("falls back to artworkId when there is no picture", () => {
+    expect(getArtistImage({ picture: null, artworkId: "aaaa-bbbb" }, 320)).toBe(
+      "https://resources.tidal.com/images/aaaa/bbbb/320x320.jpg",
     );
   });
 
@@ -395,5 +395,36 @@ describe("getTrackArtistDisplay", () => {
 
   it("honours an empty fallback so a caller can render nothing", () => {
     expect(getTrackArtistDisplay({}, "")).toBe("");
+  });
+});
+
+describe("magazine items", () => {
+  const raw = {
+    type: "MAGAZINE",
+    data: {
+      id: 1,
+      imageURL: "https://resources.tidal.com/images/aa/bb/550x400.jpg",
+      artifactId: "pl-uuid",
+      type: "PLAYLIST",
+      shortHeader: "Title",
+      shortSubHeader: "Sub",
+    },
+  };
+  // What a feed section actually delivers: `data` merged up by the backend.
+  const flat = { ...raw.data, _itemType: "MAGAZINE" };
+
+  it.each([
+    ["raw", raw],
+    ["flattened", flat],
+  ])("reads the %s shape", (_label, item) => {
+    expect(getItemImage(item)).toBe(raw.data.imageURL);
+    expect(getItemTitle(item)).toBe("Title");
+    expect(getItemId(item)).toBe("pl-uuid");
+    expect(buildMediaItem(item)).toEqual({
+      type: "playlist",
+      uuid: "pl-uuid",
+      title: "Title",
+      image: raw.data.imageURL,
+    });
   });
 });

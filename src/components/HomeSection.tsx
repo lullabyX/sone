@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Play,
   ChevronLeft,
@@ -31,10 +32,15 @@ import {
   isMixItem,
   isMyTracksItem,
   isMagazineItem,
+  getMagazineData,
   buildMediaItem,
 } from "../utils/itemHelpers";
 import { getTidalPromoImageUrl } from "../types";
 import TidalImage from "./TidalImage";
+import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
+import { useContentPrefs } from "../hooks/useContentPrefs";
+import { isContentBlocked } from "../lib/contentFilter";
 
 interface HomeSectionProps {
   section: HomeSectionType;
@@ -119,54 +125,54 @@ export default function HomeSection({ section }: HomeSectionProps) {
     });
   };
 
-  const handleItemClick = (item: any) => {
+  const handleItemClick = (item: any, { ignoreRowType = false } = {}) => {
+    const hint = ignoreRowType ? undefined : typeHint;
     if (isMyTracksItem(item)) {
       navigateToFavorites();
       return;
     }
-    if (isMagazineItem(item)) {
-      const d = item.data;
-      if (d?.type === "PLAYLIST" && d?.artifactId) {
-        navigateToPlaylist(d.artifactId, {
-          title: d.shortHeader ?? "",
-          image: d.imageURL,
-        });
-      }
-      return;
-    }
-    // MULTIPLE_TOP_PROMOTIONS ("Featured") items reference their content by
+    // MULTIPLE_TOP_PROMOTIONS and MAGAZINE cards reference their content by
     // `artifactId` + `type` (no id/uuid), so route them explicitly.
-    if (item?.artifactId && item?.type) {
-      const title = item.shortHeader || item.header || "";
-      switch (item.type) {
+    const magazine = isMagazineItem(item);
+    const promo = magazine ? getMagazineData(item) : item;
+    if (promo?.artifactId && promo?.type) {
+      const title = promo.shortHeader || promo.header || "";
+      switch (promo.type) {
         case "PLAYLIST":
-          navigateToPlaylist(item.artifactId, { title, image: item.imageId });
+          navigateToPlaylist(promo.artifactId, {
+            title,
+            image: promo.imageURL ?? promo.imageId,
+          });
+          return;
+        case "EXTURL":
+          openUrl(promo.artifactId).catch(() => {});
           return;
         case "VIDEO":
           playMedia({
             type: "video",
-            id: Number(item.artifactId),
+            id: Number(promo.artifactId),
             title,
-            imageId: item.imageId,
+            imageId: promo.imageId,
           });
           return;
         case "ALBUM":
-          navigateToAlbum(Number(item.artifactId), {
+          navigateToAlbum(Number(promo.artifactId), {
             title,
-            cover: item.imageId,
+            cover: promo.imageId,
           });
           return;
         case "ARTIST":
-          navigateToArtist(Number(item.artifactId), { name: title });
+          navigateToArtist(Number(promo.artifactId), { name: title });
           return;
       }
     }
-    const asMedia = buildMediaItem(item, typeHint);
+    if (magazine) return;
+    const asMedia = buildMediaItem(item, hint);
     if (asMedia?.type === "video") {
       playMedia(asMedia);
       return;
     }
-    if (isTrackItem(item, typeHint)) {
+    if (isTrackItem(item, hint)) {
       const allTrackItems = items.filter((t: any) => isTrackItem(t, typeHint));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       playFromSource(item as any, allTrackItems as any, {
@@ -177,7 +183,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           allTracks: allTrackItems as any,
         },
       });
-    } else if (isMixItem(item, typeHint)) {
+    } else if (isMixItem(item, hint)) {
       // Mix or radio station - navigate to mix page
       const mixId = item.mixId || item.id?.toString();
       if (mixId) {
@@ -188,7 +194,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
           mixType: item.type || item.mixType,
         });
       }
-    } else if (isArtistItem(item, typeHint)) {
+    } else if (isArtistItem(item, hint)) {
       // Artist - navigate to artist page
       const artistId = item.id;
       if (artistId) {
@@ -241,14 +247,63 @@ export default function HomeSection({ section }: HomeSectionProps) {
     );
   }
 
+  const contextItem: any = section.header;
+  const contextImage = contextItem ? getItemImage(contextItem, 160) : "";
+  const handleContextClick = () => {
+    if (!contextItem) return;
+    if (isTrackItem(contextItem)) {
+      if (contextItem.album?.id) {
+        navigateToAlbum(contextItem.album.id, {
+          title: contextItem.album.title,
+          cover: contextItem.album.cover,
+        });
+      }
+      return;
+    }
+    // The row's type says nothing about the item it is based on.
+    handleItemClick(contextItem, { ignoreRowType: true });
+  };
+
   return (
     <section className="mb-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight hover:underline cursor-pointer">
-          {section.title}
-        </h2>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-4 mb-4">
+        {contextItem ? (
+          <div
+            onClick={handleContextClick}
+            className="flex items-center gap-3 min-w-0 cursor-pointer group/context"
+          >
+            <div
+              className={`w-12 h-12 flex-shrink-0 overflow-hidden bg-th-surface-hover ${
+                isArtistItem(contextItem) ? "rounded-full" : "rounded"
+              }`}
+            >
+              {contextImage && (
+                <img
+                  src={contextImage}
+                  alt={getItemTitle(contextItem)}
+                  className="w-full h-full object-cover"
+                />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] text-th-text-muted truncate">
+                {section.title}
+              </p>
+              <div className="flex items-center gap-2 min-w-0">
+                <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight truncate min-w-0 group-hover/context:underline">
+                  {getItemTitle(contextItem)}
+                </h2>
+                {contextItem.ai === true && <AiBadge />}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <h2 className="text-[22px] font-bold text-th-text-primary tracking-tight hover:underline cursor-pointer">
+            {section.title}
+          </h2>
+        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
           {/* Scroll arrows */}
           <button
             onClick={() => scroll("left")}
@@ -291,20 +346,21 @@ export default function HomeSection({ section }: HomeSectionProps) {
           className="card-scroll-track pb-2"
         >
           {items.map((item: any) => {
-            if (isMultiPromo) {
-              const promoTitle = item.shortHeader || item.header || "";
-              const promoEyebrow = item.shortHeader ? item.header : undefined;
+            if (isMultiPromo || isMagazineItem(item)) {
+              const promo = isMagazineItem(item) ? getMagazineData(item) : item;
+              const promoTitle = promo.shortHeader || promo.header || "";
+              const promoEyebrow = promo.shortHeader ? promo.header : undefined;
               return (
                 <MediaCard
-                  key={item.artifactId ?? promoTitle}
+                  key={promo.artifactId ?? promoTitle}
                   item={item}
                   aspect="promo"
                   eyebrow={promoEyebrow}
                   titleOverride={promoTitle}
-                  subtitleOverride={item.shortSubHeader}
+                  subtitleOverride={promo.shortSubHeader ?? ""}
                   imageOverride={
                     <TidalImage
-                      src={getTidalPromoImageUrl(item.imageId)}
+                      src={getTidalPromoImageUrl(promo.imageURL || promo.imageId)}
                       alt={promoTitle}
                       className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
                     />
@@ -463,6 +519,7 @@ function TrackListSection({
   const { playFromSource } = usePlaybackActions();
   const { navigateToAlbum, navigateToViewAll, navigateToFavorites } =
     useNavigation();
+  const contentPrefs = useContentPrefs();
   const [trackContextMenu, setTrackContextMenu] = useState<{
     track: any;
     index: number;
@@ -527,14 +584,23 @@ function TrackListSection({
       >
         {displayItems.map((item: any, idx: number) => {
           const myTracks = isMyTracksItem(item);
+          const blocked = !myTracks && isContentBlocked(item, contentPrefs);
           return (
             <div
               key={getItemId(item)}
-              onClick={() => handlePlayTrack(item, idx)}
+              onClick={() => {
+                if (!blocked) handlePlayTrack(item, idx);
+              }}
               onContextMenu={
-                myTracks ? undefined : (e) => openTrackMenu(e, item, idx)
+                myTracks || blocked
+                  ? undefined
+                  : (e) => openTrackMenu(e, item, idx)
               }
-              className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
+              className={`flex items-center gap-3 p-2 rounded-md transition-colors ${
+                blocked
+                  ? "opacity-50 cursor-default"
+                  : "hover:bg-th-inset cursor-pointer group"
+              }`}
             >
               <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
                 {myTracks ? (
@@ -564,26 +630,30 @@ function TrackListSection({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate font-medium">
-                  {myTracks ? (
-                    "Loved Tracks"
-                  ) : item.album ? (
-                    <span
-                      className="hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigateToAlbum(item.album.id, {
-                          title: item.album.title,
-                          cover: item.album.cover,
-                        });
-                      }}
-                    >
-                      {getItemTitle(item)}
-                    </span>
-                  ) : (
-                    getItemTitle(item)
-                  )}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-[14px] text-th-text-primary truncate font-medium min-w-0">
+                    {myTracks ? (
+                      "Loved Tracks"
+                    ) : item.album ? (
+                      <span
+                        className="hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigateToAlbum(item.album.id, {
+                            title: item.album.title,
+                            cover: item.album.cover,
+                          });
+                        }}
+                      >
+                        {getItemTitle(item)}
+                      </span>
+                    ) : (
+                      getItemTitle(item)
+                    )}
+                  </p>
+                  {!myTracks && item.explicit && <ExplicitBadge />}
+                  {!myTracks && item.ai && <AiBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-muted truncate">
                   {myTracks ? (
                     "Collection"
@@ -646,6 +716,7 @@ function CompactGridSection({
 }) {
   const { navigateToViewAll, navigateToAlbum } = useNavigation();
   const { playFromSource } = usePlaybackActions();
+  const contentPrefs = useContentPrefs();
   const playMedia = useMediaPlay();
   const { gridRef, columns } = useGridColumns(items.length);
   const displayItems = fitRows(items, columns);
@@ -780,16 +851,27 @@ function CompactGridSection({
         {displayItems.map((item: any, idx: number) => {
           const isTrack = isTrackItem(item, typeHint);
           const myTracks = isMyTracksItem(item);
+          const restricted = isTrack
+            ? isContentBlocked(item, contentPrefs)
+            : !contentPrefs.allowAi && item.ai === true;
           // Deep links and artifact-less promo cards have nothing to play.
-          const canPlay = isTrack || buildMediaItem(item, typeHint) !== null;
+          const canPlay =
+            !restricted && (isTrack || buildMediaItem(item, typeHint) !== null);
           return (
             <div
               key={getItemId(item)}
-              onClick={() => handleRowClick(item)}
+              onClick={() => {
+                if (isTrack && restricted && !item.album?.id) return;
+                handleRowClick(item);
+              }}
               onContextMenu={
-                myTracks ? undefined : (e) => openMenu(e, item, idx)
+                myTracks || (isTrack && restricted)
+                  ? undefined
+                  : (e) => openMenu(e, item, idx)
               }
-              className="flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors"
+              className={`flex items-center gap-3 p-2 rounded-md hover:bg-th-inset cursor-pointer group transition-colors${
+                restricted ? " opacity-50" : ""
+              }`}
             >
               <div className="w-10 h-10 flex-shrink-0 rounded bg-th-surface-hover overflow-hidden relative">
                 {myTracks ? (
@@ -823,17 +905,21 @@ function CompactGridSection({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] text-th-text-primary truncate font-medium">
-                  {myTracks ? (
-                    "Loved Tracks"
-                  ) : isTrack && item.album ? (
-                    <span className="hover:underline">
-                      {getItemTitle(item)}
-                    </span>
-                  ) : (
-                    getItemTitle(item)
-                  )}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-[14px] text-th-text-primary truncate font-medium min-w-0">
+                    {myTracks ? (
+                      "Loved Tracks"
+                    ) : isTrack && item.album ? (
+                      <span className="hover:underline">
+                        {getItemTitle(item)}
+                      </span>
+                    ) : (
+                      getItemTitle(item)
+                    )}
+                  </p>
+                  {isTrack && item.explicit && <ExplicitBadge />}
+                  {!myTracks && item.ai === true && <AiBadge />}
+                </div>
                 <p className="text-[12px] text-th-text-muted truncate">
                   {myTracks ? (
                     "Collection"

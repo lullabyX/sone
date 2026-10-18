@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, screen, cleanup } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
+import { invoke } from "@tauri-apps/api/core";
 import type { PropsWithChildren } from "react";
 import { usePlaybackActions } from "./usePlaybackActions";
 import { ToastProvider } from "../contexts/ToastContext";
@@ -15,6 +16,9 @@ import {
   contextSourceAtom,
   manualQueueAtom,
   consecutiveFailCountAtom,
+  allowExplicitAtom,
+  allowAiAtom,
+  queueEpochAtom,
 } from "../atoms/playback";
 import { getProxyBlockedReason } from "../lib/errorUtils";
 import type { Track } from "../types";
@@ -254,5 +258,250 @@ describe("repeat-one says why when a track is refused", () => {
     // track, and must not drop the track that is still loaded.
     expect(screen.queryByText(/Track unavailable/)).toBeNull();
     expect(store.get(currentTrackAtom)?.id).toBe(7);
+  });
+});
+
+describe("queue epoch and shuffle-play primitives", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+    // An earlier describe leaves play_tidal_track rejecting; reset it.
+    playResult = () => Promise.resolve({});
+    cleanup();
+  });
+
+  it("bumps the epoch on queue replacement but not on reorder or append", () => {
+    const { store, result } = setup();
+    act(() => {
+      result.current.setQueueTracks(tracks(3));
+    });
+    expect(store.get(queueEpochAtom)).toBe(1);
+    act(() => {
+      result.current.setQueueTracks(tracks(3), { reorder: true });
+      result.current.appendToQueue([track({ id: 9 })]);
+    });
+    expect(store.get(queueEpochAtom)).toBe(1);
+    act(() => {
+      result.current.setShuffledQueue(tracks(3));
+      result.current.clearQueue();
+    });
+    expect(store.get(queueEpochAtom)).toBe(3);
+  });
+
+  it("playAllFromSource({ shuffle }) shuffles but leaves shuffle mode off", async () => {
+    const { store, result } = setup();
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    let started = false;
+    await act(async () => {
+      started = await result.current.playAllFromSource(tracks(5), {
+        shuffle: true,
+      });
+    });
+    expect(started).toBe(true);
+    expect(store.get(shuffleAtom)).toBe(false);
+    expect(store.get(originalQueueAtom)).toBeNull();
+    expect(store.get(currentTrackAtom)?.id).toBe(5);
+    expect(
+      store
+        .get(queueAtom)
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual([1, 2, 3, 4]);
+    expect(store.get(queueEpochAtom)).toBe(1);
+  });
+
+  it("playAllFromSource returns false and changes nothing when nothing is playable", async () => {
+    const { store, result } = setup();
+    store.set(allowExplicitAtom, false);
+    let started = true;
+    await act(async () => {
+      started = await result.current.playAllFromSource([
+        track({ id: 1, explicit: true } as Partial<Track>),
+      ]);
+    });
+    expect(started).toBe(false);
+    expect(store.get(queueEpochAtom)).toBe(0);
+    expect(store.get(currentTrackAtom)).toBeNull();
+  });
+
+  it("appendToQueue({ shuffle }) inserts at random positions with shuffle mode off", () => {
+    const { store, result } = setup();
+    act(() => {
+      result.current.setQueueTracks(tracks(3));
+    });
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    act(() => {
+      result.current.appendToQueue([track({ id: 10 }), track({ id: 11 })], {
+        shuffle: true,
+      });
+    });
+    // Math.random() === 0 inserts right after the head, which never moves.
+    expect(store.get(queueAtom)[0].id).toBe(1);
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 11, 10, 2, 3]);
+    expect(store.get(originalQueueAtom)).toBeNull();
+    expect(store.get(shuffleAtom)).toBe(false);
+  });
+
+  it("appendToQueue({ source }) updates the matching context source, not the playing item's", () => {
+    const { store, result } = setup();
+    const ctx = { type: "playlist", id: "p1", name: "P", tracks: [] };
+    const item = { type: "album", id: 5, name: "A", tracks: [] };
+    act(() => {
+      store.set(playbackSourceAtom, item as never);
+      store.set(contextSourceAtom, ctx as never);
+      result.current.appendToQueue([track({ id: 10 })], {
+        source: { type: "playlist", id: "p1" },
+      });
+    });
+    expect(store.get(contextSourceAtom)?.tracks.map((t) => t.id)).toEqual([10]);
+    expect(store.get(playbackSourceAtom)?.tracks).toHaveLength(0);
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([10]);
+  });
+
+  it("appendToQueue({ source }) prefers the context source when both match", () => {
+    const { store, result } = setup();
+    const ctx = { type: "playlist", id: "p1", name: "P", tracks: [] };
+    const item = { type: "playlist", id: "p1", name: "P", tracks: [] };
+    act(() => {
+      store.set(playbackSourceAtom, item as never);
+      store.set(contextSourceAtom, ctx as never);
+      result.current.appendToQueue([track({ id: 10 })], {
+        source: { type: "playlist", id: "p1" },
+      });
+    });
+    expect(store.get(contextSourceAtom)?.tracks.map((t) => t.id)).toEqual([10]);
+    expect(store.get(playbackSourceAtom)?.tracks).toHaveLength(0);
+  });
+
+  it("shuffled append still drops explicit tracks", () => {
+    const { store, result } = setup();
+    act(() => {
+      store.set(allowExplicitAtom, false);
+      result.current.setQueueTracks(tracks(2));
+      result.current.appendToQueue(
+        [
+          track({ id: 10, explicit: true } as Partial<Track>),
+          track({ id: 11 }),
+        ],
+        { shuffle: true },
+      );
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).not.toContain(10);
+    expect(store.get(queueAtom).map((t) => t.id)).toContain(11);
+  });
+});
+
+describe("AI content filter", () => {
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.restoreAllMocks();
+    playResult = () => Promise.resolve({});
+    vi.mocked(invoke).mockClear();
+  });
+  const human = (id: number) => track({ id, title: `h${id}` });
+  const synth = (id: number) => track({ id, title: `ai${id}`, ai: true });
+
+  it("setQueueTracks drops ai tracks when AI is off", () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    act(() => result.current.setQueueTracks([human(1), synth(2), human(3)]));
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 3]);
+  });
+  it("setQueueTracks keeps ai tracks when AI is on", () => {
+    const { result, store } = setup();
+    act(() => result.current.setQueueTracks([human(1), synth(2)]));
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 2]);
+  });
+  it("addToQueue and playNextInQueue ignore ai tracks when AI is off", () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    act(() => {
+      result.current.addToQueue(synth(9));
+      result.current.playNextInQueue(synth(8));
+    });
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+  it("playTrack refuses an ai track without invoking playback", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    let res: unknown;
+    await act(async () => {
+      res = await result.current.playTrack(synth(5));
+    });
+    expect(res).toEqual({ ok: false, reason: "filtered" });
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
+      "play_tidal_track",
+      expect.anything(),
+    );
+    expect(store.get(currentTrackAtom)).toBeNull();
+    expect(
+      screen.getByText("AI content is turned off in Settings"),
+    ).toBeTruthy();
+  });
+  it("playSingle on a blocked track keeps the queue", async () => {
+    const { result, store } = setup();
+    act(() => result.current.setQueueTracks([human(1)]));
+    store.set(allowAiAtom, false);
+    await act(async () => {
+      await result.current.playSingle(synth(4));
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1]);
+    expect(store.get(queueEpochAtom)).toBe(1);
+  });
+  it("playFromSource on a blocked track leaves the queue untouched", async () => {
+    const { result, store } = setup();
+    act(() => result.current.setQueueTracks([human(1), human(2)]));
+    store.set(allowAiAtom, false);
+    vi.mocked(invoke).mockClear();
+    await act(async () => {
+      await result.current.playFromSource(synth(7), [
+        human(6),
+        synth(7),
+        human(8),
+      ]);
+    });
+    expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 2]);
+    expect(store.get(queueEpochAtom)).toBe(1);
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
+      "play_tidal_track",
+      expect.anything(),
+    );
+  });
+  it("playNext skips an ai track sitting in the queue", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    store.set(queueAtom, [
+      { ...synth(2), _qid: "a" },
+      { ...human(3), _qid: "b" },
+    ]);
+    await act(async () => {
+      await result.current.playNext({ explicit: true });
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(3);
+    expect(store.get(queueAtom)).toEqual([]);
+    expect(store.get(consecutiveFailCountAtom)).toBe(0);
+  });
+  it("playPrevious with empty history walks back past a blocked source track", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    store.set(playbackSourceAtom, {
+      type: "playlist",
+      id: "p1",
+      name: "P",
+      tracks: [human(1), synth(2), human(3)],
+    } as never);
+    store.set(currentTrackAtom, human(3));
+    await act(async () => {
+      await result.current.playPrevious();
+    });
+    expect(store.get(currentTrackAtom)?.id).toBe(1);
+  });
+  it("playAllFromSource returns false when every track is ai", async () => {
+    const { result, store } = setup();
+    store.set(allowAiAtom, false);
+    expect(await result.current.playAllFromSource([synth(1), synth(2)])).toBe(
+      false,
+    );
   });
 });

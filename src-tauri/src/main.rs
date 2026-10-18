@@ -129,6 +129,15 @@ fn main() {
                 std::env::set_var("GST_PLUGIN_PATH", chosen);
             }
         }
+
+        // libsoup3 over HTTP/2 can hang forever on a connection the CDN dropped
+        // while the buffer was full, starving playback with no error to retry on
+        // (libsoup#296, sone#252). HTTP/1.1 surfaces the drop and souphttpsrc
+        // resumes with a Range request. libsoup reads this once per process and
+        // only checks presence, so any preset value already forces HTTP/1.1.
+        if std::env::var_os("SOUP_FORCE_HTTP1").is_none() {
+            std::env::set_var("SOUP_FORCE_HTTP1", "1");
+        }
     }
     tauri_app_lib::run()
 }

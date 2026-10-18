@@ -102,6 +102,8 @@ pub struct TidalTrack {
     #[serde(default)]
     pub explicit: Option<bool>,
     #[serde(default)]
+    pub ai: Option<bool>,
+    #[serde(default)]
     pub popularity: Option<u32>,
     #[serde(default)]
     pub replay_gain: Option<f64>,
@@ -238,6 +240,8 @@ pub struct TidalAlbumDetail {
     pub copyright: Option<String>,
     #[serde(default)]
     pub explicit: Option<bool>,
+    #[serde(default)]
+    pub ai: Option<bool>,
     #[serde(default)]
     pub popularity: Option<u32>,
     #[serde(default)]
@@ -931,6 +935,9 @@ pub struct DirectHitItem {
     pub duration: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_tracks: Option<u32>,
+    /// ALBUMS hits only; TRACKS hits carry it on `track`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai: Option<bool>,
     /// The complete track entity for TRACKS hits. The payload is a full track —
     /// `artists[]`, `explicit`, `album.vibrantColor`, `mediaMetadata`, `mixes` —
     /// so carry it whole rather than re-projecting it onto the flat fields above
@@ -981,6 +988,7 @@ impl DirectHitItem {
                 album_cover: None,
                 duration: None,
                 number_of_tracks: None,
+                ai: None,
                 track: None,
                 video: None,
             }),
@@ -1018,6 +1026,7 @@ impl DirectHitItem {
                         .get("numberOfTracks")
                         .and_then(|v| v.as_u64())
                         .map(|n| n as u32),
+                    ai: val.get("ai").and_then(|v| v.as_bool()),
                     track: None,
                     video: None,
                 })
@@ -1066,6 +1075,7 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    ai: None,
                     track,
                     video: None,
                 })
@@ -1108,6 +1118,7 @@ impl DirectHitItem {
                         .and_then(|v| v.as_u64())
                         .map(|d| d as u32),
                     number_of_tracks: None,
+                    ai: None,
                     track: None,
                     video,
                 })
@@ -1136,6 +1147,7 @@ impl DirectHitItem {
                     .get("numberOfTracks")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as u32),
+                ai: None,
                 track: None,
                 video: None,
             }),
@@ -1213,6 +1225,8 @@ pub struct HomePageSection {
     pub has_more: bool,
     #[serde(default)]
     pub api_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -4563,29 +4577,14 @@ impl TidalClient {
                     .unwrap_or("Results")
                     .to_string();
                 // Unwrap {type, data} wrappers (v2 view-all format)
-                let unwrapped: Vec<Value> = items
-                    .iter()
-                    .map(|item| {
-                        if let Some(data) = item.get("data") {
-                            let mut merged = data.clone();
-                            if let Some(obj) = merged.as_object_mut() {
-                                if let Some(item_type) = item.get("type").and_then(|t| t.as_str()) {
-                                    obj.entry("_itemType".to_string())
-                                        .or_insert(Value::String(item_type.to_string()));
-                                }
-                            }
-                            merged
-                        } else {
-                            item.clone()
-                        }
-                    })
-                    .collect();
+                let unwrapped: Vec<Value> = items.iter().map(Self::unwrap_v2_item).collect();
                 sections.push(HomePageSection {
                     title: page_title,
                     section_type: "MIXED_LIST".to_string(),
                     items: Value::Array(unwrapped),
                     has_more: false,
                     api_path: None,
+                    header: None,
                 });
             }
         }
@@ -4716,7 +4715,24 @@ impl TidalClient {
             items,
             has_more,
             api_path,
+            header: None,
         })
+    }
+
+    /// `{ type, data }` -> `data` with the wrapper type kept as `_itemType`.
+    /// Items without a `data` wrapper are already flat.
+    fn unwrap_v2_item(item: &Value) -> Value {
+        let Some(data) = item.get("data") else {
+            return item.clone();
+        };
+        let mut merged = data.clone();
+        if let Some(obj) = merged.as_object_mut() {
+            if let Some(item_type) = item.get("type").and_then(|t| t.as_str()) {
+                obj.entry("_itemType".to_string())
+                    .or_insert(Value::String(item_type.to_string()));
+            }
+        }
+        merged
     }
 
     /// Parse a V2 section (from the flat items format).
@@ -4761,32 +4777,18 @@ impl TidalClient {
         // V2 items can be in "items" array, where each has { type, data }
         let raw_items = section.get("items").and_then(|i| i.as_array());
 
-        let items = if let Some(raw) = raw_items {
-            // Unwrap the "data" field from each item if present,
-            // but keep the item type info by merging it
-            let unwrapped: Vec<Value> = raw
-                .iter()
-                .map(|item| {
-                    if let Some(data) = item.get("data") {
-                        // Merge item-level type into data for identification
-                        let mut merged = data.clone();
-                        if let Some(obj) = merged.as_object_mut() {
-                            if let Some(item_type) = item.get("type").and_then(|t| t.as_str()) {
-                                obj.entry("_itemType".to_string())
-                                    .or_insert(Value::String(item_type.to_string()));
-                            }
-                        }
-                        merged
-                    } else {
-                        // No "data" wrapper — item is already flat
-                        item.clone()
-                    }
-                })
-                .collect();
-            Value::Array(unwrapped)
-        } else {
-            Value::Array(vec![])
-        };
+        let items = Value::Array(
+            raw_items
+                .map(|raw| raw.iter().map(Self::unwrap_v2_item).collect())
+                .unwrap_or_default(),
+        );
+
+        // HORIZONTAL_LIST_WITH_CONTEXT carries the item the row is based on
+        // ("Because you listened to" <album>).
+        let header = section
+            .get("header")
+            .filter(|h| h.is_object())
+            .map(Self::unwrap_v2_item);
 
         // V2 viewAll is either a string or an object
         let api_path = section
@@ -4866,6 +4868,7 @@ impl TidalClient {
             items,
             has_more,
             api_path,
+            header,
         })
     }
 
@@ -6459,6 +6462,26 @@ mod home_tab_tests {
             Some("cover-9")
         );
     }
+
+    #[test]
+    fn v2_section_keeps_context_header_unwrapped() {
+        let section = json!({
+            "type": "HORIZONTAL_LIST_WITH_CONTEXT",
+            "moduleId": "BECAUSE_YOU_LISTENED_TO_ALBUM",
+            "title": "Because you listened to",
+            "header": { "type": "ALBUM", "data": { "id": 7, "title": "Source Album" } },
+            "items": [{ "type": "ALBUM", "data": { "id": 8, "title": "Suggestion" } }]
+        });
+        let sec = TidalClient::parse_v2_section(&section).expect("section parses");
+        let header = sec.header.expect("header kept");
+        assert_eq!(header["id"], 7);
+        assert_eq!(header["title"], "Source Album");
+        assert_eq!(header["_itemType"], "ALBUM");
+        assert_eq!(sec.items[0]["_itemType"], "ALBUM");
+
+        let plain = json!({ "type": "HORIZONTAL_LIST", "title": "Row", "items": [] });
+        assert!(TidalClient::parse_v2_section(&plain).unwrap().header.is_none());
+    }
 }
 
 #[cfg(test)]
@@ -7052,6 +7075,65 @@ mod direct_hit_tests {
         });
         let hit = DirectHitItem::from_typed_value(&album).expect("ALBUMS hit must parse");
         assert!(hit.track.is_none());
+    }
+
+    #[test]
+    fn track_deserializes_ai_flag() {
+        let t: TidalTrack = serde_json::from_value(serde_json::json!({
+            "id": 440427618, "title": "Dust on the Wind", "duration": 174, "ai": true
+        }))
+        .unwrap();
+        assert_eq!(t.ai, Some(true));
+    }
+
+    #[test]
+    fn track_without_ai_flag_stays_none() {
+        let t: TidalTrack = serde_json::from_value(serde_json::json!({
+            "id": 1, "title": "x", "duration": 1
+        }))
+        .unwrap();
+        assert_eq!(t.ai, None);
+    }
+
+    #[test]
+    fn track_serializes_ai_for_the_frontend() {
+        let t: TidalTrack = serde_json::from_value(serde_json::json!({
+            "id": 1, "title": "x", "duration": 1, "ai": false
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&t).unwrap()["ai"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn album_detail_deserializes_ai_flag() {
+        let a: TidalAlbumDetail = serde_json::from_value(serde_json::json!({
+            "id": 446783288, "title": "Paper Sun Rebellion", "ai": true
+        }))
+        .unwrap();
+        assert_eq!(a.ai, Some(true));
+    }
+
+    #[test]
+    fn track_hit_carries_ai_flag() {
+        let mut hit = tv_off_hit();
+        hit["value"]["ai"] = serde_json::json!(true);
+        let hit = DirectHitItem::from_typed_value(&hit).expect("TRACKS hit must parse");
+        assert_eq!(hit.track.and_then(|t| t.ai), Some(true));
+    }
+
+    #[test]
+    fn album_hit_carries_ai_flag() {
+        let hit = DirectHitItem::from_typed_value(&serde_json::json!({
+            "type": "ALBUMS",
+            "value": { "id": 442725737, "title": "Dust and Silence", "ai": true }
+        }))
+        .expect("ALBUMS hit must parse");
+        assert_eq!(hit.ai, Some(true));
+        let json = serde_json::to_value(&hit).unwrap();
+        assert_eq!(json["ai"], serde_json::json!(true));
     }
 }
 

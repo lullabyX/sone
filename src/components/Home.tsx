@@ -25,6 +25,7 @@ import {
   isDeepLinkItem,
 } from "../utils/itemHelpers";
 import PageContainer from "./PageContainer";
+import AiBadge from "./AiBadge";
 
 // Per-tab in-memory cache to prevent skeleton flash on navigation and to keep
 // each tab's sections/cursor/pagination state independent across switches.
@@ -428,7 +429,7 @@ export default function Home() {
           )}
           {/* Skeleton quick access — only on the static/For-you feed */}
           {slugOf(activeType) === "static" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-10">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div
                   key={i}
@@ -502,7 +503,7 @@ export default function Home() {
           {/* Quick Access Grid (Hero) — SHORTCUT_LIST from v2 feed, For-you only */}
           {shortcutSection && (
             <section className="mb-10">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {/* Loved Tracks - always first */}
                 <div
                   onClick={navigateToFavorites}
@@ -550,10 +551,11 @@ export default function Home() {
                         />
                       </div>
                     </div>
-                    <div className="flex-1 flex items-center px-3 min-w-0">
+                    <div className="flex-1 flex items-center gap-1.5 px-3 min-w-0">
                       <span className="font-bold text-[13px] text-th-text-primary truncate">
                         {getItemTitle(item)}
                       </span>
+                      {item.ai === true && <AiBadge />}
                     </div>
                   </div>
                 ))}

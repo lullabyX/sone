@@ -24,6 +24,11 @@ pub fn open_log_folder() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
 pub fn get_signal_path(state: State<'_, AppState>) -> SignalPath {
     state.signal_path.snapshot()
 }
@@ -374,6 +379,15 @@ pub fn set_discord_status_text(state: State<'_, AppState>, text: String) -> Resu
     settings.discord_status_text = text;
     state.save_settings(&settings)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn install_current_webview_proxy_auth(window: tauri::WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    crate::webview_proxy_auth::install_window(&window);
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
 }
 
 #[tauri::command]

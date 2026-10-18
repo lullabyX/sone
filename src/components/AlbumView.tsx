@@ -9,11 +9,12 @@ import {
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useToast } from "../contexts/ToastContext";
 import SourcePlayButton from "./SourcePlayButton";
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { usePlaySource } from "../hooks/usePlaySource";
 import { useFavorites } from "../hooks/useFavorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { getAlbumPage } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import type { PlayableSource } from "../lib/trackSources";
 import NotFoundPage from "./NotFoundPage";
 import {
   type Track,
@@ -24,6 +25,7 @@ import TidalVideoCover from "./TidalVideoCover";
 import CoverBanner from "./CoverBanner";
 import { getTidalImageUrl, getTidalArtistImageUrl } from "../types";
 import TrackList from "./TrackList";
+import AiBadge from "./AiBadge";
 import { TrackArtists } from "./TrackArtists";
 import MediaContextMenu from "./MediaContextMenu";
 import { DetailPageSkeleton } from "./PageSkeleton";
@@ -65,8 +67,7 @@ export default function AlbumView({
   albumInfo,
   onBack,
 }: AlbumViewProps) {
-  const { playTrack, setShuffledQueue, playFromSource, playAllFromSource } =
-    usePlaybackActions();
+  const playSource = usePlaySource();
   const {
     favoriteAlbumIds,
     addFavoriteAlbum,
@@ -154,47 +155,24 @@ export default function AlbumView({
   }, [tracks]);
   const isMultiVolume = volumeGroups.size > 1;
 
-  const albumSource = {
-    type: "album" as const,
-    id: albumId,
-    name: album?.title || albumInfo?.title || "Album",
-    allTracks: tracks,
-  };
+  const albumPlayable = (): PlayableSource => ({
+    meta: {
+      type: "album",
+      id: albumId,
+      name: album?.title || albumInfo?.title || "Album",
+    },
+    loaded: tracks,
+    albumMode: true,
+  });
 
-  const handlePlayTrack = async (track: Track, _index: number) => {
-    try {
-      await playFromSource(track, tracks, {
-        albumMode: true,
-        source: albumSource,
-      });
-    } catch (err) {
-      console.error("Failed to play track:", err);
-    }
+  const handlePlayTrack = (track: Track, _index: number) => {
+    void playSource(albumPlayable(), { startAt: track });
   };
-
-  const handlePlayAll = async () => {
-    if (tracks.length === 0) return;
-    try {
-      await playAllFromSource(tracks, { albumMode: true, source: albumSource });
-    } catch (err) {
-      console.error("Failed to play all:", err);
-    }
+  const handlePlayAll = () => {
+    void playSource(albumPlayable());
   };
-
-  const handleShuffle = async () => {
-    if (tracks.length === 0) return;
-    const shuffled = [...tracks];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    const [first, ...rest] = shuffled;
-    try {
-      setShuffledQueue(rest, { source: albumSource, albumMode: true });
-      await playTrack(first);
-    } catch (err) {
-      console.error("Failed to shuffle play:", err);
-    }
+  const handleShuffle = () => {
+    void playSource(albumPlayable(), { shuffle: true });
   };
 
   const [contextMenu, setContextMenu] = useState<{
@@ -434,9 +412,10 @@ export default function AlbumView({
                 </div>
               )}
 
-              {(releaseYear || qualityBadge) && (
+              {(releaseYear || qualityBadge || album?.ai) && (
                 <div className="flex items-center gap-2 text-[12px] text-th-text-muted">
                   {releaseYear && <span>{releaseYear}</span>}
+                  {album?.ai && <AiBadge />}
                   {qualityBadge && (
                     <span
                       className={`px-2 py-0.5 text-[10px] font-semibold rounded tracking-wider leading-none ${qualityBadgeClass}`}

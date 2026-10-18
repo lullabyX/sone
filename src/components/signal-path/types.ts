@@ -158,9 +158,17 @@ export function conversionState(
   toFmt: string | null | undefined,
   fromRate: number | null | undefined,
   toRate: number | null | undefined,
+  sourceFmt?: string | null,
 ): "altered" | "lossy" {
   const rateChanged = fromRate != null && toRate != null && fromRate !== toRate;
-  const narrowed = audioBitDepth(toFmt) < audioBitDepth(fromFmt);
+  // Narrowing only discards bits the source actually had: 16-bit audio
+  // widened to F32 by the OS mixer reaches an S16 device intact.
+  const sourceBits = audioBitDepth(sourceFmt);
+  const fromBits =
+    sourceBits > 0
+      ? Math.min(audioBitDepth(fromFmt), sourceBits)
+      : audioBitDepth(fromFmt);
+  const narrowed = audioBitDepth(toFmt) < fromBits;
   return rateChanged || narrowed ? "lossy" : "altered";
 }
 

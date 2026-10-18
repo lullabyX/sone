@@ -8,10 +8,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import SourcePlayButton from "./SourcePlayButton";
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { usePlaySource } from "../hooks/usePlaySource";
 import { useFavorites } from "../hooks/useFavorites";
 import { getMixItems } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
+import type { PlayableSource } from "../lib/trackSources";
 import NotFoundPage from "./NotFoundPage";
 import {
   type Track,
@@ -42,8 +43,7 @@ interface MixPageProps {
 }
 
 export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
-  const { playTrack, setShuffledQueue, playFromSource, playAllFromSource } =
-    usePlaybackActions();
+  const playSource = usePlaySource();
   const { showToast } = useToast();
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -99,45 +99,25 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
 
   const isTrackRadio = mixType === "TRACK_MIX";
 
-  const mixSource = {
-    type: isTrackRadio ? ("radio" as const) : ("mix" as const),
+  const mixMeta = {
+    type: isTrackRadio ? "radio" : "mix",
     id: mixId,
     name:
       mixInfo?.title || fetchedTitle || (isTrackRadio ? "Track Radio" : "Mix"),
     image: mixInfo?.image || fetchedImage || undefined,
     subtitle: mixInfo?.subtitle || fetchedSubtitle || undefined,
     mixType: mixInfo?.mixType ?? mixType ?? undefined,
-    allTracks: tracks,
   };
+  const mixPlayable = (): PlayableSource => ({ meta: mixMeta, loaded: tracks });
 
-  const handlePlayTrack = async (track: Track, _index: number) => {
-    try {
-      await playFromSource(track, tracks, { source: mixSource });
-    } catch (err) {
-      console.error("Failed to play mix track:", err);
-    }
+  const handlePlayTrack = (track: Track, _index: number) => {
+    void playSource(mixPlayable(), { startAt: track });
   };
-
-  const handlePlayAll = async () => {
-    if (tracks.length === 0) return;
-    try {
-      await playAllFromSource(tracks, { source: mixSource });
-    } catch (err) {
-      console.error("Failed to play mix:", err);
-    }
+  const handlePlayAll = () => {
+    void playSource(mixPlayable());
   };
-
-  const handleShuffle = async () => {
-    if (tracks.length === 0) return;
-    const firstIdx = Math.floor(Math.random() * tracks.length);
-    const first = tracks[firstIdx];
-    const rest = tracks.filter((_, i) => i !== firstIdx);
-    try {
-      setShuffledQueue(rest, { source: mixSource });
-      await playTrack(first);
-    } catch (err) {
-      console.error("Failed to shuffle play:", err);
-    }
+  const handleShuffle = () => {
+    void playSource(mixPlayable(), { shuffle: true });
   };
 
   // Favorite state
@@ -310,7 +290,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
             {/* Left — Play & Shuffle buttons */}
             <div className="flex items-center gap-3">
               <SourcePlayButton
-                sourceType={mixSource.type}
+                sourceType={mixMeta.type}
                 sourceId={mixId}
                 onPlay={handlePlayAll}
               />

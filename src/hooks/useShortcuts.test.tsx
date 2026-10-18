@@ -118,4 +118,24 @@ describe("useShortcuts", () => {
     press({ code: "KeyR", ctrlKey: true, shiftKey: true });
     expect(refreshData).toHaveBeenCalledTimes(1);
   });
+
+  it("fires close on Ctrl+W and quit on Ctrl+Q", () => {
+    const closeWindow = vi.fn();
+    const quitApp = vi.fn();
+    mount({ closeWindow, quitApp });
+    press({ code: "KeyW", ctrlKey: true });
+    press({ code: "KeyQ", ctrlKey: true });
+    expect(closeWindow).toHaveBeenCalledTimes(1);
+    expect(quitApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not repeat close or quit while the key is held", () => {
+    const closeWindow = vi.fn();
+    const quitApp = vi.fn();
+    mount({ closeWindow, quitApp });
+    press({ code: "KeyW", ctrlKey: true, repeat: true });
+    press({ code: "KeyQ", ctrlKey: true, repeat: true });
+    expect(closeWindow).not.toHaveBeenCalled();
+    expect(quitApp).not.toHaveBeenCalled();
+  });
 });

@@ -1108,6 +1108,7 @@ mod tests {
             items: Value::Array(vec![]),
             has_more: false,
             api_path: None,
+            header: None,
         }
     }
 

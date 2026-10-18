@@ -18,6 +18,8 @@ export const ACTION_IDS = [
   "toggleExclusive",
   "toggleBitPerfect",
   "toggleShortcuts",
+  "closeWindow",
+  "quitApp",
 ] as const;
 
 export type ActionId = (typeof ACTION_IDS)[number];
@@ -127,6 +129,18 @@ export const ACTION_REGISTRY: readonly ActionMeta[] = [
     id: "toggleShortcuts",
     label: "Show keyboard shortcuts",
     default: c("Slash", { shift: true }),
+  },
+  {
+    id: "closeWindow",
+    label: "Close window",
+    default: c("KeyW", { mod: true }),
+    repeatable: false,
+  },
+  {
+    id: "quitApp",
+    label: "Quit SONE",
+    default: c("KeyQ", { mod: true }),
+    repeatable: false,
   },
 ] as const;
 
@@ -267,9 +281,61 @@ export function migrateBindingsV1ToV2(
   return result;
 }
 
+// Stored maps predate any action added since, and the storage atom does not
+// merge with defaults. Missing ids get their default unless the combo is taken
+// or reserved; an explicit null stays unbound. Returns null when nothing to add.
+export function fillMissingBindings(
+  v2Raw: string | null,
+): Record<ActionId, KeyCombo | null> | null {
+  if (!v2Raw) return null;
+
+  let stored: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(v2Raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    stored = parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const missing = ACTION_REGISTRY.filter((a) => !(a.id in stored));
+  if (missing.length === 0) return null;
+
+  const claimed = new Set<string>();
+  for (const value of Object.values(stored)) {
+    if (isKeyCombo(value)) claimed.add(comboKey(value));
+  }
+  for (const action of ACTION_REGISTRY) {
+    if (action.fixed) claimed.add(comboKey(action.default));
+  }
+
+  const result = { ...stored } as Record<ActionId, KeyCombo | null>;
+  for (const action of missing) {
+    if (action.fixed) {
+      result[action.id] = action.default;
+      continue;
+    }
+    const key = comboKey(action.default);
+    if (claimed.has(key) || isReserved(action.default)) {
+      result[action.id] = null;
+      continue;
+    }
+    result[action.id] = action.default;
+    claimed.add(key);
+  }
+  return result;
+}
+
 function initBindingsStorage(): void {
   try {
-    if (localStorage.getItem(STORAGE_KEY_V2) !== null) return;
+    const v2Raw = localStorage.getItem(STORAGE_KEY_V2);
+    if (v2Raw !== null) {
+      const filled = fillMissingBindings(v2Raw);
+      if (filled) localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(filled));
+      return;
+    }
     const migrated = migrateBindingsV1ToV2(
       localStorage.getItem(STORAGE_KEY_V1),
     );

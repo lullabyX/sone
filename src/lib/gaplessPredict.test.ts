@@ -101,4 +101,17 @@ describe("pickGaplessNext", () => {
       }),
     ).toBeNull();
   });
+
+  it("never arms a content-blocked head", () => {
+    const head = track({ id: 1, ai: true });
+    expect(
+      pickGaplessNext({
+        repeat: 0,
+        manualHead: null,
+        contextHead: head,
+        currentSourceId: null,
+        isBlocked: (t) => !!t.ai,
+      }),
+    ).toBeNull();
+  });
 });

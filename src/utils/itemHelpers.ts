@@ -56,7 +56,8 @@ export function formatStreamQuality(info: StreamInfo | null): string {
  */
 export function getArtistImage(item: any, size: number = 320): string {
   if (!item) return "";
-  const artistUuid = item.artworkId || item.picture;
+  // `picture` first: some uploaders' `artworkId` 403s on the image CDN.
+  const artistUuid = item.picture || item.artworkId;
   if (artistUuid) return getTidalArtistImageUrl(artistUuid, size);
   const albumFallback =
     item.selectedAlbumCoverFallback || item.albumCoverFallback;
@@ -65,9 +66,9 @@ export function getArtistImage(item: any, size: number = 320): string {
 }
 
 export function getItemImage(item: any, size: number = 320): string {
-  // MAGAZINE: data.imageURL is already a full URL — return as-is, no CDN builder.
+  // MAGAZINE: imageURL is already a full URL — return as-is, no CDN builder.
   if (isMagazineItem(item)) {
-    return item.data?.imageURL ?? "";
+    return getMagazineData(item)?.imageURL ?? "";
   }
   // DEEP_LINK: no image in payload.
   if (isDeepLinkItem(item)) {
@@ -129,7 +130,7 @@ export function getItemImage(item: any, size: number = 320): string {
 
 export function getItemTitle(item: any): string {
   if (isMagazineItem(item)) {
-    return item.data?.shortHeader ?? "";
+    return getMagazineData(item)?.shortHeader ?? "";
   }
   if (isDeepLinkItem(item)) {
     return item.data?.title ?? item.title ?? "";
@@ -152,7 +153,7 @@ export function playlistCountLabel(numberOfTracks?: number, numberOfVideos?: num
 
 export function getItemSubtitle(item: any, userId?: number): string {
   if (isMagazineItem(item)) {
-    return item.data?.shortSubHeader ?? "";
+    return getMagazineData(item)?.shortSubHeader ?? "";
   }
   if (item.subTitle) return item.subTitle;
   if (item.shortSubtitle) return item.shortSubtitle;
@@ -184,7 +185,8 @@ export function getItemSubtitle(item: any, userId?: number): string {
 
 export function getItemId(item: any): string {
   if (isMagazineItem(item)) {
-    return item.data?.artifactId ?? String(item.data?.id ?? "");
+    const d = getMagazineData(item);
+    return d?.artifactId ?? String(d?.id ?? "");
   }
   if (isDeepLinkItem(item)) {
     return String(item.data?.id ?? item.data?.url ?? item.id ?? item.url ?? "");
@@ -238,6 +240,15 @@ export function isMagazineItem(item: any): boolean {
   return item?.type === "MAGAZINE" || item?._itemType === "MAGAZINE";
 }
 
+/**
+ * A magazine card's fields. Feed sections arrive flattened by the backend
+ * (`data` merged up, `type` is then the artifact type); a raw item still has
+ * them under `data`.
+ */
+export function getMagazineData(item: any): any {
+  return item?.data ?? item;
+}
+
 export function isDeepLinkItem(item: any): boolean {
   return item?.type === "DEEP_LINK" || item?._itemType === "DEEP_LINK";
 }
@@ -277,7 +288,7 @@ export function buildMediaItem(
   if (isDeepLinkItem(item)) return null;
   // MAGAZINE promo card wraps a playlist artifact.
   if (isMagazineItem(item)) {
-    const d = item.data;
+    const d = getMagazineData(item);
     if (d?.type === "PLAYLIST" && d?.artifactId) {
       return {
         type: "playlist",
@@ -297,6 +308,7 @@ export function buildMediaItem(
         imageId: item.imageId,
         artist: item.artist?.name || item.artists?.[0]?.name,
         duration: item.duration,
+        explicit: item.explicit,
       };
     }
     return null;

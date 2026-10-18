@@ -6,6 +6,8 @@ import {
   getItemSubtitle,
 } from "../utils/itemHelpers";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
+import { useContentPrefs } from "../hooks/useContentPrefs";
 
 interface MediaCardProps {
   item: any;
@@ -66,6 +68,8 @@ export default function MediaCard({
   const image = isVideo ? getTidalImageUrl(item.imageId, 640) : getItemImage(item);
   const title = titleOverride || getItemTitle(item);
   const subtitle = subtitleOverride ?? getItemSubtitle(item, userId);
+  const { allowAi } = useContentPrefs();
+  const restricted = !allowAi && item?.ai === true;
 
   return (
     <div
@@ -73,7 +77,7 @@ export default function MediaCard({
       onContextMenu={onContextMenu}
       className={`p-3 bg-th-elevated hover:bg-th-surface-hover rounded-lg cursor-pointer group transition-[background-color] duration-300 ${
         widthClass ?? ""
-      }`}
+      }${restricted ? " opacity-50" : ""}`}
     >
       {/* Image */}
       <div
@@ -111,6 +115,7 @@ export default function MediaCard({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (restricted) return;
                     if (onPlay) onPlay(e);
                     else onClick();
                   }}
@@ -130,6 +135,7 @@ export default function MediaCard({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (restricted) return;
                     if (onPlay) onPlay(e);
                     else onClick();
                   }}
@@ -183,7 +189,7 @@ export default function MediaCard({
         </p>
       )}
       {/* Title */}
-      {showExplicit && item.explicit ? (
+      {(showExplicit && item.explicit) || item.ai === true ? (
         <div
           className={`flex items-center gap-1.5 min-w-0 mb-1 ${
             isArtist ? "justify-center" : ""
@@ -192,7 +198,8 @@ export default function MediaCard({
           <h4 className="font-bold text-[14px] text-th-text-primary truncate">
             {title}
           </h4>
-          <ExplicitBadge />
+          {showExplicit && item.explicit && <ExplicitBadge />}
+          {item.ai === true && <AiBadge />}
         </div>
       ) : (
         <h4

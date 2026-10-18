@@ -12,6 +12,8 @@ interface UseContextMenuOptions {
   cursorPosition?: { x: number; y: number };
   anchorRef?: RefObject<HTMLElement | null>;
   anchorGap?: number;
+  // "side" opens beside the anchor (submenus), flipping left near the right edge
+  placement?: "below" | "side";
   ignoreRefs?: RefObject<HTMLElement | null>[];
   suppressClose?: boolean;
   onClose: () => void;
@@ -21,6 +23,7 @@ export function useContextMenu({
   cursorPosition,
   anchorRef,
   anchorGap = 4,
+  placement = "below",
   ignoreRefs,
   suppressClose,
   onClose,
@@ -52,6 +55,13 @@ export function useContextMenu({
       if (cursorPosition) {
         top = cursorPosition.y / zoom;
         left = cursorPosition.x / zoom;
+      } else if (anchorRef?.current && placement === "side") {
+        const rect = anchorRef.current.getBoundingClientRect();
+        top = rect.top / zoom;
+        left = rect.right / zoom + anchorGap;
+        if (left + menuWidth > viewW - pad) {
+          left = rect.left / zoom - menuWidth - anchorGap;
+        }
       } else if (anchorRef?.current) {
         const rect = anchorRef.current.getBoundingClientRect();
         top = rect.bottom / zoom + anchorGap;
@@ -64,9 +74,12 @@ export function useContextMenu({
       if (left < pad) left = pad;
       if (left + menuWidth > viewW - pad) left = viewW - menuWidth - pad;
 
-      // Clamp vertically — flip upward if overflowing bottom
+      // Clamp vertically — flip upward if overflowing bottom (side menus
+      // shift up instead, so they stay level with their parent menu)
       if (top + menuHeight > viewH - pad) {
-        if (cursorPosition) {
+        if (placement === "side") {
+          top = viewH - pad - menuHeight;
+        } else if (cursorPosition) {
           top = cursorPosition.y / zoom - menuHeight;
         } else if (anchorRef?.current) {
           const rect = anchorRef.current.getBoundingClientRect();
@@ -80,7 +93,7 @@ export function useContextMenu({
     });
 
     return () => cancelAnimationFrame(raf);
-  }, [cursorPosition, anchorRef, anchorGap]);
+  }, [cursorPosition, anchorRef, anchorGap, placement]);
 
   useEscapeDismiss(!suppressClose, onClose, DISMISS_PRIORITY.contextMenu);
 

@@ -656,6 +656,9 @@ pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
         .build()
         .map_err(|e| SoneError::NotConfigured(format!("Failed to create login window: {}", e)))?;
 
+    #[cfg(target_os = "linux")]
+    crate::webview_proxy_auth::install_window(&window);
+
     // Deny all WebKit permission prompts (camera/mic/geolocation/notifications).
     // Tidal's Turnstile human-check can request the camera; login works fine without it.
     #[cfg(target_os = "linux")]

@@ -20,6 +20,7 @@ import Toggle from "./Toggle";
 interface AddToPlaylistMenuProps {
   trackIds: number[];
   anchorRef: React.RefObject<HTMLButtonElement | null>;
+  placement?: "below" | "side";
   onClose: () => void;
 }
 
@@ -374,6 +375,7 @@ export function EditPlaylistModal({
 export default function AddToPlaylistMenu({
   trackIds,
   anchorRef,
+  placement,
   onClose,
 }: AddToPlaylistMenuProps) {
   const { addTracksToPlaylist } = usePlaylists();
@@ -425,6 +427,7 @@ export default function AddToPlaylistMenu({
   const { menuRef, style } = useContextMenu({
     anchorRef,
     anchorGap: 6,
+    placement,
     suppressClose: showCreateModal,
     onClose,
   });
@@ -598,7 +601,7 @@ export default function AddToPlaylistMenu({
       {/* Context menu */}
       <div
         ref={menuRef}
-        className="z-[9999] w-[320px] max-h-[420px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="z-[9999] w-[320px] max-h-[420px] bg-th-surface rounded-xl border border-th-border-popover shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
         style={style}
         onClick={(e) => e.stopPropagation()}
       >

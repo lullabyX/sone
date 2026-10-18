@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   migrateBindingsV1ToV2,
+  fillMissingBindings,
+  DEFAULT_BINDINGS,
   isReserved,
   ACTION_BY_ID,
   ACTION_REGISTRY,
@@ -184,6 +186,72 @@ describe("migrateBindingsV1ToV2", () => {
         .map((c) => `${c.code}|${c.mod}${c.shift}${c.alt}`);
       expect(new Set(keys).size).toBe(keys.length);
     }
+  });
+});
+
+// A v2 map saved before the close/quit actions existed.
+const V2_BEFORE_QUIT: Record<string, unknown> = { ...DEFAULT_BINDINGS };
+delete V2_BEFORE_QUIT.closeWindow;
+delete V2_BEFORE_QUIT.quitApp;
+
+const fill = (v2: unknown) => fillMissingBindings(JSON.stringify(v2));
+
+describe("fillMissingBindings", () => {
+  it("returns null when there is no stored map", () => {
+    expect(fillMissingBindings(null)).toBeNull();
+  });
+
+  it("returns null for unparseable data instead of throwing", () => {
+    expect(fillMissingBindings("{not json")).toBeNull();
+    expect(fillMissingBindings("[]")).toBeNull();
+  });
+
+  it("returns null when every action is already stored", () => {
+    expect(fill(DEFAULT_BINDINGS)).toBeNull();
+  });
+
+  it("adds close and quit on their defaults to an older map", () => {
+    const v2 = fill(V2_BEFORE_QUIT)!;
+    expect(comboEquals(v2.closeWindow, combo("KeyW", { mod: true }))).toBe(
+      true,
+    );
+    expect(comboEquals(v2.quitApp, combo("KeyQ", { mod: true }))).toBe(true);
+  });
+
+  it("keeps the user's existing bindings untouched", () => {
+    const v2 = fill({
+      ...V2_BEFORE_QUIT,
+      nextTrack: combo("F9"),
+      muteToggle: null,
+    })!;
+    expect(comboEquals(v2.nextTrack, combo("F9"))).toBe(true);
+    expect(v2.muteToggle).toBeNull();
+  });
+
+  it("keeps an explicitly unbound new action unbound", () => {
+    const v2 = fill({ ...V2_BEFORE_QUIT, closeWindow: null })!;
+    expect(v2.closeWindow).toBeNull();
+    expect(comboEquals(v2.quitApp, combo("KeyQ", { mod: true }))).toBe(true);
+  });
+
+  it("leaves a new action unbound when the user already holds its combo", () => {
+    const v2 = fill({
+      ...V2_BEFORE_QUIT,
+      likeToggle: combo("KeyQ", { mod: true }),
+    })!;
+    expect(comboEquals(v2.likeToggle, combo("KeyQ", { mod: true }))).toBe(true);
+    expect(v2.quitApp).toBeNull();
+  });
+
+  it("never emits the same combo twice", () => {
+    const v2 = fill({
+      ...V2_BEFORE_QUIT,
+      likeToggle: combo("KeyW", { mod: true }),
+    })!;
+    const keys = Object.values(v2)
+      .filter((c): c is KeyCombo => c !== null)
+      .map((c) => `${c.code}|${c.mod}${c.shift}${c.alt}`);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

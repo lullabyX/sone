@@ -13,6 +13,11 @@ vi.mock("../api/tidal", () => ({
 }));
 
 import { useAuth } from "./useAuth";
+import { usePlaySource } from "./usePlaySource";
+import { ToastProvider } from "../contexts/ToastContext";
+import { queueAtom } from "../atoms/playback";
+import type { TrackPage } from "../lib/trackSources";
+import type { Track } from "../types";
 import { userNameAtom, currentUserAvatarAtom } from "../atoms/auth";
 import { favoriteAlbumIdsAtom, favoriteMixIdsAtom } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
@@ -49,5 +54,42 @@ describe("useAuth logout", () => {
     expect(store.get(currentViewAtom)).toEqual({ type: "home" });
     expect(store.get(allFoldersFetchedAtom)).toBe(false);
     expect(localStorage.getItem("sone.search-history")).toBeNull();
+  });
+
+  it("stops a paged source from appending after logout", async () => {
+    const store = createStore();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>
+        <ToastProvider>{children}</ToastProvider>
+      </Provider>
+    );
+    const { result } = renderHook(
+      () => ({ auth: useAuth(), play: usePlaySource() }),
+      { wrapper },
+    );
+    const mk = (id: number) =>
+      ({ id, title: `T${id}`, duration: 100 }) as unknown as Track;
+    const range = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, i) => mk(from + i));
+    let resolvePage!: (p: TrackPage) => void;
+    const page = new Promise<TrackPage>((r) => (resolvePage = r));
+
+    await act(async () => {
+      await result.current.play({
+        meta: { type: "playlist", id: "p1", name: "P" },
+        loaded: range(1, 50),
+        fetchPage: () => page,
+      });
+    });
+    expect(store.get(queueAtom)).toHaveLength(49);
+
+    await act(async () => {
+      await result.current.auth.logout();
+    });
+    await act(async () => {
+      resolvePage({ items: range(51, 60), hasMore: false });
+      await page;
+    });
+    expect(store.get(queueAtom)).toHaveLength(0);
   });
 });

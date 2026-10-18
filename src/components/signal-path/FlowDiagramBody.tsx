@@ -101,7 +101,9 @@ export default function FlowDiagramBody({
       ? {
           fmt: sp.osMixer.sinkFormat,
           rate: sp.osMixer.sinkRate,
-          tertiary: `${sp.osMixer.server} · ${sp.osMixer.sinkChannels}ch`,
+          tertiary: sp.osMixer.sinkChannels
+            ? `${sp.osMixer.server} · ${sp.osMixer.sinkChannels}ch`
+            : sp.osMixer.server,
         }
       : { fmt: null, rate: null, tertiary: "sw mixer" };
 
@@ -126,11 +128,22 @@ export default function FlowDiagramBody({
     },
     {
       title: "DAC",
-      primary: displayFormat(sp?.dac?.format ?? sp?.outputFormat ?? null),
-      secondary: formatRate(sp?.dac?.rate ?? sp?.outputRate ?? null),
+      // Normal mode: our pipeline caps say nothing about the device — the OS mixer owns it.
+      primary: displayFormat(
+        sp?.dac?.format ?? (isDirectAlsa ? sp?.outputFormat : null) ?? null,
+      ),
+      secondary: formatRate(
+        sp?.dac?.rate ?? (isDirectAlsa ? sp?.outputRate : null) ?? null,
+      ),
       tertiary:
         sp?.dac?.cardName ??
-        (sp?.outputChannels ? `${sp.outputChannels}ch` : null),
+        (isDirectAlsa
+          ? sp?.outputChannels
+            ? `${sp.outputChannels}ch`
+            : null
+          : sp?.backend
+            ? "not detected"
+            : null),
     },
   ];
 
@@ -187,28 +200,38 @@ export default function FlowDiagramBody({
   // Normal mode: detect pipeline-output → OS-mixer-input divergence.
   // PipeWire/PulseAudio may resample/convert our pipeline output into its
   // internal mix format. Compare decoded caps (post-audioconvert) against
-  // the OS mixer's per-sink working spec. Format strings differ in case
-  // (GStreamer uses "S24LE", pactl uses "s24le") — compare case-insensitively.
+  // the spec of the sink our stream feeds (empty format / null rate when
+  // unknown). Format strings differ in case (GStreamer uses "S24LE", pactl
+  // uses "s24le") — compare case-insensitively.
+  const mixerRate = sp?.osMixer?.sinkRate ?? null;
   const mixerDiverges =
     !isDirectAlsa &&
-    !!sp?.osMixer &&
+    !!sp?.osMixer?.sinkFormat &&
     !!sp?.decodedFormat &&
     (!formatsEquivalent(sp.decodedFormat, sp.osMixer.sinkFormat) ||
-      (sp.decodedRate !== null && sp.osMixer.sinkRate !== sp.decodedRate));
+      (sp.decodedRate !== null &&
+        mixerRate !== null &&
+        mixerRate !== sp.decodedRate));
   if (mixerDiverges) {
     const mixState = conversionState(
       sp!.decodedFormat,
       sp!.osMixer!.sinkFormat,
       sp!.decodedRate,
-      sp!.osMixer!.sinkRate,
+      mixerRate,
     );
     const mixRateChanged =
-      sp!.decodedRate !== null && sp!.osMixer!.sinkRate !== sp!.decodedRate;
+      sp!.decodedRate !== null &&
+      mixerRate !== null &&
+      mixerRate !== sp!.decodedRate;
     const mixServer = sp?.osMixer?.server ?? "OS mixer";
+    const mixerSpec =
+      mixerRate !== null
+        ? `${displayFormat(sp!.osMixer!.sinkFormat)}/${formatRate(mixerRate)}`
+        : displayFormat(sp!.osMixer!.sinkFormat);
     cable1Alterations.push({
       state: mixState,
       label: "MIX CONVERSION",
-      detail: `pipeline ${displayFormat(sp!.decodedFormat)}/${formatRate(sp!.decodedRate)} → mixer ${displayFormat(sp!.osMixer!.sinkFormat)}/${formatRate(sp!.osMixer!.sinkRate)}`,
+      detail: `pipeline ${displayFormat(sp!.decodedFormat)}/${formatRate(sp!.decodedRate)} → mixer ${mixerSpec}`,
       reason:
         mixState === "altered"
           ? `${mixServer} widened/repacked the stream into its internal mix format — audio bits preserved`
@@ -292,6 +315,39 @@ export default function FlowDiagramBody({
       reason: `${sp?.osMixer?.server ?? "OS mixer"} scales samples by this factor before the kernel write`,
     });
   }
+  // Normal mode: virtual sinks (EQ, crossfeed, convolution, loopbacks)
+  // between our stream and the device can rewrite samples, and a hop pinned
+  // to its own rate resamples. SONE can't see inside them, so surface them.
+  const virtualRoute = !isDirectAlsa ? (sp?.osMixer?.virtualRoute ?? []) : [];
+  if (virtualRoute.length > 0) {
+    cable2Alterations.push({
+      state: "altered",
+      label: "VIRTUAL ROUTING",
+      detail: virtualRoute
+        .map((h) => (h.rate ? `${h.name} (${shortRate(h.rate)})` : h.name))
+        .join(" → "),
+      reason:
+        "Audio passes through virtual sinks before the DAC — any processing they apply is invisible to SONE",
+    });
+  }
+  // Each change between known hop rates is a resample; a change across an
+  // unknown hop still proves at least one.
+  const knownHops = virtualRoute.filter((h) => h.rate !== null);
+  const routeResamples = knownHops.filter(
+    (h, i) => i > 0 && h.rate !== knownHops[i - 1].rate,
+  ).length;
+  knownHops.forEach((hop, i) => {
+    const prev = knownHops[i - 1];
+    if (prev && prev.rate !== hop.rate) {
+      cable2Alterations.push({
+        state: "lossy",
+        label: "ROUTE RESAMPLE",
+        detail: `${prev.name} ${shortRate(prev.rate)} → ${hop.name} ${shortRate(hop.rate)}`,
+        reason:
+          "Virtual sinks run at different rates — audio is resampled between them",
+      });
+    }
+  });
   // Mode-aware: in Normal mode the "previous stage" is the OS mixer's sink
   // spec (what PipeWire actually delivers to the kernel), NOT our pipeline
   // output. In DirectAlsa we own the device so outputFormat IS what reaches
@@ -299,9 +355,16 @@ export default function FlowDiagramBody({
   const upstreamFormat = isDirectAlsa
     ? (sp?.outputFormat ?? null)
     : (sp?.osMixer?.sinkFormat ?? sp?.outputFormat ?? null);
+  // A route's last hop is what reaches the device.
+  const routeOutRate =
+    virtualRoute.length > 0
+      ? virtualRoute[virtualRoute.length - 1].rate
+      : (sp?.osMixer?.sinkRate ?? null);
   const upstreamRate = isDirectAlsa
     ? (sp?.outputRate ?? null)
-    : (sp?.osMixer?.sinkRate ?? sp?.outputRate ?? null);
+    : sp?.osMixer
+      ? routeOutRate
+      : (sp?.outputRate ?? null);
 
   const dacDiverges =
     !!sp?.dac &&
@@ -310,12 +373,24 @@ export default function FlowDiagramBody({
     upstreamRate !== null &&
     (!formatsEquivalent(sp.dac.format, upstreamFormat) ||
       sp.dac.rate !== upstreamRate);
+  // The source's bit depth only bounds what reaches the device when nothing
+  // rewrote the samples after hand-off: no virtual sinks, unity OS volume,
+  // and the mixer kept our rate.
+  const samplesUntouched =
+    !isDirectAlsa &&
+    virtualRoute.length === 0 &&
+    !osMuted &&
+    !osVolumeAltered &&
+    sp?.decodedRate != null &&
+    mixerRate !== null &&
+    mixerRate === sp.decodedRate;
   if (dacDiverges) {
     const dacState = conversionState(
       upstreamFormat,
       sp!.dac!.format,
       upstreamRate,
       sp!.dac!.rate,
+      samplesUntouched ? sp?.decodedFormat : null,
     );
     const dacRateChanged = sp!.dac!.rate !== upstreamRate;
     const dacServer = sp?.osMixer?.server ?? "OS mixer";
@@ -331,6 +406,23 @@ export default function FlowDiagramBody({
             : `${dacServer} reduced bit depth before it reached ALSA`,
     });
   }
+  // No kernel hw_params (Bluetooth, sandbox): the OS still reports the
+  // device's running rate, so a pinned last hop's resample isn't hidden.
+  const deviceRate = sp?.osMixer?.deviceRate ?? null;
+  const deviceResample =
+    !isDirectAlsa &&
+    sp?.dac?.state !== "Active" &&
+    upstreamRate !== null &&
+    deviceRate !== null &&
+    upstreamRate !== deviceRate;
+  if (deviceResample) {
+    cable2Alterations.push({
+      state: "lossy",
+      label: "OS-LAYER CONVERSION",
+      detail: `mixer ${formatRate(upstreamRate)} → device ${formatRate(deviceRate)}`,
+      reason: `${sp?.osMixer?.server ?? "OS mixer"} resampled the stream before it reached the device`,
+    });
+  }
   const cable2State: CableState = cable2Alterations.some(
     (a) => a.state === "lossy",
   )
@@ -343,13 +435,17 @@ export default function FlowDiagramBody({
       ? `fallback ${displayFormat(sp.formatFallbackFrom)}→${displayFormat(sp.formatFallbackTo)}`
       : osMuted
         ? "OS muted"
-        : dacDiverges
+        : dacDiverges || deviceResample
           ? "OS-layer conversion"
-          : osVolumeAltered
-            ? `OS vol ${gainFactorToDb(sp!.osMixer!.sinkVolume)}`
-            : userVolAltered || normAltered
-              ? "gain applied"
-              : "pass-thru";
+          : routeResamples > 0
+            ? "route resample"
+            : virtualRoute.length > 0
+              ? "virtual routing"
+              : osVolumeAltered
+                ? `OS vol ${gainFactorToDb(sp!.osMixer!.sinkVolume)}`
+                : userVolAltered || normAltered
+                  ? "gain applied"
+                  : "pass-thru";
   const cable2: CableSpec = {
     state: cable2State,
     caption: cable2Caption,

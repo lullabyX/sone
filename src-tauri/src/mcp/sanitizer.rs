@@ -129,6 +129,7 @@ mod tests {
             date_added: None,
             isrc: None,
             explicit: None,
+            ai: None,
             popularity: None,
             replay_gain: None,
             peak: None,

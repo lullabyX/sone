@@ -135,6 +135,14 @@ describe("applyExternalThemeFile (watcher push)", () => {
     preset: "Forest",
     custom: { accent: "#22C55E", background: "#0E1410" },
   };
+  const OCEAN_FILE = {
+    version: 1,
+    preset: "Ocean",
+    custom: { accent: "#3B82F6", background: "#0E1118" },
+  };
+  const FOREST = { name: "Forest", accent: "#22C55E", bgBase: "#0E1410" };
+  const setCalls = () =>
+    invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set");
 
   it("applies a change pushed by the watcher", async () => {
     const { applyExternalThemeFile } = await freshThemeFile();
@@ -238,6 +246,90 @@ describe("applyExternalThemeFile (watcher push)", () => {
     expect(
       invokeMock.mock.calls.filter((c) => c[0] === "theme_file_set"),
     ).toHaveLength(0);
+  });
+
+  // The reported bug: a preset click updates the atom at once but the write is
+  // debounced, so a push carrying the old file can land in between.
+  it("ignores the old file pushed while a new pick is still unwritten", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(OCEAN);
+
+    let live = FOREST; // picked, write still pending
+    applyExternalThemeFile(
+      OCEAN_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(FOREST);
+
+    await syncThemeToFile(live);
+    expect(setCalls()).toHaveLength(2);
+    expect(setCalls()[1][1].file.preset).toBe("Forest");
+  });
+
+  it("ignores the echo of an earlier pick once a newer one is pending", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(FOREST); // pick A, written
+
+    let live = OCEAN; // pick B, write pending
+    applyExternalThemeFile(
+      FOREST_FILE, // A's echo
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(OCEAN);
+  });
+
+  it("still applies a real external edit after an in-app write", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(OCEAN);
+
+    let live = OCEAN;
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(FOREST);
+
+    await syncThemeToFile(live);
+    expect(setCalls()).toHaveLength(1);
+  });
+
+  it("does not revert to the old file after a failed write", async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(OCEAN);
+    invokeMock.mockRejectedValueOnce("read-only fs");
+    await syncThemeToFile(FOREST);
+
+    let live = FOREST;
+    applyExternalThemeFile(
+      OCEAN_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(FOREST);
+  });
+
+  it("treats a differently formatted copy of the persisted file as an echo", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(OCEAN);
+
+    let live = FOREST;
+    applyExternalThemeFile(
+      {
+        preset: "Ocean",
+        custom: { accent: "#3b82f6", background: "#0e1118" },
+      } as never,
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(FOREST);
   });
 });
 

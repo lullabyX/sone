@@ -34,6 +34,9 @@ vi.mock("../hooks/usePlaybackActions", () => ({
   usePlaybackActions: () => ({ playFromSource }),
 }));
 
+const playSource = vi.fn();
+vi.mock("../hooks/usePlaySource", () => ({ usePlaySource: () => playSource }));
+
 const playMedia = vi.fn();
 vi.mock("../hooks/useMediaPlay", () => ({
   useMediaPlay: () => playMedia,

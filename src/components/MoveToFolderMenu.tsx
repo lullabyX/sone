@@ -33,6 +33,7 @@ interface MoveToFolderMenuProps {
   playlistImage?: string;
   playlistCreatorName?: string;
   anchorRef: React.RefObject<HTMLButtonElement | null>;
+  placement?: "below" | "side";
   sourceFolderId?: string;
   onClose: () => void;
 }
@@ -172,6 +173,7 @@ export default function MoveToFolderMenu({
   playlistImage,
   playlistCreatorName,
   anchorRef,
+  placement,
   sourceFolderId,
   onClose,
 }: MoveToFolderMenuProps) {
@@ -201,6 +203,7 @@ export default function MoveToFolderMenu({
   const { menuRef, style } = useContextMenu({
     anchorRef,
     anchorGap: 6,
+    placement,
     suppressClose: showCreateModal,
     onClose,
   });
@@ -430,7 +433,7 @@ export default function MoveToFolderMenu({
       {/* Context menu */}
       <div
         ref={menuRef}
-        className="z-[9999] w-[320px] max-h-[420px] bg-th-surface rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="z-[9999] w-[320px] max-h-[420px] bg-th-surface rounded-xl border border-th-border-popover shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
         style={style}
         onClick={(e) => e.stopPropagation()}
       >

@@ -241,63 +241,42 @@ impl SignalPathTracker {
         self.emit(snap);
     }
 
-    pub fn set_dac(&self, dac: Option<crate::pipeline_probe::DacHwParams>) {
+    /// One refresh's probe results, published as one event so the UI never
+    /// pairs new caps with a stale mixer or DAC.
+    pub fn apply_probe(
+        &self,
+        decoded: Option<crate::pipeline_probe::PadCaps>,
+        output: Option<crate::pipeline_probe::PadCaps>,
+        mixer: Option<crate::pipeline_probe::OsMixerInfo>,
+        dac: Option<crate::pipeline_probe::DacHwParams>,
+    ) {
+        let split = |c: Option<crate::pipeline_probe::PadCaps>| match c {
+            Some(c) => (Some(c.format), Some(c.rate), Some(c.channels)),
+            None => (None, None, None),
+        };
+        let (dec_fmt, dec_rate, dec_ch) = split(decoded);
+        let (out_fmt, out_rate, out_ch) = split(output);
         let snap = {
             let mut s = self.state.lock().unwrap();
-            if s.dac == dac {
+            if s.decoded_format == dec_fmt
+                && s.decoded_rate == dec_rate
+                && s.decoded_channels == dec_ch
+                && s.output_format == out_fmt
+                && s.output_rate == out_rate
+                && s.output_channels == out_ch
+                && s.os_mixer == mixer
+                && s.dac == dac
+            {
                 return; // dedup
             }
-            s.dac = dac;
-            s.clone()
-        };
-        self.emit(snap);
-    }
-
-    pub fn set_os_mixer(&self, mixer: Option<crate::pipeline_probe::OsMixerInfo>) {
-        let snap = {
-            let mut s = self.state.lock().unwrap();
-            if s.os_mixer == mixer {
-                return;
-            }
+            s.decoded_format = dec_fmt;
+            s.decoded_rate = dec_rate;
+            s.decoded_channels = dec_ch;
+            s.output_format = out_fmt;
+            s.output_rate = out_rate;
+            s.output_channels = out_ch;
             s.os_mixer = mixer;
-            s.clone()
-        };
-        self.emit(snap);
-    }
-
-    /// Set decoded-pad caps from a probe (both modes). Stage = Decoded
-    /// is what GStreamer's audioconvert src pad reports.
-    pub fn set_decoded_caps(&self, caps: Option<crate::pipeline_probe::PadCaps>) {
-        let snap = {
-            let mut s = self.state.lock().unwrap();
-            let (fmt, rate, ch) = match caps {
-                Some(c) => (Some(c.format), Some(c.rate), Some(c.channels)),
-                None => (None, None, None),
-            };
-            if s.decoded_format == fmt && s.decoded_rate == rate && s.decoded_channels == ch {
-                return;
-            }
-            s.decoded_format = fmt;
-            s.decoded_rate = rate;
-            s.decoded_channels = ch;
-            s.clone()
-        };
-        self.emit(snap);
-    }
-
-    pub fn set_output_caps(&self, caps: Option<crate::pipeline_probe::PadCaps>) {
-        let snap = {
-            let mut s = self.state.lock().unwrap();
-            let (fmt, rate, ch) = match caps {
-                Some(c) => (Some(c.format), Some(c.rate), Some(c.channels)),
-                None => (None, None, None),
-            };
-            if s.output_format == fmt && s.output_rate == rate && s.output_channels == ch {
-                return;
-            }
-            s.output_format = fmt;
-            s.output_rate = rate;
-            s.output_channels = ch;
+            s.dac = dac;
             s.clone()
         };
         self.emit(snap);

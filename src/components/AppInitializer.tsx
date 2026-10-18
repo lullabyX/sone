@@ -12,6 +12,7 @@ import { useEffect, useRef, startTransition } from "react";
 import { useSetAtom, useStore, useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
@@ -120,6 +121,11 @@ import {
   formatStreamQuality,
 } from "../utils/itemHelpers";
 import { ensureQid, advanceCounterPast } from "../lib/qid";
+import {
+  filterSnapshotTracks,
+  isContentBlocked,
+  readContentPrefs,
+} from "../lib/contentFilter";
 import {
   clearOffset,
   pushView,
@@ -573,63 +579,86 @@ export function AppInitializer() {
 
     const restoreSnapshot = (raw: string) => {
       const parsed = JSON.parse(raw) as Partial<PlaybackSnapshot>;
+      const prefs = readContentPrefs(store);
 
-      const restoredCurrentTrack =
+      const parsedCurrent =
         parsed.currentTrack && typeof parsed.currentTrack.id === "number"
           ? stripRuntimeTrackFields(parsed.currentTrack as Track)
           : null;
+      const restoredCurrentTrack =
+        parsedCurrent && !isContentBlocked(parsedCurrent, prefs)
+          ? parsedCurrent
+          : null;
 
-      const restoredQueue = Array.isArray(parsed.queue)
-        ? parsed.queue
-            .filter((t): t is Track => !!t && typeof t.id === "number")
-            .map(stripRuntimeTrackFields)
-        : [];
+      const restoredQueue = filterSnapshotTracks(
+        Array.isArray(parsed.queue)
+          ? parsed.queue
+              .filter((t): t is Track => !!t && typeof t.id === "number")
+              .map(stripRuntimeTrackFields)
+          : [],
+        prefs,
+      );
 
-      const restoredHistory = Array.isArray(parsed.history)
-        ? parsed.history
-            .filter((t): t is Track => !!t && typeof t.id === "number")
-            .map(stripRuntimeTrackFields)
-        : [];
+      const restoredHistory = filterSnapshotTracks(
+        Array.isArray(parsed.history)
+          ? parsed.history
+              .filter((t): t is Track => !!t && typeof t.id === "number")
+              .map(stripRuntimeTrackFields)
+          : [],
+        prefs,
+      );
       const cappedHistory =
         restoredHistory.length > MAX_HISTORY_TRACKS
           ? restoredHistory.slice(restoredHistory.length - MAX_HISTORY_TRACKS)
           : restoredHistory;
 
       const restoredOriginalQueue = Array.isArray(parsed.originalQueue)
-        ? parsed.originalQueue
-            .filter(isValidTrack)
-            .map((t) =>
-              ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
-            )
-        : null;
-
-      const restoredManualQueue = Array.isArray(parsed.manualQueue)
-        ? parsed.manualQueue
-            .filter(isValidTrack)
-            .map((t) =>
-              ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
-            )
-        : [];
-
-      const restoredPlaybackSource = parsed.playbackSource
-        ? {
-            ...parsed.playbackSource,
-            tracks: parsed.playbackSource.tracks
+        ? filterSnapshotTracks(
+            parsed.originalQueue
               .filter(isValidTrack)
               .map((t) =>
                 ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
               ),
+            prefs,
+          )
+        : null;
+
+      const restoredManualQueue = filterSnapshotTracks(
+        Array.isArray(parsed.manualQueue)
+          ? parsed.manualQueue
+              .filter(isValidTrack)
+              .map((t) =>
+                ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+              )
+          : [],
+        prefs,
+      );
+
+      const restoredPlaybackSource = parsed.playbackSource
+        ? {
+            ...parsed.playbackSource,
+            tracks: filterSnapshotTracks(
+              parsed.playbackSource.tracks
+                .filter(isValidTrack)
+                .map((t) =>
+                  ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+                ),
+              prefs,
+            ),
           }
         : null;
 
       const restoredContextSource = parsed.contextSource
         ? {
             ...parsed.contextSource,
-            tracks: parsed.contextSource.tracks
-              .filter(isValidTrack)
-              .map((t) =>
-                ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
-              ),
+            tracks: filterSnapshotTracks(
+              parsed.contextSource.tracks
+                .filter(isValidTrack)
+                .map((t) =>
+                  ensureQid(stripRuntimeTrackFields(t as Track) as QueuedTrack),
+                ),
+              prefs,
+            ),
           }
         : null;
 
@@ -807,18 +836,28 @@ export function AppInitializer() {
   //  change, so an edit lands even while unfocused or in the tray
   // ================================================================
   useEffect(() => {
+    const apply = (file: ThemeFile) =>
+      applyExternalThemeFile(
+        file,
+        () => store.get(themeAtom),
+        (t) => store.set(themeAtom, t),
+      );
     const unlisten = listen<ThemeFile | null>("theme-file-changed", (event) => {
       if (event.payload === null) {
         // Deleted while running -- put it back from the live theme.
         void recreateThemeFile(store.get(themeAtom));
         return;
       }
-      applyExternalThemeFile(
-        event.payload,
-        () => store.get(themeAtom),
-        (t) => store.set(themeAtom, t),
-      );
+      apply(event.payload);
     });
+    // An edit made between the pre-render read and this listener attaching
+    // was reported to nobody, and the watcher won't report it again.
+    void unlisten
+      .then(() => invoke<ThemeFile | null>("theme_file_get"))
+      .then((file) => {
+        if (file) apply(file);
+      })
+      .catch(() => {});
     return () => {
       void unlisten.then((fn) => fn());
     };
@@ -1390,6 +1429,8 @@ export function AppInitializer() {
     toggleShortcuts: () => {
       window.dispatchEvent(new CustomEvent("toggle-shortcuts"));
     },
+    closeWindow: () => void getCurrentWindow().close(),
+    quitApp: () => void invoke("quit_app").catch(() => {}),
   });
 
   // ================================================================

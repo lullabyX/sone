@@ -31,6 +31,7 @@ import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
 import TidalImage, { fetchCachedImageUrl } from "./TidalImage";
 import TidalVideoCover from "./TidalVideoCover";
 import { TiltCover } from "./TiltCover";
@@ -277,6 +278,7 @@ const MaxTransportBar = memo(function MaxTransportBar({
     artists?: { name: string }[];
     album?: { cover?: string; title?: string };
     explicit?: boolean;
+    ai?: boolean;
   };
   controlsVisible: boolean;
   isDraggingRef: React.MutableRefObject<boolean>;
@@ -317,6 +319,7 @@ const MaxTransportBar = memo(function MaxTransportBar({
                 {getTrackDisplayTitle(currentTrack)}
               </span>
               {currentTrack.explicit && <ExplicitBadge />}
+              {currentTrack.ai && <AiBadge />}
             </div>
             <span className="text-th-text-secondary text-[11px] truncate">
               {getTrackArtistDisplay(currentTrack)}
@@ -987,6 +990,7 @@ export default function MaximizedPlayer() {
                 {getTrackDisplayTitle(currentTrack)}
               </span>
               {currentTrack?.explicit && <ExplicitBadge />}
+              {currentTrack?.ai && <AiBadge />}
             </div>
             <span
               className={`${isDark ? "text-th-text-muted" : "text-th-text-secondary"} truncate max-w-full`}

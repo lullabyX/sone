@@ -105,6 +105,7 @@ export interface Track {
   dateAdded?: string;
   isrc?: string;
   explicit?: boolean;
+  ai?: boolean;
   popularity?: number;
   replayGain?: number;
   peak?: number;
@@ -177,6 +178,7 @@ export interface AlbumDetail {
   albumType?: string;
   copyright?: string;
   explicit?: boolean;
+  ai?: boolean;
   popularity?: number;
   url?: string;
   audioQuality?: string;
@@ -315,6 +317,8 @@ export interface DirectHitItem {
   albumCover?: string;
   duration?: number;
   numberOfTracks?: number;
+  /** ALBUMS hits only; TRACKS hits carry it on `track`. */
+  ai?: boolean;
   /** Present on TRACKS hits: the complete track entity, carrying the artists[],
    *  explicit flag and album vibrantColor the flat fields above have no room for.
    *  Read it via buildTrackFromHit() rather than re-projecting the flat fields. */
@@ -556,6 +560,8 @@ export interface HomeSection {
   items: HomeItem[];
   hasMore: boolean;
   apiPath?: string;
+  /** The item a HORIZONTAL_LIST_WITH_CONTEXT row is based on ("Because you listened to"). */
+  header?: HomeItem;
 }
 
 export interface HomePageResponse {
@@ -644,6 +650,7 @@ export type MediaItemType =
       imageId?: string;
       artist?: string;
       duration?: number;
+      explicit?: boolean;
     };
 
 export interface FavoriteMix {

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { type Track, getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
+import AiBadge from "./AiBadge";
 import TidalImage from "./TidalImage";
 import AddToPlaylistMenu from "./AddToPlaylistMenu";
 import TrackContextMenu from "./TrackContextMenu";
@@ -23,17 +24,15 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAtomValue, atom } from "jotai";
-import {
-  currentTrackAtom,
-  isPlayingAtom,
-  allowExplicitAtom,
-} from "../atoms/playback";
+import { currentTrackAtom, isPlayingAtom } from "../atoms/playback";
 import { favoriteTrackIdsAtom, favoriteVideoIdsAtom } from "../atoms/favorites";
 import { useNavigation } from "../hooks/useNavigation";
 import { useFavorites } from "../hooks/useFavorites";
 import { useToast } from "../contexts/ToastContext";
 import { usePageScrollElement } from "../contexts/PageScrollContext";
 import { isTrackUnavailable } from "../lib/trackAvailability";
+import { isContentBlocked } from "../lib/contentFilter";
+import { useContentPrefs } from "../hooks/useContentPrefs";
 import { TrackArtists } from "./TrackArtists";
 
 interface TrackListProps {
@@ -145,8 +144,8 @@ const TrackRow = memo(function TrackRow({
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const dotsButtonRef = useRef<HTMLButtonElement>(null);
 
-  const allowExplicit = useAtomValue(allowExplicitAtom);
-  const isBlocked = !allowExplicit && !!track.explicit;
+  const contentPrefs = useContentPrefs();
+  const isBlocked = isContentBlocked(track, contentPrefs);
 
   const isActiveAtom = useMemo(
     () => atom((get) => (get(currentTrackAtom)?.id ?? null) === track.id),
@@ -303,6 +302,7 @@ const TrackRow = memo(function TrackRow({
               </span>
             )}
             {track.explicit && <ExplicitBadge />}
+            {track.ai && <AiBadge />}
           </div>
           {!showArtist && (
             <span className="text-[13px] text-th-text-muted truncate leading-snug">

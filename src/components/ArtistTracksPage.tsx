@@ -1,14 +1,17 @@
 import { Shuffle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SourcePlayButton from "./SourcePlayButton";
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { usePlaySource } from "../hooks/usePlaySource";
 import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { getArtistTopTracksAll } from "../api/tidal";
 import type { Track } from "../types";
 import TrackList from "./TrackList";
 import PageContainer from "./PageContainer";
-
-const PAGE_SIZE = 50;
+import {
+  ARTIST_TRACKS_PAGE_SIZE,
+  artistTopTracksPager,
+  type PlayableSource,
+} from "../lib/trackSources";
 
 interface ArtistTracksPageProps {
   artistId: number;
@@ -19,9 +22,6 @@ export default function ArtistTracksPage({
   artistId,
   artistName,
 }: ArtistTracksPageProps) {
-  const { playTrack, setShuffledQueue, playFromSource, playAllFromSource } =
-    usePlaybackActions();
-
   const [tracks, setTracks] = useState<Track[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,11 @@ export default function ArtistTracksPage({
       setLoading(true);
       setError(null);
       try {
-        const data = await getArtistTopTracksAll(artistId, 0, PAGE_SIZE);
+        const data = await getArtistTopTracksAll(
+          artistId,
+          0,
+          ARTIST_TRACKS_PAGE_SIZE,
+        );
         if (!cancelled) {
           setTracks(data.items);
           setHasMore(data.hasMore);
@@ -84,7 +88,7 @@ export default function ArtistTracksPage({
       const data = await getArtistTopTracksAll(
         artistId,
         tracks.length,
-        PAGE_SIZE,
+        ARTIST_TRACKS_PAGE_SIZE,
       );
       setTracks((prev) => [...prev, ...data.items]);
       setHasMore(data.hasMore);
@@ -100,41 +104,24 @@ export default function ArtistTracksPage({
   // than the viewport tripping the pagination sentinel page by page.
   useRestoreLoader(handleLoadMore, hasMore);
 
-  const artistSource = {
-    type: "artist-tracks" as const,
-    id: artistId,
-    name: artistName,
-    allTracks: tracks,
-  };
+  const playSource = usePlaySource();
 
-  const handlePlayTrack = async (track: Track, _index: number) => {
-    try {
-      await playFromSource(track, tracks, { source: artistSource });
-    } catch (err) {
-      console.error("Failed to play track:", err);
-    }
-  };
+  const playable = (): PlayableSource => ({
+    meta: { type: "artist-tracks", id: artistId, name: artistName },
+    loaded: tracks,
+    hasMore,
+    fetchPage: artistTopTracksPager(artistId),
+    dedupe: true,
+  });
 
-  const handlePlayAll = async () => {
-    if (tracks.length === 0) return;
-    try {
-      await playAllFromSource(tracks, { source: artistSource });
-    } catch (err) {
-      console.error("Failed to play all:", err);
-    }
+  const handlePlayTrack = (track: Track, _index: number) => {
+    void playSource(playable(), { startAt: track });
   };
-
-  const handleShuffle = async () => {
-    if (tracks.length === 0) return;
-    const firstIdx = Math.floor(Math.random() * tracks.length);
-    const first = tracks[firstIdx];
-    const rest = tracks.filter((_, i) => i !== firstIdx);
-    try {
-      setShuffledQueue(rest, { source: artistSource });
-      await playTrack(first);
-    } catch (err) {
-      console.error("Failed to shuffle:", err);
-    }
+  const handlePlayAll = () => {
+    void playSource(playable());
+  };
+  const handleShuffle = () => {
+    void playSource(playable(), { shuffle: true });
   };
 
   if (loading) {

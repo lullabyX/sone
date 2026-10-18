@@ -18,6 +18,7 @@ export default function SettingRow({
 }: SettingRowProps) {
   return (
     <div
+      data-setting-row=""
       title={tooltip}
       className={`flex items-center gap-3.5 px-4 py-3 ${disabled ? "opacity-45" : ""}`}
     >

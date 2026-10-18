@@ -63,6 +63,7 @@ import {
 } from "../atoms/playlists";
 import { sidebarCollapsedAtom, feedUnseenCountAtom } from "../atoms/ui";
 import { currentViewAtom } from "../atoms/navigation";
+import AiBadge from "./AiBadge";
 
 export default function Sidebar() {
   const {
@@ -763,8 +764,11 @@ export default function Sidebar() {
 
                     {!isCollapsed && (
                       <div className="flex-1 min-w-0 text-left">
-                        <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
-                          {album.title}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="text-[14px] font-medium text-th-text-primary truncate leading-snug">
+                            {album.title}
+                          </div>
+                          {album.ai && <AiBadge />}
                         </div>
                         <div className="text-[12px] text-th-text-faint truncate leading-snug mt-0.5">
                           {getTrackArtistDisplay(album)}

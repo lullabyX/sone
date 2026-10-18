@@ -25,6 +25,7 @@ import { formatTime } from "../lib/format";
 import { isNavigableSource } from "../lib/playbackSource";
 import TidalImage from "./TidalImage";
 import ResizeEdges from "./ResizeEdges";
+import AiBadge from "./AiBadge";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,15 @@ function parseHex(hex: string): [number, number, number] | null {
     parseInt(h.slice(2, 4), 16),
     parseInt(h.slice(4, 6), 16),
   ];
+}
+
+function badgeStyle(colors: VibrantColors) {
+  return {
+    color: colors.textSecondary,
+    backgroundColor: colors.isDark
+      ? "rgba(255,255,255,0.15)"
+      : "rgba(0,0,0,0.1)",
+  };
 }
 
 function useVibrantColors(vibrantColor?: string): VibrantColors {
@@ -760,13 +770,16 @@ function NarrowTier({
         onClick={() => sendCommand("focus-main")}
       />
       <div className="flex flex-col justify-center min-w-0 flex-1">
-        <span
-          className="text-[15px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
-          style={{ color: colors.textPrimary }}
-          onClick={() => sendCommand("show-album")}
-        >
-          {title}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+          <span
+            className="text-[15px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
+            style={{ color: colors.textPrimary }}
+            onClick={() => sendCommand("show-album")}
+          >
+            {title}
+          </span>
+          {track?.ai && <AiBadge style={badgeStyle(colors)} />}
+        </div>
         <span
           className="text-[13px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
           style={{ color: colors.textSecondary }}
@@ -931,13 +944,16 @@ function CompactTier({
           onClick={() => sendCommand("focus-main")}
         />
         <div className="flex flex-col justify-center min-w-0 flex-1">
-          <span
-            className="text-[16px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
-            style={{ color: colors.textPrimary }}
-            onClick={() => sendCommand("show-album")}
-          >
-            {title}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+            <span
+              className="text-[16px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
+              style={{ color: colors.textPrimary }}
+              onClick={() => sendCommand("show-album")}
+            >
+              {title}
+            </span>
+            {track?.ai && <AiBadge style={badgeStyle(colors)} />}
+          </div>
           <span
             className="text-[14px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
             style={{ color: colors.textSecondary }}
@@ -1151,13 +1167,16 @@ function FullTier({
       {/* Track info + fav */}
       <div className="flex items-start gap-2 mt-1.5 min-w-0 flex-shrink-0">
         <div className="flex flex-col min-w-0 flex-1">
-          <span
-            className="text-[18px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
-            style={{ color: colors.textPrimary }}
-            onClick={() => sendCommand("show-album")}
-          >
-            {title}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+            <span
+              className="text-[18px] font-bold truncate leading-tight cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
+              style={{ color: colors.textPrimary }}
+              onClick={() => sendCommand("show-album")}
+            >
+              {title}
+            </span>
+            {track?.ai && <AiBadge style={badgeStyle(colors)} />}
+          </div>
           <span
             className="text-[14px] truncate mt-0.5 cursor-pointer hover:underline hover:!text-white w-fit max-w-full"
             style={{ color: colors.textSecondary }}
