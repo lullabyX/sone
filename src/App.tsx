@@ -18,18 +18,22 @@ import ExploreSubPage from "./components/ExploreSubPage";
 import FeedPage from "./components/FeedPage";
 import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
+import TvApp from "./components/tv/TvApp";
 import { AppInitializer } from "./components/AppInitializer";
 import ProxyNoticeBanner from "./components/ProxyNoticeBanner";
 import TooltipLayer from "./components/TooltipLayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { currentViewAtom } from "./atoms/navigation";
 import { isAuthCheckingAtom } from "./atoms/auth";
 import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
+import { tvModeAtom } from "./atoms/tv";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
 import { useZoom } from "./hooks/useZoom";
+import { useTvLaunch } from "./hooks/useTvLaunch";
+import TvLogin from "./components/tv/TvLogin";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
 
@@ -55,6 +59,8 @@ function AppContent() {
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
   const { navigateHome, navigateToExplore } = useNavigation();
   const currentView = useAtomValue(currentViewAtom);
+  const tvMode = useAtomValue(tvModeAtom);
+  const setTvMode = useSetAtom(tvModeAtom);
 
   if (isAuthChecking) {
     return (
@@ -67,10 +73,21 @@ function AppContent() {
   }
 
   if (!isAuthenticated) {
+    // TV mode signs in with a QR code instead of the desktop login form.
+    if (tvMode) return <TvLogin />;
     return (
       <AppChrome>
         <Login />
       </AppChrome>
+    );
+  }
+
+  if (tvMode) {
+    // "Go home" on the crash screen leaves TV mode for the desktop layout.
+    return (
+      <ErrorBoundary onGoHome={() => setTvMode(false)}>
+        <TvApp />
+      </ErrorBoundary>
     );
   }
 
@@ -192,6 +209,7 @@ function AppContent() {
 function App() {
   useZoom();
   useTheme();
+  useTvLaunch();
 
   // Disable the default browser/webview context menu globally
   useEffect(() => {

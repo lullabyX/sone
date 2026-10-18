@@ -82,7 +82,7 @@ function Toaster({
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-[104px] left-1/2 -translate-x-1/2 z-[9900] flex flex-col-reverse items-center gap-2 pointer-events-none">
+    <div className="sone-toasts fixed bottom-[104px] left-1/2 -translate-x-1/2 z-[9900] flex flex-col-reverse items-center gap-2 pointer-events-none">
       {toasts.map((toast) => (
         <div
           key={toast.id}

@@ -231,6 +231,26 @@ describe("applyExternalThemeFile (watcher push)", () => {
     ).toHaveLength(1);
   });
 
+  // Stepping through presets: Forest is written, then Ocean is picked before
+  // the watcher reports the Forest write. That late echo must not put Forest
+  // back over Ocean.
+  it("ignores a late echo of an earlier own write", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    const forest = { name: "Forest", accent: "#22C55E", bgBase: "#0E1410" };
+    const ocean = { name: "Ocean", accent: "#3B82F6", bgBase: "#0E1118" };
+    await syncThemeToFile(forest);
+    await syncThemeToFile(ocean);
+
+    let live = ocean;
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(ocean);
+  });
+
   // A watcher push arrives before any bootstrap, so lastPersisted starts empty.
   // Applying must arm the guard, or the resulting atom change echoes to disk.
   it("arms the write guard so applying does not trigger a write", async () => {

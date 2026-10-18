@@ -7,10 +7,11 @@ import {
   ChevronDown,
   Settings,
   Info,
+  Tv,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigation } from "../hooks/useNavigation";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
@@ -22,6 +23,7 @@ import {
   exclusiveDeviceAtom,
 } from "../atoms/playback";
 import { currentUserAvatarAtom } from "../atoms/auth";
+import { tvModeAtom } from "../atoms/tv";
 import { useToast } from "../contexts/ToastContext";
 import {
   ACTION_REGISTRY,
@@ -45,6 +47,7 @@ export default function UserMenu() {
   const { userName, logout } = useAuth();
   const { navigateToProfile } = useNavigation();
   const avatarUrl = useAtomValue(currentUserAvatarAtom);
+  const setTvMode = useSetAtom(tvModeAtom);
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Set only by a deep link, and cleared when that sheet closes: undefined
@@ -327,6 +330,17 @@ export default function UserMenu() {
           >
             <Settings size={16} />
             Settings
+          </button>
+
+          <button
+            onClick={() => {
+              setOpen(false);
+              setTvMode(true);
+            }}
+            className={menuItemClass}
+          >
+            <Tv size={16} />
+            TV mode
           </button>
 
           {/* ── Shortcuts ── */}
