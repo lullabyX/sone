@@ -29,7 +29,7 @@ pub fn get_perf_flags() -> PerfFlags {
         .ok()
         .map(|s| s.trim().to_ascii_lowercase())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "demand".to_string());
+        .unwrap_or_else(|| "always".to_string());
     let smooth_scroll = std::env::var("SONE_SMOOTH_SCROLL")
         .ok()
         .map(|s| s.trim().to_ascii_lowercase())

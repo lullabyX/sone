@@ -319,18 +319,51 @@ pub async fn play_tidal_track(
         };
 
         // Stop local GStreamer audio so user's headphones don't play simultaneously
-        let _ = state.audio_player.stop();
-
-        state
-            .tidal_connect
-            .linkplay
-            .push_url(&target_host, &push_url, &state.tidal_connect.cast_status)
+        {
+            let player = state.audio_player.clone();
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(11),
+                tokio::task::spawn_blocking(move || player.stop()),
+            )
             .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => log::warn!("[play_tidal_track] local audio stop failed: {}", e),
+                // stop() bounds itself at 10 s; 11 s here covers only its send
+                // overhead and means the worker never scheduled the reply.
+                Err(_) => log::error!(
+                    "[play_tidal_track] local audio worker never answered stop within 11s (wedged worker)"
+                ),
+            }
+        }
+
+        // Outer bound beyond the per-request 4 s httpapi timeout: the wedges
+        // pinned the command right around a confirmed push, so the play
+        // command must fail loudly instead of lingering with no answer.
+        let push_result = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            state
+                .tidal_connect
+                .linkplay
+                .push_url(&target_host, &push_url, &state.tidal_connect.cast_status),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => Err("LinkPlay push timed out after 10s (no completion from request)".to_string()),
+        };
+        push_result
             .map_err(|e| SoneError::Audio(format!("LinkPlay push-URL cast failed: {}", e)))?;
 
+        // Step markers: the 2026-10-22 wedges stalled the command after a
+        // receiver-confirmed push and before this exact span logged anything,
+        // and every marker below is deliberately cheap (no possible side
+        // effect) so the stalled site shows up as the last printed one.
+        log::debug!("[play_tidal_track] push accepted, committing cast state");
         *state.tidal_connect.cast_host.write().await = Some(target_host.clone());
         state.tidal_connect.client.set_cast_active(true);
         crate::tidal_connect::ensure_cast_poller(app.clone(), &state.tidal_connect).await;
+        log::debug!("[play_tidal_track] cast state committed for {}", target_host);
         log::info!(
             "[play_tidal_track] Cast track {} to {} via LinkPlay push-URL",
             track_id,
@@ -456,7 +489,24 @@ pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> 
         if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
             let _ = state.tidal_connect.linkplay.resume(&host).await;
         } else if let Some(track_id) = state.load_settings().and_then(|s| s.last_track_id) {
-            let _ = play_tidal_track(app, state.clone(), track_id, true).await;
+            // Watchdog: a stalled push path (2026-10-22 wedges) must release
+            // the command instead of hanging the transport gate; the camera
+            // rolls back to a stopped UI and the retry is a fresh command.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(25),
+                play_tidal_track(app, state.clone(), track_id, true),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => log::warn!("[resume_track] replay attempt failed: {}", e),
+                Err(_) => {
+                    log::error!("[resume_track] replay attempt stalled beyond 25s; releasing command");
+                    return Err(SoneError::Audio(
+                        "resume: replay attempt did not complete within 25s".into(),
+                    ));
+                }
+            }
         }
         state.tidal_reporter.on_resume().await;
         state.scrobble_manager.on_resume().await;

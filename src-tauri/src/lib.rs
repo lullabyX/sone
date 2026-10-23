@@ -953,13 +953,16 @@ pub fn run() {
 
                 // WebKitGTK rendering settings for Linux.
                 //
-                // A/B switches for the performance investigation (2026-10-17):
+                // Switch (2026-10-17, default flipped after A/B measurement):
                 //   SONE_HWACCEL       = always | demand | never
                 //       always -> HardwareAccelerationPolicy::Always  (full-time
-                //                  compositing; the OnDemand default keeps a GPU
-                //                  process boot on every frame batch, which shows
-                //                  up as scroll/animation stutter on some nodes)
-                //       demand -> OnDemand (Tauri default, behaves as "auto")
+                //                  compositing; DEFAULT. Keeps one warm GPU
+                //                  compositing process instead of boot/tearing
+                //                  it down per frame batch. Measured parity on
+                //                  fps with far steadier scroll/animation)
+                //       demand -> OnDemand ("auto"; historical default. Found
+                //                  intermittent dead renderer boots and scroll
+                //                  stutter on this Fleet — use only for A/B)
                 //       never  -> Never (pure software: baseline for CPU-bound
                 //                  measurement; do not ship)
                 //   SONE_SMOOTH_SCROLL = 0/1 (WebKit smooth-scroll animation;
@@ -971,7 +974,8 @@ pub fn run() {
                     let hw_choice = std::env::var("SONE_HWACCEL")
                         .ok()
                         .map(|s| s.trim().to_ascii_lowercase())
-                        .unwrap_or_else(|| "demand".to_string());
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "always".to_string());
                     let smooth_choice = std::env::var("SONE_SMOOTH_SCROLL")
                         .ok()
                         .map(|s| s.trim().to_ascii_lowercase());
@@ -980,8 +984,12 @@ pub fn run() {
                     .with_webview(move |webview| {
                         let wv = webview.inner();
                         if let Some(settings) = wv.settings() {
-                            // Use OnDemand (default) — Always can cause severe lag
-                            // on dual-GPU systems (NVIDIA + iGPU) with WebKitGTK
+                            // Default Always: one warm GPU compositing
+                            // process. OnDemand tears it down and reboots it
+                            // per frame batch; that path showed intermittent
+                            // dead renderer boots and scroll stutter on this
+                            // single-amdGPU machine (reachable again via
+                            // SONE_HWACCEL=demand for A/B runs).
                             let policy = match hw_choice.as_str() {
                                 "always" | "1" | "on" => {
                                     webkit2gtk::HardwareAccelerationPolicy::Always

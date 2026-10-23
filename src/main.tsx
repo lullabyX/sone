@@ -25,6 +25,18 @@ window.addEventListener("error", (e) =>
 window.addEventListener("unhandledrejection", (e) =>
   reportFrontendError("unhandledrejection", (e as PromiseRejectionEvent).reason),
 );
+
+/**
+ * Boot-stage markers (console.error bridge is the only channel that reaches
+ * the backend log; the renderer roadmaps its own startup there so a silent
+ * webview boot failure is diagnosable from the outside).
+ */
+function bootMarker(stage: string) {
+  reportFrontendError("boot", stage);
+}
+bootMarker("stage 0: main.tsx evaluating");
+window.addEventListener("DOMContentLoaded", () => bootMarker("stage D: DOMContentLoaded"));
+
 const origConsoleError = console.error.bind(console);
 console.error = (...rest: unknown[]) => {
   try {
@@ -63,15 +75,19 @@ function maybeStartPerfMonitor(): void {
 }
 
 async function main() {
+  bootMarker("stage 1: main() entered");
   trackWindowFocus();
   maybeStartPerfMonitor();
+  bootMarker("stage 2: theme bootstrap start");
   await Promise.race([
     bootstrapThemeFile().catch(() => {}),
     new Promise<void>((resolve) => setTimeout(resolve, 2000)),
   ]);
+  bootMarker("stage 3: rendering <App />");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />,
   );
+  bootMarker("stage 4: render call dispatched");
 }
 
 void main();

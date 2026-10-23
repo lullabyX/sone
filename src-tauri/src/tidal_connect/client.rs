@@ -6,6 +6,24 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 
+/// Fire-and-forget one WebSocket frame through the session channel.
+///
+/// This is deliberately non-blocking: `try_send` fails immediately when the
+/// channel is full (writer wedged on a dead TCP sink) or closed (session torn
+/// down), so a broken receiver can never turn a control command into an
+/// unbounded await. Every frame dispatch in this module must go through this
+/// helper instead of `tx.send(..).await`.
+fn dispatch_frame(
+    tx: &mpsc::Sender<Message>,
+    command: &str,
+    msg: Message,
+) -> Result<(), String> {
+    tx.try_send(msg).map_err(|e| {
+        log::error!("TIDAL Connect WS dispatch failed for '{}': {}", command, e);
+        format!("Failed to send {}: {}", command, e)
+    })
+}
+
 pub struct ClientSession {
     pub device_id: String,
     pub tx: mpsc::Sender<Message>,
@@ -90,13 +108,21 @@ impl TidalConnectClient {
             .map_err(|e| format!("Failed to build TLS connector: {}", e))?;
         let connector = Connector::NativeTls(tls_connector);
 
-        let (ws_stream, response) = tokio_tungstenite::connect_async_tls_with_config(
-            &url,
-            None,
-            false,
-            Some(connector),
+        // The receiver normally answers within one round trip, but an A98
+        // that accepts TCP and stalls TLS would otherwise hold the caller
+        // (select_device / transparent reconnect inside play_tidal_track)
+        // forever with no timeout of its own.
+        let (ws_stream, response) = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            tokio_tungstenite::connect_async_tls_with_config(
+                &url,
+                None,
+                false,
+                Some(connector),
+            ),
         )
         .await
+        .map_err(|_| format!("WebSocket handshake to {} timed out after 10s", url))?
         .map_err(|e| format!("WebSocket handshake failed to {}: {}", url, e))?;
 
         log::info!(
@@ -258,7 +284,9 @@ impl TidalConnectClient {
                                             dev_id_clone,
                                             queue_req_id
                                         );
-                                        let _ = tx_reader.send(Message::Text(resp.to_string())).await;
+                                        // try_send: never block the reader on a
+                                        // channel the writer can no longer drain.
+                                        let _ = tx_reader.try_send(Message::Text(resp.to_string()));
                                     }
                                     "notifyPlaybackError" => {
                                         log::warn!("TIDAL Connect remote error: {:?}", parsed);
@@ -277,8 +305,10 @@ impl TidalConnectClient {
                     // Reply to receiver pings: in a split stream tokio-tungstenite
                     // does not auto-pong, and an unanswered ping makes the
                     // receiver close the session after roughly 10 seconds.
+                    // try_send keeps the reader from wedging on a full channel
+                    // when the writer task is stuck on a dead socket.
                     Ok(Message::Ping(data)) => {
-                        let _ = tx_reader.send(Message::Pong(data)).await;
+                        let _ = tx_reader.try_send(Message::Pong(data));
                     }
                     Ok(Message::Pong(_)) => {}
                     Ok(_) => {}
@@ -334,9 +364,7 @@ impl TidalConnectClient {
             }
         });
 
-        tx.send(Message::Text(start_cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to dispatch startSession: {}", e))?;
+        dispatch_frame(&tx, "startSession", Message::Text(start_cmd.to_string()))?;
 
         let mut lock = self.session.write().await;
         *lock = Some(new_session);
@@ -357,7 +385,17 @@ impl TidalConnectClient {
             let end_cmd = json!({
                 "command": "endSession"
             });
-            let _ = session.tx.send(Message::Text(end_cmd.to_string())).await;
+            // `try_send`, never `send`: the writer task may already be dead
+            // (its socket failed mid-frame). A bounded channel drained by a
+            // dead writer makes a blocking `send` hang forever whenever 32
+            // stale frames are queued, which would freeze the next
+            // `connect()`/disconnect attempt on this session's leftovers.
+            if session.tx.try_send(Message::Text(end_cmd.to_string())).is_err() {
+                log::debug!(
+                    "TIDAL Connect [{}] endSession dropped (writer channel closed or full)",
+                    session.device_id
+                );
+            }
         }
     }
 
@@ -471,11 +509,11 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching loadLocalQueue for track {}", track_id);
-        session
-            .tx
-            .send(Message::Text(queue_cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send loadLocalQueue: {}", e))?;
+        dispatch_frame(
+            &session.tx,
+            "loadLocalQueue",
+            Message::Text(queue_cmd.to_string()),
+        )?;
 
         session.has_media.store(true, Ordering::SeqCst);
 
@@ -498,11 +536,12 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching play");
-        session
-            .tx
-            .send(Message::Text(cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send play: {}", e))
+        dispatch_frame(
+            &session.tx,
+            "play",
+            Message::Text(cmd.to_string()),
+        )
+        .map_err(|e| format!("Failed to send play: {}", e))
     }
 
     pub async fn pause(&self) -> Result<(), String> {
@@ -521,11 +560,12 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching pause");
-        session
-            .tx
-            .send(Message::Text(cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send pause: {}", e))
+        dispatch_frame(
+            &session.tx,
+            "pause",
+            Message::Text(cmd.to_string()),
+        )
+        .map_err(|e| format!("Failed to send pause: {}", e))
     }
 
     pub async fn stop(&self) -> Result<(), String> {
@@ -544,11 +584,12 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching stop");
-        session
-            .tx
-            .send(Message::Text(cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send stop: {}", e))
+        dispatch_frame(
+            &session.tx,
+            "stop",
+            Message::Text(cmd.to_string()),
+        )
+        .map_err(|e| format!("Failed to send stop: {}", e))
     }
 
     pub async fn seek(&self, position_secs: f64) -> Result<(), String> {
@@ -570,11 +611,12 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching seek ({}s)", pos_u32);
-        session
-            .tx
-            .send(Message::Text(cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send seek: {}", e))
+        dispatch_frame(
+            &session.tx,
+            "seek",
+            Message::Text(cmd.to_string()),
+        )
+        .map_err(|e| format!("Failed to send seek: {}", e))
     }
 
     pub async fn set_volume(&self, level: f64) -> Result<(), String> {
@@ -595,11 +637,12 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching setVolume ({:.2})", clamped);
-        session
-            .tx
-            .send(Message::Text(cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send setVolume: {}", e))
+        dispatch_frame(
+            &session.tx,
+            "setVolume",
+            Message::Text(cmd.to_string()),
+        )
+        .map_err(|e| format!("Failed to send setVolume: {}", e))
     }
 
     pub async fn set_mute(&self, mute: bool) -> Result<(), String> {
@@ -619,11 +662,12 @@ impl TidalConnectClient {
         });
 
         log::info!("TIDAL Connect dispatching setMute ({})", mute);
-        session
-            .tx
-            .send(Message::Text(cmd.to_string()))
-            .await
-            .map_err(|e| format!("Failed to send setMute: {}", e))
+        dispatch_frame(
+            &session.tx,
+            "setMute",
+            Message::Text(cmd.to_string()),
+        )
+        .map_err(|e| format!("Failed to send setMute: {}", e))
     }
 
     pub async fn set_volume_mute(&self, volume: f64, mute: bool) -> Result<(), String> {

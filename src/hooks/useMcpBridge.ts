@@ -217,6 +217,12 @@ export function useMcpBridge() {
 
   useEffect(() => {
     const unlisteners: Array<Promise<() => void>> = [];
+    try {
+      // eslint-disable-next-line no-console
+      console.error("boot: MCP bridge effect running (listener install start)");
+    } catch {
+      /* nothing may block listener install */
+    }
 
     unlisteners.push(
       listen<{ trackIds: number[]; action: string }>(

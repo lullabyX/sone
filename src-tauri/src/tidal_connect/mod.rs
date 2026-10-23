@@ -59,8 +59,23 @@ pub async fn ensure_cast_poller(
     app: tauri::AppHandle,
     state_ref: &TidalConnectStateRef,
 ) {
-    // Abort any previous poller.
-    if let Some(old) = state_ref.poller.write().await.take() {
+    // Abort any previous poller. `let`-then-`if let` on purpose: an `if let
+    // Some(old) = guard.take()` scrutinee keeps the lock guard alive for the
+    // whole block, and this exact temporary-lifetime pattern is the known
+    // self-deadlock shape in this module (see stop_playback's cast_host fix).
+    // Bound the take: this path runs inside the user-facing play command, so
+    // a pathological lock holder must fail the cast instead of freezing it.
+    let old = match tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        state_ref.poller.write(),
+    ).await {
+        Err(_) => {
+            log::error!("[cast-poller] poller write lock not granted within 1s; proceeding without abort");
+            None
+        }
+        Ok(mut guard) => guard.take(),
+    };
+    if let Some(old) = old {
         old.abort();
     }
     let app = app.clone();
@@ -158,13 +173,37 @@ pub async fn ensure_cast_poller(
             }
         }
     });
-    *state_ref.poller.write().await = Some(handle);
+    // It logged nothing after the push in the 2026-10-22 wedges; whoever
+    // stalls the function below (lock, spawn) is what wedged the play
+    // command. Per-step INFO markers make the site obvious within one cast.
+    let assign = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        state_ref.poller.write(),
+    )
+    .await;
+    match assign {
+        Err(_) => {
+            log::error!("[cast-poller] poller assign timeout; cast events disabled (stall suspected)");
+        }
+        Ok(mut guard) => *guard = Some(handle),
+    }
 }
 
 /// Stop distance: abort the poller and clear the cast context (local
 /// selection / teardown).
 pub async fn teardown_cast(state_ref: &TidalConnectStateRef) {
-    if let Some(old) = state_ref.poller.write().await.take() {
+    // Same non-retaining guard pattern as `ensure_cast_poller`.
+    let old = match tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        state_ref.poller.write(),
+    ).await {
+        Err(_) => {
+            log::error!("[cast-poller] teardown: poller write lock not granted within 1s");
+            None
+        }
+        Ok(mut guard) => guard.take(),
+    };
+    if let Some(old) = old {
         old.abort();
     }
     *state_ref.cast_host.write().await = None;
