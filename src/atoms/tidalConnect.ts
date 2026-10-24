@@ -24,5 +24,14 @@ export const localDevice: ConnectDevice = {
 
 export const availableDevicesAtom = atom<ConnectDevice[]>([localDevice]);
 export const activeDeviceAtom = atom<ConnectDevice>(localDevice);
+/**
+ * True whenever playback routes to a TIDAL Connect receiver instead of the
+ * local DAC. Derived purely from the selection: with a receiver selected,
+ * every play/set_volume command goes to the cast path by design, so the
+ * signal-path panel and quality badge treat the LOCAL pipeline as idle.
+ */
+export const isCastingAtom = atom(
+  (get) => get(activeDeviceAtom).id !== localDevice.id,
+);
 export const isConnectModalOpenAtom = atom<boolean>(false);
 export const isScanningDevicesAtom = atom<boolean>(false);

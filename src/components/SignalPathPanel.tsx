@@ -11,8 +11,12 @@ import {
   signalPathAtom,
   streamInfoAtom,
   currentTrackAtom,
+  volumeAtom,
+  isPlayingAtom,
 } from "../atoms/playback";
+import { activeDeviceAtom } from "../atoms/tidalConnect";
 import FlowDiagramBody from "./signal-path/FlowDiagramBody";
+import CastFlowDiagram from "./signal-path/CastFlowDiagram";
 import {
   amplitudeToSliderPercent,
   dacDisplayName,
@@ -39,6 +43,14 @@ export default function SignalPathPanel({
   const sp = useAtomValue(signalPathAtom);
   const streamInfo = useAtomValue(streamInfoAtom);
   const currentTrack = useAtomValue(currentTrackAtom);
+  const activeDevice = useAtomValue(activeDeviceAtom);
+  const volume = useAtomValue(volumeAtom);
+  const isPlaying = useAtomValue(isPlayingAtom);
+  // A non-local selection routes EVERY play/transport/volume command to the
+  // cast path by design, so the local pipeline is effectively idle and the
+  // panel must show the cast truth instead of the local snapshot (which is
+  // either stale or "no track").
+  const isCasting = !!activeDevice && !activeDevice.isLocal;
 
   useSignalPathRefresh(open);
 
@@ -87,7 +99,16 @@ export default function SignalPathPanel({
     .join(" ");
 
   let headline: string;
-  if (!sp || !sp.backend) {
+  if (isCasting) {
+    // Cast truth: the word "idle" belongs to the LOCAL pipeline, which is
+    // unused while a receiver is selected. Phrase the state from the
+    // receiver's perspective.
+    headline = currentTrack
+      ? isPlaying
+        ? `Casting to ${activeDevice.name} — the receiver plays the source directly`
+        : `Casting to ${activeDevice.name} — playback paused on the receiver`
+      : `Casting enabled to ${activeDevice.name} — no track playing on the receiver`;
+  } else if (!sp || !sp.backend) {
     headline = "Idle — no track playing";
   } else if (!sp.dac && !sp.outputFormat) {
     headline = "Pipeline starting…";
@@ -119,10 +140,15 @@ export default function SignalPathPanel({
     headline = "Pipeline pass-through";
   }
 
-  const verdictWord = isPristine ? "PRISTINE" : "MODIFIED";
-  const ringColor = isPristine ? "border-green-400" : "border-amber-400";
-  const wordColor = isPristine ? "text-green-400" : "text-amber-300";
-  const dotColor = isPristine ? "bg-green-400" : "bg-amber-400";
+  const verdictWord = isCasting
+    ? "CASTING"
+    : isPristine
+      ? "PRISTINE"
+      : "MODIFIED";
+  const green = isCasting || isPristine;
+  const ringColor = green ? "border-green-400" : "border-amber-400";
+  const wordColor = green ? "text-green-400" : "text-amber-300";
+  const dotColor = green ? "bg-green-400" : "bg-amber-400";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -196,8 +222,10 @@ export default function SignalPathPanel({
                   </div>
 
                   {/* Source quality + DAC name — gives the compact view enough
-                    factual context to be useful without expanding. */}
-                  {(sourceSummary || dacDisplayName(sp)) && (
+                    factual context to be useful without expanding. In cast
+                    mode the DAC line is replaced by the receiver's identity,
+                    because the local DAC is out of the picture. */}
+                  {(sourceSummary || dacDisplayName(sp) || isCasting) && (
                     <div className="flex flex-col items-center gap-0.5 mb-4 max-w-[360px]">
                       {sourceSummary && (
                         <div className="text-[11px] font-mono text-th-text-muted">
@@ -212,47 +240,64 @@ export default function SignalPathPanel({
                           )}
                         </div>
                       )}
-                      {dacDisplayName(sp) && (
+                      {isCasting ? (
                         <div className="text-[11px] text-th-text-muted truncate max-w-[360px]">
-                          {dacDisplayName(sp)}
+                          {activeDevice.modelName} · hardware volume{" "}
+                          {Math.round(volume * 100)}%
                         </div>
+                      ) : (
+                        dacDisplayName(sp) && (
+                          <div className="text-[11px] text-th-text-muted truncate max-w-[360px]">
+                            {dacDisplayName(sp)}
+                          </div>
+                        )
                       )}
                     </div>
                   )}
 
-                  {(sp?.exclusiveMode ||
-                    sp?.bitPerfect ||
-                    sp?.backend ||
-                    (sp?.osMixer && !isDirectAlsa)) && (
+                  {isCasting ? (
                     <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-mono text-th-text-faint mb-6 uppercase tracking-wider">
-                      {sp?.exclusiveMode && <span>exclusive</span>}
-                      {sp?.bitPerfect && (
-                        <>
-                          {sp?.exclusiveMode && (
-                            <span className="text-th-text-faint/40">·</span>
-                          )}
-                          <span>bit-perfect</span>
-                        </>
-                      )}
-                      {sp?.osMixer && !isDirectAlsa && (
-                        <>
-                          {(sp?.exclusiveMode || sp?.bitPerfect) && (
-                            <span className="text-th-text-faint/40">·</span>
-                          )}
-                          <span>{sp.osMixer.server}</span>
-                        </>
-                      )}
-                      {sp?.backend && (
-                        <>
-                          {(sp?.exclusiveMode ||
-                            sp?.bitPerfect ||
-                            (sp?.osMixer && !isDirectAlsa)) && (
-                            <span className="text-th-text-faint/40">·</span>
-                          )}
-                          <span>{sp.backend}</span>
-                        </>
-                      )}
+                      <span>tidal connect</span>
+                      <span className="text-th-text-faint/40">·</span>
+                      <span>{activeDevice.host}</span>
+                      <span className="text-th-text-faint/40">·</span>
+                      <span>no local samples</span>
                     </div>
+                  ) : (
+                    (sp?.exclusiveMode ||
+                      sp?.bitPerfect ||
+                      sp?.backend ||
+                      (sp?.osMixer && !isDirectAlsa)) && (
+                      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-mono text-th-text-faint mb-6 uppercase tracking-wider">
+                        {sp?.exclusiveMode && <span>exclusive</span>}
+                        {sp?.bitPerfect && (
+                          <>
+                            {sp?.exclusiveMode && (
+                              <span className="text-th-text-faint/40">·</span>
+                            )}
+                            <span>bit-perfect</span>
+                          </>
+                        )}
+                        {sp?.osMixer && !isDirectAlsa && (
+                          <>
+                            {(sp?.exclusiveMode || sp?.bitPerfect) && (
+                              <span className="text-th-text-faint/40">·</span>
+                            )}
+                            <span>{sp.osMixer.server}</span>
+                          </>
+                        )}
+                        {sp?.backend && (
+                          <>
+                            {(sp?.exclusiveMode ||
+                              sp?.bitPerfect ||
+                              (sp?.osMixer && !isDirectAlsa)) && (
+                              <span className="text-th-text-faint/40">·</span>
+                            )}
+                            <span>{sp.backend}</span>
+                          </>
+                        )}
+                      </div>
+                    )
                   )}
 
                   <button
@@ -303,12 +348,22 @@ export default function SignalPathPanel({
                   </div>
                 </div>
 
-                <FlowDiagramBody
-                  sp={sp}
-                  streamInfo={streamInfo}
-                  currentTrack={currentTrack}
-                  onBack={() => setExpanded(false)}
-                />
+                {isCasting ? (
+                  <CastFlowDiagram
+                    activeDevice={activeDevice}
+                    currentTrack={currentTrack}
+                    streamInfo={streamInfo}
+                    volume={volume}
+                    onBack={() => setExpanded(false)}
+                  />
+                ) : (
+                  <FlowDiagramBody
+                    sp={sp}
+                    streamInfo={streamInfo}
+                    currentTrack={currentTrack}
+                    onBack={() => setExpanded(false)}
+                  />
+                )}
               </div>
             </div>
           </div>

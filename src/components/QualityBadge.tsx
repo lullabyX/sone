@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { useAtomValue } from "jotai";
 import { currentTrackAtom, streamInfoAtom } from "../atoms/playback";
+import { isCastingAtom } from "../atoms/tidalConnect";
 
 interface QualityBadgeProps {
   onClick?: () => void;
@@ -11,6 +12,10 @@ const QualityBadge = memo(function QualityBadge({
 }: QualityBadgeProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const streamInfo = useAtomValue(streamInfoAtom);
+  // While a TIDAL Connect receiver is selected the badge still names the
+  // stream tier (the receiver pulls the same CDN tier), but a CAST chip
+  // marks that playback is NOT running through the local pipeline.
+  const isCasting = useAtomValue(isCastingAtom);
 
   const quality = streamInfo?.audioQuality || currentTrack?.audioQuality;
   if (!quality) return null;
@@ -33,6 +38,20 @@ const QualityBadge = memo(function QualityBadge({
 
   const label = isMax ? "HI-RES LOSSLESS" : isHiFi ? "LOSSLESS" : "HIGH";
 
+  const tierPill = (
+    <span
+      className={`px-2 py-0.5 text-[9px] font-black rounded tracking-wider leading-none ${
+        isMax
+          ? "bg-th-accent text-th-on-accent"
+          : isHiFi
+            ? "bg-th-accent/70 text-th-on-accent"
+            : "bg-th-button-hover text-th-text-primary"
+      }`}
+    >
+      {label}
+    </span>
+  );
+
   const content = (
     <>
       {detail && (
@@ -40,16 +59,13 @@ const QualityBadge = memo(function QualityBadge({
           {detail}
         </span>
       )}
-      <span
-        className={`px-2 py-0.5 text-[9px] font-black rounded tracking-wider leading-none ${
-          isMax
-            ? "bg-th-accent text-th-on-accent"
-            : isHiFi
-              ? "bg-th-accent/70 text-th-on-accent"
-              : "bg-th-button-hover text-th-text-primary"
-        }`}
-      >
-        {label}
+      <span className="flex items-center gap-1">
+        {tierPill}
+        {isCasting && (
+          <span className="px-1.5 py-0.5 text-[9px] font-black rounded tracking-wider leading-none border border-th-accent/60 text-th-accent">
+            CAST
+          </span>
+        )}
       </span>
     </>
   );
