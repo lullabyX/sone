@@ -698,11 +698,39 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
     log::debug!("[seek_track]: position_secs={:.1}", position_secs);
     if state.tidal_connect.active_device.read().await.is_some() {
         if let Some(host) = state.tidal_connect.cast_host.read().await.clone() {
-            let _ = state
+            // A98 firmware cannot seek a push-URL cast: setPlayerCmd:seek
+            // returns OK and then wedges the player in a permanent "stop"
+            // (curpos frozen on the microsecond scale, receiver never
+            // resumes; observed 2026-10-23, see AGENTS.md 5.3 and the
+            // protocol spec caveat). Map a cast seek to a re-push of the
+            // current manifest URL instead: the track restarts from the
+            // top and the queue never skips. No cast URL in the slot means
+            // nothing to restart; the receiver keeps whatever it plays.
+            let cast_url = state
                 .tidal_connect
-                .linkplay
-                .seek(&host, position_secs as f64 * 1000.0, &state.tidal_connect.cast_status)
-                .await;
+                .cast_status
+                .read()
+                .await
+                .as_ref()
+                .and_then(|s| s.cast_url.clone());
+            match cast_url {
+                Some(ref url) => {
+                    match state
+                        .tidal_connect
+                        .linkplay
+                        .push_url(&host, url, &state.tidal_connect.cast_status)
+                        .await
+                    {
+                        Ok(()) => {
+                            log::info!("[seek_track] re-pushed cast URL on {} (A98 seek is unsupported)", host)
+                        }
+                        Err(e) => log::warn!("[seek_track] cast seek re-push failed: {}", e),
+                    }
+                }
+                None => {
+                    log::warn!("[seek_track] cast seek requested but no cast URL is known; ignoring")
+                }
+            }
         } else {
             let _ = state.tidal_connect.client.seek(position_secs as f64).await;
         }

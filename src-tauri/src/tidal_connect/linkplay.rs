@@ -23,6 +23,12 @@ pub struct LinkPlayClient {
 
 /// getPlayerStatus reports numeric fields as JSON strings on some firmware
 /// (`"curpos":"1842"`); accept either form.
+/// Natural-end proximity: a play-to-stop transition only advances the queue
+/// when the extrapolated position is this close to the reported track length
+/// (absorbs the 1 s poller sampling skew; mirrors is_track_finished's 1500 ms
+/// rule with headroom for the drift-prone post-load receiver clock).
+const NATURAL_END_MARGIN_MS: f64 = 2400.0;
+
 fn any_u64<'de, D>(d: D) -> Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -56,8 +62,7 @@ pub struct PlayerStatusRaw {
 
 /// Latest known receiver state, maintained by the 1 s poller.
 #[derive(Clone, Debug)]
-pub struct CastStatus {
-    /// Device-reported player state: "play", "pause", or "stop".
+pub struct CastStatus {    /// Device-reported player state: "play", "pause", or "stop".
     pub status: String,
     /// Local extrapolated playback position in milliseconds.
     pub pos_ms: f64,
@@ -284,10 +289,25 @@ impl LinkPlayClient {
                 } else if new_status == "stop" && cur.status == "play" {
                     if cur.stop_commanded {
                         cur.stop_commanded = false;
-                    } else {
-                        // Natural end: report and drop the cast position.
+                    } else if cur.totlen_ms > 0
+                        && cur.pos_ms >= cur.totlen_ms as f64 - NATURAL_END_MARGIN_MS
+                    {
+                        // Natural end at the track boundary: report and drop
+                        // the cast position. Uses the same proximity rule as
+                        // is_track_finished (commands/playback.rs), widened
+                        // for the 1 s sampling skew.
                         *slot_guard = None;
                         return Ok((raw, true, volume));
+                    } else {
+                        // Stop far from the track boundary: an operator stop
+                        // on the receiver itself, or the transient stop some
+                        // firmware emits around a load. Never advance the
+                        // queue from here; the receiver may return to play.
+                        log::debug!(
+                            "[cast-poller] ignoring mid-track stop at {:.1}/{:.1}s",
+                            cur.pos_ms / 1000.0,
+                            cur.totlen_ms as f64 / 1000.0
+                        );
                     }
                 }
                 cur.status = new_status;
