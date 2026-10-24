@@ -154,6 +154,16 @@ pub async fn ensure_cast_poller(
                     "[cast-poller] push jammed (no play within {:?}); re-pushing",
                     JAM_GRACE
                 );
+                // Stop-first: a stuck engine ignores plain play commands, and
+                // the 2026-10-24 wedges showed a stop before the re-push
+                // clears the load pipeline (the same sequence every working
+                // push runs). The stop settles asynchronously inside the
+                // receiver: pushing immediately still jams, so wait the same
+                // settle window the seek path uses.
+                if let Err(e) = cast_ref.linkplay.expect_ok(&host, "setPlayerCmd%3Astop").await {
+                    log::debug!("[cast-poller] jam-recovery stop not accepted: {}", e);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 match cast_ref.linkplay.push_play(&host, &url).await {
                     Ok(()) => {
                         if let Ok(mut slot) = cast_ref.cast_status.try_write() {

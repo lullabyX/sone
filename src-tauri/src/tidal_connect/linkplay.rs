@@ -62,7 +62,8 @@ pub struct PlayerStatusRaw {
 
 /// Latest known receiver state, maintained by the 1 s poller.
 #[derive(Clone, Debug)]
-pub struct CastStatus {    /// Device-reported player state: "play", "pause", or "stop".
+pub struct CastStatus {
+    /// Device-reported player state: "play", "pause", or "stop".
     pub status: String,
     /// Local extrapolated playback position in milliseconds.
     pub pos_ms: f64,
@@ -88,6 +89,21 @@ pub struct CastStatus {    /// Device-reported player state: "play", "pause", or
     pub play_confirmed: bool,
     /// How many jam-recovery re-pushes were issued for this cast.
     pub repushes: u32,
+    /// Full untrimmed DASH manifest of the currently cast track. Kept so a
+    /// seek can re-serve a trimmed variant (A98 firmware cannot seek its own
+    /// player; see AGENTS.md 5.3 and `trim_mpd`).
+    pub manifest_xml: Option<String>,
+    /// Offset in milliseconds into the ORIGINAL track timeline where the
+    /// current push starts: 0 for a normal play, the seek target after a
+    /// trimmed-manifest seek. Receiver-clock positions (`pos_ms`) count from
+    /// the trimmed start, so wall position = start_offset_ms + pos_ms.
+    pub start_offset_ms: f64,
+    /// Full length of the cast track in milliseconds, captured while the
+    /// push was untrimmed (`start_offset_ms == 0`). Natural-end detection
+    /// compares the WALL position against this so a seek-trimmed push (whose
+    /// device `totlen` may stay stale at the full length or drop to the
+    /// trimmed remainder) still recognizes a genuine play-through.
+    pub orig_totlen_ms: u64,
 }
 
 impl CastStatus {
@@ -108,6 +124,26 @@ impl CastStatus {
             cast_url: None,
             play_confirmed: false,
             repushes: 0,
+            manifest_xml: None,
+            start_offset_ms: 0.0,
+            orig_totlen_ms: 0,
+        }
+    }
+
+    /// Wall position in milliseconds on the ORIGINAL track timeline.
+    fn wall_pos_ms(&self) -> f64 {
+        self.start_offset_ms + self.pos_ms
+    }
+
+    /// Reference full length in milliseconds for natural-end detection.
+    /// Prefers the length captured while untrimmed; falls back to the
+    /// device-reported totlen (correct for plain pushes and for trimmed
+    /// pushes whose device picked up the manifest duration).
+    fn full_len_ms(&self) -> f64 {
+        if self.orig_totlen_ms > 0 {
+            self.orig_totlen_ms as f64
+        } else {
+            self.totlen_ms as f64
         }
     }
 }
@@ -213,6 +249,9 @@ impl LinkPlayClient {
                 cast_url: s.cast_url.clone(),
                 play_confirmed: s.play_confirmed,
                 repushes: s.repushes,
+                manifest_xml: s.manifest_xml.clone(),
+                start_offset_ms: s.start_offset_ms,
+                orig_totlen_ms: s.orig_totlen_ms,
             },
             None => CastStatus::fresh(true),
         };
@@ -227,18 +266,79 @@ impl LinkPlayClient {
         self.expect_ok(host, &cmd).await
     }
 
-    async fn expect_ok(&self, host: &str, command: &str) -> Result<(), String> {
-        let body = self
-            .raw(host, command)
-            .await
-            .map_err(|e| format!("LinkPlay request failed ({})", e))?;
-        if body.trim() != "OK" {
-            return Err(format!(
-                "LinkPlay command rejected ({}): {}",
-                body.trim(),
-                command
-            ));
+    pub(crate) async fn expect_ok(&self, host: &str, command: &str) -> Result<(), String> {
+        // First attempt plus one transparent retry: the receiver answers
+        // push-priming windows with transient empty bodies (and the engine
+        // can be too busy to apply a transport command at all). Callers of
+        // pause/stop discard the error (`let _ =`), so an un-retried
+        // transient left receiver/app state diverged: the app believed a
+        // stop the engine never applied and the stream kept playing
+        // (2026-10-24 smoke run). Everything routed through expect_ok is
+        // idempotent, so one retry is safe; two attempts are bounded by
+        // the 4 s raw timeout.
+        match self.raw(host, command).await {
+            Ok(body) if body.trim() == "OK" => Ok(()),
+            first => {
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                let body = match first {
+                    Ok(body) => body,
+                    Err(_) => self
+                        .raw(host, command)
+                        .await
+                        .map_err(|e| format!("LinkPlay request failed ({})", e))?,
+                };
+                if body.trim() != "OK" {
+                    return Err(format!(
+                        "LinkPlay command rejected ({}): {}",
+                        body.trim(),
+                        command
+                    ));
+                }
+                Ok(())
+            }
         }
+    }
+
+    /// Operator stop with receiver-verify: the engine can acknowledge the
+    /// stop (or ignore it inside a priming window) yet keep streaming the
+    /// pushed URL. Up to three stop attempts, each followed by a short
+    /// settle and a raw status read; `play`/`load` after the settle means
+    /// the command did not take and is retried. A failing verify read is
+    /// treated as inconclusive (no extra command storm).
+    pub async fn stop_verified(
+        &self,
+        host: &str,
+        status_slot: &RwLock<Option<CastStatus>>,
+    ) -> Result<(), String> {
+        const ATTEMPTS: u8 = 3;
+        for attempt in 1..=ATTEMPTS {
+            self.stop(host, status_slot).await?;
+            tokio::time::sleep(Duration::from_millis(900)).await;
+            match self.raw(host, "getPlayerStatus").await {
+                Ok(body) => {
+                    let playing = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("status")
+                                .and_then(|s| s.as_str().map(|s| s == "play" || s == "load"))
+                        })
+                        .unwrap_or(false);
+                    if !playing {
+                        return Ok(());
+                    }
+                    log::debug!(
+                        "[linkplay] stop attempt {} not applied (receiver {})",
+                        attempt,
+                        if playing { "still playing" } else { "?" }
+                    );
+                }
+                Err(_) => return Ok(()),
+            }
+        }
+        log::warn!(
+            "[linkplay] receiver ignored stop after {} attempts; state may be diverged",
+            ATTEMPTS
+        );
         Ok(())
     }
 
@@ -289,13 +389,13 @@ impl LinkPlayClient {
                 } else if new_status == "stop" && cur.status == "play" {
                     if cur.stop_commanded {
                         cur.stop_commanded = false;
-                    } else if cur.totlen_ms > 0
-                        && cur.pos_ms >= cur.totlen_ms as f64 - NATURAL_END_MARGIN_MS
+                    } else if cur.full_len_ms() > 0.0
+                        && cur.wall_pos_ms() >= cur.full_len_ms() - NATURAL_END_MARGIN_MS
                     {
                         // Natural end at the track boundary: report and drop
-                        // the cast position. Uses the same proximity rule as
-                        // is_track_finished (commands/playback.rs), widened
-                        // for the 1 s sampling skew.
+                        // the cast position. Wall position vs the ORIGINAL
+                        // length so a seek-trimmed push (receiver clock
+                        // renumbered from the trim offset) still lands here.
                         *slot_guard = None;
                         return Ok((raw, true, volume));
                     } else {
@@ -305,8 +405,8 @@ impl LinkPlayClient {
                         // queue from here; the receiver may return to play.
                         log::debug!(
                             "[cast-poller] ignoring mid-track stop at {:.1}/{:.1}s",
-                            cur.pos_ms / 1000.0,
-                            cur.totlen_ms as f64 / 1000.0
+                            cur.wall_pos_ms() / 1000.0,
+                            cur.full_len_ms() / 1000.0
                         );
                     }
                 }
@@ -329,6 +429,14 @@ impl LinkPlayClient {
                 cur.pos_ms = cur.anchor_ms;
             }
             cur.totlen_ms = raw.totlen;
+            // Capture the full length for a currently-untrimmed cast. Gated
+            // on an already-confirmed play so the pre-stash race around a
+            // seek-trim push (slot freshly reset, start_offset not yet
+            // re-applied) cannot stamp the reference with a stale or trimmed
+            // device register.
+            if cur.play_confirmed && cur.start_offset_ms == 0.0 {
+                cur.orig_totlen_ms = raw.totlen;
+            }
             volume = if cur.last_vol != raw.vol {
                 cur.last_vol = raw.vol;
                 Some(raw.vol)

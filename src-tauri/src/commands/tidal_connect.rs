@@ -91,15 +91,17 @@ pub async fn tidal_connect_get_active_device(
     // the one command a wedged client could use to stall every renderer
     // refresh behind a foreign lock, while the lock carries no await of its
     // own once the predicates are known.
-    let connected = state.tidal_connect.client.is_connected().await;
-    let cast_alive = state.tidal_connect.cast_host.read().await.is_some();
     let mut active = state.tidal_connect.active_device.write().await;
-    // With an active push-URL cast the TIDAL Connect WebSocket session is
-    // irrelevant to playback; only drop the selection when neither session
-    // nor cast exists.
-    if active.is_some() && !connected && !cast_alive {
-        *active = None;
-    }
+    // Deliberate selections must survive the receiver's normal lifecycle:
+    // certified receivers idle-close the WebSocket session ~30 s in, which
+    // is routine for push-URL casts (the session only matters at cast
+    // setup). Clearing the selection on `!connected && !cast_alive` used to
+    // wipe a just-selected device on the next renderer poll, so every
+    // transport command silently routed to the local GStreamer path while
+    // the receiver kept streaming (2026-10-24 smoke run: MPRIS
+    // pause/stop were no-ops and the harness could not stop media).
+    // Selection is now cleared ONLY by an explicit local select or device
+    // teardown; loss and change surface through on-demand reconnection.
     Ok(active.clone())
 }
 

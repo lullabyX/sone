@@ -1339,6 +1339,31 @@ export function AppInitializer() {
     };
   }, [store]);
 
+  // Position heartbeat: the MCP state mirror reads its position from the
+  // "sone:playback-position" DOM event (no React subscription, to keep the
+  // per-second tick off the render path), so something must dispatch it.
+  // One tick per second while the app runs; play/pause changes dispatch an
+  // immediate update so the published snapshot never lags a state flip.
+  useEffect(() => {
+    const dispatch = () => {
+      window.dispatchEvent(
+        new CustomEvent("sone:playback-position", {
+          detail: { position: getInterpolatedPosition() },
+        }),
+      );
+    };
+    const heartbeat = setInterval(dispatch, 1000);
+    const unsubPlaying = store.sub(isPlayingAtom, dispatch);
+    const unsubVideoPlaying = store.sub(videoPlayingAtom, dispatch);
+    const unsubVideo = store.sub(currentVideoAtom, dispatch);
+    return () => {
+      clearInterval(heartbeat);
+      unsubPlaying();
+      unsubVideoPlaying();
+      unsubVideo();
+    };
+  }, [store]);
+
   useEffect(() => {
     const push = () => {
       invoke("update_mpris_shuffle", { enabled: store.get(shuffleAtom) }).catch(
