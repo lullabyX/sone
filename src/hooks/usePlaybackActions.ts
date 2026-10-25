@@ -218,11 +218,18 @@ export function usePlaybackActions() {
   const playNextRef = useRef<
     ((opts?: { explicit?: boolean }) => Promise<void>) | null
   >(null);
+  const playTrackRef = useRef<
+    | ((
+        track: Track,
+        opts?: { chosenByUser?: boolean; retryOnRateLimit?: boolean },
+      ) => Promise<PlayResult>)
+    | null
+  >(null);
 
-  // Toast the cooldown and schedule one automatic retry once it lapses.
-  // Used only on automatic advances — user-initiated paths toast and stop.
+  // Toast the cooldown and schedule one automatic retry once it lapses: of
+  // `retryTrack` when given, otherwise a playNext().
   const scheduleRateLimitResume = useCallback(
-    (error: unknown) => {
+    (error: unknown, retryTrack?: Track) => {
       // The backend cooldown is a deadline, not a duration; add a second so the
       // retry lands after it rather than exactly on it.
       const wait = (retryAfterSecs(error) ?? 5) + 1;
@@ -231,7 +238,26 @@ export function usePlaybackActions() {
       setTimeout(() => {
         if (gen !== playGenerationRef.current) return;
         if (store.get(userPausedAtom)) return;
-        void playNextRef.current?.();
+        if (store.get(currentVideoAtom)) return;
+        if (!retryTrack) {
+          void playNextRef.current?.();
+          return;
+        }
+        if (playNextLockRef.current) return;
+        playNextLockRef.current = true;
+        void (async () => {
+          let unplayable = false;
+          try {
+            const result = await playTrackRef.current?.(retryTrack, {
+              chosenByUser: true,
+              retryOnRateLimit: true,
+            });
+            unplayable = result?.ok === false && result.reason === "unplayable";
+          } finally {
+            playNextLockRef.current = false;
+          }
+          if (unplayable) await playNextRef.current?.({ explicit: true });
+        })();
       }, wait * 1000);
     },
     [store, showToast],
@@ -258,6 +284,9 @@ export function usePlaybackActions() {
         /** When true, the catch block does NOT toast for unplayable errors —
          *  the caller (the skip-loop in playNext) handles user feedback itself. */
         suppressUnplayableToast?: boolean;
+        /** On a 429, stop the old track and retry this one once the cooldown
+         *  lapses, instead of resuming with playNext(). */
+        retryOnRateLimit?: boolean;
       },
     ): Promise<PlayResult> => {
       const blocked = contentBlockReason(track, readContentPrefs(store));
@@ -276,6 +305,8 @@ export function usePlaybackActions() {
       // VIDEO queue item → render in the <video> player; keep it in the queue so
       // prev/next/history work uniformly. Do NOT touch the audio pipeline beyond stop.
       if (track.itemType === "video") {
+        // Cancels a pending rate-limit retry.
+        ++playGenerationRef.current;
         store.set(userPausedAtom, false);
         const v = ensureQid(normalizeTrack(track));
         const previousTrack = store.get(currentTrackAtom);
@@ -397,9 +428,16 @@ export function usePlaybackActions() {
         if (isRateLimitedError(error)) {
           // Without this, a 429 from ANY endpoint (search, home, library) stops
           // the music permanently: nothing retries once the cooldown lapses.
-          // Callers must leave the track at the queue head — the resume is a
-          // playNext(), so anything not in the queue would be skipped.
-          scheduleRateLimitResume(error);
+          // Callers either pass retryOnRateLimit or leave the track where
+          // playNext() reads first, so the resume doesn't skip it.
+          if (opts?.retryOnRateLimit) {
+            // The 429 hit before the pipeline was touched, so the old track is
+            // still playing; stopping it emits no track-finished.
+            void invoke("stop_track").catch(() => {});
+            scheduleRateLimitResume(error, track);
+          } else {
+            scheduleRateLimitResume(error);
+          }
           return { ok: false, reason: "rate-limited" };
         }
         if (isUnplayableError(error)) {
@@ -418,6 +456,8 @@ export function usePlaybackActions() {
     },
     [store, showToast, scheduleRateLimitResume],
   );
+
+  playTrackRef.current = playTrack;
 
   const pauseTrack = useCallback(async () => {
     // Video is current → pause the shared <video>, never the audio pipeline.
@@ -789,7 +829,7 @@ export function usePlaybackActions() {
         return { ok: false, reason: "filtered" };
       }
       setQueueTracks([]);
-      return playTrack(track);
+      return playTrack(track, { retryOnRateLimit: true });
     },
     [store, showToast, setQueueTracks, playTrack],
   );
@@ -1651,7 +1691,7 @@ export function usePlaybackActions() {
           );
         }
       }
-      await playTrack(track);
+      await playTrack(track, { retryOnRateLimit: true });
     },
     [store, playTrack, showToast],
   );
@@ -1691,25 +1731,13 @@ export function usePlaybackActions() {
         setQueueTracks(rest, options);
       }
       store.set(consecutiveFailCountAtom, 0);
-      const result = await playTrack(track);
+      const result = await playTrack(track, { retryOnRateLimit: true });
       if (!result.ok && result.reason === "unplayable") {
         // First track was unavailable. Engage skip-loop on rest.
         await playNext({ explicit: true });
-      } else if (!result.ok && result.reason === "rate-limited") {
-        // The queue holds only `rest`; the resume is a playNext(), so without
-        // this the retry would skip straight past the track the user picked.
-        requeueHead(track);
       }
     },
-    [
-      store,
-      playTrack,
-      setQueueTracks,
-      setShuffledQueue,
-      playNext,
-      requeueHead,
-      showToast,
-    ],
+    [store, playTrack, setQueueTracks, setShuffledQueue, playNext, showToast],
   );
 
   const playAllFromSource = useCallback(
@@ -1752,15 +1780,13 @@ export function usePlaybackActions() {
         first = head;
         setQueueTracks(rest, queueOptions);
       }
-      const result = await playTrack(first);
+      const result = await playTrack(first, { retryOnRateLimit: true });
       if (!result.ok && result.reason === "unplayable") {
         await playNext({ explicit: true });
-      } else if (!result.ok && result.reason === "rate-limited") {
-        requeueHead(first);
       }
       return true;
     },
-    [store, playTrack, setQueueTracks, setShuffledQueue, playNext, requeueHead],
+    [store, playTrack, setQueueTracks, setShuffledQueue, playNext],
   );
 
   const clearQueue = useCallback(() => {

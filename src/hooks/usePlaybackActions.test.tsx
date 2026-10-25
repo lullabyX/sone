@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, screen, cleanup } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
@@ -39,6 +39,12 @@ const track = (over: Partial<Track> = {}): Track =>
 
 const tracks = (n: number): Track[] =>
   Array.from({ length: n }, (_, i) => track({ id: i + 1, title: `T${i + 1}` }));
+
+const ids = (ts: Track[]) => ts.map((t) => t.id);
+const c = [track({ id: 10 }), track({ id: 11 }), track({ id: 12 })];
+const src = (type: string, all: Track[]) => ({
+  source: { type, id: "x", name: "X", allTracks: all },
+});
 
 function setup() {
   const store = createStore();
@@ -512,12 +518,6 @@ describe("manual queue survives like TIDAL", () => {
     playResult = () => Promise.resolve({});
   });
 
-  const ids = (ts: Track[]) => ts.map((t) => t.id);
-  const c = [track({ id: 10 }), track({ id: 11 }), track({ id: 12 })];
-  const src = (type: string, all: Track[]) => ({
-    source: { type, id: "x", name: "X", allTracks: all },
-  });
-
   it("playFromSource keeps the manual queue and replaces the context", async () => {
     const { store, result } = setup();
     store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
@@ -639,5 +639,78 @@ describe("manual queue survives like TIDAL", () => {
     await act(() => result.current.playNext());
     expect(store.get(playbackSourceAtom)?.id).toBe("C");
     expect(store.get(contextSourceAtom)).toBeNull();
+  });
+});
+
+describe("rate-limited click", () => {
+  const rateLimited = { kind: "Api", message: { status: 429, body: "" } };
+
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.useFakeTimers();
+    vi.mocked(invoke).mockClear();
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(rateLimited) : Promise.resolve({});
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stops the old track and retries the clicked album track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_track");
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(10);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("retries the first artist top track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("artist", c)));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(10);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("retries a single top-hit play", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playSingle(track({ id: 7 })));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(7);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("an abandoned retry leaves no trace", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    vi.setSystemTime(Date.now() + 1000);
+    await act(() => result.current.playFromQueue(0));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+  });
+
+  it("a video started during the cooldown cancels the retry", async () => {
+    const { store, result } = setup();
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    vi.setSystemTime(Date.now() + 1000);
+    await act(() =>
+      result.current.playSingle(
+        track({ id: 50, itemType: "video" } as Partial<Track>),
+      ),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(50);
   });
 });
