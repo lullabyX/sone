@@ -315,6 +315,12 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDevice>
     Ok(devices)
 }
 
+/// Snap confinement blocks the Discord socket unless the user runs a relay.
+#[tauri::command]
+pub fn is_snap() -> bool {
+    std::env::var("SNAP").is_ok()
+}
+
 #[tauri::command]
 pub fn get_discord_rpc(state: State<'_, AppState>) -> bool {
     state

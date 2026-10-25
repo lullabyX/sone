@@ -1,7 +1,11 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
 import MediaCard from "./MediaCard";
-import { getItemId, buildMediaItem } from "../utils/itemHelpers";
+import {
+  getItemId,
+  buildMediaItem,
+  getArtistAlbumSubtitle,
+} from "../utils/itemHelpers";
 import { useMediaPlay } from "../hooks/useMediaPlay";
 
 interface SectionData {
@@ -17,6 +21,8 @@ interface CardScrollSectionProps {
   onCardClick: (item: any, sectionType: string) => void;
   onContextMenu: (e: React.MouseEvent, item: any, sectionType: string) => void;
   onViewAll?: () => void;
+  /** The page's artist: album cards show release year and type. */
+  artistId?: number;
   favoriteAlbumIds: Set<number>;
   addFavoriteAlbum: (id: number, album: any) => void;
   removeFavoriteAlbum: (id: number) => void;
@@ -36,6 +42,7 @@ export default function CardScrollSection({
   onCardClick,
   onContextMenu,
   onViewAll,
+  artistId,
   favoriteAlbumIds,
   addFavoriteAlbum,
   removeFavoriteAlbum,
@@ -185,9 +192,15 @@ export default function CardScrollSection({
                 }
                 isArtist={isArtistSection}
                 showPlayButton
+                showExplicit
                 isFavorited={isFavorited}
                 onFavoriteToggle={onFavoriteToggle}
                 widthClass="card-scroll-item"
+                subtitleOverride={
+                  artistId != null && sectionType === "ALBUM_LIST"
+                    ? getArtistAlbumSubtitle(item, artistId)
+                    : undefined
+                }
               />
             );
           })}

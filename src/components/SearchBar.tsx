@@ -160,6 +160,7 @@ export default function SearchBar() {
       setSearchOpen(false);
       addToHistory(searchQuery.trim());
       navigateToSearch(searchQuery.trim());
+      searchInputRef.current?.blur();
     } else if (e.key === "Escape") {
       // A focused input owns Escape; keep it off the dismissal stack.
       e.stopPropagation();

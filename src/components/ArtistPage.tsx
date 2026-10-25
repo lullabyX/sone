@@ -684,6 +684,7 @@ export default function ArtistPage({
               <CardScrollSection
                 key={sectionIdx}
                 section={section}
+                artistId={artistId}
                 onCardClick={handleCardClick}
                 onContextMenu={handleCardContextMenu}
                 onViewAll={

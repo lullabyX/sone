@@ -13,6 +13,7 @@ import {
   getItemTitle,
   getItemId,
   buildMediaItem,
+  getArtistAlbumSubtitle,
 } from "./itemHelpers";
 
 describe("getTrackPrimaryArtist", () => {
@@ -426,5 +427,67 @@ describe("magazine items", () => {
       title: "Title",
       image: raw.data.imageURL,
     });
+  });
+});
+
+describe("getArtistAlbumSubtitle", () => {
+  const own = (extra: object) => ({
+    id: 1,
+    artists: [{ id: 42, name: "HOOKUPS", main: true }],
+    ...extra,
+  });
+
+  it("shows year and release type for the page artist's own albums", () => {
+    expect(
+      getArtistAlbumSubtitle(
+        own({ releaseDate: "2026-06-28", type: "ALBUM" }),
+        42,
+      ),
+    ).toBe("2026 · Album");
+    expect(
+      getArtistAlbumSubtitle(
+        own({ releaseDate: "2024-04-29", type: "SINGLE" }),
+        42,
+      ),
+    ).toBe("2024 · Single");
+    expect(
+      getArtistAlbumSubtitle(
+        own({ releaseDate: "2026-05-22", type: "EP" }),
+        42,
+      ),
+    ).toBe("2026 · EP");
+  });
+
+  it("keeps the year of a January 1st release in every timezone", () => {
+    expect(
+      getArtistAlbumSubtitle(
+        own({ releaseDate: "1985-01-01", type: "ALBUM" }),
+        42,
+      ),
+    ).toBe("1985 · Album");
+  });
+
+  it("names the album artist when the page artist only appears on it", () => {
+    expect(
+      getArtistAlbumSubtitle(
+        {
+          id: 2,
+          releaseDate: "2026-09-11",
+          type: "ALBUM",
+          artists: [{ id: 2935, name: "Various Artists", main: true }],
+        },
+        42,
+      ),
+    ).toBe("Various Artists · 2026");
+  });
+
+  it("omits an unknown release type", () => {
+    expect(getArtistAlbumSubtitle(own({ releaseDate: "2020-03-01" }), 42)).toBe(
+      "2020",
+    );
+  });
+
+  it("returns undefined without a release date so the default subtitle is used", () => {
+    expect(getArtistAlbumSubtitle(own({ type: "ALBUM" }), 42)).toBeUndefined();
   });
 });

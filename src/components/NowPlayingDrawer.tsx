@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import ExplicitBadge from "./ExplicitBadge";
 import AiBadge from "./AiBadge";
-import { parseLrc, type LrcLine } from "../lib/lrc";
+import { findActiveLine, parseLrc, type LrcLine } from "../lib/lrc";
 import { isNavigableSource } from "../lib/playbackSource";
 import {
   useState,
@@ -947,24 +947,29 @@ const SuggestedTab = memo(function SuggestedTab() {
 // Memoized individual lyrics line — only re-renders when its own state changes
 const LyricsLine = memo(function LyricsLine({
   text,
+  time,
   isActive,
   isPast,
   lineRef,
+  onSeek,
 }: {
   text: string;
+  time: number;
   isActive: boolean;
   isPast: boolean;
   lineRef: (el: HTMLParagraphElement | null) => void;
+  onSeek: (time: number) => void;
 }) {
   return (
     <p
       ref={lineRef}
-      className={`text-xl font-medium cursor-default leading-snug origin-left transition-[transform,color,opacity] duration-500 ease-out ${
+      onClick={() => onSeek(time)}
+      className={`w-fit text-xl font-medium cursor-pointer leading-snug origin-left transition-[transform,color,opacity] duration-500 ease-out ${
         isActive
           ? "scale-[1.22] font-bold text-th-text-primary"
           : isPast
-            ? "text-th-text-disabled"
-            : "text-th-text-faint"
+            ? "text-th-text-disabled hover:text-th-text-secondary"
+            : "text-th-text-faint hover:text-th-text-secondary"
       }`}
       style={isActive ? { willChange: "transform" } : undefined}
     >
@@ -989,6 +994,7 @@ const LyricsTab = memo(function LyricsTab() {
     undefined,
   );
   const activeLineRef = useRef(-1);
+  const { seekTo } = usePlaybackActions();
 
   // Fetch lyrics
   useEffect(() => {
@@ -1045,14 +1051,7 @@ const LyricsTab = memo(function LyricsTab() {
 
     let rafId: number;
     const tick = () => {
-      const pos = getInterpolatedPosition();
-      let idx = -1;
-      for (let i = lrcLines.length - 1; i >= 0; i--) {
-        if (pos >= lrcLines[i].time) {
-          idx = i;
-          break;
-        }
-      }
+      const idx = findActiveLine(lrcLines, getInterpolatedPosition());
       // Only update state when the active line actually changes
       if (idx !== activeLineRef.current) {
         activeLineRef.current = idx;
@@ -1064,6 +1063,27 @@ const LyricsTab = memo(function LyricsTab() {
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
   }, [lrcLines, isPlaying]);
+
+  // The rAF loop is idle while paused — re-sync once per seek
+  useEffect(() => {
+    if (lrcLines.length === 0) return;
+    const onSeeked = (e: Event) => {
+      const idx = findActiveLine(lrcLines, (e as CustomEvent<number>).detail);
+      activeLineRef.current = idx;
+      setActiveLine(idx);
+    };
+    window.addEventListener("playback-seeked", onSeeked);
+    return () => window.removeEventListener("playback-seeked", onSeeked);
+  }, [lrcLines]);
+
+  // Re-centre only after the seek has moved activeLine, so the view doesn't
+  // slide back to the old line first
+  const handleSeek = useCallback(
+    (time: number) => {
+      void seekTo(time).then(() => setUserScrolled(false));
+    },
+    [seekTo],
+  );
 
   // Auto-scroll to active line (only if user hasn't scrolled)
   const scrollToLine = useCallback((idx: number) => {
@@ -1132,9 +1152,11 @@ const LyricsTab = memo(function LyricsTab() {
             <LyricsLine
               key={i}
               text={line.text}
+              time={line.time}
               isActive={i === activeLine}
               isPast={activeLine >= 0 && i < activeLine}
               lineRef={setLineRef(i)}
+              onSeek={handleSeek}
             />
           ))}
           <div className="h-40" /> {/* bottom spacer */}
