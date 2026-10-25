@@ -713,4 +713,26 @@ describe("rate-limited click", () => {
     await act(() => vi.advanceTimersByTimeAsync(7000));
     expect(store.get(currentTrackAtom)?.id).toBe(50);
   });
+
+  it("a newer click from another component cancels the older retry", async () => {
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      return calls <= 2 ? Promise.reject(rateLimited) : Promise.resolve({});
+    };
+    const store = createStore();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <Provider store={store}>
+        <ToastProvider>{children}</ToastProvider>
+      </Provider>
+    );
+    const a = renderHook(() => usePlaybackActions(), { wrapper }).result;
+    const b = renderHook(() => usePlaybackActions(), { wrapper }).result;
+    await act(() => a.current.playFromSource(c[0], c, src("album", c)));
+    vi.setSystemTime(Date.now() + 1000);
+    await act(() => b.current.playFromSource(c[1], c, src("album", c)));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(calls).toBe(3);
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+  });
 });

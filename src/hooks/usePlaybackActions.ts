@@ -181,6 +181,17 @@ const PLAY_REENTRY_GUARD_MS = 250;
 // Play/Shuffle on an artist keeps the manual queue; on any other collection it clears it.
 const MANUAL_QUEUE_KEEPING_SOURCES = new Set(["artist", "artist-tracks"]);
 
+// Module-level because the hook has many instances but the backend cooldown is
+// global: a play from any of them must cancel a resume armed by another.
+let pendingResumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelPendingResume() {
+  if (pendingResumeTimer !== null) {
+    clearTimeout(pendingResumeTimer);
+    pendingResumeTimer = null;
+  }
+}
+
 /** Invoke play_tidal_track with automatic device-busy retry.
  *  When PipeWire holds the ALSA device after pipeline teardown, this retries
  *  with 500ms delays (up to 5s) while keeping the UI responsive. */
@@ -235,7 +246,9 @@ export function usePlaybackActions() {
       const wait = (retryAfterSecs(error) ?? 5) + 1;
       showToast(`Too many requests — resuming in ${wait}s`, "info");
       const gen = playGenerationRef.current;
-      setTimeout(() => {
+      cancelPendingResume();
+      pendingResumeTimer = setTimeout(() => {
+        pendingResumeTimer = null;
         if (gen !== playGenerationRef.current) return;
         if (store.get(userPausedAtom)) return;
         if (store.get(currentVideoAtom)) return;
@@ -302,6 +315,7 @@ export function usePlaybackActions() {
         return { ok: false, reason: "transient" };
       }
       lastPlayInvokeRef.current = now;
+      cancelPendingResume();
       // VIDEO queue item → render in the <video> player; keep it in the queue so
       // prev/next/history work uniformly. Do NOT touch the audio pipeline beyond stop.
       if (track.itemType === "video") {
