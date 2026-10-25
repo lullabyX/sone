@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, LogOut, SlidersHorizontal, X } from "lucide-react";
@@ -24,6 +24,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { resetPlaybackForContentChange } from "../../lib/playbackReset";
 import { PRESET_THEMES } from "../../lib/theme";
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
+import { TvSettingsRow, TvSettingsSection } from "./TvSettingsParts";
 
 const QUALITY_TIERS = [
   { id: "HIGH", label: "High", spec: "AAC · up to 320 kbps" },
@@ -34,84 +35,6 @@ const QUALITY_TIERS = [
     spec: "FLAC · up to 24-bit / 192 kHz",
   },
 ];
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="mb-[2rem]">
-      <h2 className="text-[0.7rem] font-bold uppercase tracking-[0.15em] text-th-text-muted px-[1rem] mb-[0.5rem]">
-        {title}
-      </h2>
-      <div className="flex flex-col gap-[0.2rem]">{children}</div>
-    </section>
-  );
-}
-
-function Switch({ on }: { on: boolean }) {
-  return (
-    <span
-      className={`relative inline-flex w-[2.4rem] h-[1.3rem] shrink-0 rounded-full transition-colors ${
-        on ? "bg-th-accent" : "bg-th-border-subtle"
-      }`}
-    >
-      <span
-        className={`absolute top-[0.15rem] w-[1rem] h-[1rem] rounded-full bg-th-text-primary transition-transform ${
-          on ? "translate-x-[1.25rem]" : "translate-x-[0.15rem]"
-        }`}
-      />
-    </span>
-  );
-}
-
-/** One settings line: a focusable row with a switch, a check or a value. */
-function Row({
-  title,
-  subtitle,
-  toggle,
-  checked,
-  value,
-  disabled,
-  autoFocus,
-  onSelect,
-}: {
-  title: string;
-  subtitle?: string;
-  toggle?: boolean;
-  checked?: boolean;
-  value?: ReactNode;
-  disabled?: boolean;
-  autoFocus?: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      data-tv-focusable
-      data-tv-autofocus={autoFocus || undefined}
-      disabled={disabled}
-      onClick={onSelect}
-      className={`tv-track flex items-center gap-[1rem] w-full px-[1rem] py-[0.75rem] rounded-[0.6rem] text-left ${
-        disabled ? "opacity-40" : ""
-      }`}
-    >
-      <span className="flex-1 min-w-0">
-        <span
-          className={`block text-[0.85rem] font-semibold ${
-            checked ? "text-th-accent" : "text-th-text-primary"
-          }`}
-        >
-          {title}
-        </span>
-        {subtitle && (
-          <span className="block text-[0.65rem] text-th-text-muted mt-[0.1rem]">
-            {subtitle}
-          </span>
-        )}
-      </span>
-      {value}
-      {toggle !== undefined && <Switch on={toggle} />}
-      {checked && <Check className="w-[1.1rem] h-[1.1rem] text-th-accent" />}
-    </button>
-  );
-}
 
 /**
  * Settings that matter on a TV, driven by the remote: audio quality and
@@ -205,9 +128,9 @@ export default function TvSettings() {
         Settings
       </h1>
 
-      <Section title="Audio quality">
+      <TvSettingsSection title="Audio quality">
         {QUALITY_TIERS.map((t, i) => (
-          <Row
+          <TvSettingsRow
             key={t.id}
             title={t.label}
             subtitle={t.spec}
@@ -219,10 +142,10 @@ export default function TvSettings() {
             }}
           />
         ))}
-      </Section>
+      </TvSettingsSection>
 
-      <Section title="Output">
-        <Row
+      <TvSettingsSection title="Output">
+        <TvSettingsRow
           title="Exclusive output"
           subtitle="Send audio straight to the device, bypassing the system mixer"
           toggle={exclusive}
@@ -240,7 +163,7 @@ export default function TvSettings() {
         />
         {exclusive &&
           devices.map((d) => (
-            <Row
+            <TvSettingsRow
               key={d.id}
               title={d.name}
               subtitle="Output device"
@@ -254,7 +177,7 @@ export default function TvSettings() {
             />
           ))}
         {exclusive && (
-          <Row
+          <TvSettingsRow
             title="Bit-perfect"
             subtitle="The DAC gets the source unaltered. Volume and normalization switch at once; the output path changes with the next track"
             toggle={bitPerfect}
@@ -269,16 +192,16 @@ export default function TvSettings() {
             }}
           />
         )}
-      </Section>
+      </TvSettingsSection>
 
-      <Section title="Playback">
-        <Row
+      <TvSettingsSection title="Playback">
+        <TvSettingsRow
           title="Autoplay"
           subtitle="Play similar tracks when the queue ends"
           toggle={autoplay}
           onSelect={() => setAutoplay(!autoplay)}
         />
-        <Row
+        <TvSettingsRow
           title="Gapless playback"
           subtitle={
             !gaplessSupported
@@ -295,7 +218,7 @@ export default function TvSettings() {
             invoke("set_gapless", { enabled: next }).catch(() => {});
           }}
         />
-        <Row
+        <TvSettingsRow
           title="Normalize volume"
           subtitle={
             bitPerfect
@@ -312,21 +235,21 @@ export default function TvSettings() {
             );
           }}
         />
-        <Row
+        <TvSettingsRow
           title="Allow explicit content"
           subtitle="Allow playing tracks marked as explicit"
           toggle={allowExplicit}
           onSelect={() => onContentToggle("explicit", allowExplicit)}
         />
-        <Row
+        <TvSettingsRow
           title="Allow AI content"
           subtitle="Allow playing tracks labeled as AI-generated"
           toggle={allowAi}
           onSelect={() => onContentToggle("ai", allowAi)}
         />
-      </Section>
+      </TvSettingsSection>
 
-      <Section title="Theme">
+      <TvSettingsSection title="Theme">
         <div
           data-tv-remember
           className="grid grid-cols-5 gap-[0.8rem] px-[0.5rem] py-[0.4rem]"
@@ -367,24 +290,24 @@ export default function TvSettings() {
             );
           })}
         </div>
-      </Section>
+      </TvSettingsSection>
 
-      <Section title="TV mode">
-        <Row
+      <TvSettingsSection title="TV mode">
+        <TvSettingsRow
           title="Show lyrics in Now Playing"
           subtitle="When a track has lyrics, show them instead of the cover"
           toggle={lyricsOn}
           onSelect={() => setLyricsOn(!lyricsOn)}
         />
-        <Row
+        <TvSettingsRow
           title="More settings"
           subtitle="Scrobbling, Discord, network, custom colors and everything else"
           value={
             <SlidersHorizontal className="w-[1.1rem] h-[1.1rem] text-th-text-muted" />
           }
-          onSelect={nav.openMoreSettings}
+          onSelect={() => nav.openMoreSettings()}
         />
-        <Row
+        <TvSettingsRow
           title="Exit TV mode"
           subtitle="Back to the desktop layout"
           value={
@@ -392,10 +315,10 @@ export default function TvSettings() {
           }
           onSelect={() => setTvMode(false)}
         />
-      </Section>
+      </TvSettingsSection>
 
-      <Section title="Account">
-        <Row
+      <TvSettingsSection title="Account">
+        <TvSettingsRow
           title={userName ? `Signed in as ${userName}` : "Signed in"}
           subtitle="Log out of TIDAL on this device"
           value={
@@ -412,7 +335,7 @@ export default function TvSettings() {
             })
           }
         />
-      </Section>
+      </TvSettingsSection>
     </div>
   );
 }
