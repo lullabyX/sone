@@ -201,7 +201,7 @@ export function AppInitializer() {
 
   // ---- Stable playback actions (no subscriptions) ----
   const {
-    playTrack,
+    playSingle,
     playNext,
     playPrevious,
     pauseTrack,
@@ -553,7 +553,7 @@ export function AppInitializer() {
     } else {
       // playTrack: fetch track metadata, then play
       getTrack(action.trackId)
-        .then((track) => playTrack(track))
+        .then((track) => playSingle(track))
         .catch((err) => console.error("Deep link play failed:", err));
     }
   }

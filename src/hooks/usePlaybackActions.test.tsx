@@ -505,3 +505,139 @@ describe("AI content filter", () => {
     );
   });
 });
+
+describe("manual queue survives like TIDAL", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    playResult = () => Promise.resolve({});
+  });
+
+  const ids = (ts: Track[]) => ts.map((t) => t.id);
+  const c = [track({ id: 10 }), track({ id: 11 }), track({ id: 12 })];
+  const src = (type: string, all: Track[]) => ({
+    source: { type, id: "x", name: "X", allTracks: all },
+  });
+
+  it("playFromSource keeps the manual queue and replaces the context", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    store.set(queueAtom, tracks(3));
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(ids(store.get(manualQueueAtom))).toEqual([100, 101]);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+    expect(store.get(playbackSourceAtom)?.type).toBe("album");
+  });
+
+  it("playFromSource keeps the manual queue with global shuffle on", async () => {
+    const { store, result } = setup();
+    store.set(shuffleAtom, true);
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    store.set(queueAtom, tracks(3));
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(ids(store.get(manualQueueAtom))).toEqual([100, 101]);
+    expect(ids(store.get(queueAtom)).sort()).toEqual([11, 12]);
+  });
+
+  it("playSingle keeps the manual queue and empties the context", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    store.set(queueAtom, tracks(3));
+    store.set(playbackSourceAtom, {
+      type: "album",
+      id: "a",
+      name: "A",
+      tracks: [],
+    });
+    await act(() => result.current.playSingle(c[0]));
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+    expect(store.get(queueAtom)).toEqual([]);
+    expect(store.get(playbackSourceAtom)).toBeNull();
+  });
+
+  it("Play on an album clears both queues", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("album", c)));
+    expect(store.get(manualQueueAtom)).toEqual([]);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+  });
+
+  it("Shuffle on a playlist clears both queues", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() =>
+      result.current.playAllFromSource(c, {
+        ...src("playlist", c),
+        shuffle: true,
+      }),
+    );
+    expect(store.get(manualQueueAtom)).toEqual([]);
+    expect(store.get(queueAtom)).toHaveLength(2);
+  });
+
+  it("Play on favorites clears both queues", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("favorites", c)));
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it.each([
+    ["artist", false],
+    ["artist", true],
+    ["artist-tracks", false],
+    ["artist-tracks", true],
+  ])("%s Play (shuffle=%s) keeps the manual queue", async (type, shuffle) => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    await act(() =>
+      result.current.playAllFromSource(c, { ...src(type, c), shuffle }),
+    );
+    expect(ids(store.get(manualQueueAtom))).toEqual([100, 101]);
+    const playing = store.get(currentTrackAtom)?.id;
+    expect(ids(store.get(queueAtom)).sort()).toEqual(
+      ids(c).filter((id) => id !== playing),
+    );
+  });
+
+  it("play_now with no source clears the manual queue", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c));
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it("stash points at the new context after a manual track was playing", async () => {
+    const { store, result } = setup();
+    // A queued track (tagged with its own _source) is playing; Album A is stashed.
+    store.set(playbackSourceAtom, {
+      type: "playlist",
+      id: "m",
+      name: "M",
+      tracks: [],
+    });
+    store.set(contextSourceAtom, {
+      type: "album",
+      id: "A",
+      name: "A",
+      tracks: [],
+    });
+    store.set(manualQueueAtom, [
+      {
+        ...track({ id: 100 }),
+        _source: { type: "playlist", id: "m", name: "M" },
+      } as Track,
+    ]);
+    await act(() =>
+      result.current.playFromSource(c[0], c, {
+        source: { type: "album", id: "C", name: "C", allTracks: c },
+      }),
+    );
+    // The manual drain resets the re-entry guard itself.
+    await act(() => result.current.playNext());
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    await act(() => result.current.playNext());
+    expect(store.get(playbackSourceAtom)?.id).toBe("C");
+    expect(store.get(contextSourceAtom)).toBeNull();
+  });
+});

@@ -178,6 +178,8 @@ const DEVICE_RETRY_DELAY = 500;
 const DEVICE_MAX_RETRIES = 10;
 const MAX_HISTORY_TRACKS = 500;
 const PLAY_REENTRY_GUARD_MS = 250;
+// Play/Shuffle on an artist keeps the manual queue; on any other collection it clears it.
+const MANUAL_QUEUE_KEEPING_SOURCES = new Set(["artist", "artist-tracks"]);
 
 /** Invoke play_tidal_track with automatic device-busy retry.
  *  When PipeWire holds the ALSA device after pipeline teardown, this retries
@@ -733,6 +735,7 @@ export function usePlaybackActions() {
         albumMode?: boolean;
         reorder?: boolean;
         manualCount?: number;
+        clearManual?: boolean;
         source?: {
           type: string;
           id: string | number;
@@ -757,7 +760,7 @@ export function usePlaybackActions() {
       const eligible = tracks.filter((t) => !isContentBlocked(t, prefs));
       store.set(useTrackGainAtom, !options?.albumMode);
       store.set(originalQueueAtom, null);
-      store.set(manualQueueAtom, []);
+      if (options?.clearManual) store.set(manualQueueAtom, []);
       store.set(contextSourceAtom, null);
       store.set(
         playbackSourceAtom,
@@ -1575,13 +1578,14 @@ export function usePlaybackActions() {
           allTracks: Track[];
         };
         albumMode?: boolean;
+        clearManual?: boolean;
       },
     ) => {
       bumpQueueEpoch();
       const prefs = readContentPrefs(store);
       const eligible = tracks.filter((t) => !isContentBlocked(t, prefs));
       const stamped = stampQids(eligible.map(normalizeTrack));
-      store.set(manualQueueAtom, []);
+      if (options?.clearManual) store.set(manualQueueAtom, []);
       store.set(contextSourceAtom, null);
       const shuffleOn = store.get(shuffleAtom);
       store.set(originalQueueAtom, shuffleOn ? stamped : null);
@@ -1731,16 +1735,22 @@ export function usePlaybackActions() {
       );
       if (eligible.length === 0) return false;
       store.set(consecutiveFailCountAtom, 0);
+      const queueOptions = {
+        ...options,
+        clearManual: !MANUAL_QUEUE_KEEPING_SOURCES.has(
+          options?.source?.type ?? "",
+        ),
+      };
       let first: Track;
       if (options?.shuffle || store.get(shuffleAtom)) {
         const firstIdx = Math.floor(Math.random() * eligible.length);
         first = eligible[firstIdx];
         const rest = eligible.filter((_, i) => i !== firstIdx);
-        setShuffledQueue(rest, options);
+        setShuffledQueue(rest, queueOptions);
       } else {
         const [head, ...rest] = eligible;
         first = head;
-        setQueueTracks(rest, options);
+        setQueueTracks(rest, queueOptions);
       }
       const result = await playTrack(first);
       if (!result.ok && result.reason === "unplayable") {
