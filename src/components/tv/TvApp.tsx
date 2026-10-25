@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bell,
   Compass,
@@ -28,11 +27,7 @@ import SettingsSheet from "../settings/SettingsSheet";
 import { tvModeAtom } from "../../atoms/tv";
 import { feedUnseenCountAtom } from "../../atoms/ui";
 import { currentTrackAtom, isPlayingAtom } from "../../atoms/playback";
-import {
-  currentVideoAtom,
-  videoExpandedAtom,
-  videoFullscreenAtom,
-} from "../../atoms/video";
+import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { useMediaPlay } from "../../hooks/useMediaPlay";
 import { useMiniplayerEmitter } from "../../hooks/useMiniplayerEmitter";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
@@ -96,7 +91,6 @@ const ARROWS: Record<string, Direction> = {
 };
 
 const BACK_KEYS = new Set(["Escape", "BrowserBack", "GoBack"]);
-const CURSOR_HIDE_MS = 2500;
 /** How far Left/Right skip in a video, in seconds. */
 const VIDEO_SKIP_S = 10;
 
@@ -220,7 +214,6 @@ export default function TvApp() {
   const setTvMode = useSetAtom(tvModeAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
   const videoExpanded = useAtomValue(videoExpandedAtom);
-  const videoFullscreen = useAtomValue(videoFullscreenAtom);
   const overlayShowing = !!currentVideo && videoExpanded;
   const feedUnseen = useAtomValue(feedUnseenCountAtom);
   const { playFromSource, togglePlayPause, playNext, playPrevious } =
@@ -237,33 +230,9 @@ export default function TvApp() {
   // Focus to give back to each screen when the one above it closes.
   const savedFocus = useRef(new Map<number, HTMLElement>());
   const pendingRestore = useRef<number | null>(null);
-  const [cursorHidden, setCursorHidden] = useState(false);
 
   useMiniplayerEmitter();
 
-  // Scale the whole UI with the screen (rem-based sizes) and go fullscreen.
-  useLayoutEffect(() => {
-    const html = document.documentElement;
-    html.classList.add("tv-mode");
-    // Pixel-sized desktop pieces shown in TV mode (toasts) scale by this.
-    const updateScale = () => {
-      const rem = parseFloat(getComputedStyle(html).fontSize);
-      html.style.setProperty("--tv-px-scale", String(Math.max(1, rem / 16)));
-    };
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => {
-      window.removeEventListener("resize", updateScale);
-      html.classList.remove("tv-mode");
-      html.style.removeProperty("--tv-px-scale");
-    };
-  }, []);
-  useEffect(() => {
-    const win = getCurrentWindow();
-    return () => {
-      win.setFullscreen(false).catch(() => {});
-    };
-  }, []);
   // A new video starts full screen. When the one before it was playing
   // small in Now Playing and Now Playing is still the screen on top (Next,
   // or the queue moving on), the new one stays small there too.
@@ -301,38 +270,6 @@ export default function TvApp() {
     dialog.setAttribute("data-tv-native", "");
     dialog.setAttribute("data-tv-video", "");
   }, [currentVideo]);
-
-  // The video player drops window fullscreen when its own fullscreen ends;
-  // TV mode always wants it back.
-  useEffect(() => {
-    if (!videoFullscreen)
-      getCurrentWindow()
-        .setFullscreen(true)
-        .catch(() => {});
-  }, [videoFullscreen]);
-
-  // Hide the pointer until the mouse moves. Set on the document, so it also
-  // covers the video player, which sits outside the TV interface. Synthetic
-  // moves (sent to wake the video controls from the remote) don't count.
-  useEffect(() => {
-    let timer = setTimeout(() => setCursorHidden(true), CURSOR_HIDE_MS);
-    const onMove = (e: MouseEvent) => {
-      if (!e.isTrusted) return;
-      setCursorHidden(false);
-      clearTimeout(timer);
-      timer = setTimeout(() => setCursorHidden(true), CURSOR_HIDE_MS);
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("mousemove", onMove);
-    };
-  }, []);
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle("tv-cursor-hidden", cursorHidden);
-    return () => root.classList.remove("tv-cursor-hidden");
-  }, [cursorHidden]);
 
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {

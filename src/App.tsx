@@ -34,6 +34,8 @@ import { useTheme } from "./hooks/useTheme";
 import { useZoom } from "./hooks/useZoom";
 import { useTvLaunch } from "./hooks/useTvLaunch";
 import TvLogin from "./components/tv/TvLogin";
+import TvShell from "./components/tv/TvShell";
+import { TvSpinner } from "./components/tv/TvParts";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
 
@@ -62,6 +64,26 @@ function AppContent() {
   const tvMode = useAtomValue(tvModeAtom);
   const setTvMode = useSetAtom(tvModeAtom);
 
+  // Every TV branch has TvShell as its root, so it stays mounted across
+  // sign-in and sign-out. "Go home" on the crash screen leaves TV mode.
+  if (tvMode) {
+    return (
+      <TvShell>
+        {isAuthChecking ? (
+          <TvSpinner />
+        ) : !isAuthenticated ? (
+          <ErrorBoundary key="tv-login" onGoHome={() => setTvMode(false)}>
+            <TvLogin />
+          </ErrorBoundary>
+        ) : (
+          <ErrorBoundary key="tv-app" onGoHome={() => setTvMode(false)}>
+            <TvApp />
+          </ErrorBoundary>
+        )}
+      </TvShell>
+    );
+  }
+
   if (isAuthChecking) {
     return (
       <AppChrome>
@@ -73,21 +95,10 @@ function AppContent() {
   }
 
   if (!isAuthenticated) {
-    // TV mode signs in with a QR code instead of the desktop login form.
-    if (tvMode) return <TvLogin />;
     return (
       <AppChrome>
         <Login />
       </AppChrome>
-    );
-  }
-
-  if (tvMode) {
-    // "Go home" on the crash screen leaves TV mode for the desktop layout.
-    return (
-      <ErrorBoundary onGoHome={() => setTvMode(false)}>
-        <TvApp />
-      </ErrorBoundary>
     );
   }
 

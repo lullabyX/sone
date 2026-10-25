@@ -1,13 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, LogOut, RefreshCw, Smartphone, Tv } from "lucide-react";
 import {
@@ -98,16 +91,6 @@ export default function TvLogin() {
     startPkceLoginWindow(Math.max(1, rem / 16)).catch((e) =>
       setTvError(formatSoneError(e)),
     );
-  }, []);
-
-  // Same screen scaling and full screen as the TV interface.
-  useLayoutEffect(() => {
-    const html = document.documentElement;
-    html.classList.add("tv-mode");
-    getCurrentWindow()
-      .setFullscreen(true)
-      .catch(() => {});
-    return () => html.classList.remove("tv-mode");
   }, []);
 
   useEffect(() => {
