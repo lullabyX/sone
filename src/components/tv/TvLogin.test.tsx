@@ -102,3 +102,19 @@ it("closing the on-TV sign-in clears its error and puts focus back on it", async
     restore();
   }
 });
+
+it("a sign-in page that cannot load says the network is down", async () => {
+  const restore = stubLayout();
+  try {
+    renderTv(<TvLogin />);
+    await screen.findByRole("button", { name: "Sign in on this TV" });
+    (document.activeElement as HTMLElement).blur();
+    act(() => handlers["pkce-login-offline"]({ payload: null }));
+    expect(screen.getByText(/can't reach tidal/i)).toBeTruthy();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Sign in on this TV" }),
+    );
+  } finally {
+    restore();
+  }
+});

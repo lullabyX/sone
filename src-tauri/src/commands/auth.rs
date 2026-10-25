@@ -542,6 +542,18 @@ fn is_pkce_tv_cancel(url: &tauri::Url) -> bool {
     url.as_str().split(['?', '#']).next() == Some(PKCE_TV_CANCEL_URL)
 }
 
+/// A sign-in page load that failed for a reason other than our own refusals
+/// (cancel URL, intercepted redirect) or a cancelled/blocked navigation.
+fn pkce_load_failure_is_offline(failing_uri: &str, benign: bool) -> bool {
+    if benign || failing_uri.starts_with(PKCE_TV_CANCEL_URL) {
+        return false;
+    }
+    match failing_uri.parse::<tauri::Url>() {
+        Ok(url) => !(url.host_str() == Some("tidal.com") && url.path() == "/android/login/auth"),
+        Err(_) => true,
+    }
+}
+
 fn pkce_tv_cancel_script() -> String {
     format!(
         r#"window.addEventListener("keydown", function (e) {{
@@ -706,12 +718,33 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
     #[cfg(target_os = "linux")]
     {
         use webkit2gtk::{PermissionRequestExt, WebViewExt};
-        let _ = window.with_webview(|webview| {
+        let tv = zoom.is_some();
+        let app_for_failure = app.clone();
+        let _ = window.with_webview(move |webview| {
             let wv: webkit2gtk::WebView = webview.inner();
             wv.connect_permission_request(|_wv, request| {
                 request.deny();
                 true
             });
+            // TV only: the desktop window keeps WebKit's own error page.
+            if tv {
+                wv.connect_load_failed(move |_wv, _event, uri, err| {
+                    let benign = err.matches(webkit2gtk::NetworkError::Cancelled)
+                        || err.is::<webkit2gtk::PolicyError>();
+                    if pkce_load_failure_is_offline(uri, benign) {
+                        // Taken first, so the close does not also report a cancel.
+                        pending_pkce_slot().lock().unwrap().take();
+                        let app = app_for_failure.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Some(w) = app.get_webview_window("pkce-login") {
+                                let _ = w.close();
+                            }
+                            let _ = app.emit("pkce-login-offline", ());
+                        });
+                    }
+                    false
+                });
+            }
         });
     }
 
@@ -782,5 +815,22 @@ mod pkce_tv_tests {
         }
         assert!(s.contains(PKCE_TV_CANCEL_URL));
         assert!(s.contains("addEventListener(\"keydown\""));
+    }
+
+    #[test]
+    fn offline_only_for_real_load_failures() {
+        assert!(pkce_load_failure_is_offline(
+            "https://login.tidal.com/authorize?x=1",
+            false
+        ));
+        assert!(!pkce_load_failure_is_offline(
+            "https://login.tidal.com/authorize?x=1",
+            true
+        ));
+        assert!(!pkce_load_failure_is_offline(PKCE_TV_CANCEL_URL, false));
+        assert!(!pkce_load_failure_is_offline(
+            "https://tidal.com/android/login/auth?code=x",
+            false
+        ));
     }
 }

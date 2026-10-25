@@ -85,6 +85,10 @@ export default function TvLogin() {
       setTvError(null);
       if (rootRef.current) focusFirstIn(rootRef.current);
     }).then((u) => unsubs.push(u));
+    listen("pkce-login-offline", () => {
+      setTvError(OFFLINE_TEXT);
+      if (rootRef.current) focusFirstIn(rootRef.current);
+    }).then((u) => unsubs.push(u));
     return () => unsubs.forEach((u) => u());
   }, [getUserPlaylists, setAuthTokens, setIsAuthenticated]);
 
