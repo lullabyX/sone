@@ -3,6 +3,7 @@ import { act } from "@testing-library/react";
 import { createStore } from "jotai";
 import { useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isPlayingAtom } from "../../atoms/playback";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
@@ -161,4 +162,15 @@ it("a stale videoPlaying after the video closed does not inhibit", async () => {
   shell();
   await flush();
   expect(invoke).not.toHaveBeenCalledWith("inhibit_idle", expect.anything());
+});
+
+it("hides an open miniplayer while in TV mode and brings it back on exit", async () => {
+  const mini = { hide: vi.fn(), show: vi.fn() };
+  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue(mini as never);
+  const r = shell();
+  await flush();
+  expect(mini.hide).toHaveBeenCalled();
+  r.unmount();
+  await flush();
+  expect(mini.show).toHaveBeenCalled();
 });

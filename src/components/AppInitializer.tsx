@@ -88,6 +88,7 @@ import { useFavorites } from "../hooks/useFavorites";
 import { useShortcuts } from "../hooks/useShortcuts";
 import { useMcpBridge } from "../hooks/useMcpBridge";
 import { useOverlayBridge } from "../hooks/useOverlayBridge";
+import { useMprisFullscreen } from "../hooks/useMprisFullscreen";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -1310,12 +1311,6 @@ export function AppInitializer() {
       }
       handleDeepLink(url);
     });
-    const unlistenFullscreen = listen<boolean>(
-      "mpris:set-fullscreen",
-      (event) => {
-        store.set(maximizedPlayerAtom, event.payload);
-      },
-    );
     return () => {
       unlistenSeek.then((fn) => fn());
       unlistenVolume.then((fn) => fn());
@@ -1323,19 +1318,10 @@ export function AppInitializer() {
       unlistenLoop.then((fn) => fn());
       unlistenSetPosition.then((fn) => fn());
       unlistenOpenUri.then((fn) => fn());
-      unlistenFullscreen.then((fn) => fn());
     };
   }, [store, setVolume, toggleShuffle, seekTo]);
 
-  useEffect(() => {
-    const push = () => {
-      invoke("update_mpris_fullscreen", {
-        fullscreen: store.get(maximizedPlayerAtom),
-      }).catch(() => {});
-    };
-    push();
-    return store.sub(maximizedPlayerAtom, push);
-  }, [store]);
+  useMprisFullscreen();
 
   // ================================================================
   //  KEYBOARD SHORTCUTS

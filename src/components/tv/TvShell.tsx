@@ -9,6 +9,7 @@ import {
   videoFullscreenAtom,
   videoPlayingAtom,
 } from "../../atoms/video";
+import { useHideMiniplayer } from "../../hooks/useMiniplayerWindow";
 import "./tv.css";
 
 const TV_CURSOR_HIDE_MS = 2500;
@@ -27,8 +28,8 @@ function updateScale() {
 /**
  * The root of every TV surface (sign-in and the TV interface), kept mounted
  * across sign-in and sign-out: it scales the UI with the screen, keeps the
- * window fullscreen, hides the idle pointer and keeps the screen awake while
- * something plays, and undoes all of it on exit.
+ * window fullscreen, hides the idle pointer and the always-on-top miniplayer,
+ * keeps the screen awake while something plays, and undoes all of it on exit.
  */
 export default function TvShell({ children }: { children: ReactNode }) {
   const store = useStore();
@@ -37,6 +38,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
   const currentVideo = useAtomValue(currentVideoAtom);
   const videoPlaying = useAtomValue(videoPlayingAtom);
   const inhibit = isPlaying || (!!currentVideo && videoPlaying);
+  useHideMiniplayer();
 
   // Before any child's layout effect, so they measure the TV sizes.
   useInsertionEffect(() => {
