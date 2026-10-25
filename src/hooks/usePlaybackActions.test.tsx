@@ -26,10 +26,11 @@ import type { Track } from "../types";
 // playNext drives the audio backend through invoke(); stub it so play_tidal_track
 // resolves and the repeat-all rebuild runs to completion. `playResult` lets a
 // single case make play_tidal_track reject without disturbing the others.
-let playResult: () => Promise<unknown> = () => Promise.resolve({});
+let playResult: (args?: { trackId?: number }) => Promise<unknown> = () =>
+  Promise.resolve({});
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn((cmd: string) => {
-    if (cmd === "play_tidal_track") return playResult();
+  invoke: vi.fn((cmd: string, args?: { trackId?: number }) => {
+    if (cmd === "play_tidal_track") return playResult(args);
     return Promise.resolve({});
   }),
 }));
@@ -672,6 +673,26 @@ describe("rate-limited click", () => {
     expect(ids(store.get(manualQueueAtom))).toEqual([100]);
   });
 
+  it("a retried track that turns out dead moves to the next album track", async () => {
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(rateLimited);
+      if (calls === 2)
+        return Promise.reject({
+          kind: "Api",
+          message: { status: 404, body: "" },
+        });
+      return Promise.resolve({});
+    };
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
   it("retries the first artist top track", async () => {
     const { store, result } = setup();
     store.set(manualQueueAtom, [track({ id: 100 })]);
@@ -734,5 +755,55 @@ describe("rate-limited click", () => {
     await act(() => vi.advanceTimersByTimeAsync(7000));
     expect(calls).toBe(3);
     expect(store.get(currentTrackAtom)?.id).toBe(11);
+  });
+});
+
+describe("a dead clicked track", () => {
+  const notFound = { kind: "Api", message: { status: 404, body: "" } };
+
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(notFound) : Promise.resolve({});
+    };
+  });
+
+  it("a dead clicked track moves to the next album track, not the queued one", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("a dead first artist top track moves to the next top track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("artist", c)));
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("falls back to the queued track when the collection has nothing left", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() =>
+      result.current.playFromSource(c[0], [c[0]], src("album", [c[0]])),
+    );
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it("falls back to the queued track when every album track 404s", async () => {
+    playResult = (args) =>
+      args?.trackId === 100 ? Promise.resolve({}) : Promise.reject(notFound);
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(store.get(manualQueueAtom)).toEqual([]);
   });
 });

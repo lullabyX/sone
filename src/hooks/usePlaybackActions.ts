@@ -227,7 +227,8 @@ export function usePlaybackActions() {
   const playNextLockRef = useRef(false);
   const lastPlayInvokeRef = useRef(0);
   const playNextRef = useRef<
-    ((opts?: { explicit?: boolean }) => Promise<void>) | null
+    | ((opts?: { explicit?: boolean; contextFirst?: boolean }) => Promise<void>)
+    | null
   >(null);
   const playTrackRef = useRef<
     | ((
@@ -269,7 +270,8 @@ export function usePlaybackActions() {
           } finally {
             playNextLockRef.current = false;
           }
-          if (unplayable) await playNextRef.current?.({ explicit: true });
+          if (unplayable)
+            await playNextRef.current?.({ explicit: true, contextFirst: true });
         })();
       }, wait * 1000);
     },
@@ -937,7 +939,7 @@ export function usePlaybackActions() {
   );
 
   const playNext = useCallback(
-    async (options?: { explicit?: boolean }) => {
+    async (options?: { explicit?: boolean; contextFirst?: boolean }) => {
       if (playNextLockRef.current) return;
       playNextLockRef.current = true;
       store.set(userPausedAtom, false);
@@ -1046,8 +1048,20 @@ export function usePlaybackActions() {
           return false;
         };
 
+        // A dead clicked track advances within its own collection; the manual
+        // queue drains first only when that collection has nothing playable.
+        const skipManual =
+          !!options?.contextFirst &&
+          store
+            .get(queueAtom)
+            .some(
+              (t) =>
+                !isTrackUnavailable(t) &&
+                !isContentBlocked(t, readContentPrefs(store)),
+            );
+
         // Drain manual queue first (skip past unavailable tracks)
-        while (store.get(manualQueueAtom).length > 0) {
+        while (!skipManual && store.get(manualQueueAtom).length > 0) {
           const manualNow = store.get(manualQueueAtom);
           const [nextTrack, ...rest] = manualNow;
 
@@ -1187,6 +1201,12 @@ export function usePlaybackActions() {
           if (orig) {
             store.set(originalQueueAtom, orig);
           }
+          return;
+        }
+
+        if (skipManual && store.get(manualQueueAtom).length > 0) {
+          playNextLockRef.current = false;
+          await playNext({ explicit: true });
           return;
         }
 
@@ -1748,7 +1768,7 @@ export function usePlaybackActions() {
       const result = await playTrack(track, { retryOnRateLimit: true });
       if (!result.ok && result.reason === "unplayable") {
         // First track was unavailable. Engage skip-loop on rest.
-        await playNext({ explicit: true });
+        await playNext({ explicit: true, contextFirst: true });
       }
     },
     [store, playTrack, setQueueTracks, setShuffledQueue, playNext, showToast],
@@ -1796,7 +1816,7 @@ export function usePlaybackActions() {
       }
       const result = await playTrack(first, { retryOnRateLimit: true });
       if (!result.ok && result.reason === "unplayable") {
-        await playNext({ explicit: true });
+        await playNext({ explicit: true, contextFirst: true });
       }
       return true;
     },
