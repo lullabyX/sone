@@ -534,6 +534,25 @@ pub fn on_pkce_window_closed(app: &AppHandle) {
     }
 }
 
+/// The TV sign-in window has no close button the remote can reach, so its
+/// Back keys navigate here and `on_navigation` closes the window instead.
+const PKCE_TV_CANCEL_URL: &str = "https://sone.invalid/tv-login-cancel";
+
+fn is_pkce_tv_cancel(url: &tauri::Url) -> bool {
+    url.as_str().split(['?', '#']).next() == Some(PKCE_TV_CANCEL_URL)
+}
+
+fn pkce_tv_cancel_script() -> String {
+    format!(
+        r#"window.addEventListener("keydown", function (e) {{
+  if (e.key === "Escape" || e.key === "BrowserBack" || e.key === "GoBack") {{
+    e.preventDefault();
+    location.href = "{PKCE_TV_CANCEL_URL}";
+  }}
+}}, true);"#
+    )
+}
+
 async fn finish_embedded_pkce(
     app: AppHandle,
     code: String,
@@ -610,7 +629,7 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
         .map_err(|e| SoneError::Parse(format!("invalid authorize URL: {}", e)))?;
 
     let app_for_handler = app.clone();
-    let window = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(url))
+    let mut builder = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(url))
         .title("Sign in to TIDAL")
         .inner_size(1024.0, 768.0)
         .center()
@@ -618,6 +637,15 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
         .always_on_top(true)
         .maximized(zoom.is_some())
         .on_navigation(move |url: &tauri::Url| -> bool {
+            if is_pkce_tv_cancel(url) {
+                let app = app_for_handler.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(w) = app.get_webview_window("pkce-login") {
+                        let _ = w.close();
+                    }
+                });
+                return false;
+            }
             if url.host_str() == Some("tidal.com") && url.path() == "/android/login/auth" {
                 let code = url
                     .query_pairs()
@@ -656,7 +684,13 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
                 );
             }
             true
-        })
+        });
+    // All frames: a key pressed inside a cross-origin iframe (e.g. a captcha)
+    // never reaches a top-frame listener.
+    if zoom.is_some() {
+        builder = builder.initialization_script_for_all_frames(pkce_tv_cancel_script());
+    }
+    let window = builder
         .build()
         .map_err(|e| SoneError::NotConfigured(format!("Failed to create login window: {}", e)))?;
 
@@ -721,4 +755,32 @@ pub async fn get_user_profile(
     log::debug!("[get_user_profile]");
     let mut client = state.tidal_client.lock().await;
     client.get_user_profile(user_id).await
+}
+
+#[cfg(test)]
+mod pkce_tv_tests {
+    use super::*;
+
+    #[test]
+    fn recognises_only_the_cancel_url() {
+        assert!(is_pkce_tv_cancel(&PKCE_TV_CANCEL_URL.parse().unwrap()));
+        assert!(!is_pkce_tv_cancel(
+            &"https://sone.invalid/other".parse().unwrap()
+        ));
+        assert!(!is_pkce_tv_cancel(
+            &"https://tidal.com/android/login/auth?code=x"
+                .parse()
+                .unwrap()
+        ));
+    }
+
+    #[test]
+    fn script_sends_back_keys_to_the_cancel_url() {
+        let s = pkce_tv_cancel_script();
+        for k in ["Escape", "BrowserBack", "GoBack"] {
+            assert!(s.contains(k));
+        }
+        assert!(s.contains(PKCE_TV_CANCEL_URL));
+        assert!(s.contains("addEventListener(\"keydown\""));
+    }
 }
