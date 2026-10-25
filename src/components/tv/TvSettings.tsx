@@ -17,7 +17,12 @@ import {
   volumeNormalizationAtom,
 } from "../../atoms/playback";
 import { themeAtom } from "../../atoms/theme";
-import { tvLyricsAtom, tvModeAtom } from "../../atoms/tv";
+import {
+  nextTvOverscan,
+  tvLyricsAtom,
+  tvModeAtom,
+  tvOverscanAtom,
+} from "../../atoms/tv";
 import { useToast } from "../../contexts/ToastContext";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useAuth } from "../../hooks/useAuth";
@@ -58,6 +63,7 @@ export default function TvSettings() {
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const [theme, setTheme] = useAtom(themeAtom);
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
+  const [overscan, setOverscan] = useAtom(tvOverscanAtom);
   const setTvMode = useSetAtom(tvModeAtom);
   const { userName, logout } = useAuth();
   const [gaplessSupported, setGaplessSupported] = useState(false);
@@ -298,6 +304,16 @@ export default function TvSettings() {
           subtitle="When a track has lyrics, show them instead of the cover"
           toggle={lyricsOn}
           onSelect={() => setLyricsOn(!lyricsOn)}
+        />
+        <TvSettingsRow
+          title="Screen margin"
+          subtitle="Shrink the picture if your TV cuts off its edges"
+          value={
+            <span className="text-[0.8rem] text-th-text-muted">
+              {overscan === 0 ? "Off" : `${overscan} %`}
+            </span>
+          }
+          onSelect={() => setOverscan(nextTvOverscan(overscan))}
         />
         <TvSettingsRow
           title="More settings"

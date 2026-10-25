@@ -1,8 +1,15 @@
-import { useEffect, useInsertionEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useInsertionEffect,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import { useAtomValue, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPlayingAtom } from "../../atoms/playback";
+import { tvOverscanAtom } from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
@@ -38,6 +45,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
   const currentVideo = useAtomValue(currentVideoAtom);
   const videoPlaying = useAtomValue(videoPlayingAtom);
   const inhibit = isPlaying || (!!currentVideo && videoPlaying);
+  const overscan = useAtomValue(tvOverscanAtom);
   useHideMiniplayer();
 
   // Before any child's layout effect, so they measure the TV sizes.
@@ -50,6 +58,17 @@ export default function TvShell({ children }: { children: ReactNode }) {
       html.style.removeProperty("--tv-px-scale");
     };
   }, []);
+  // Overlays outside the shell (menu, prompt, the full-screen video) inset
+  // their content by the same margin.
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.style.setProperty("--tv-safe-x", `${overscan}vw`);
+    html.style.setProperty("--tv-safe-y", `${overscan}vh`);
+    return () => {
+      html.style.removeProperty("--tv-safe-x");
+      html.style.removeProperty("--tv-safe-y");
+    };
+  }, [overscan]);
   useEffect(() => {
     window.addEventListener("resize", updateScale);
     return () => window.removeEventListener("resize", updateScale);
@@ -133,7 +152,10 @@ export default function TvShell({ children }: { children: ReactNode }) {
   }, [inhibit]);
 
   return (
-    <div className="tv-shell h-full w-full bg-th-base">
+    <div
+      className="tv-shell h-full w-full bg-th-base"
+      style={{ padding: `${overscan}vh ${overscan}vw` }}
+    >
       <div className="tv-safe relative h-full w-full">{children}</div>
     </div>
   );

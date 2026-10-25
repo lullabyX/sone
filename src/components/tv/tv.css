@@ -118,6 +118,18 @@ html.tv-mode {
   zoom: var(--tv-px-scale, 1);
 }
 
+/* Overlays outside the TV shell (menu, prompt) keep their content inside
+   the screen margin; their backdrop still covers the whole screen. */
+.tv-mode .tv-overlay {
+  padding: var(--tv-safe-y, 0px) var(--tv-safe-x, 0px);
+}
+
+/* The full-screen video sits inside the screen margin, black around it. */
+.tv-mode [data-tv-video]:not(.hidden):not([data-tv-video-mini]) {
+  inset: var(--tv-safe-y, 0px) var(--tv-safe-x, 0px);
+  box-shadow: 0 0 0 100vmax #000;
+}
+
 /* The video player's control bars are sized in px for the desktop; scale
    them up on a TV (marked by TvApp when the player mounts). */
 .tv-mode [data-tv-video] > .z-20 {

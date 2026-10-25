@@ -19,6 +19,11 @@ it("the action menu and the prompt draw above the video player", () => {
   expect(num(promptSrc, /fixed inset-0 z-\[(\d+)\]/)).toBeGreaterThan(VIDEO);
 });
 
+it("the menu and the prompt keep their content inside the screen margin", () => {
+  expect(menuSrc).toMatch(/fixed inset-0 z-\[10000\] tv-overlay/);
+  expect(promptSrc).toMatch(/fixed inset-0 z-\[10000\] tv-overlay/);
+});
+
 it("a native layer (More settings, Signal path) is one layer above the video player", () => {
   const { container } = renderTv(
     <TvNativeLayer width={800} height={740}>

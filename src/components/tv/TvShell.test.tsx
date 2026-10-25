@@ -5,6 +5,7 @@ import { useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isPlayingAtom } from "../../atoms/playback";
+import { tvOverscanAtom } from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
@@ -173,4 +174,25 @@ it("hides an open miniplayer while in TV mode and brings it back on exit", async
   r.unmount();
   await flush();
   expect(mini.show).toHaveBeenCalled();
+});
+
+it("pads the TV surface by the screen margin and publishes it", () => {
+  store.set(tvOverscanAtom, 5);
+  const { container, unmount } = shell();
+  expect(
+    (container.querySelector(".tv-shell") as HTMLElement).style.padding,
+  ).toBe("5vh 5vw");
+  expect(document.documentElement.style.getPropertyValue("--tv-safe-x")).toBe(
+    "5vw",
+  );
+  expect(document.documentElement.style.getPropertyValue("--tv-safe-y")).toBe(
+    "5vh",
+  );
+  unmount();
+  expect(document.documentElement.style.getPropertyValue("--tv-safe-x")).toBe(
+    "",
+  );
+  expect(document.documentElement.style.getPropertyValue("--tv-safe-y")).toBe(
+    "",
+  );
 });

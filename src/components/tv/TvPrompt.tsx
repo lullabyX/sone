@@ -39,7 +39,7 @@ export default function TvPrompt({
   const name = text.trim();
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-[10000] tv-overlay flex items-center justify-center bg-black/60">
       <div
         ref={panelRef}
         data-tv-modal

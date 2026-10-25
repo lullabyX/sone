@@ -30,3 +30,20 @@ export const tvModeAtom = atom(
 /** Now Playing shows the lyrics in place of the cover (when the track has
  *  any). Remembered, so it stays on from track to track. */
 export const tvLyricsAtom = atomWithStorage("sone.tvLyrics.v1", false);
+
+/** Screen margin (overscan), in percent of the screen on each side, for TVs
+ *  that cut off the edges of the picture. */
+export type TvOverscan = 0 | 2.5 | 5;
+const TV_OVERSCAN_STEPS: TvOverscan[] = [0, 2.5, 5];
+
+export const tvOverscanAtom = atomWithStorage<TvOverscan>(
+  "sone.tvOverscan.v1",
+  0,
+  undefined,
+  { getOnInit: true },
+);
+
+export function nextTvOverscan(v: TvOverscan): TvOverscan {
+  const i = TV_OVERSCAN_STEPS.indexOf(v);
+  return TV_OVERSCAN_STEPS[(i + 1) % TV_OVERSCAN_STEPS.length];
+}
