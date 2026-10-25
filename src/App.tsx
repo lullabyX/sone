@@ -37,6 +37,7 @@ import { useZoom } from "./hooks/useZoom";
 import { useTvLaunch } from "./hooks/useTvLaunch";
 import TvLogin from "./components/tv/TvLogin";
 import TvShell from "./components/tv/TvShell";
+import TvCrashScreen from "./components/tv/TvCrashScreen";
 import { TvSpinner } from "./components/tv/TvParts";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
@@ -67,18 +68,30 @@ function AppContent() {
   const setTvMode = useSetAtom(tvModeAtom);
 
   // Every TV branch has TvShell as its root, so it stays mounted across
-  // sign-in and sign-out. "Go home" on the crash screen leaves TV mode.
+  // sign-in and sign-out. "Exit TV mode" on the crash screen leaves TV mode.
   if (tvMode) {
     return (
       <TvShell>
         {isAuthChecking ? (
           <TvSpinner />
         ) : !isAuthenticated ? (
-          <ErrorBoundary key="tv-login" onGoHome={() => setTvMode(false)}>
+          <ErrorBoundary
+            key="tv-login"
+            onGoHome={() => setTvMode(false)}
+            fallback={(a) => (
+              <TvCrashScreen onReload={a.reload} onExit={a.goHome} />
+            )}
+          >
             <TvLogin />
           </ErrorBoundary>
         ) : (
-          <ErrorBoundary key="tv-app" onGoHome={() => setTvMode(false)}>
+          <ErrorBoundary
+            key="tv-app"
+            onGoHome={() => setTvMode(false)}
+            fallback={(a) => (
+              <TvCrashScreen onReload={a.reload} onExit={a.goHome} />
+            )}
+          >
             <TvApp />
           </ErrorBoundary>
         )}
