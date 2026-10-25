@@ -14,7 +14,6 @@ import {
   maximizedPlayerAtom,
 } from "../atoms/ui";
 import MaximizedPlayer from "./MaximizedPlayer";
-import VideoPlayer from "./VideoPlayer";
 import { currentVideoAtom, videoExpandedAtom } from "../atoms/video";
 import { useMiniplayerEmitter } from "../hooks/useMiniplayerEmitter";
 import { useScrollRestoration } from "../hooks/useScrollRestoration";
@@ -155,7 +154,6 @@ export default function Layout({ children }: LayoutProps) {
         {maximized && <MaximizedPlayer />}
         <PlayerBar />
       </div>
-      {currentVideo && <VideoPlayer />}
       {!nativeChrome && <ResizeEdges top={4} bottom={4} left={4} right={2} />}
     </div>
   );

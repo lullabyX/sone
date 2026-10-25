@@ -45,7 +45,12 @@ export default function TvNativeLayer({
   }, []);
 
   return (
-    <div ref={ref} data-tv-modal data-tv-native style={{ zoom }}>
+    <div
+      ref={ref}
+      data-tv-modal
+      data-tv-native
+      style={{ zoom, position: "relative", zIndex: 10000 }}
+    >
       {children}
     </div>
   );

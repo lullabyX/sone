@@ -21,7 +21,6 @@ import {
   Settings,
 } from "lucide-react";
 import TidalImage from "../TidalImage";
-import VideoPlayer from "../VideoPlayer";
 import ProxyNoticeBanner from "../ProxyNoticeBanner";
 import SettingsSheet from "../settings/SettingsSheet";
 import { tvModeAtom } from "../../atoms/tv";
@@ -56,6 +55,7 @@ import TvNativeLayer from "./TvNativeLayer";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import { menuForElement } from "./tvMenu";
+import { useTvVideoMarks } from "./useTvVideoMarks";
 import "./tv.css";
 
 type RootType =
@@ -256,20 +256,7 @@ export default function TvApp() {
     lastVideo.current = { id: currentVideo.id, expanded: videoExpanded };
   }, [currentVideo, videoExpanded, store]);
 
-  // Mark the video player as soon as it mounts: its buttons become
-  // reachable with the arrows and the TV styles apply (scaled controls,
-  // desktop-only buttons hidden, never display:none while minimized).
-  useLayoutEffect(() => {
-    if (!currentVideo) return;
-    const dialog = document
-      .querySelector("[role='dialog'] video")
-      ?.closest<HTMLElement>("[role='dialog']");
-    if (!dialog) return;
-    // Attributes, not classes: React rewrites the dialog's className
-    // whenever the player re-renders, but leaves attributes it never set.
-    dialog.setAttribute("data-tv-native", "");
-    dialog.setAttribute("data-tv-video", "");
-  }, [currentVideo]);
+  useTvVideoMarks(currentVideo);
 
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {
@@ -775,7 +762,6 @@ export default function TvApp() {
           <SettingsSheet open onClose={closeMoreSettings} />
         </TvNativeLayer>
       )}
-      {currentVideo && <VideoPlayer />}
     </TvNavContext.Provider>
   );
 }

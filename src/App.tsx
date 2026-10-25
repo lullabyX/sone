@@ -22,11 +22,13 @@ import TvApp from "./components/tv/TvApp";
 import { AppInitializer } from "./components/AppInitializer";
 import ProxyNoticeBanner from "./components/ProxyNoticeBanner";
 import TooltipLayer from "./components/TooltipLayer";
+import VideoPlayer from "./components/VideoPlayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
 import { useAtomValue, useSetAtom } from "jotai";
 import { currentViewAtom } from "./atoms/navigation";
-import { isAuthCheckingAtom } from "./atoms/auth";
+import { isAuthCheckingAtom, isAuthenticatedAtom } from "./atoms/auth";
+import { currentVideoAtom } from "./atoms/video";
 import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
 import { tvModeAtom } from "./atoms/tv";
 import { ToastProvider } from "./contexts/ToastContext";
@@ -217,6 +219,14 @@ function AppContent() {
   );
 }
 
+// One player for both layouts, so turning TV mode on or off never remounts
+// it and the video carries on where it was.
+function AppVideo() {
+  const isAuthenticated = useAtomValue(isAuthenticatedAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  return isAuthenticated && currentVideo ? <VideoPlayer /> : null;
+}
+
 function App() {
   useZoom();
   useTheme();
@@ -234,6 +244,7 @@ function App() {
       <AppInitializer />
       <TooltipLayer />
       <AppContent />
+      <AppVideo />
     </ToastProvider>
   );
 }

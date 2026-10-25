@@ -635,7 +635,7 @@ const TvMenuHost = forwardRef<
   if (!spec) return null;
 
   return (
-    <div className="fixed inset-0 z-[9000] flex justify-end">
+    <div className="fixed inset-0 z-[10000] flex justify-end">
       <div className="absolute inset-0 bg-black/55" onClick={close} />
       <div
         ref={panelRef}
