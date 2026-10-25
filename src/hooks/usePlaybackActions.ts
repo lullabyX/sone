@@ -757,7 +757,6 @@ export function usePlaybackActions() {
       const eligible = tracks.filter((t) => !isContentBlocked(t, prefs));
       store.set(useTrackGainAtom, !options?.albumMode);
       store.set(originalQueueAtom, null);
-      store.set(manualQueueAtom, []);
       store.set(contextSourceAtom, null);
       store.set(
         playbackSourceAtom,
@@ -1581,7 +1580,6 @@ export function usePlaybackActions() {
       const prefs = readContentPrefs(store);
       const eligible = tracks.filter((t) => !isContentBlocked(t, prefs));
       const stamped = stampQids(eligible.map(normalizeTrack));
-      store.set(manualQueueAtom, []);
       store.set(contextSourceAtom, null);
       const shuffleOn = store.get(shuffleAtom);
       store.set(originalQueueAtom, shuffleOn ? stamped : null);
