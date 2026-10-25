@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { listen } from "@tauri-apps/api/event";
-import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, LogOut, RefreshCw, Smartphone, Tv } from "lucide-react";
 import {
   getDefaultCredentials,
@@ -12,17 +11,15 @@ import { authTokensAtom, isAuthenticatedAtom } from "../../atoms/auth";
 import { tvModeAtom } from "../../atoms/tv";
 import type { AuthTokens } from "../../types";
 import { useAuth } from "../../hooks/useAuth";
-import { formatSoneError } from "../../lib/errorUtils";
-import { focusFirstIn, moveFocus, type Direction } from "../../lib/spatialNav";
+import { formatSoneError, isNetworkError } from "../../lib/errorUtils";
+import { focusFirstIn } from "../../lib/spatialNav";
 import { TvButton } from "./TvParts";
+import { TvQrCode } from "./TvQrCode";
+import { useTvLocalNav } from "./useTvLocalNav";
 import "./tv.css";
 
-const ARROWS: Record<string, Direction> = {
-  ArrowUp: "up",
-  ArrowDown: "down",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-};
+const OFFLINE_TEXT =
+  "Can't reach TIDAL. Check the network connection, then try again.";
 
 type State =
   | { step: "starting" }
@@ -35,6 +32,9 @@ type State =
   | { step: "signing-in" }
   | { step: "error"; message: string }
   | { step: "no-credentials" };
+
+const phoneErrorText = (e: unknown) =>
+  isNetworkError(e) ? OFFLINE_TEXT : formatSoneError(e);
 
 const withScheme = (uri: string) =>
   uri.startsWith("http") ? uri : `https://${uri}`;
@@ -80,6 +80,10 @@ export default function TvLogin() {
     }).then((u) => unsubs.push(u));
     listen<string>("pkce-login-error", (event) => {
       setTvError(event.payload || "Signing in failed.");
+    }).then((u) => unsubs.push(u));
+    listen("pkce-login-cancelled", () => {
+      setTvError(null);
+      if (rootRef.current) focusFirstIn(rootRef.current);
     }).then((u) => unsubs.push(u));
     return () => unsubs.forEach((u) => u());
   }, [getUserPlaylists, setAuthTokens, setIsAuthenticated]);
@@ -145,14 +149,13 @@ export default function TvLogin() {
             timer = window.setTimeout(poll, interval);
           } catch (e) {
             if (!cancelled) {
-              setState({ step: "error", message: formatSoneError(e) });
+              setState({ step: "error", message: phoneErrorText(e) });
             }
           }
         };
         timer = window.setTimeout(poll, interval);
       } catch (e) {
-        if (!cancelled)
-          setState({ step: "error", message: formatSoneError(e) });
+        if (!cancelled) setState({ step: "error", message: phoneErrorText(e) });
       }
     })();
     return () => {
@@ -166,23 +169,17 @@ export default function TvLogin() {
     setAttempt((a) => a + 1);
   }, []);
 
-  // The remote: arrows move between the buttons, Enter presses them.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const dir = ARROWS[e.key];
-      const root = rootRef.current;
-      if (!dir || !root) return;
-      e.preventDefault();
-      if (!root.contains(document.activeElement)) focusFirstIn(root);
-      else moveFocus(root, dir);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  useEffect(() => {
-    const root = rootRef.current;
-    if (root && !root.contains(document.activeElement)) focusFirstIn(root);
-  }, [state.step, phone, pkce]);
+  // A fresh code each time the phone way is chosen, never the last one.
+  const choosePhone = () => {
+    setState({ step: "starting" });
+    setUsePhone(true);
+  };
+  const back = () => {
+    setState({ step: "starting" });
+    setUsePhone(false);
+  };
+
+  useTvLocalNav(rootRef, `${state.step}:${phone}:${pkce}`);
 
   if (!phone) {
     return (
@@ -220,7 +217,7 @@ export default function TvLogin() {
                 <TvButton
                   icon={<Smartphone className="w-[1rem] h-[1rem]" />}
                   label="Sign in with your phone"
-                  onClick={() => setUsePhone(true)}
+                  onClick={choosePhone}
                 />
                 <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
                   Scan a QR code, nothing to type. TIDAL limits this kind of
@@ -296,7 +293,7 @@ export default function TvLogin() {
             <TvButton
               primary={state.step === "error"}
               icon={<RefreshCw className="w-[1rem] h-[1rem]" />}
-              label="New code"
+              label={state.step === "error" ? "Try again" : "New code"}
               onClick={retry}
             />
           )}
@@ -304,7 +301,7 @@ export default function TvLogin() {
             <TvButton
               icon={<ArrowLeft className="w-[1rem] h-[1rem]" />}
               label="Back"
-              onClick={() => setUsePhone(false)}
+              onClick={back}
             />
           )}
           <TvButton
@@ -317,13 +314,11 @@ export default function TvLogin() {
         </div>
       </div>
       {state.step === "code" && (
-        <div className="shrink-0 rounded-[1.2rem] bg-white p-[1.2rem]">
-          <QRCodeSVG
-            value={state.qrUrl}
-            level="M"
-            className="block w-[16rem] h-[16rem]"
-          />
-        </div>
+        <TvQrCode
+          value={state.qrUrl}
+          label="Phone sign-in code"
+          className="w-[16rem] h-[16rem]"
+        />
       )}
     </div>
   );

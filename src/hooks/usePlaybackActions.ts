@@ -53,7 +53,7 @@ import {
   isUnplayableError,
   retryAfterSecs,
 } from "../lib/trackAvailability";
-import { getProxyBlockedReason } from "../lib/errorUtils";
+import { getProxyBlockedReason, isNetworkError } from "../lib/errorUtils";
 import {
   blockedMessage,
   contentBlockReason,
@@ -153,16 +153,6 @@ function extractPlaybackError(error: unknown): string {
 /** Check if an error is a device_busy error from exclusive ALSA mode. */
 function isDeviceBusy(error: unknown): boolean {
   return extractPlaybackError(error) === "device_busy";
-}
-
-/** Check if an error is a network error (SoneError::Network). */
-function isNetworkError(error: unknown): boolean {
-  try {
-    const parsed = typeof error === "string" ? JSON.parse(error) : error;
-    return parsed?.kind === "Network";
-  } catch {
-    return false;
-  }
 }
 
 function fisherYatesShuffle<T>(arr: T[]): T[] {
