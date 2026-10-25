@@ -1,8 +1,14 @@
 import { useEffect, useInsertionEffect, useState, type ReactNode } from "react";
-import { useStore } from "jotai";
+import { useAtomValue, useStore } from "jotai";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isPlayingAtom } from "../../atoms/playback";
 import { maximizedPlayerAtom } from "../../atoms/ui";
-import { videoFullscreenAtom } from "../../atoms/video";
+import {
+  currentVideoAtom,
+  videoFullscreenAtom,
+  videoPlayingAtom,
+} from "../../atoms/video";
 import "./tv.css";
 
 const TV_CURSOR_HIDE_MS = 2500;
@@ -21,11 +27,16 @@ function updateScale() {
 /**
  * The root of every TV surface (sign-in and the TV interface), kept mounted
  * across sign-in and sign-out: it scales the UI with the screen, keeps the
- * window fullscreen and hides the idle pointer, and undoes all of it on exit.
+ * window fullscreen, hides the idle pointer and keeps the screen awake while
+ * something plays, and undoes all of it on exit.
  */
 export default function TvShell({ children }: { children: ReactNode }) {
   const store = useStore();
   const [cursorHidden, setCursorHidden] = useState(false);
+  const isPlaying = useAtomValue(isPlayingAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  const videoPlaying = useAtomValue(videoPlayingAtom);
+  const inhibit = isPlaying || (!!currentVideo && videoPlaying);
 
   // Before any child's layout effect, so they measure the TV sizes.
   useInsertionEffect(() => {
@@ -110,6 +121,14 @@ export default function TvShell({ children }: { children: ReactNode }) {
     root.classList.toggle("tv-cursor-hidden", cursorHidden);
     return () => root.classList.remove("tv-cursor-hidden");
   }, [cursorHidden]);
+
+  useEffect(() => {
+    if (!inhibit) return;
+    invoke("inhibit_idle", { holder: "tv" }).catch(() => {});
+    return () => {
+      invoke("uninhibit_idle", { holder: "tv" }).catch(() => {});
+    };
+  }, [inhibit]);
 
   return (
     <div className="tv-shell h-full w-full bg-th-base">

@@ -647,14 +647,25 @@ pub async fn set_proxy_settings(
 pub async fn inhibit_idle(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
+    holder: Option<String>,
 ) -> Result<(), SoneError> {
-    state.idle_inhibitor.lock().await.inhibit(&window).await;
+    let holder = holder.as_deref().unwrap_or("default");
+    state
+        .idle_inhibitor
+        .lock()
+        .await
+        .acquire(holder, &window)
+        .await;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn uninhibit_idle(state: State<'_, AppState>) -> Result<(), SoneError> {
-    state.idle_inhibitor.lock().await.uninhibit().await;
+pub async fn uninhibit_idle(
+    state: State<'_, AppState>,
+    holder: Option<String>,
+) -> Result<(), SoneError> {
+    let holder = holder.as_deref().unwrap_or("default");
+    state.idle_inhibitor.lock().await.release(holder).await;
     Ok(())
 }
 

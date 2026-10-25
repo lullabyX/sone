@@ -2,8 +2,15 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { act } from "@testing-library/react";
 import { createStore } from "jotai";
 import { useLayoutEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { isPlayingAtom } from "../../atoms/playback";
 import { maximizedPlayerAtom } from "../../atoms/ui";
-import { videoFullscreenAtom } from "../../atoms/video";
+import {
+  currentVideoAtom,
+  videoFullscreenAtom,
+  videoPlayingAtom,
+} from "../../atoms/video";
+import type { TidalVideo } from "../../types";
 import TvShell from "./TvShell";
 import { mockInvoke, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
 
@@ -21,7 +28,10 @@ let store: TvStore;
 beforeEach(() => {
   store = createStore();
   win.isFullscreen.mockImplementation(() => Promise.resolve(false));
-  mockInvoke({});
+  mockInvoke({
+    inhibit_idle: () => undefined,
+    uninhibit_idle: () => undefined,
+  });
 });
 const flush = () => act(async () => {});
 const A = () => <p>A</p>;
@@ -129,4 +139,26 @@ it("the safe area is not a stacking context", () => {
   expect(
     container.querySelector(".tv-safe")!.getAttribute("style") ?? "",
   ).not.toMatch(/contain|transform|z-index/);
+});
+
+it("inhibits idle while audio or a video plays, and releases after", async () => {
+  shell();
+  act(() => store.set(isPlayingAtom, true));
+  await flush();
+  expect(invoke).toHaveBeenCalledWith("inhibit_idle", { holder: "tv" });
+  act(() => store.set(isPlayingAtom, false));
+  await flush();
+  expect(invoke).toHaveBeenLastCalledWith("uninhibit_idle", { holder: "tv" });
+  act(() => {
+    store.set(currentVideoAtom, { id: 1 } as TidalVideo);
+    store.set(videoPlayingAtom, true);
+  });
+  await flush();
+  expect(invoke).toHaveBeenLastCalledWith("inhibit_idle", { holder: "tv" });
+});
+it("a stale videoPlaying after the video closed does not inhibit", async () => {
+  store.set(videoPlayingAtom, true); // currentVideoAtom stays null
+  shell();
+  await flush();
+  expect(invoke).not.toHaveBeenCalledWith("inhibit_idle", expect.anything());
 });
