@@ -575,8 +575,11 @@ async fn finish_embedded_pkce(
 /// for tokens using embedded credentials, persists them, closes the
 /// window, and emits `pkce-login-success` (or `pkce-login-error` /
 /// `pkce-login-cancelled` on failure paths).
+///
+/// `zoom` (TV mode) opens the window maximized with its page scaled up, so
+/// the sign-in form is readable from the couch.
 #[tauri::command]
-pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
+pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Result<(), SoneError> {
     log::debug!("[start_pkce_login_window]");
     if !crate::embedded_config::has_pkce_keys() {
         return Err(SoneError::NotConfigured(
@@ -613,6 +616,7 @@ pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
         .center()
         .resizable(true)
         .always_on_top(true)
+        .maximized(zoom.is_some())
         .on_navigation(move |url: &tauri::Url| -> bool {
             if url.host_str() == Some("tidal.com") && url.path() == "/android/login/auth" {
                 let code = url
@@ -658,6 +662,10 @@ pub async fn start_pkce_login_window(app: AppHandle) -> Result<(), SoneError> {
 
     #[cfg(target_os = "linux")]
     crate::webview_proxy_auth::install_window(&window);
+
+    if let Some(z) = zoom {
+        let _ = window.set_zoom(z.clamp(1.0, 4.0));
+    }
 
     // Deny all WebKit permission prompts (camera/mic/geolocation/notifications).
     // Tidal's Turnstile human-check can request the camera; login works fine without it.
