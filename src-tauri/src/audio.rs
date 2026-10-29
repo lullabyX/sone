@@ -1078,15 +1078,33 @@ fn spawn_alsa_writer(
     let initial_format = initial_format.clone();
     let (tx, rx) = crossbeam_channel::bounded::<WriterCommand>(256);
 
-    // Open device eagerly to detect EBUSY immediately
-    let pcm = alsa::PCM::new(&device, alsa::Direction::Playback, false).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("busy") || msg.contains("EBUSY") {
-            "device_busy".to_string()
-        } else {
-            format!("Failed to open ALSA device: {e}")
+    // Take the card from the sound server before opening it, so it hands the
+    // card back when this writer exits (see device_reserve). Held for the
+    // writer thread's lifetime.
+    let reservation = crate::device_reserve::DeviceReservation::acquire(&device);
+
+    // Open device eagerly to detect EBUSY immediately. If the sound server just
+    // released the card to us, it may still be closing it — retry briefly.
+    let mut attempts = if reservation.is_some() { 10 } else { 1 };
+    let pcm = loop {
+        attempts -= 1;
+        match alsa::PCM::new(&device, alsa::Direction::Playback, false) {
+            Ok(pcm) => break pcm,
+            Err(e) => {
+                let msg = e.to_string();
+                let busy = msg.contains("busy") || msg.contains("EBUSY");
+                if busy && attempts > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                }
+                return Err(if busy {
+                    "device_busy".to_string()
+                } else {
+                    format!("Failed to open ALSA device: {e}")
+                });
+            }
         }
-    })?;
+    };
 
     let supported_gst_formats = probe_supported_gst_formats(&pcm);
     log::debug!("[alsa-writer] DAC supported GStreamer formats: {:?}", supported_gst_formats);
@@ -1142,6 +1160,9 @@ fn spawn_alsa_writer(
     let handle = std::thread::Builder::new()
         .name("alsa-writer".into())
         .spawn(move || {
+            // Declared before `pcm` so it drops after it: the card is only
+            // handed back once the PCM is closed.
+            let _reservation = reservation;
             let sp = signal_path_thread;
             let mut pcm = pcm; // rebind as mutable for format-change reopen
             let mut current_fmt = initial_format;
