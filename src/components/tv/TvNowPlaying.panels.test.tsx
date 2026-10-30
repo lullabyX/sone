@@ -23,7 +23,12 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { historyAtom, manualQueueAtom, queueAtom } from "../../atoms/playback";
+import {
+  historyAtom,
+  manualQueueAtom,
+  playbackSourceAtom,
+  queueAtom,
+} from "../../atoms/playback";
 import { tvNowPlayingTabAtom } from "../../atoms/tv";
 import type { Lyrics, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
@@ -230,5 +235,54 @@ describe("TvNowPlaying queue actions", () => {
       ),
     );
     expect(store.get(queueAtom).map((t) => t._qid)).toEqual([b._qid]);
+  });
+});
+
+describe("TvNowPlaying queue", () => {
+  it("renders the queue in chunks and grows near the end", () => {
+    renderTv(<TvNowPlaying />, {
+      store: playing(
+        mkTrack(500),
+        range(100).map((i) => mkTrack(i + 1)),
+      ),
+    });
+    expect(rows()).toHaveLength(40);
+    act(() =>
+      rows()[20].querySelector<HTMLElement>("[data-tv-focusable]")!.focus(),
+    );
+    expect(rows()).toHaveLength(80);
+  });
+
+  it("labels the parts of the queue", () => {
+    const store = playing(mkTrack(500), [mkTrack(1), mkTrack(2)]);
+    store.set(manualQueueAtom, [mkTrack(60, { _qid: "m" })]);
+    store.set(playbackSourceAtom, {
+      type: "album",
+      id: 5,
+      name: "Blue Album",
+      tracks: [],
+    });
+    renderTv(<TvNowPlaying />, { store });
+    expect(screen.getByText("Next in queue")).toBeTruthy();
+    expect(screen.getByText("Next up from Blue Album")).toBeTruthy();
+  });
+
+  it("keeps focus on a track moved down past the last shown row", async () => {
+    const store = playing(
+      mkTrack(500),
+      range(100).map((i) => mkTrack(i + 1)),
+    );
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    act(
+      () =>
+        void menuOf(nav, "T40").find((i) => i.label === "Move down")!
+          .onSelect!(),
+    );
+    expect(store.get(queueAtom)[40].id).toBe(40);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        rowFor("T40").querySelector("[data-tv-focusable]"),
+      ),
+    );
   });
 });

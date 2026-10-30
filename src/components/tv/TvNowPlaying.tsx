@@ -33,10 +33,12 @@ import TidalImage from "../TidalImage";
 import SignalPathPanel from "../SignalPathPanel";
 import TvNativeLayer from "./TvNativeLayer";
 import {
+  contextSourceAtom,
   currentTrackAtom,
   historyAtom,
   isPlayingAtom,
   manualQueueAtom,
+  playbackSourceAtom,
   queueAtom,
   repeatAtom,
   shuffleAtom,
@@ -75,8 +77,8 @@ import { useTvLyrics } from "./useTvLyrics";
 import { useTvMiniVideo, useTvVideoAspect } from "./useTvMiniVideo";
 import { TV_SEEK_STEP_S, TV_VOLUME_STEP } from "./tvKeys";
 import { useTvMediaCommands } from "./useTvMediaCommands";
-
-const UP_NEXT_SHOWN = 20;
+import { useTvProgressive } from "./useTvProgressive";
+import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 
 /** The playing video's element (the video player's, wherever it is shown). */
 function videoElement(): HTMLVideoElement | null {
@@ -286,19 +288,26 @@ function focusQueueRow(list: HTMLElement | null, qid: string | undefined) {
   return !!row;
 }
 
-/** Up next. Every action finds its track by queue id when it runs, so a
- *  queue that moved on while the menu was open never hits another track. */
+/** Up next: the manual queue, then the rest of the source, rendered a
+ *  chunk at a time as focus nears the end. Every action finds its track by
+ *  queue id when it runs, so a queue that moved on while the menu was open
+ *  never hits another track. */
 function QueuePanel() {
   const store = useStore();
   const queue = useAtomValue(queueAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
+  const contextSource = useAtomValue(contextSourceAtom);
+  const playbackSource = useAtomValue(playbackSourceAtom);
+  const source = contextSource ?? playbackSource;
   const { playFromQueue, removeFromQueue, clearQueue, setQueueTracks } =
     usePlaybackActions();
   const { showToast } = useToast();
   const screen = useContext(TvScreenContext);
   const listRef = useRef<HTMLDivElement>(null);
   const total = manualQueue.length + queue.length;
-  const upNext = [...manualQueue, ...queue].slice(0, UP_NEXT_SHOWN);
+  const win = useTvProgressive(total);
+  useTvGrowOnFocus(listRef, win.shown, win.grow);
+  const upNext = [...manualQueue, ...queue].slice(0, win.shown);
   const current = () => ({
     manual: store.get(manualQueueAtom),
     context: store.get(queueAtom),
@@ -318,6 +327,8 @@ function QueuePanel() {
     const r = moveInQueue(manual, context, t, to);
     if (!r) return;
     setQueueTracks(r.tracks, { reorder: true, manualCount: r.manualCount });
+    // Moved down past the last shown row: show it before refocusing it.
+    if (queueIndexOf(r.tracks, [], t) >= win.shown) win.grow();
     requestAnimationFrame(() => focusQueueRow(listRef.current, t._qid));
   };
   const remove = (t: Track) => {
@@ -369,27 +380,48 @@ function QueuePanel() {
     },
   ];
 
-  if (upNext.length === 0) return <PanelEmpty text="Nothing queued" />;
+  const row = (t: Track, i: number) => (
+    <TvTrackRow
+      key={t._qid ?? `${t.id}:${i}`}
+      track={t}
+      index={i}
+      rowId={t._qid}
+      showCover
+      menuExtra={queueMenu(t, i)}
+      onSelect={() => {
+        const { manual, context } = current();
+        const at = queueIndexOf(manual, context, t);
+        if (at < 0) return;
+        void playFromQueue(at);
+        focusPlayerSoon(screen.element);
+      }}
+    />
+  );
+  const manualShown = upNext.slice(0, manualQueue.length);
+  const contextShown = upNext.slice(manualQueue.length);
+
+  // The root is always rendered: the grow-on-focus listener attaches to it
+  // at mount.
   return (
     <div ref={listRef}>
-      {upNext.map((t, i) => (
-        <TvTrackRow
-          key={t._qid ?? `${t.id}:${i}`}
-          track={t}
-          index={i}
-          rowId={t._qid}
-          showCover
-          menuExtra={queueMenu(t, i)}
-          onSelect={() => {
-            const { manual, context } = current();
-            const at = queueIndexOf(manual, context, t);
-            if (at < 0) return;
-            void playFromQueue(at);
-            focusPlayerSoon(screen.element);
-          }}
+      {upNext.length === 0 && <PanelEmpty text="Nothing queued" />}
+      {manualShown.length > 0 && <QueueHeading text="Next in queue" />}
+      {manualShown.map(row)}
+      {contextShown.length > 0 && (
+        <QueueHeading
+          text={source ? `Next up from ${source.name}` : "Next up"}
         />
-      ))}
+      )}
+      {contextShown.map((t, i) => row(t, manualQueue.length + i))}
     </div>
+  );
+}
+
+function QueueHeading({ text }: { text: string }) {
+  return (
+    <h3 className="px-[1rem] pt-[0.6rem] pb-[0.4rem] text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted truncate">
+      {text}
+    </h3>
   );
 }
 
