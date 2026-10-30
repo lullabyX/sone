@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { focusElement } from "../../lib/spatialNav";
 import { useAtomValue } from "jotai";
 import { Heart, ListX, MoreHorizontal, Play, Shuffle } from "lucide-react";
@@ -8,6 +8,7 @@ import {
   getMixItems,
   getPlaylistDetails,
   getPlaylistTracksPage,
+  invalidateCache,
 } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
 import { favoriteTrackIdsAtom } from "../../atoms/favorites";
@@ -190,7 +191,10 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
   const load = useCallback(() => loadList(view, userId), [view, userId]);
-  const { data, error, retry } = useTvLoader(load, "Couldn't load tracks");
+  const { data, error, retry, update } = useTvLoader(
+    load,
+    "Couldn't load tracks",
+  );
   // Attached here rather than in the loader, so a like change re-filters
   // the rows without loading again.
   const spec = useMemo(
@@ -201,23 +205,33 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
     [data, view.type, favoriteTrackIds],
   );
 
+  // Loads again in the background, keeping the page (and focus) until the
+  // new list arrives; a failure shows the error screen.
+  const reload = useCallback(() => {
+    load().then((d) => update(() => d), retry);
+  }, [load, update, retry]);
+
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
   if (!spec) return <TvSpinner />;
   // The list's near-end detector needs its root at mount, so the page is
   // its own component, mounted once the spec has loaded.
-  return <TrackListPage view={view} spec={spec} userId={userId} />;
+  return (
+    <TrackListPage view={view} spec={spec} userId={userId} reload={reload} />
+  );
 }
 
 function TrackListPage({
   view,
   spec,
   userId,
+  reload,
 }: {
   view: ListView;
   spec: TrackListSpec;
   userId?: number;
+  reload: () => void;
 }) {
   const nav = useTvNav();
   const fav = useFavorites();
@@ -225,9 +239,25 @@ function TrackListPage({
   const listRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
   // Removals go out one at a time: each sends the row's position at the
-  // moment it is chosen, after the ones before it have landed.
-  const removalChain = useRef<Promise<unknown>>(Promise.resolve());
+  // moment it is chosen, after the ones before it have landed. A failure
+  // drops the ones still queued (their positions assumed it worked) and
+  // blocks new ones until the list has reloaded from the server.
+  const removal = useRef<{
+    chain: Promise<void>;
+    gen: number;
+    staleSpec: TrackListSpec | null;
+  }>({ chain: Promise.resolve(), gen: 0, staleSpec: null });
+  const specRef = useRef(spec);
+  useLayoutEffect(() => {
+    specRef.current = spec;
+  });
+  const [pendingRemovals, setPendingRemovals] = useState(0);
   const [countDelta, setCountDelta] = useState(0);
+  const [countSpec, setCountSpec] = useState(spec);
+  if (countSpec !== spec) {
+    setCountSpec(spec);
+    setCountDelta(0);
+  }
 
   const paged = useTvPaged(spec.pager ?? null, viewKey(view), {
     items: spec.first,
@@ -242,7 +272,13 @@ function TrackListPage({
           : paged.items,
     [paged.items, spec.include, spec.dedupe],
   );
-  useTvGrowOnFocus(listRef, rows.length, spec.pager ? paged.loadMore : null);
+  // No new page while removals are in flight: their offsets would shift
+  // under the fetch.
+  useTvGrowOnFocus(
+    listRef,
+    rows.length,
+    spec.pager && pendingRemovals === 0 ? paged.loadMore : null,
+  );
 
   const playable = (): PlayableSource =>
     spec.pager
@@ -316,21 +352,30 @@ function TrackListPage({
   const removeFromPlaylist = (track: Track) => {
     if (view.type !== "playlist") return;
     const uuid = view.uuid;
+    const r = removal.current;
+    if (r.staleSpec === specRef.current) return;
     // Found by identity in the list as it is now, so an earlier removal
     // still in flight cannot shift it onto the wrong row.
     const idx = paged.remove(track);
     if (idx < 0) return;
+    const gen = r.gen;
     setCountDelta((d) => d - 1);
-    removalChain.current = removalChain.current
-      .then(() => removeTrackFromPlaylist(uuid, idx))
-      .then(
-        () => showToast(`Removed "${track.title}" from playlist`),
-        () => {
-          paged.insert(idx, track);
-          setCountDelta((d) => d + 1);
+    setPendingRemovals((n) => n + 1);
+    r.chain = r.chain
+      .then(async () => {
+        if (gen !== r.gen) return;
+        try {
+          await removeTrackFromPlaylist(uuid, idx);
+          showToast(`Removed "${track.title}" from playlist`);
+        } catch {
+          r.gen++;
+          r.staleSpec = specRef.current;
           showToast("Failed to remove track", "error");
-        },
-      );
+          invalidateCache(`playlist:${uuid}`);
+          reload();
+        }
+      })
+      .finally(() => setPendingRemovals((n) => n - 1));
     // The removed row had focus: move it to the row that took its place
     // (or the new last one), once the menu has closed and the list has
     // re-rendered. Rows are found by position: blocked rows have no menu,

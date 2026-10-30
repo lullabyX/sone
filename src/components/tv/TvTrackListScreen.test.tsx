@@ -166,23 +166,51 @@ describe("playlist removals", () => {
     ]);
   });
 
-  it("a failed removal puts the row back and toasts (guard)", async () => {
+  it("a failed removal drops the queued ones and reloads the list from the server", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
       await screen.findByText("T2");
-      fireEvent.click(rowMore("T2"));
-      const entry = vi.mocked(nav.trackMenu).mock.lastCall![1]![0];
+      const removeEntry = (title: string) => {
+        fireEvent.click(rowMore(title));
+        return vi.mocked(nav.trackMenu).mock.lastCall![1]![0];
+      };
+      const [rb, rc] = [removeEntry("T2"), removeEntry("T3")];
       act(() => {
-        void entry.onSelect!();
+        void rb.onSelect!();
+        void rc.onSelect!();
       });
       await act(async () => {});
+      // The server's list after the failed request (it did go through).
+      api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 2, creator: { id: 42 } });
+      api.getPlaylistTracksPage.mockResolvedValue({ items: [a, c], totalNumberOfItems: 2 });
       await act(async () => pending[0].reject(new Error("x")));
-      expect(rowFor("T2").getAttribute("data-tv-index")).toBe("1");
-      expect(screen.getByText(/\b3 Tracks\b/)).toBeTruthy();
+      await screen.findByText("T3");
+      expect(screen.queryByText("T2")).toBeNull();
+      expect(screen.getByText(/\b2 Tracks\b/)).toBeTruthy();
+      expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(2);
       await screen.findByText("Failed to remove track");
+      await act(async () => {});
+      expect(removeCalls()).toEqual([{ playlistId: "p", index: 1 }]);
     } finally {
       quiet.mockRestore();
     }
+  });
+
+  it("no further page loads while a removal is in flight", async () => {
+    const tracks = range(30).map((i) => mkTrack(i + 1));
+    api.getPlaylistTracksPage.mockResolvedValue({ items: tracks, totalNumberOfItems: 250 });
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+    await screen.findByText("T25");
+    fireEvent.click(rowMore("T2"));
+    act(() => {
+      void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!();
+    });
+    act(() => rowButton("T25").focus());
+    expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(1);
+    await act(async () => {});
+    await act(async () => pending[0].resolve());
+    act(() => rowButton("T26").focus());
+    await waitFor(() => expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(2));
   });
 });
