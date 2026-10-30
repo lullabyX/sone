@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useAtomValue } from "jotai";
 import { Loader2, ExternalLink } from "lucide-react";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
+import { tvModeAtom } from "../../atoms/tv";
+import { TvQrCode } from "../tv/TvQrCode";
 
 interface ProviderStatus {
   name: string;
@@ -16,6 +19,7 @@ type AuthStep = "idle" | "waiting" | "authorized" | "submitting";
 interface AudioscrobblerState {
   step: AuthStep;
   token: string;
+  url: string | null;
   error: string | null;
 }
 
@@ -95,6 +99,7 @@ const LISTENBRAINZ_GLYPH = (
 );
 
 export default function ScrobbleTab() {
+  const tvMode = useAtomValue(tvModeAtom);
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [queueSize, setQueueSize] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -103,11 +108,13 @@ export default function ScrobbleTab() {
   const [lastfm, setLastfm] = useState<AudioscrobblerState>({
     step: "idle",
     token: "",
+    url: null,
     error: null,
   });
   const [librefm, setLibrefm] = useState<AudioscrobblerState>({
     step: "idle",
     token: "",
+    url: null,
     error: null,
   });
   const [listenbrainz, setListenBrainz] = useState<ListenBrainzState>({
@@ -134,8 +141,8 @@ export default function ScrobbleTab() {
   // Fetch status on mount
   useEffect(() => {
     setLoading(true);
-    setLastfm({ step: "idle", token: "", error: null });
-    setLibrefm({ step: "idle", token: "", error: null });
+    setLastfm({ step: "idle", token: "", url: null, error: null });
+    setLibrefm({ step: "idle", token: "", url: null, error: null });
     setListenBrainz({ step: "idle", token: "", error: null });
     fetchStatus();
     invoke<boolean>("get_report_plays")
@@ -157,8 +164,8 @@ export default function ScrobbleTab() {
       const { url, token } = await invoke<{ url: string; token: string }>(
         command,
       );
-      await openUrl(url);
-      setState((s) => ({ ...s, step: "authorized", token }));
+      if (!tvMode) await openUrl(url);
+      setState((s) => ({ ...s, step: "authorized", token, url }));
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Failed to start auth flow";
@@ -178,7 +185,7 @@ export default function ScrobbleTab() {
         providerName: provider,
         token: state.token,
       });
-      setState({ step: "idle", token: "", error: null });
+      setState({ step: "idle", token: "", url: null, error: null });
       await fetchStatus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Authentication failed";
@@ -251,7 +258,7 @@ export default function ScrobbleTab() {
             ) : state.step === "waiting" ? (
               <div className="flex items-center gap-2 mt-0.5 text-[11.5px] text-th-text-secondary">
                 <Loader2 size={12} className="animate-spin" />
-                Opening browser…
+                {tvMode ? "Getting a sign-in link…" : "Opening browser…"}
               </div>
             ) : (
               <div className="text-[11.5px] text-th-text-muted mt-0.5">
@@ -280,9 +287,25 @@ export default function ScrobbleTab() {
         {!connected &&
           (state.step === "authorized" || state.step === "submitting") && (
             <div className="mt-3 space-y-2">
-              <p className="text-[11.5px] text-th-text-muted">
-                Authorize in the browser, then come back and click below.
-              </p>
+              {tvMode && state.url ? (
+                <>
+                  <div className="flex">
+                    <TvQrCode
+                      value={state.url}
+                      label={`${displayName} sign-in`}
+                      className="w-[176px] h-[176px]"
+                    />
+                  </div>
+                  <p className="text-[11.5px] text-th-text-muted">
+                    Scan with your phone and allow access, then choose I've
+                    authorized.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11.5px] text-th-text-muted">
+                  Authorize in the browser, then come back and click below.
+                </p>
+              )}
               <button
                 onClick={() =>
                   handleAudioscrobblerSubmit(provider, state, setState)
