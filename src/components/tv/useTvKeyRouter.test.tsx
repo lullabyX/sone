@@ -3,6 +3,7 @@ import { createStore } from "jotai";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { DEFAULT_BINDINGS, shortcutsAtom } from "../../lib/shortcuts";
+import { DISMISS_PRIORITY, registerDismissable } from "../../lib/dismissStack";
 import type { TvKeyAction } from "./tvKeys";
 import { useTvKeyRouter } from "./useTvKeyRouter";
 import { pressKey, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
@@ -85,5 +86,23 @@ it("keeps rebound desktop shortcuts off TV navigation keys", () => {
   expect(enter.defaultPrevented).toBe(false);          // the native click still happens
   expect(d.muteToggle).toHaveBeenCalledTimes(1);       // keys TV leaves alone still reach the desktop
   expect(execute).toHaveBeenCalledWith({ type: "move", dir: "down", enterSide: true }, expect.any(KeyboardEvent));
+  expect(execute).toHaveBeenCalledWith({ type: "back" }, expect.any(KeyboardEvent));
+});
+let off = () => {};
+afterEach(() => off());
+it("Escape on a full-screen video minimises it instead of closing it", () => {
+  const onClose = vi.fn();
+  off = registerDismissable(DISMISS_PRIORITY.overlay, onClose);
+  const { execute } = mount(VIDEO, { store: videoShowing() });
+  pressKey(document.body, { key: "Escape" });
+  expect(onClose).not.toHaveBeenCalled();
+  expect(execute).toHaveBeenCalledWith({ type: "videoBack" }, expect.any(KeyboardEvent));
+});
+it("Escape in a prompt over the settings sheet closes only the prompt", () => {
+  const onClose = vi.fn();
+  off = registerDismissable(DISMISS_PRIORITY.modal, onClose);
+  const { execute } = mount(`${SCREEN}<div data-tv-modal data-tv-native></div><div data-tv-modal data-tv-prompt><input /></div>`);
+  pressKey(document.body, { key: "Escape" });
+  expect(onClose).not.toHaveBeenCalled();
   expect(execute).toHaveBeenCalledWith({ type: "back" }, expect.any(KeyboardEvent));
 });

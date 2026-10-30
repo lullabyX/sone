@@ -7,6 +7,7 @@ import {
   caretAllowsLeaving,
   claimsKey,
   routeTvKey,
+  takesAtCapture,
   textEntryKind,
   type TvKeyAction,
   type TvKeyFacts,
@@ -111,9 +112,10 @@ function readTvKeyFacts(
 
 /**
  * Routes every key the TV interface handles. In the capture phase it only
- * claims TV's keys, so desktop shortcuts skip them. It executes in the bubble
- * phase so element handlers (the seek bar, the on-screen keyboard) win first;
- * a key one of them prevented is left alone.
+ * claims TV's keys, so desktop shortcuts skip them, and carries out the few
+ * that desktop dialogs must never see (`takesAtCapture`). The rest execute in
+ * the bubble phase so element handlers (the seek bar, the on-screen keyboard)
+ * win first; a key one of them prevented is left alone.
  */
 export function useTvKeyRouter(opts: TvKeyRouterOptions): void {
   const store = useStore();
@@ -125,8 +127,18 @@ export function useTvKeyRouter(opts: TvKeyRouterOptions): void {
   useEffect(() => {
     const onClaim = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-      const facts = readTvKeyFacts(e, store, optsRef.current);
-      if (claimsKey(facts, routeTvKey(facts))) claimKey(e);
+      const o = optsRef.current;
+      const facts = readTvKeyFacts(e, store, o);
+      const action = routeTvKey(facts);
+      if (takesAtCapture(facts)) {
+        claimKey(e);
+        e.stopPropagation();
+        e.preventDefault();
+        if (facts.video && !facts.modified) o.wakeVideo();
+        if (action.type !== "none") o.execute(action, e);
+        return;
+      }
+      if (claimsKey(facts, action)) claimKey(e);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;

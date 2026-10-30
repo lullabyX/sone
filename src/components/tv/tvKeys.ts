@@ -103,6 +103,13 @@ const ARROWS: Record<string, Direction> = {
 
 const BACK_KEYS = new Set(["Escape", "BrowserBack", "GoBack"]);
 
+const VIDEO_BACK_KEYS = new Set([
+  "Backspace",
+  "BrowserBack",
+  "GoBack",
+  "Escape",
+]);
+
 const TV_NAV_KEYS = new Set([
   "ArrowUp",
   "ArrowDown",
@@ -145,15 +152,14 @@ export function mediaCommandForKey(
 /**
  * The video player owns the screen. Without a control focused, Enter pauses
  * and resumes, Left/Right skip and Up/Down move into the player's buttons;
- * there the arrows move between them and Back leaves them again. Back
- * otherwise returns to Now Playing with the video still playing (Escape
- * closes it, through the player itself).
+ * there the arrows move between them and Back leaves them again. Back and
+ * Escape otherwise return to Now Playing with the video still playing.
  */
 function routeVideoKey(
   f: TvKeyFacts,
   video: NonNullable<TvKeyFacts["video"]>,
 ): TvKeyAction {
-  if (f.key === "Backspace" || f.key === "BrowserBack") {
+  if (VIDEO_BACK_KEYS.has(f.key)) {
     return { type: "videoBack" };
   }
   if (video.inControls) {
@@ -239,4 +245,11 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
  *  item without a menu routes "none" (a native click) but is still TV's. */
 export function claimsKey(f: TvKeyFacts, action: TvKeyAction): boolean {
   return !f.modified && (action.type !== "none" || TV_NAV_KEYS.has(f.key));
+}
+
+/** Keys TV carries out in the capture phase, so the desktop dismiss stack
+ *  never sees them: it would close the video or the layer under a TV one. */
+export function takesAtCapture(f: TvKeyFacts): boolean {
+  if (f.video && !f.modified && BACK_KEYS.has(f.key)) return true;
+  return f.key === "Escape" && (f.layer === "menu" || f.layer === "prompt");
 }

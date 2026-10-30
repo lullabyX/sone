@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { caretAllowsLeaving, claimsKey, mediaCommandForKey, routeTvKey, textEntryKind, type TvKeyFacts } from "./tvKeys";
+import { caretAllowsLeaving, claimsKey, mediaCommandForKey, routeTvKey, takesAtCapture, textEntryKind, type TvKeyFacts } from "./tvKeys";
 import { setupTvTest } from "./tvTestUtils";
 
 setupTvTest();
@@ -41,9 +41,18 @@ it("characterizes today's routing", () => {
   expect(r({ key: "ArrowRight", video: { ...v, inControls: true } })).toEqual({ type: "videoMove", dir: "right" });
   expect(r({ key: "Enter", video: { ...v, inControls: true } })).toEqual({ type: "none" });
   expect(r({ key: "Enter", video: { inControls: true, inQualityList: true } })).toEqual({ type: "videoNativeEnter" });
-  expect(r({ key: "Escape", video: v })).toEqual({ type: "none" }); // today: the player's own Escape closes it
+  expect(r({ key: "Escape", video: v })).toEqual({ type: "videoBack" });
   expect(r({ key: "MediaTrackNext", video: v })).toEqual({ type: "media", command: { kind: "next" } });
   expect(r({ key: "m", video: v })).toEqual({ type: "none" });
+});
+it("takes Back over a video and Escape over a TV layer at capture", () => {
+  expect(r({ key: "GoBack", video: v })).toEqual({ type: "videoBack" });
+  expect(takesAtCapture(facts({ key: "Escape", video: v }))).toBe(true);
+  expect(takesAtCapture(facts({ key: "BrowserBack", video: v }))).toBe(true);
+  expect(takesAtCapture(facts({ key: "Escape", layer: "prompt" }))).toBe(true);
+  expect(takesAtCapture(facts({ key: "Escape", layer: "menu" }))).toBe(true);
+  expect(takesAtCapture(facts({ key: "Escape", layer: "native" }))).toBe(false);
+  expect(takesAtCapture(facts({ key: "ArrowDown", video: v }))).toBe(false);
 });
 it("claims TV navigation keys and keys it routes", () => {
   expect(claimsKey(facts({ key: "Enter" }), { type: "none" })).toBe(true);
