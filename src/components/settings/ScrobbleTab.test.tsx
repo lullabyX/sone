@@ -1,4 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+} from "vitest";
 import {
   render,
   screen,
@@ -92,6 +101,15 @@ describe("ScrobbleTab (behavior contract)", () => {
 });
 
 describe("ScrobbleTab sign-in", () => {
+  // jsdom has no scrollIntoView; TV mode focuses through focusElement.
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = () => {};
+  });
+  afterAll(() => {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  });
+
   beforeEach(() => {
     statuses = [
       { name: "lastfm", connected: false, username: null },
@@ -117,6 +135,22 @@ describe("ScrobbleTab sign-in", () => {
     expect(
       screen.getByRole("button", { name: /i've authorized/i }),
     ).toBeTruthy();
+  });
+
+  it("moves remote focus to I've authorized in TV mode", async () => {
+    const store = createStore();
+    store.set(tvModeAtom, true);
+    render(
+      <Provider store={store}>
+        <ScrobbleTab />
+      </Provider>,
+    );
+    await screen.findByText("Last.fm");
+    fireEvent.click(screen.getAllByRole("button", { name: /^connect$/i })[0]);
+    const authorized = await screen.findByRole("button", {
+      name: /i've authorized/i,
+    });
+    await waitFor(() => expect(document.activeElement).toBe(authorized));
   });
 
   it("still opens the browser on the desktop", async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAtomValue } from "jotai";
@@ -6,6 +6,7 @@ import { Loader2, ExternalLink } from "lucide-react";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 import { tvModeAtom } from "../../atoms/tv";
+import { focusElement } from "../../lib/spatialNav";
 import { TvQrCode } from "../tv/TvQrCode";
 
 interface ProviderStatus {
@@ -98,6 +99,18 @@ const LISTENBRAINZ_GLYPH = (
   </svg>
 );
 
+/** In TV mode the Connect button unmounts once the sign-in link is ready, so
+ *  focus moves to "I've authorized" instead of dropping out of the row. */
+function useFocusWhenAuthorized(step: AuthStep, tvMode: boolean) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (tvMode && step === "authorized" && ref.current) {
+      focusElement(ref.current);
+    }
+  }, [tvMode, step]);
+  return ref;
+}
+
 export default function ScrobbleTab() {
   const tvMode = useAtomValue(tvModeAtom);
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
@@ -122,6 +135,8 @@ export default function ScrobbleTab() {
     token: "",
     error: null,
   });
+  const lastfmAuthorizedRef = useFocusWhenAuthorized(lastfm.step, tvMode);
+  const librefmAuthorizedRef = useFocusWhenAuthorized(librefm.step, tvMode);
 
   const fetchStatus = async () => {
     try {
@@ -227,6 +242,7 @@ export default function ScrobbleTab() {
     provider: "lastfm" | "librefm",
     state: AudioscrobblerState,
     setState: React.Dispatch<React.SetStateAction<AudioscrobblerState>>,
+    authorizedRef: React.RefObject<HTMLButtonElement | null>,
   ) => {
     const status = getStatus(name);
     const connected = status?.connected ?? false;
@@ -307,6 +323,7 @@ export default function ScrobbleTab() {
                 </p>
               )}
               <button
+                ref={authorizedRef}
                 onClick={() =>
                   handleAudioscrobblerSubmit(provider, state, setState)
                 }
@@ -380,6 +397,7 @@ export default function ScrobbleTab() {
             "lastfm",
             lastfm,
             setLastfm,
+            lastfmAuthorizedRef,
           )}
           {renderProviderRow(
             "librefm",
@@ -388,6 +406,7 @@ export default function ScrobbleTab() {
             "librefm",
             librefm,
             setLibrefm,
+            librefmAuthorizedRef,
           )}
 
           {/* ListenBrainz */}
