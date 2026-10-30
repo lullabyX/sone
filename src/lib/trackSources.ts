@@ -12,6 +12,10 @@ import type { MediaItemType, Track } from "../types";
 export interface TrackPage {
   items: Track[];
   hasMore: boolean;
+  /** Raw server offset of the next page. Defaults to the requested offset plus
+   *  items.length, which is only right when every position in the window comes
+   *  back as an item. */
+  nextOffset?: number;
 }
 
 type TrackPager = (offset: number) => Promise<TrackPage>;
@@ -49,6 +53,12 @@ export const artistTopTracksPager =
   (offset) =>
     getArtistTopTracksAll(artistId, offset, ARTIST_TRACKS_PAGE_SIZE);
 
+// TIDAL counts tracks that are no longer available in totalNumberOfItems and
+// in the offset, but leaves them out of `items` (and the playlist parser skips
+// entries without an item), so a page can come back shorter than its window, or
+// empty, before the total. These pagers advance by the window requested: by the
+// items received, the next request re-reads part of the previous window and
+// queues those tracks twice, and an empty window ends the source early.
 export const playlistTracksPager =
   (playlistId: string, order?: string, direction?: string): TrackPager =>
   async (offset) => {
@@ -59,9 +69,11 @@ export const playlistTracksPager =
       order,
       direction,
     );
+    const nextOffset = offset + PLAYLIST_PAGE_SIZE;
     return {
       items: page.items,
-      hasMore: offset + page.items.length < page.totalNumberOfItems,
+      hasMore: nextOffset < page.totalNumberOfItems,
+      nextOffset,
     };
   };
 
@@ -75,9 +87,11 @@ export const favoriteTracksPager =
       order,
       direction,
     );
+    const nextOffset = offset + FAVORITE_TRACKS_PAGE_SIZE;
     return {
       items: page.items,
-      hasMore: offset + page.items.length < page.totalNumberOfItems,
+      hasMore: nextOffset < page.totalNumberOfItems,
+      nextOffset,
     };
   };
 

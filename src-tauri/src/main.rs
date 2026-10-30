@@ -4,19 +4,12 @@
 fn main() {
     #[cfg(target_os = "linux")]
     {
-        // WebKitGTK's DMA-BUF renderer is unreliable on the NVIDIA proprietary
-        // driver: GBM buffer allocation fails (blank/corrupt page rendering) and
-        // the GStreamer video path tears and stutters (WebKit Bugzilla #261874
-        // and #260654, tauri-apps/tauri#9394). This affects BOTH X11 and Wayland
-        // — the web process renders surfaceless, so the DMA-BUF renderer is used
-        // regardless of session type. Fall back to shared-memory rendering
-        // whenever an NVIDIA kernel module is loaded. Pre-set
-        // WEBKIT_DISABLE_DMABUF_RENDERER to override.
-        //
-        // TODO: revisit when WebKitGTK resolves the NVIDIA DMA-BUF bug
-        // (upstream #262607 is WONTFIX as of 2026).
-        let already_overridden =
-            std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
+        // On NVIDIA/Wayland, disable explicit sync instead of WebKit's renderer:
+        // this avoids the GTK protocol error while retaining GPU acceleration.
+        // https://bugs.webkit.org/show_bug.cgi?id=324551
+        // Keep the DMA-BUF fallback on X11 for GBM allocation failures (#261874).
+        // Pre-set WEBKIT_DISABLE_DMABUF_RENDERER to override this selection.
+        let already_overridden = std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
 
         if !already_overridden {
             let nvidia_loaded = std::fs::read_to_string("/proc/modules")
@@ -31,13 +24,28 @@ fn main() {
                 .unwrap_or(false);
 
             if nvidia_loaded {
-                eprintln!(
-                    "[sone] NVIDIA detected; setting \
-                     WEBKIT_DISABLE_DMABUF_RENDERER=1 to avoid WebKitGTK GBM \
-                     allocation failure and video corruption. Pre-set the \
-                     variable to override."
+                let wayland = uses_wayland(
+                    std::env::var("GDK_BACKEND").ok().as_deref(),
+                    std::env::var_os("WAYLAND_DISPLAY").is_some(),
                 );
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+                if wayland {
+                    if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+                        eprintln!(
+                            "[sone] NVIDIA/Wayland detected; setting \
+                             __NV_DISABLE_EXPLICIT_SYNC=1 to avoid the GTK \
+                             protocol error while keeping GPU acceleration."
+                        );
+                        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+                    }
+                } else {
+                    eprintln!(
+                        "[sone] NVIDIA detected; setting \
+                         WEBKIT_DISABLE_DMABUF_RENDERER=1 to avoid WebKitGTK GBM \
+                         allocation failure and video corruption. Pre-set the \
+                         variable to override."
+                    );
+                    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+                }
             }
         }
 
@@ -213,9 +221,30 @@ fn gst_plugin_path_choice(
     existing_dirs.first().map(|dir| dir.to_string())
 }
 
+// An explicit GDK backend takes precedence over the desktop session type.
+#[cfg(target_os = "linux")]
+fn uses_wayland(gdk_backend: Option<&str>, wayland_display: bool) -> bool {
+    match gdk_backend {
+        Some(backends) => backends.split(',').next() == Some("wayland"),
+        None => wayland_display,
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::{gst_plugin_path_choice, should_record_launch_bypass, should_scrub_proxy_env};
+    use super::{
+        gst_plugin_path_choice, should_record_launch_bypass, should_scrub_proxy_env, uses_wayland,
+    };
+
+    #[test]
+    fn wayland_display_selects_wayland_unless_gdk_overrides_it() {
+        assert!(uses_wayland(None, true));
+        assert!(!uses_wayland(None, false));
+        assert!(!uses_wayland(Some("x11"), true));
+        assert!(!uses_wayland(Some("x11,wayland"), true));
+        assert!(uses_wayland(Some("wayland,x11"), true));
+        assert!(uses_wayland(Some("wayland"), false));
+    }
 
     #[test]
     fn a_recorded_enabled_proxy_scrubs_whatever_its_type() {

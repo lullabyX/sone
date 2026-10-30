@@ -38,6 +38,7 @@ import {
 } from "../atoms/playback";
 import {
   decorationsAtom,
+  drawerOpenAtom,
   hideTitleBarAtom,
   maximizedPlayerAtom,
   videoCoversAtom,
@@ -102,6 +103,9 @@ const QueueTab = memo(function QueueTab({
   const contextQueue = useAtomValue(queueAtom);
   const history = useAtomValue(historyAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
+  // The drawer stays mounted while closed; keep its "playing" bars still then,
+  // since an animation nobody can see still costs a repaint per step.
+  const drawerOpen = useAtomValue(drawerOpenAtom);
   const source = useAtomValue(playbackSourceAtom);
   const contextSource = useAtomValue(contextSourceAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
@@ -414,7 +418,7 @@ const QueueTab = memo(function QueueTab({
           <TrackRow
             track={currentTrack}
             isActive
-            isPlaying={isPlaying}
+            isPlaying={isPlaying && drawerOpen}
             onClick={() => {}}
             {...trackRowNav(currentTrack)}
           />
@@ -981,6 +985,7 @@ const LyricsLine = memo(function LyricsLine({
 const LyricsTab = memo(function LyricsTab() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
+  const drawerOpen = useAtomValue(drawerOpenAtom);
   const [lyrics, setLyrics] = useState<Lyrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -994,6 +999,10 @@ const LyricsTab = memo(function LyricsTab() {
     undefined,
   );
   const activeLineRef = useRef(-1);
+  // Set when the drawer-open resync changes the active line: the container is
+  // already where the user left it, so that update must not start an
+  // auto-scroll (which would also suppress a real user scroll for 600ms).
+  const skipAutoScrollRef = useRef(false);
   const { seekTo } = usePlaybackActions();
 
   // Fetch lyrics
@@ -1045,9 +1054,11 @@ const LyricsTab = memo(function LyricsTab() {
     return () => el.removeEventListener("scroll", onScroll);
   }, [lrcLines]);
 
-  // Sync active line with interpolated position — rAF loop, state update only on line change
+  // Sync active line with interpolated position — rAF loop, state update only on line change.
+  // Skipped while the drawer is closed: each rAF tick schedules a rendering update.
+  // One tick still runs on (re)open while paused, so the line is not stale.
   useEffect(() => {
-    if (lrcLines.length === 0 || !isPlaying) return;
+    if (lrcLines.length === 0 || !drawerOpen || !isPlaying) return;
 
     let rafId: number;
     const tick = () => {
@@ -1062,7 +1073,19 @@ const LyricsTab = memo(function LyricsTab() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [lrcLines, isPlaying]);
+  }, [lrcLines, isPlaying, drawerOpen]);
+
+  // Re-sync once on (re)open: the loop above is idle while the drawer is
+  // closed, so without this a paused drawer would show a stale highlighted line.
+  useEffect(() => {
+    if (!drawerOpen || lrcLines.length === 0) return;
+    const idx = findActiveLine(lrcLines, getInterpolatedPosition());
+    if (idx !== activeLineRef.current) {
+      activeLineRef.current = idx;
+      skipAutoScrollRef.current = true;
+      setActiveLine(idx);
+    }
+  }, [drawerOpen, lrcLines]);
 
   // The rAF loop is idle while paused — re-sync once per seek
   useEffect(() => {
@@ -1099,7 +1122,13 @@ const LyricsTab = memo(function LyricsTab() {
   }, []);
 
   useEffect(() => {
-    if (activeLine >= 0 && !userScrolled) scrollToLine(activeLine);
+    if (activeLine >= 0 && !userScrolled) {
+      if (skipAutoScrollRef.current) {
+        skipAutoScrollRef.current = false;
+        return;
+      }
+      scrollToLine(activeLine);
+    }
   }, [activeLine, userScrolled, scrollToLine]);
 
   // "Sync lyrics" button handler

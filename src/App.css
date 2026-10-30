@@ -141,6 +141,15 @@ svg[stroke-width="3"] {
   touch-action: none;
 }
 
+/* Time labels + scrubber row. The elapsed time changes every second; without
+   size containment, WebKitGTK in software rendering was measured repainting
+   unrelated regions on each change (the open Now Playing drawer's cover
+   column) on the main thread. Fixed height = the 17px scrubber. */
+.progress-row {
+  height: 17px;
+  contain: size layout;
+}
+
 /* Floating button fade-in */
 @keyframes fadeIn {
   from {
@@ -199,7 +208,12 @@ svg[stroke-width="3"] {
   }
 }
 
-/* GPU-accelerated "playing" bars animation */
+/* "Playing" bars. steps() lets WebKit wake the animation only at each step
+   (5 per half cycle = every 100 ms, which the 0.2s/0.4s bar delays share)
+   instead of every display frame. Without accelerated compositing (e.g.
+   WebKitGTK with the DMA-BUF renderer disabled) each wake is a main-thread
+   repaint, so a smooth curve kept the web process main thread repainting for
+   as long as audio played. */
 @keyframes barBounce {
   0%,
   100% {
@@ -212,7 +226,7 @@ svg[stroke-width="3"] {
 
 .playing-bar {
   will-change: transform;
-  animation: barBounce 1s ease-in-out infinite;
+  animation: barBounce 1s steps(5) infinite;
 }
 
 /* Loved Tracks "Living Heart" banner — drifting heart-colored blobs.
@@ -427,7 +441,8 @@ svg[stroke-width="3"] {
 
 /* Toggled from main.tsx when the OS window loses focus. */
 .window-unfocused .loved-blob,
-.window-unfocused .loved-blob-inner {
+.window-unfocused .loved-blob-inner,
+.window-unfocused .playing-bar {
   animation-play-state: paused;
 }
 
