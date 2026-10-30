@@ -6,6 +6,8 @@ import type {
 } from "../../types";
 import { getTidalImageUrl, getTidalPromoImageUrl } from "../../types";
 import { isNavigableSource } from "../../lib/playbackSource";
+import { type ContentPrefs, isContentBlocked } from "../../lib/contentFilter";
+import { isTrackUnavailable } from "../../lib/trackAvailability";
 import {
   buildMediaItem,
   getItemImage,
@@ -62,7 +64,33 @@ export interface TvEntry {
   icon?: "heart" | "link" | "more";
   /** What the action menu acts on, for cards that have one. */
   media?: MediaItemType;
+  explicit?: boolean;
+  ai?: boolean;
   action: TvAction;
+}
+
+/** How a card shows under the content settings, as the desktop does: a track
+ *  card greys like a TrackList row (blocked or unavailable) and always carries
+ *  its badges; a media card greys only for AI, like MediaCard, and shows the
+ *  explicit badge only where the desktop passes `showExplicit`. */
+export function entryState(
+  entry: TvEntry,
+  prefs: ContentPrefs,
+  opts?: { showExplicit?: boolean },
+): { dimmed: boolean; explicitBadge: boolean; aiBadge: boolean } {
+  if (entry.action.kind === "playTrack") {
+    const track = entry.action.track;
+    return {
+      dimmed: isContentBlocked(track, prefs) || isTrackUnavailable(track),
+      explicitBadge: !!track.explicit,
+      aiBadge: !!track.ai,
+    };
+  }
+  return {
+    dimmed: !prefs.allowAi && !!entry.ai,
+    explicitBadge: !!opts?.showExplicit && !!entry.explicit,
+    aiBadge: !!entry.ai,
+  };
 }
 
 /** The view a media item opens, or a play action for a video. */
@@ -239,6 +267,8 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
       image: getItemImage(item, 640),
       round: media.type === "artist",
       media,
+      explicit: item.explicit,
+      ai: item.ai,
       action: actionForMedia(media),
     };
   }
@@ -249,6 +279,8 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
       title,
       subtitle,
       image: getItemImage(item, 640),
+      explicit: item.explicit,
+      ai: item.ai,
       action: { kind: "playTrack", track: item as Track },
     };
   }

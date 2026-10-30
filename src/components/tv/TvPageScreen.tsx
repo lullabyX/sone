@@ -68,6 +68,7 @@ export default function TvPageScreen({
             entries={entries}
             queueTracks={tracks}
             queueId={`page:${apiPath}:${section.title}`}
+            showExplicit
             viewAll={
               section.hasMore && section.apiPath
                 ? {

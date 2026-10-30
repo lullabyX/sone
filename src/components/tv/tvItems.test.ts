@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { feedEntries, sectionEntries, viewForSource } from "./tvItems";
+import {
+  entryState,
+  feedEntries,
+  sectionEntries,
+  viewForSource,
+} from "./tvItems";
+import { mkTrack } from "./tvTestUtils";
 
 const track = (id: number) => ({
   id,
@@ -138,5 +144,19 @@ describe("viewForSource", () => {
     expect(
       viewForSource({ type: "tv-row", id: "x", name: "Row", tracks: [] }),
     ).toBeNull();
+  });
+});
+
+describe("entryState", () => {
+  it("dims blocked or unavailable tracks and AI media like the desktop", () => {
+    const off = { allowExplicit: false, allowAi: false };
+    const t = sectionEntries([mkTrack(1, { explicit: true })], "TRACK_LIST").entries[0];
+    expect(entryState(t, off)).toEqual({ dimmed: true, explicitBadge: true, aiBadge: false });
+    const album = sectionEntries([{ id: 5, title: "A", cover: "c", ai: true, explicit: true }], "ALBUM_LIST").entries[0];
+    expect(entryState(album, off)).toEqual({ dimmed: true, explicitBadge: false, aiBadge: true });
+    expect(entryState(album, off, { showExplicit: true }).explicitBadge).toBe(true);
+    expect(entryState(album, { allowExplicit: false, allowAi: true }).dimmed).toBe(false);
+    const gone = sectionEntries([mkTrack(2, { streamReady: false })], "TRACK_LIST").entries[0];
+    expect(entryState(gone, { allowExplicit: true, allowAi: true }).dimmed).toBe(true);
   });
 });

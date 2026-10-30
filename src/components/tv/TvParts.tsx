@@ -11,30 +11,44 @@ import type { Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
 import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { type TvNav, useTvNav } from "./TvNavContext";
-import type { TvEntry, TvView } from "./tvItems";
+import { entryState, type TvEntry, type TvView } from "./tvItems";
 import { tvMenuRef, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
+
+const BADGE =
+  "inline-block px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]";
 
 function TvCard({
   entry,
   onSelect,
   wide,
   menu,
+  showExplicit,
 }: {
   entry: TvEntry;
   onSelect: () => void;
   wide?: boolean;
   /** Action menu, opened by holding Enter or the Menu key. */
   menu?: () => TvMenuSpec;
+  /** Badge explicit media, where the desktop's cards do. */
+  showExplicit?: boolean;
 }) {
+  const { dimmed, explicitBadge, aiBadge } = entryState(
+    entry,
+    useContentPrefs(),
+    { showExplicit },
+  );
   // A page link without artwork carries its name on the tile itself.
   const textTile = !entry.image && entry.icon === "link";
   return (
     <button
       data-tv-focusable
       data-tv-has-menu={menu ? true : undefined}
+      data-tv-dimmed={dimmed || undefined}
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
-      className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}`}
+      className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
+        dimmed ? " opacity-50" : ""
+      }`}
     >
       <div
         className={`tv-card-art overflow-hidden bg-th-surface ${
@@ -69,8 +83,20 @@ function TvCard({
         <div
           className={`mt-[0.6rem] px-[0.15rem] ${entry.round ? "text-center" : ""}`}
         >
-          <div className="text-[0.8rem] font-semibold text-th-text-primary truncate">
-            {entry.title}
+          <div
+            className={`flex items-center gap-[0.4rem] min-w-0 ${
+              entry.round ? "justify-center" : ""
+            }`}
+          >
+            <span className="text-[0.8rem] font-semibold text-th-text-primary truncate">
+              {entry.title}
+            </span>
+            {explicitBadge && <span className={`shrink-0 ${BADGE}`}>E</span>}
+            {aiBadge && (
+              <span title="AI-generated" className={`shrink-0 ${BADGE}`}>
+                AI
+              </span>
+            )}
           </div>
           {entry.subtitle && (
             <div className="text-[0.75rem] text-th-text-muted truncate">
@@ -98,11 +124,13 @@ export function TvGrid({
   queueTracks,
   queueId,
   name,
+  showExplicit,
 }: {
   entries: TvEntry[];
   queueTracks?: Track[];
   queueId: string;
   name: string;
+  showExplicit?: boolean;
 }) {
   const nav = useTvNav();
   const wide = entries.every((e) => e.key.startsWith("promo:"));
@@ -117,6 +145,7 @@ export function TvGrid({
           entry={entry}
           wide={wide}
           menu={cardMenu(nav, entry)}
+          showExplicit={showExplicit}
           onSelect={() =>
             nav.run(entry.action, {
               tracks: queueTracks ?? [],
@@ -138,6 +167,7 @@ export function TvRow({
   queueTracks,
   queueId,
   viewAll,
+  showExplicit,
 }: {
   title: string;
   entries: TvEntry[];
@@ -145,6 +175,7 @@ export function TvRow({
   queueId?: string;
   /** Where a "View all" card at the end of the row leads. */
   viewAll?: TvView;
+  showExplicit?: boolean;
 }) {
   const nav = useTvNav();
   if (entries.length === 0) return null;
@@ -177,6 +208,7 @@ export function TvRow({
             entry={entry}
             wide={wide}
             menu={cardMenu(nav, entry)}
+            showExplicit={showExplicit}
             onSelect={() =>
               nav.run(entry.action, {
                 tracks: queueTracks ?? [],
@@ -321,15 +353,10 @@ export function TvTrackRow({
           </span>
           <span className="block truncate text-[0.75rem] text-th-text-muted">
             {track.explicit && (
-              <span className="inline-block mr-[0.4rem] px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]">
-                E
-              </span>
+              <span className={`mr-[0.4rem] ${BADGE}`}>E</span>
             )}
             {track.ai && (
-              <span
-                title="AI-generated"
-                className="inline-block mr-[0.4rem] px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]"
-              >
+              <span title="AI-generated" className={`mr-[0.4rem] ${BADGE}`}>
                 AI
               </span>
             )}
