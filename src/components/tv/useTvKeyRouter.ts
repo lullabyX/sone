@@ -64,7 +64,9 @@ function readVideoFacts(store: Store): TvKeyFacts["video"] {
     "button[title='Quality']",
   )?.nextElementSibling;
   const inQualityList = list instanceof HTMLElement && list.contains(active);
-  return { inControls, inQualityList };
+  const onVolume =
+    inControls && active.matches("input[type='range'][aria-label='Volume']");
+  return { inControls, inQualityList, onVolume };
 }
 
 /** Whether the current screen has something `focusFirstIn` could focus. */

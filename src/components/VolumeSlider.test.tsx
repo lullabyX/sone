@@ -105,6 +105,11 @@ describe("VolumeSlider scroll-to-adjust", () => {
   });
 });
 
+it("names its slider", () => {
+  setup();
+  expect(screen.getByRole("slider", { name: "Volume" })).toBeTruthy();
+});
+
 describe("VolumeSlider mute button", () => {
   it("unmutes to the level from before mute", () => {
     const { store } = setup({ volume: 0.6 });

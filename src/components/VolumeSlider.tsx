@@ -107,6 +107,7 @@ const VolumeSlider = memo(function VolumeSlider({
               : undefined
           }
           disabled={locked}
+          aria-label="Volume"
           className={`absolute inset-0 w-full h-full opacity-0 z-10 ${locked ? "cursor-not-allowed" : "cursor-pointer"}`}
         />
         <div className="relative h-[3px] group-hover/vol:h-[4px] transition-[height] duration-100 rounded-full">

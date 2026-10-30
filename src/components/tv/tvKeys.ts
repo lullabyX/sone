@@ -48,7 +48,12 @@ export interface TvKeyFacts {
   /** Ctrl, Alt or Meta (Shift is not a modifier here). */
   modified: boolean;
   /** Set while the full-screen video overlay shows. */
-  video: { inControls: boolean; inQualityList: boolean } | null;
+  video: {
+    inControls: boolean;
+    inQualityList: boolean;
+    /** Focus is on the player's volume slider. */
+    onVolume: boolean;
+  } | null;
   /** Kind of the top `[data-tv-modal]`. */
   layer: TvLayer;
   /** Kind of the event target. */
@@ -156,8 +161,9 @@ export function mediaCommandForKey(
 /**
  * The video player owns the screen. Without a control focused, Enter pauses
  * and resumes, Left/Right skip and Up/Down move into the player's buttons;
- * there the arrows move between them and Back leaves them again. Back and
- * Escape otherwise return to Now Playing with the video still playing.
+ * there the arrows move between them (Left/Right on the volume slider change
+ * the volume) and Back leaves them again. Back and Escape otherwise return
+ * to Now Playing with the video still playing.
  */
 function routeVideoKey(
   f: TvKeyFacts,
@@ -169,6 +175,10 @@ function routeVideoKey(
   if (video.inControls) {
     if (f.key === "Enter" && video.inQualityList) {
       return { type: "videoNativeEnter" };
+    }
+    if (video.onVolume && (f.key === "ArrowLeft" || f.key === "ArrowRight")) {
+      const by = f.key === "ArrowRight" ? TV_VOLUME_STEP : -TV_VOLUME_STEP;
+      return { type: "media", command: { kind: "volume", by } };
     }
     const dir = ARROWS[f.key];
     return dir ? { type: "videoMove", dir } : { type: "none" };

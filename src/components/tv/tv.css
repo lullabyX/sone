@@ -168,13 +168,28 @@ html.tv-mode {
 }
 
 /* The full-screen video keeps only what a remote needs: like, previous,
-   play/pause, next and quality. Shuffle, repeat and the rest live in Now
-   Playing; Back minimizes. */
+   play/pause, next, quality and volume. Shuffle, repeat and the rest live in
+   Now Playing; Back minimizes. */
 .tv-mode [data-tv-video] button[title="Shuffle"],
 .tv-mode [data-tv-video] button[title="Repeat"],
-.tv-mode [data-tv-video] button[title="Minimize video"],
-.tv-mode [data-tv-video] .group\/vol {
+.tv-mode [data-tv-video] button[title="Minimize video"] {
   display: none;
+}
+
+/* The volume slider is the last control, so Left/Right on it (which change
+   the volume) never cut the remote off from another button. Its range input
+   is transparent: the group shows the focus ring and the thumb. */
+.tv-mode [data-tv-video] .group\/vol {
+  order: 1;
+}
+.tv-mode [data-tv-video] .group\/vol:focus-within {
+  outline: 3px solid var(--th-text-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--th-accent) 45%, transparent);
+  border-radius: 8px;
+}
+.tv-mode [data-tv-video] .group\/vol:focus-within .shadow-sm {
+  opacity: 1;
 }
 
 /* Minimized, the video plays on in Now Playing where the cover would be

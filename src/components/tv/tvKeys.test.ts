@@ -9,7 +9,7 @@ const facts = (o: Partial<TvKeyFacts> = {}): TvKeyFacts => ({
   screenHasFocusable: true, hasMenu: false, holding: false, nativeEditable: false, ...o,
 });
 const r = (o: Partial<TvKeyFacts>) => routeTvKey(facts(o));
-const v = { inControls: false, inQualityList: false };
+const v = { inControls: false, inQualityList: false, onVolume: false };
 it("characterizes today's routing", () => {
   expect(r({ key: "ArrowDown" })).toEqual({ type: "move", dir: "down", enterSide: true });
   expect(r({ key: "ArrowLeft", repeat: true })).toEqual({ type: "move", dir: "left", enterSide: false });
@@ -40,7 +40,7 @@ it("characterizes today's routing", () => {
   expect(r({ key: "Backspace", video: v })).toEqual({ type: "videoBack" });
   expect(r({ key: "ArrowRight", video: { ...v, inControls: true } })).toEqual({ type: "videoMove", dir: "right" });
   expect(r({ key: "Enter", video: { ...v, inControls: true } })).toEqual({ type: "none" });
-  expect(r({ key: "Enter", video: { inControls: true, inQualityList: true } })).toEqual({ type: "videoNativeEnter" });
+  expect(r({ key: "Enter", video: { ...v, inControls: true, inQualityList: true } })).toEqual({ type: "videoNativeEnter" });
   expect(r({ key: "Escape", video: v })).toEqual({ type: "videoBack" });
   expect(r({ key: "MediaTrackNext", video: v })).toEqual({ type: "media", command: { kind: "next" } });
   expect(r({ key: "m", video: v })).toEqual({ type: "none" });
@@ -85,7 +85,7 @@ it("keeps Left/Right on a range input, Up/Down leave", () => {
 });
 it("never repeats a held OK outside a text field", () => {
   expect(r({ key: "Enter", repeat: true, layer: "native" })).toEqual({ type: "swallow" });
-  expect(r({ key: "Enter", repeat: true, video: { inControls: true, inQualityList: false } })).toEqual({ type: "swallow" });
+  expect(r({ key: "Enter", repeat: true, video: { ...v, inControls: true } })).toEqual({ type: "swallow" });
   expect(r({ key: "Enter", repeat: true, field: "caret" })).toEqual({ type: "none" });
 });
 it("maps media keys, swallowing repeated transport keys", () => {
@@ -119,4 +119,11 @@ it("edits a settings text field on Enter", () => {
   expect(r({ key: "Enter", field: "caret", nativeEditable: true })).toEqual({ type: "editField" });
   expect(takesAtCapture(facts({ key: "Enter", field: "field", nativeEditable: true }))).toBe(true);
   expect(r({ key: "Enter", field: "caret", nativeEditable: true, composing: true })).toEqual({ type: "none" });
+});
+const onVol = { ...v, inControls: true, onVolume: true };
+it("Left/Right on the video's volume slider change the volume", () => {
+  expect(r({ key: "ArrowRight", video: onVol })).toEqual({ type: "media", command: { kind: "volume", by: 0.05 } });
+  expect(r({ key: "ArrowLeft", video: onVol, repeat: true })).toEqual({ type: "media", command: { kind: "volume", by: -0.05 } });
+  expect(r({ key: "ArrowUp", video: onVol })).toEqual({ type: "videoMove", dir: "up" });
+  expect(r({ key: "ArrowRight", video: { ...v, inControls: true } })).toEqual({ type: "videoMove", dir: "right" }); // guard
 });

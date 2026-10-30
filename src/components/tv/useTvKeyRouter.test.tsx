@@ -76,6 +76,14 @@ it("lets Enter on a quality choice click natively, then refocuses", () => {
   expect(execute).toHaveBeenCalledWith({ type: "videoNativeEnter" }, e);
   expect(e.defaultPrevented).toBe(false);
 });
+const VIDEO_VOL = `<div role="dialog"><video></video><div><button id="spk">spk</button>
+  <input id="vol" type="range" aria-label="Volume" /></div><button title="Quality">Quality</button></div>`;
+it("Right on the video's volume slider raises the volume instead of moving focus", () => {
+  const { execute, $ } = mount(VIDEO_VOL, { store: videoShowing() }); $("vol").focus();
+  const e = pressKey($("vol"), { key: "ArrowRight" });
+  expect(execute).toHaveBeenCalledWith({ type: "media", command: { kind: "volume", by: 0.05 } }, e);
+  expect(e.defaultPrevented).toBe(true);
+});
 // useShortcuts must register FIRST, as AppInitializer's does in the app.
 // Mount it in its own render before the router: in one component, jotai's storage onMount re-sets
 // shortcutsAtom and useShortcuts re-registers after the router, which hides the bug.
