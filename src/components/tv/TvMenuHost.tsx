@@ -265,6 +265,7 @@ const TvMenuHost = forwardRef<
             return {
               title: "Credits",
               subtitle: track.title,
+              wide: true,
               // One line per role, e.g. "Producer: A, B"; for reading only.
               items:
                 credits.length > 0
@@ -272,8 +273,14 @@ const TvMenuHost = forwardRef<
                       label: `${c.creditType}: ${c.contributors
                         .map((p) => p.name)
                         .join(", ")}`,
+                      multiline: true,
                     }))
-                  : [{ label: "No credits available for this track" }],
+                  : [
+                      {
+                        label: "No credits available for this track",
+                        multiline: true,
+                      },
+                    ],
             };
           },
         });
@@ -641,7 +648,9 @@ const TvMenuHost = forwardRef<
         data-tv-modal
         role="menu"
         aria-label={spec.title}
-        className="tv-screen relative h-full w-[28rem] max-w-full overflow-y-auto bg-th-elevated shadow-2xl px-[1.5rem] py-[2rem]"
+        className={`tv-screen relative h-full ${
+          spec.wide ? "w-[40rem]" : "w-[28rem]"
+        } max-w-full overflow-y-auto bg-th-elevated shadow-2xl px-[1.5rem] py-[2rem]`}
       >
         <div className="flex items-center gap-[1rem] px-[0.5rem] mb-[1.4rem]">
           {spec.image !== undefined && (
@@ -688,7 +697,13 @@ const TvMenuHost = forwardRef<
                     }
                   />
                 )}
-                <span className="flex-1 min-w-0 truncate">{item.label}</span>
+                <span
+                  className={`flex-1 min-w-0 ${
+                    item.multiline ? "whitespace-normal break-words" : "truncate"
+                  }`}
+                >
+                  {item.label}
+                </span>
                 {item.submenu &&
                   (loadingFor === spec ? (
                     <Loader2 className="w-[1rem] h-[1rem] animate-spin text-th-text-muted" />

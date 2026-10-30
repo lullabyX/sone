@@ -3,15 +3,22 @@ import type { RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TvMenuHostHandle } from "./TvMenuHost";
 import type { TvMenuSpec } from "./tvMenu";
-import { renderMenuHost, setupTvTest, stubLayout } from "./tvTestUtils";
+import { mkTrack, renderMenuHost, setupTvTest, stubLayout } from "./tvTestUtils";
 
 setupTvTest();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve(undefined)) }));
 import { invoke } from "@tauri-apps/api/core";
-const api = vi.hoisted(() => ({ getAllPlaylists: vi.fn(async () => ({ items: [] })) }));
+const api = vi.hoisted(() => ({
+  getAllPlaylists: vi.fn(async () => ({ items: [] })),
+  getTrackCredits: vi.fn(),
+}));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()), ...api }));
-beforeEach(() => vi.mocked(invoke).mockImplementation(() => Promise.resolve(undefined)));
+beforeEach(() => {
+  for (const m of Object.values(api)) m.mockReset();
+  api.getAllPlaylists.mockImplementation(async () => ({ items: [] }));
+  vi.mocked(invoke).mockImplementation(() => Promise.resolve(undefined));
+});
 
 describe("focus and late submenus", () => {
   let ref: RefObject<TvMenuHostHandle | null>;
@@ -62,4 +69,20 @@ describe("focus and late submenus", () => {
     await act(async () => resolve({ title: "Credits list", items: [] }));
     expect(screen.queryByRole("menu")).toBeNull();
   });
+});
+
+it("wraps multiline entries and widens reading panels", () => {
+  const { ref } = renderMenuHost();
+  act(() => ref.current!.open({ title: "Credits", wide: true, items: [{ label: "Producer: A, B, C", multiline: true }] }));
+  const entry = screen.getByRole("menuitem", { name: /Producer/ });
+  expect(entry.querySelector(".truncate")).toBeNull();
+  expect(entry.querySelector(".whitespace-normal")).not.toBeNull();
+  expect(screen.getByRole("menu").className).toContain("w-[40rem]");
+});
+it("shows credits as wrapping lines in a wide panel", async () => {
+  api.getTrackCredits.mockResolvedValue([{ creditType: "Producer", contributors: [{ name: "A" }] }]);
+  const { ref } = renderMenuHost();
+  const spec = await ref.current!.trackMenu(mkTrack(1)).items.find((i) => i.label === "Credits")!.submenu!();
+  expect(spec.wide).toBe(true);
+  expect(spec.items[0]).toMatchObject({ label: "Producer: A", multiline: true });
 });

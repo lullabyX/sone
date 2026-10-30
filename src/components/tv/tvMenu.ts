@@ -9,6 +9,8 @@ export interface TvMenuItem {
   submenu?: () => TvMenuSpec | Promise<TvMenuSpec>;
   /** Marks the current choice in a list (e.g. a toggle that is on). */
   checked?: boolean;
+  /** The label wraps instead of being cut off (reading text such as credits). */
+  multiline?: boolean;
 }
 
 export interface TvMenuSpec {
@@ -16,6 +18,8 @@ export interface TvMenuSpec {
   subtitle?: string;
   image?: string;
   round?: boolean;
+  /** A wider panel for reading long entries. */
+  wide?: boolean;
   items: TvMenuItem[];
 }
 
