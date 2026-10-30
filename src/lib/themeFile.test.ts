@@ -231,26 +231,6 @@ describe("applyExternalThemeFile (watcher push)", () => {
     ).toHaveLength(1);
   });
 
-  // Stepping through presets: Forest is written, then Ocean is picked before
-  // the watcher reports the Forest write. That late echo must not put Forest
-  // back over Ocean.
-  it("ignores a late echo of an earlier own write", async () => {
-    invokeMock.mockResolvedValue(undefined);
-    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
-    const forest = { name: "Forest", accent: "#22C55E", bgBase: "#0E1410" };
-    const ocean = { name: "Ocean", accent: "#3B82F6", bgBase: "#0E1118" };
-    await syncThemeToFile(forest);
-    await syncThemeToFile(ocean);
-
-    let live = ocean;
-    applyExternalThemeFile(
-      FOREST_FILE,
-      () => live,
-      (t) => (live = t),
-    );
-    expect(live).toEqual(ocean);
-  });
-
   // A watcher push arrives before any bootstrap, so lastPersisted starts empty.
   // Applying must arm the guard, or the resulting atom change echoes to disk.
   it("arms the write guard so applying does not trigger a write", async () => {
@@ -352,40 +332,38 @@ describe("applyExternalThemeFile (watcher push)", () => {
     expect(live).toEqual(FOREST);
   });
 
-  it("applies a hand edit back to an earlier own write once its echo was seen", async () => {
+  it("applies a hand edit back to an earlier own write", async () => {
     invokeMock.mockResolvedValue(undefined);
     const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
     await syncThemeToFile(FOREST);
     await syncThemeToFile(OCEAN);
+
     let live = OCEAN;
-    const apply = (f: unknown) =>
-      applyExternalThemeFile(
-        f as never,
-        () => live,
-        (t) => (live = t),
-      );
-    apply(FOREST_FILE);
-    apply(OCEAN_FILE); // the two echoes
-    expect(live).toEqual(OCEAN);
-    apply(FOREST_FILE); // the user puts Forest back by hand
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
     expect(live).toEqual(FOREST);
   });
 
-  it("a coalesced echo of the newest write retires the older ones too", async () => {
+  it("does not write back a hand edit that matches an earlier own write", async () => {
     invokeMock.mockResolvedValue(undefined);
     const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
     await syncThemeToFile(FOREST);
     await syncThemeToFile(OCEAN);
+
     let live = OCEAN;
-    const apply = (f: unknown) =>
-      applyExternalThemeFile(
-        f as never,
-        () => live,
-        (t) => (live = t),
-      );
-    apply(OCEAN_FILE);
-    apply(FOREST_FILE);
-    expect(live).toEqual(FOREST);
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    await syncThemeToFile(live);
+    expect(setCalls()).toHaveLength(2);
+
+    await syncThemeToFile(OCEAN);
+    expect(setCalls()).toHaveLength(3);
   });
 });
 

@@ -102,39 +102,11 @@ export async function bootstrapThemeFile(): Promise<void> {
   }
 }
 
-/**
- * SONE's own writes whose watcher echo has not arrived yet, oldest first.
- *
- * The watcher reports every write back, a few hundred ms later. When the
- * theme changes again in that window (stepping through presets), the echo of
- * the *earlier* write arrives after the newer theme is already live and
- * would revert it; `lastPersisted` only recognises the latest write. Each
- * echo retires its entry and every older one (the watcher may coalesce
- * them), so a later hand edit matching an already-echoed write is applied.
- */
-const pendingEchoes: { serialized: string; at: number }[] = [];
-const ECHO_WINDOW_MS = 5000;
-
-function consumeOwnEcho(serialized: string): boolean {
-  const now = Date.now();
-  for (let i = pendingEchoes.length - 1; i >= 0; i--) {
-    if (now - pendingEchoes[i].at > ECHO_WINDOW_MS) pendingEchoes.splice(i, 1);
-  }
-  const i = pendingEchoes.findIndex((e) => e.serialized === serialized);
-  if (i === -1) return false;
-  pendingEchoes.splice(0, i + 1);
-  return true;
-}
-
 async function writeThemeFile(file: ThemeFile): Promise<void> {
-  const entry = { serialized: JSON.stringify(file), at: Date.now() };
-  pendingEchoes.push(entry);
   try {
     await invoke("theme_file_set", { file });
-    lastPersisted = entry.serialized;
+    lastPersisted = JSON.stringify(file);
   } catch (err) {
-    const i = pendingEchoes.indexOf(entry);
-    if (i !== -1) pendingEchoes.splice(i, 1);
     warnWrite(err);
   }
 }
@@ -174,9 +146,7 @@ export function applyExternalThemeFile(
 ): void {
   const resolved = resolveThemeFile(file);
   if (!resolved) return;
-  const serialized = JSON.stringify(themeToFile(resolved));
-  const echo = consumeOwnEcho(serialized);
-  if (serialized === lastPersisted || echo) return;
+  if (JSON.stringify(themeToFile(resolved)) === lastPersisted) return;
   // Armed before `setCurrent`, not after: that call writes through to storage
   // and can throw, which would strand the guard and let the write-through it
   // triggers rewrite a hand-edited file. Recorded even when nothing changed,
