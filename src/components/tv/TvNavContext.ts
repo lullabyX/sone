@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from "react";
-import { focusFirstIn } from "../../lib/spatialNav";
+import { focusFirstIn, isShown } from "../../lib/spatialNav";
 import type { MediaItemType, Track } from "../../types";
 import type { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import type { TvAction, TvView } from "./tvItems";
@@ -65,7 +65,8 @@ export const TvScreenContext = createContext<TvScreen>({
 /**
  * Put focus on the screen's first item (or its `data-tv-autofocus` one) once
  * its content has loaded — unless focus is already inside it, e.g. restored
- * by Back. Checked a frame later so a restore in the same commit wins.
+ * by Back, or the user moved it to the rail or a menu while it loaded.
+ * Checked a frame later so a restore in the same commit wins.
  */
 export function useTvInitialFocus(ready: boolean) {
   const { active, element } = useContext(TvScreenContext);
@@ -73,7 +74,15 @@ export function useTvInitialFocus(ready: boolean) {
     if (!ready || !active) return;
     const id = requestAnimationFrame(() => {
       const el = element();
-      if (!el || el.contains(document.activeElement)) return;
+      const current = document.activeElement;
+      if (!el || el.contains(current)) return;
+      if (
+        current instanceof HTMLElement &&
+        isShown(current) &&
+        current.closest("[data-tv-rail], [data-tv-modal]")
+      ) {
+        return;
+      }
       focusFirstIn(el);
     });
     return () => cancelAnimationFrame(id);

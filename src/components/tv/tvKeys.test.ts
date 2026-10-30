@@ -15,7 +15,7 @@ it("characterizes today's routing", () => {
   expect(r({ key: "ArrowLeft", repeat: true })).toEqual({ type: "move", dir: "left", enterSide: false });
   expect(r({ key: "ArrowRight", field: "caret", caretLeaves: { left: true, right: false } })).toEqual({ type: "none" });
   expect(r({ key: "ArrowDown", focus: "lost" })).toEqual({ type: "focusContent" });
-  expect(r({ key: "ArrowDown", focus: "lost", screenHasFocusable: false })).toEqual({ type: "move", dir: "down", enterSide: true });
+  expect(r({ key: "ArrowDown", focus: "lost", screenHasFocusable: false })).toEqual({ type: "swallow" });
   expect(r({ key: "ArrowUp", modified: true })).toEqual({ type: "none" });
   expect(r({ key: "Backspace" })).toEqual({ type: "back" });
   expect(r({ key: "Backspace", field: "caret" })).toEqual({ type: "none" });
@@ -44,6 +44,10 @@ it("characterizes today's routing", () => {
   expect(r({ key: "Escape", video: v })).toEqual({ type: "videoBack" });
   expect(r({ key: "MediaTrackNext", video: v })).toEqual({ type: "media", command: { kind: "next" } });
   expect(r({ key: "m", video: v })).toEqual({ type: "none" });
+});
+it("opens the rail on Left when focus is lost on an empty screen", () => {
+  expect(r({ key: "ArrowLeft", focus: "lost", screenHasFocusable: false })).toEqual({ type: "focusRail" });
+  expect(r({ key: "ArrowLeft", focus: "lost" })).toEqual({ type: "focusContent" });
 });
 it("takes Back over a video and Escape over a TV layer at capture", () => {
   expect(r({ key: "GoBack", video: v })).toEqual({ type: "videoBack" });

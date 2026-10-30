@@ -250,6 +250,12 @@ export default function TvApp() {
 
   const goTo = useCallback((type: RootType) => {
     savedFocus.current.clear();
+    // The rail closes, and the new screen takes focus once it has loaded
+    // (it leaves focus alone while it is in the rail).
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && railRef.current?.contains(active)) {
+      active.blur();
+    }
     setStack([entry({ type })]);
   }, []);
 
@@ -507,6 +513,9 @@ export default function TvApp() {
           if (screen) focusFirstIn(screen);
           return;
         }
+        case "focusRail":
+          focusRail();
+          return;
         case "back":
           if (textEntryKind(e.target) && e.target instanceof HTMLElement) {
             e.target.blur();
@@ -599,6 +608,7 @@ export default function TvApp() {
     [
       store,
       back,
+      focusRail,
       runMedia,
       finishPrompt,
       openMenuFor,
@@ -647,6 +657,7 @@ export default function TvApp() {
         <div className="relative flex-1 min-h-0">
           <nav
             ref={railRef}
+            data-tv-rail
             data-tv-remember
             data-tv-side
             aria-label="Main"

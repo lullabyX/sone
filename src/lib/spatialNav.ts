@@ -95,7 +95,7 @@ function gap(
   return Math.abs(aCenter - bCenter);
 }
 
-function isVisible(el: HTMLElement): boolean {
+export function isShown(el: HTMLElement): boolean {
   if ((el as HTMLButtonElement).disabled) return false;
   const r = el.getBoundingClientRect();
   return r.width > 0 && r.height > 0;
@@ -115,7 +115,7 @@ function measure(scope: ParentNode): Map<HTMLElement, DOMRect> {
 
 function focusableIn(scope: ParentNode): HTMLElement[] {
   return Array.from(scope.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    isVisible,
+    isShown,
   );
 }
 
@@ -139,12 +139,12 @@ function resolveRemembered(from: HTMLElement, target: HTMLElement) {
   let group = target.parentElement?.closest(REMEMBER) ?? null;
   while (group && !group.contains(from)) {
     const prev = lastFocused.get(group);
-    if (prev && prev.isConnected && isVisible(prev) && group.contains(prev)) {
+    if (prev && prev.isConnected && isShown(prev) && group.contains(prev)) {
       chosen = prev;
     } else {
       // Never visited: the group's designated entry point, if it has one.
       const entry = group.querySelector<HTMLElement>("[data-tv-default]");
-      if (entry && isVisible(entry)) chosen = entry;
+      if (entry && isShown(entry)) chosen = entry;
     }
     group = group.parentElement?.closest(REMEMBER) ?? null;
   }
@@ -172,7 +172,7 @@ export function focusElement(el: HTMLElement) {
         root.scrollTop = 0;
         break;
       }
-      if (isVisible(other) && other.getBoundingClientRect().bottom <= top) {
+      if (isShown(other) && other.getBoundingClientRect().bottom <= top) {
         break;
       }
     }
@@ -242,7 +242,7 @@ export function moveFocus(
 export function focusFirstIn(scope: HTMLElement): boolean {
   const preferred = scope.querySelector<HTMLElement>("[data-tv-autofocus]");
   const el =
-    preferred && isVisible(preferred) ? preferred : focusableIn(scope)[0];
+    preferred && isShown(preferred) ? preferred : focusableIn(scope)[0];
   if (!el) return false;
   focusElement(el);
   return true;

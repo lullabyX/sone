@@ -55,7 +55,8 @@ export interface TvKeyFacts {
   field: TextEntryKind;
   fieldEmpty: boolean;
   caretLeaves: { left: boolean; right: boolean };
-  /** "lost": outside the TV root while no layer is open. */
+  /** "lost": outside the TV root, or on an element not shown, while no
+   *  layer is open. */
   focus: "rail" | "content" | "lost";
   /** Only computed when focus is "lost"; true otherwise. */
   screenHasFocusable: boolean;
@@ -82,6 +83,7 @@ export type TvKeyAction =
   | { type: "media"; command: TvMediaCommand }
   | { type: "move"; dir: Direction; enterSide: boolean }
   | { type: "focusContent" }
+  | { type: "focusRail" }
   | { type: "back" }
   | { type: "nativeEscape" }
   | { type: "openMenu" }
@@ -225,9 +227,11 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
       return { type: "none" };
     }
     // Focus got lost (its element went away, e.g. a played "Up next" row):
-    // pick up in the current screen, not in the hidden rail.
-    if (f.focus === "lost" && f.screenHasFocusable) {
-      return { type: "focusContent" };
+    // pick up in the current screen, not in the hidden rail. On a screen
+    // with nothing to focus yet (still loading), only Left goes anywhere.
+    if (f.focus === "lost") {
+      if (f.screenHasFocusable) return { type: "focusContent" };
+      return dir === "left" ? { type: "focusRail" } : { type: "swallow" };
     }
     return { type: "move", dir, enterSide: !f.repeat };
   }

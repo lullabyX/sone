@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createStore } from "jotai";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { useShortcuts } from "../../hooks/useShortcuts";
@@ -6,7 +6,7 @@ import { DEFAULT_BINDINGS, shortcutsAtom } from "../../lib/shortcuts";
 import { DISMISS_PRIORITY, registerDismissable } from "../../lib/dismissStack";
 import type { TvKeyAction } from "./tvKeys";
 import { useTvKeyRouter } from "./useTvKeyRouter";
-import { pressKey, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
+import { pressKey, renderTv, setupTvTest, stubLayout, type TvStore } from "./tvTestUtils";
 
 setupTvTest();
 const rootRef = { current: null as HTMLElement | null };
@@ -34,13 +34,25 @@ function videoShowing(): TvStore {
   store.set(videoExpandedAtom, true);
   return store;
 }
-afterEach(() => { document.body.innerHTML = ""; });
+// The router treats focus on a zero-size element as lost.
+let restoreLayout = () => {};
+beforeEach(() => (restoreLayout = stubLayout()));
+afterEach(() => { restoreLayout(); document.body.innerHTML = ""; });
 
 it("prevents default and executes a key it routes", () => {
   const { execute, $ } = mount(SCREEN); $("b").focus();
   const e = pressKey($("b"), { key: "ArrowDown" });
   expect(execute).toHaveBeenCalledWith({ type: "move", dir: "down", enterSide: true }, e);
   expect(e.defaultPrevented).toBe(true);
+});
+it("treats focus on a hidden screen as lost and a screen with only disabled items as empty", () => {
+  const { execute, $ } = mount(`<div id="root"><nav id="rail"><button>Home</button></nav><main>
+    <div class="tv-screen hidden"><button id="old" data-tv-focusable>old</button></div>
+    <div class="tv-screen"><button data-tv-focusable disabled>wait</button></div></main></div>`);
+  $("old").focus();
+  pressKey($("old"), { key: "ArrowDown" });
+  pressKey($("old"), { key: "ArrowLeft" });
+  expect(execute.mock.calls.map((c) => c[0])).toEqual([{ type: "swallow" }, { type: "focusRail" }]);
 });
 it("leaves a key an element already handled", () => {
   const { execute, $ } = mount(SCREEN); $("b").focus();

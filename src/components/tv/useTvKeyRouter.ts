@@ -3,6 +3,7 @@ import { useStore, type createStore } from "jotai";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { menuForElement } from "./tvMenu";
 import { claimKey } from "../../lib/keyClaim";
+import { isShown } from "../../lib/spatialNav";
 import {
   caretAllowsLeaving,
   claimsKey,
@@ -66,6 +67,15 @@ function readVideoFacts(store: Store): TvKeyFacts["video"] {
   return { inControls, inQualityList };
 }
 
+/** Whether the current screen has something `focusFirstIn` could focus. */
+function screenHasFocusable(root: HTMLElement | null): boolean {
+  const screen = root?.querySelector(".tv-screen:not(.hidden)");
+  if (!screen) return false;
+  return Array.from(
+    screen.querySelectorAll<HTMLElement>("[data-tv-focusable]"),
+  ).some(isShown);
+}
+
 function readTvKeyFacts(
   e: KeyboardEvent,
   store: Store,
@@ -81,9 +91,11 @@ function readTvKeyFacts(
   const active = document.activeElement;
   const root = opts.rootRef.current;
 
+  const shown =
+    active instanceof HTMLElement && !!root?.contains(active) && isShown(active);
   let focus: TvKeyFacts["focus"] = "content";
-  if (opts.railRef.current?.contains(active)) focus = "rail";
-  else if (layer === "none" && !root?.contains(active)) focus = "lost";
+  if (layer === "none" && !shown) focus = "lost";
+  else if (opts.railRef.current?.contains(active)) focus = "rail";
 
   return {
     key: e.key,
@@ -103,11 +115,7 @@ function readTvKeyFacts(
           }
         : { left: true, right: true },
     focus,
-    screenHasFocusable:
-      focus !== "lost" ||
-      !!root
-        ?.querySelector(".tv-screen:not(.hidden)")
-        ?.querySelector("[data-tv-focusable]"),
+    screenHasFocusable: focus !== "lost" || screenHasFocusable(root),
     hasMenu: e.key === "Enter" && menuForElement(active) !== null,
     holding: opts.holding(),
     nativeEditable:
