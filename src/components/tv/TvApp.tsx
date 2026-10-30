@@ -194,7 +194,7 @@ function MiniBar({ onOpen }: { onOpen: () => void }) {
         <div className="truncate text-[0.8rem] font-semibold text-th-text-primary">
           {track.title}
         </div>
-        <div className="truncate text-[0.65rem] text-th-text-muted">
+        <div className="truncate text-[0.75rem] text-th-text-muted">
           {getTrackArtistDisplay(track)}
         </div>
       </div>

@@ -96,7 +96,7 @@ function VolumeControl() {
 
   if (bitPerfect) {
     return (
-      <span className="inline-flex items-center gap-[0.5rem] text-[0.7rem] text-th-text-muted">
+      <span className="inline-flex items-center gap-[0.5rem] text-[0.75rem] text-th-text-muted">
         <Volume2 className="w-[1.1rem] h-[1.1rem]" />
         Volume fixed (bit-perfect)
       </span>
@@ -145,7 +145,7 @@ function VolumeControl() {
           style={{ width: `${pct}%` }}
         />
       </span>
-      <span className="w-[2.2rem] text-right text-[0.7rem] text-th-text-secondary tabular-nums">
+      <span className="w-[2.2rem] text-right text-[0.75rem] text-th-text-secondary tabular-nums">
         {pct}%
       </span>
     </div>
@@ -240,7 +240,7 @@ function Progress({
           style={{ left: `${pct}%`, transition: `left ${glide}` }}
         />
       </div>
-      <div className="mt-[0.4rem] flex justify-between text-[0.7rem] text-th-text-muted tabular-nums">
+      <div className="mt-[0.4rem] flex justify-between text-[0.75rem] text-th-text-muted tabular-nums">
         <span className={target !== null ? "text-th-text-primary" : ""}>
           {formatTime(position)}
         </span>
@@ -426,7 +426,7 @@ export default function TvNowPlaying() {
               data-tv-focusable
               onClick={() => setSignalPathOpen(true)}
               title="Signal path"
-              className="tv-button mt-[0.8rem] inline-flex items-center gap-[0.5rem] rounded-[0.3rem] border border-th-border-subtle px-[0.5rem] py-[0.15rem] text-[0.6rem] font-bold tracking-[0.12em] text-th-accent"
+              className="tv-button mt-[0.8rem] inline-flex items-center gap-[0.5rem] rounded-[0.3rem] border border-th-border-subtle px-[0.5rem] py-0 text-[0.75rem] leading-[1.2rem] font-bold tracking-[0.12em] text-th-accent"
             >
               {quality}
               <span className="font-semibold tracking-normal text-th-text-muted">
@@ -576,7 +576,7 @@ export default function TvNowPlaying() {
         </div>
 
         {upNext.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-[1rem] flex items-center justify-center gap-[0.4rem] text-[0.7rem] text-th-text-muted">
+          <div className="pointer-events-none absolute inset-x-0 bottom-[1rem] flex items-center justify-center gap-[0.4rem] text-[0.75rem] text-th-text-muted">
             <ChevronDown className="w-[1rem] h-[1rem]" />
             <span className="truncate max-w-[40rem]">
               Up next: {upNext[0].title}

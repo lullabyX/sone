@@ -73,7 +73,7 @@ function TvCard({
             {entry.title}
           </div>
           {entry.subtitle && (
-            <div className="text-[0.65rem] text-th-text-muted truncate">
+            <div className="text-[0.75rem] text-th-text-muted truncate">
               {entry.subtitle}
             </div>
           )}
@@ -312,16 +312,16 @@ export function TvTrackRow({
               </span>
             )}
           </span>
-          <span className="block truncate text-[0.65rem] text-th-text-muted">
+          <span className="block truncate text-[0.75rem] text-th-text-muted">
             {track.explicit && (
-              <span className="inline-block mr-[0.4rem] px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.55rem] font-bold leading-[1.2]">
+              <span className="inline-block mr-[0.4rem] px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]">
                 E
               </span>
             )}
             {track.ai && (
               <span
                 title="AI-generated"
-                className="inline-block mr-[0.4rem] px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.55rem] font-bold leading-[1.2]"
+                className="inline-block mr-[0.4rem] px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]"
               >
                 AI
               </span>
@@ -329,7 +329,7 @@ export function TvTrackRow({
             {getTrackArtistDisplay(track)}
           </span>
         </span>
-        <span className="shrink-0 text-[0.7rem] text-th-text-muted tabular-nums">
+        <span className="shrink-0 text-[0.75rem] text-th-text-muted tabular-nums">
           {track.duration ? formatTime(track.duration) : ""}
         </span>
       </button>
@@ -402,7 +402,7 @@ export function TvHeader({
       </div>
       <div className="min-w-0 flex-1">
         {kicker && (
-          <p className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
+          <p className="text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
             {kicker}
           </p>
         )}

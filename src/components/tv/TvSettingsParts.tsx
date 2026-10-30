@@ -10,7 +10,7 @@ export function TvSettingsSection({
 }) {
   return (
     <section className="mb-[2rem]">
-      <h2 className="text-[0.7rem] font-bold uppercase tracking-[0.15em] text-th-text-muted px-[1rem] mb-[0.5rem]">
+      <h2 className="text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted px-[1rem] mb-[0.5rem]">
         {title}
       </h2>
       <div className="flex flex-col gap-[0.2rem]">{children}</div>
@@ -73,7 +73,7 @@ export function TvSettingsRow({
           {title}
         </span>
         {subtitle && (
-          <span className="block text-[0.65rem] text-th-text-muted mt-[0.1rem]">
+          <span className="block text-[0.75rem] text-th-text-muted mt-[0.1rem]">
             {subtitle}
           </span>
         )}

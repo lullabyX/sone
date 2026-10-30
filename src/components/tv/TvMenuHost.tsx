@@ -660,7 +660,7 @@ const TvMenuHost = forwardRef<
               {spec.title}
             </div>
             {spec.subtitle && (
-              <div className="text-[0.7rem] text-th-text-muted truncate">
+              <div className="text-[0.75rem] text-th-text-muted truncate">
                 {spec.subtitle}
               </div>
             )}

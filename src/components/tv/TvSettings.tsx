@@ -287,7 +287,7 @@ export default function TvSettings() {
                   )}
                 </span>
                 <span
-                  className={`block mt-[0.4rem] text-[0.65rem] font-semibold truncate ${
+                  className={`block mt-[0.4rem] text-[0.75rem] font-semibold truncate ${
                     active ? "text-th-accent" : "text-th-text-secondary"
                   }`}
                 >

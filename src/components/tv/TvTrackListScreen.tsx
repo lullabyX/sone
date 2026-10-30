@@ -333,7 +333,7 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
           )}
         </div>
         {data.kicker && (
-          <p className="mt-[1.4rem] text-[0.65rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
+          <p className="mt-[1.4rem] text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
             {data.kicker}
           </p>
         )}
