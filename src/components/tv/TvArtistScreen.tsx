@@ -1,8 +1,14 @@
 import { useCallback } from "react";
-import { Heart, Play, Radio } from "lucide-react";
+import { BookOpen, Heart, Play, Radio, Shuffle } from "lucide-react";
 import { getArtistPage } from "../../api/tidal";
 import { useFavorites } from "../../hooks/useFavorites";
+import {
+  artistTopTracksPager,
+  type PlayableSource,
+} from "../../lib/trackSources";
+import type { Track } from "../../types";
 import { getArtistImage } from "../../utils/itemHelpers";
+import { bioParagraphs } from "../BioText";
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import {
   TvButton,
@@ -22,7 +28,7 @@ const CARD_SECTIONS = [
   "MIX_LIST",
   "VIDEO_LIST",
 ];
-const TOP_TRACKS_SHOWN = 10;
+const TRACK_ROWS_SHOWN = 10;
 
 export default function TvArtistScreen({
   view,
@@ -41,15 +47,19 @@ export default function TvArtistScreen({
 
   const name = data.artistName || view.name || "Artist";
   const image = getArtistImage(data, 750) || view.image;
-  const topTracks = data.topTracks.slice(0, TOP_TRACKS_SHOWN);
-  const source = {
-    type: "artist",
-    id: view.id,
-    name,
-    image,
-    allTracks: data.topTracks,
-  };
+  const meta = { type: "artist", id: view.id, name, image };
+  // The preview isn't guaranteed to be a prefix of the full list, so page
+  // from 0 and let de-duplication drop the overlap (desktop ArtistPage).
+  const artistPlayable = (): PlayableSource => ({
+    meta,
+    loaded: data.topTracks,
+    nextOffset: 0,
+    fetchPage: artistTopTracksPager(view.id),
+    dedupe: true,
+  });
   const following = followedArtistIds.has(view.id);
+  const bio = data.bio;
+  const empty = data.sections.length === 0 && data.topTracks.length === 0;
 
   return (
     <div className="pb-[3rem]">
@@ -65,18 +75,22 @@ export default function TvArtistScreen({
         }
       >
         {data.topTracks.length > 0 && (
-          <TvButton
-            primary
-            autoFocus
-            icon={<Play className="w-[1rem] h-[1rem]" fill="currentColor" />}
-            label="Play"
-            onClick={() =>
-              void nav.playSource({
-                meta: { type: "artist", id: view.id, name, image },
-                loaded: data.topTracks,
-              })
-            }
-          />
+          <>
+            <TvButton
+              primary
+              autoFocus
+              icon={<Play className="w-[1rem] h-[1rem]" fill="currentColor" />}
+              label="Play"
+              onClick={() => void nav.playSource(artistPlayable())}
+            />
+            <TvButton
+              icon={<Shuffle className="w-[1rem] h-[1rem]" />}
+              label="Shuffle"
+              onClick={() =>
+                void nav.playSource(artistPlayable(), { shuffle: true })
+              }
+            />
+          </>
         )}
         {data.radioMixId && (
           <TvButton
@@ -113,54 +127,92 @@ export default function TvArtistScreen({
             ).catch(() => {})
           }
         />
+        {bio && (
+          <TvButton
+            icon={<BookOpen className="w-[1rem] h-[1rem]" />}
+            label="Biography"
+            onClick={() =>
+              nav.openMenu({
+                title: "Biography",
+                subtitle: data.bioSource
+                  ? `Artist bio from ${data.bioSource}`
+                  : undefined,
+                wide: true,
+                items: bioParagraphs(bio).map((p) => ({
+                  label: p,
+                  multiline: true,
+                })),
+              })
+            }
+          />
+        )}
       </TvHeader>
 
-      {topTracks.length > 0 && (
-        <section className="mb-[1.5rem]">
-          <h2 className="text-[1.05rem] font-bold text-th-text-primary px-[3rem] mb-[0.4rem]">
-            Top tracks
-          </h2>
-          <div className="px-[2rem]">
-            {topTracks.map((track, i) => (
-              <TvTrackRow
-                key={track.id}
-                track={track}
-                index={i}
-                showCover
-                onSelect={() =>
-                  nav.playTrack(track, data.topTracks, { source })
-                }
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {data.sections
-        .filter((s) => CARD_SECTIONS.includes(s.type))
-        .map((section, i) => {
-          const { entries } = sectionEntries(section.items, section.type);
+      {data.sections.map((section, i) => {
+        const key = `${section.title}:${i}`;
+        if (section.type === "TRACK_LIST") {
+          const tracks = section.items as Track[];
+          if (tracks.length === 0) return null;
+          // Only the first TRACK_LIST is the top tracks (same array as
+          // data.topTracks); other track sections play their own list.
+          const isTopTracks = section.items === data.topTracks;
           return (
-            <TvRow
-              key={`${section.title}:${i}`}
-              title={section.title}
-              entries={entries}
-              viewAll={
-                section.apiPath
-                  ? {
-                      type: "list",
-                      title: `${name}: ${section.title}`,
-                      source: {
-                        kind: "artist",
-                        artistId: view.id,
-                        apiPath: section.apiPath,
-                      },
+            <section key={key} className="mb-[1.5rem]">
+              <h2 className="text-[1.05rem] font-bold text-th-text-primary px-[3rem] mb-[0.4rem]">
+                {section.title}
+              </h2>
+              <div className="px-[2rem]">
+                {tracks.slice(0, TRACK_ROWS_SHOWN).map((track, j) => (
+                  <TvTrackRow
+                    key={track.id}
+                    track={track}
+                    index={j}
+                    showCover
+                    blockedNoMenu
+                    onSelect={() =>
+                      void nav.playSource(
+                        isTopTracks
+                          ? artistPlayable()
+                          : { meta, loaded: tracks },
+                        { startAt: track },
+                      )
                     }
-                  : undefined
-              }
-            />
+                  />
+                ))}
+              </div>
+            </section>
           );
-        })}
+        }
+        if (!CARD_SECTIONS.includes(section.type)) return null;
+        const { entries } = sectionEntries(section.items, section.type);
+        return (
+          <TvRow
+            key={key}
+            title={section.title}
+            entries={entries}
+            showExplicit
+            viewAll={
+              section.apiPath
+                ? {
+                    type: "list",
+                    title: `${name}: ${section.title}`,
+                    source: {
+                      kind: "artist",
+                      artistId: view.id,
+                      apiPath: section.apiPath,
+                    },
+                  }
+                : undefined
+            }
+          />
+        );
+      })}
+
+      {empty && (
+        <p className="px-[3rem] text-[1rem] text-th-text-muted">
+          This artist doesn't have any tracks or albums yet.
+        </p>
+      )}
     </div>
   );
 }
