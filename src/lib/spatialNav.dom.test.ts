@@ -166,3 +166,48 @@ describe("dock", () => {
     expect(active()).toBe("open");
   });
 });
+
+describe("clipped containers", () => {
+  let restore: () => void;
+  let root: HTMLElement;
+
+  beforeEach(() => {
+    restore = stubLayout();
+    document.body.innerHTML = `
+  <div id="root">
+    <div data-tv-clip data-box="0,0,300,200">
+      <button id="line1" data-tv-focusable data-box="0,50,300,40">line1</button>
+      <button id="line2" data-tv-focusable data-box="0,150,300,40">line2</button>
+      <button id="clipped" data-tv-focusable data-box="0,250,300,40">clipped</button>
+    </div>
+    <button id="tab" data-tv-focusable data-box="0,320,300,40">tab</button>
+  </div>`;
+    root = document.getElementById("root")!;
+  });
+
+  afterEach(() => {
+    restore();
+    document.body.innerHTML = "";
+  });
+
+  const focus = (id: string) => document.getElementById(id)!.focus();
+  const active = () => document.activeElement?.id;
+
+  it("skips items scrolled out of a clipped container", () => {
+    focus("tab");
+    expect(moveFocus(root, "up")).toBe(true);
+    expect(active()).toBe("line2");
+  });
+
+  it("still moves between items inside the container's box", () => {
+    focus("line1");
+    expect(moveFocus(root, "down")).toBe(true);
+    expect(active()).toBe("line2");
+  });
+
+  it("leaves the container past its visible items", () => {
+    focus("line2");
+    expect(moveFocus(root, "down")).toBe(true);
+    expect(active()).toBe("tab");
+  });
+});

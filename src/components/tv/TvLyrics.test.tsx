@@ -7,7 +7,6 @@ import {
 } from "@testing-library/react";
 import { createStore } from "jotai";
 import { beforeEach, expect, it, vi } from "vitest";
-import { getTrackLyrics } from "../../api/tidal";
 import { isPlayingAtom } from "../../atoms/playback";
 import type { Lyrics } from "../../types";
 import { TvLyricsPanel } from "./TvLyrics";
@@ -20,15 +19,19 @@ vi.mock("../../lib/playbackPosition", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/playbackPosition")>()),
   getInterpolatedPosition: () => pos.value,
 }));
+const api = vi.hoisted(() => ({
+  getTrackLyrics: vi.fn(async () => ({ isRightToLeft: false }) as Lyrics),
+}));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()),
-  getTrackLyrics: vi.fn(),
+  ...api,
 }));
 import { invoke } from "@tauri-apps/api/core";
 
 setupTvTest();
 
 beforeEach(() => {
+  for (const m of Object.values(api)) m.mockReset();
   pos.value = 0;
   mockInvoke({ seek_track: () => undefined });
 });
@@ -161,7 +164,7 @@ it("no credit without a provider", () => {
 });
 
 it("the hook carries the provider", async () => {
-  vi.mocked(getTrackLyrics).mockResolvedValue({
+  api.getTrackLyrics.mockResolvedValue({
     subtitles: "[00:01.00] One",
     lyricsProvider: "Musixmatch",
   } as Lyrics);

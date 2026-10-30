@@ -27,6 +27,7 @@ const SIDE = "[data-tv-side]";
 // The mini bar: moveFocus never enters it from outside (only dockFallback
 // does); from inside, only Up leaves it.
 const DOCK = "[data-tv-dock]";
+const CLIP = "[data-tv-clip]";
 
 /** How much the sideways offset counts against the forward distance. A
  *  candidate straight ahead beats a nearer one far off to the side. */
@@ -105,13 +106,32 @@ export function isShown(el: HTMLElement): boolean {
 }
 
 /** Visible focusables in `scope` with their boxes. Reading a box costs real
- *  time on a long track list, so each one is read once per move. */
+ *  time on a long track list, so each one is read once per move. Inside a
+ *  `data-tv-clip` container (a scroller that hides its overflow) only items
+ *  within the container's box count; the focused element always does. */
 function measure(scope: ParentNode): Map<HTMLElement, DOMRect> {
   const boxes = new Map<HTMLElement, DOMRect>();
+  const clips = new Map<Element, DOMRect>();
+  const current = document.activeElement;
   for (const el of scope.querySelectorAll<HTMLElement>(FOCUSABLE)) {
     if ((el as HTMLButtonElement).disabled) continue;
     const r = el.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) boxes.set(el, r);
+    if (r.width <= 0 || r.height <= 0) continue;
+    const clip = el !== current ? el.closest(CLIP) : null;
+    if (clip) {
+      let c = clips.get(clip);
+      if (!c) {
+        c = clip.getBoundingClientRect();
+        clips.set(clip, c);
+      }
+      const inside =
+        r.left < c.right &&
+        r.right > c.left &&
+        r.top < c.bottom &&
+        r.bottom > c.top;
+      if (!inside) continue;
+    }
+    boxes.set(el, r);
   }
   return boxes;
 }

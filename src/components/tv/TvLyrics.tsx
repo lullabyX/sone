@@ -125,6 +125,7 @@ export function TvLyricsPanel({
     >
       <div
         ref={containerRef}
+        data-tv-clip
         className="tv-lyrics relative min-h-0 flex-1 overflow-hidden"
         style={{ maskImage: fade, WebkitMaskImage: fade }}
         onFocus={onFocus}
