@@ -18,8 +18,13 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
 
 import { invoke } from "@tauri-apps/api/core";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
-import { currentTrackAtom } from "../../atoms/playback";
-import type { Lyrics, Track } from "../../types";
+import {
+  bitPerfectAtom,
+  currentTrackAtom,
+  volumeAtom,
+} from "../../atoms/playback";
+import { currentVideoAtom } from "../../atoms/video";
+import type { Lyrics, TidalVideo, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
 import {
   mkTrack,
@@ -79,5 +84,42 @@ describe("TvNowPlaying progress", () => {
     });
     act(() => vi.advanceTimersByTime(1000));
     expect(invoke).toHaveBeenCalledWith("seek_track", { positionSecs: 10 });
+  });
+});
+
+describe("TvNowPlaying volume", () => {
+  it("lets the remote change video volume while bit-perfect is on", () => {
+    const store = playing(mkTrack(9, { itemType: "video" }));
+    store.set(bitPerfectAtom, true);
+    store.set(volumeAtom, 0.5);
+    store.set(currentVideoAtom, {
+      id: 9,
+      title: "V",
+      duration: 100,
+    } as TidalVideo);
+    renderTv(<TvNowPlaying />, { store });
+    fireEvent.keyDown(screen.getByRole("slider", { name: "Volume" }), {
+      key: "ArrowRight",
+    });
+    expect(store.get(volumeAtom)).toBeCloseTo(0.55);
+  });
+
+  it("shows the fixed-volume label for audio", () => {
+    const store = playing();
+    store.set(bitPerfectAtom, true);
+    renderTv(<TvNowPlaying />, { store });
+    expect(screen.getByText("Volume fixed (bit-perfect)")).toBeTruthy();
+    expect(screen.queryByRole("slider", { name: "Volume" })).toBeNull();
+  });
+
+  it("toggles mute once while OK is held", () => {
+    mockInvoke({ set_volume: () => undefined });
+    const store = playing();
+    store.set(volumeAtom, 0.5);
+    renderTv(<TvNowPlaying />, { store });
+    const slider = screen.getByRole("slider", { name: "Volume" });
+    fireEvent.keyDown(slider, { key: "Enter" });
+    fireEvent.keyDown(slider, { key: "Enter", repeat: true });
+    expect(store.get(volumeAtom)).toBe(0);
   });
 });

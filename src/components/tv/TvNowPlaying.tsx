@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useAtom, useAtomValue, useStore } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
   ChevronDown,
   Heart,
@@ -31,8 +31,6 @@ import {
   shuffleAtom,
   streamInfoAtom,
   volumeAtom,
-  preMuteVolumeAtom,
-  bitPerfectAtom,
 } from "../../atoms/playback";
 import {
   currentVideoAtom,
@@ -42,6 +40,7 @@ import {
 import { tvLyricsAtom } from "../../atoms/tv";
 import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
+import { useVolumeLocked } from "../../hooks/useVolumeLocked";
 import { formatTime } from "../../lib/format";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
 import { getTidalImageUrl } from "../../types";
@@ -57,7 +56,8 @@ import { TvButton, TvTrackRow } from "./TvParts";
 import { TvLyricsPanel } from "./TvLyrics";
 import { useTvLyrics } from "./useTvLyrics";
 import { useTvMiniVideo, useTvVideoAspect } from "./useTvMiniVideo";
-import { TV_SEEK_STEP_S } from "./tvKeys";
+import { TV_SEEK_STEP_S, TV_VOLUME_STEP } from "./tvKeys";
+import { useTvMediaCommands } from "./useTvMediaCommands";
 
 const UP_NEXT_SHOWN = 20;
 
@@ -89,19 +89,17 @@ function usePosition(video: boolean, active: boolean): number {
   return pos;
 }
 
-const VOLUME_STEP = 0.05;
-
-/** Volume bar: Left/Right change it in 5% steps, Enter mutes. Locked while
- *  bit-perfect output is on, since the DAC must get unscaled samples. */
+/** Volume bar: Left/Right change it in 5% steps, Enter mutes (once per
+ *  press). Locked while bit-perfect audio plays, since the DAC must get
+ *  unscaled samples; a video's volume stays adjustable. */
 function VolumeControl() {
   const volume = useAtomValue(volumeAtom);
-  const bitPerfect = useAtomValue(bitPerfectAtom);
-  const store = useStore();
-  const { setVolume } = usePlaybackActions();
+  const locked = useVolumeLocked();
+  const media = useTvMediaCommands();
   const pct = Math.round(volume * 100);
   const Icon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
-  if (bitPerfect) {
+  if (locked) {
     return (
       <span className="inline-flex items-center gap-[0.5rem] text-[0.75rem] text-th-text-muted">
         <Volume2 className="w-[1.1rem] h-[1.1rem]" />
@@ -110,25 +108,18 @@ function VolumeControl() {
     );
   }
 
-  const toggleMute = () => {
-    if (volume > 0) {
-      store.set(preMuteVolumeAtom, volume);
-      void setVolume(0);
-    } else {
-      void setVolume(store.get(preMuteVolumeAtom) || 0.5);
-    }
-  };
+  const toggleMute = () => media({ kind: "mute" });
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
-      const delta = e.key === "ArrowLeft" ? -VOLUME_STEP : VOLUME_STEP;
-      void setVolume(
-        Math.round(Math.max(0, Math.min(1, volume + delta)) * 100) / 100,
-      );
+      media({
+        kind: "volume",
+        by: e.key === "ArrowLeft" ? -TV_VOLUME_STEP : TV_VOLUME_STEP,
+      });
     } else if (e.key === "Enter") {
       e.preventDefault();
-      toggleMute();
+      if (!e.repeat) toggleMute();
     }
   };
 

@@ -11,14 +11,28 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import VolumeSlider from "./VolumeSlider";
 import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
+import { currentVideoAtom } from "../atoms/video";
+import type { TidalVideo } from "../types";
 // usePlaybackActions (used by VolumeSlider) calls useToast(), which throws
 // outside a ToastProvider — so the rendered tree must be wrapped in it.
 import { ToastProvider } from "../contexts/ToastContext";
 
-function setup(initial: { volume?: number; bitPerfect?: boolean } = {}) {
+function setup(
+  initial: {
+    volume?: number;
+    bitPerfect?: boolean;
+    currentVideo?: boolean;
+  } = {},
+) {
   const store = createStore();
   store.set(volumeAtom, initial.volume ?? 0.5);
   store.set(bitPerfectAtom, initial.bitPerfect ?? false);
+  if (initial.currentVideo)
+    store.set(currentVideoAtom, {
+      id: 9,
+      title: "V",
+      duration: 100,
+    } as TidalVideo);
   const wrapper = ({ children }: PropsWithChildren) => (
     <Provider store={store}>
       <ToastProvider>{children}</ToastProvider>
@@ -59,6 +73,16 @@ describe("VolumeSlider scroll-to-adjust", () => {
     const { store, el } = setup({ volume: 0.5, bitPerfect: true });
     fireEvent.wheel(el, { deltaY: -100 });
     expect(store.get(volumeAtom)).toBe(0.5);
+  });
+
+  it("scrolling adjusts video volume while bit-perfect is on", () => {
+    const { store, el } = setup({
+      volume: 0.5,
+      bitPerfect: true,
+      currentVideo: true,
+    });
+    fireEvent.wheel(el, { deltaY: -100 });
+    expect(store.get(volumeAtom)).toBeCloseTo(0.55, 5);
   });
 
   it("reads the latest volume across successive scrolls (no stale closure)", () => {

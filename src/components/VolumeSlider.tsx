@@ -1,9 +1,9 @@
 import { memo, useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
-import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
-import { currentVideoAtom } from "../atoms/video";
+import { volumeAtom } from "../atoms/playback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import { useVolumeLocked } from "../hooks/useVolumeLocked";
 
 interface VolumeSliderProps {
   /** Container width class (default "w-[120px]") */
@@ -20,13 +20,8 @@ const VolumeSlider = memo(function VolumeSlider({
   onDragEnd,
 }: VolumeSliderProps) {
   const volume = useAtomValue(volumeAtom);
-  const bitPerfect = useAtomValue(bitPerfectAtom);
-  const currentVideo = useAtomValue(currentVideoAtom);
   const { setVolume } = usePlaybackActions();
-
-  // Bit-perfect locks the slider at unity — but only for audio. Video audio is
-  // lossy and plays through the <video> element, so it stays controllable.
-  const locked = bitPerfect && !currentVideo;
+  const locked = useVolumeLocked();
   const displayVolume = locked ? 1 : volume;
 
   const containerRef = useRef<HTMLDivElement>(null);
