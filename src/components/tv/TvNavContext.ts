@@ -5,6 +5,7 @@ import type { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import type { TvAction, TvView } from "./tvItems";
 import type { TvMenuItem, TvMenuSpec } from "./tvMenu";
 import type { TvPromptRequest } from "./TvPrompt";
+import type { TabId } from "../settings/SettingsSheet";
 
 export interface TvNav {
   /** Open a screen on top of the current one; Back returns to it. */
@@ -30,8 +31,9 @@ export interface TvNav {
   mediaMenu: (item: MediaItemType, onItsPage?: boolean) => TvMenuSpec;
   /** Ask for a line of text with the on-screen keyboard; null if cancelled. */
   prompt: (request: TvPromptRequest) => Promise<string | null>;
-  /** Open the full desktop settings sheet, navigable with the remote. */
-  openMoreSettings: () => void;
+  /** Open the full desktop settings sheet, navigable with the remote, on
+   *  `tab` (Playback if omitted). */
+  openMoreSettings: (tab?: TabId) => void;
   /** Carry out a card's action. `queue` is the row it sits in, so playing a
    *  track keeps the rest of that row queued behind it. */
   run: (

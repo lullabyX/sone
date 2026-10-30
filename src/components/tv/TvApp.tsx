@@ -56,6 +56,7 @@ import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
+import { useTvMoreSettings } from "./useTvMoreSettings";
 import "./tv.css";
 
 type RootType =
@@ -401,10 +402,8 @@ export default function TvApp() {
     setPrompt(null);
     resolve?.(text);
   }, []);
-  const [moreSettings, setMoreSettings] = useState(false);
   // The layer hands focus back itself when it closes.
-  const openMoreSettings = useCallback(() => setMoreSettings(true), []);
-  const closeMoreSettings = useCallback(() => setMoreSettings(false), []);
+  const more = useTvMoreSettings();
 
   const nav = useMemo<TvNav>(
     () => ({
@@ -417,10 +416,10 @@ export default function TvApp() {
       trackMenu: (track, extra) => menuRef.current!.trackMenu(track, extra),
       mediaMenu: (item, onItsPage) =>
         menuRef.current!.mediaMenu(item, onItsPage),
-      openMoreSettings,
+      openMoreSettings: more.open,
       prompt: askText,
     }),
-    [push, back, run, showNowPlaying, playTrack, openMoreSettings, askText],
+    [push, back, run, showNowPlaying, playTrack, more.open, askText],
   );
 
   // The desktop "focus search" shortcut opens the Search screen here.
@@ -693,7 +692,7 @@ export default function TvApp() {
           overlayShowing ? "hidden" : ""
         }`}
       >
-        <ProxyNoticeBanner />
+        <ProxyNoticeBanner offerSettings />
         <div className="relative flex-1 min-h-0">
           <nav
             ref={railRef}
@@ -757,9 +756,9 @@ export default function TvApp() {
         onPlaylistDeleted={leavePlaylist}
       />
       {prompt && <TvPrompt request={prompt} onDone={finishPrompt} />}
-      {moreSettings && (
+      {more.tab && (
         <TvNativeLayer width={800} height={740}>
-          <SettingsSheet open onClose={closeMoreSettings} />
+          <SettingsSheet open initialTab={more.tab} onClose={more.close} />
         </TvNativeLayer>
       )}
     </TvNavContext.Provider>
