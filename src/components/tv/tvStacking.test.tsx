@@ -3,6 +3,7 @@ import videoSrc from "../VideoPlayer.tsx?raw";
 import menuSrc from "./TvMenuHost.tsx?raw";
 import promptSrc from "./TvPrompt.tsx?raw";
 import tvAppSrc from "./TvApp.tsx?raw";
+import hudSrc from "./TvVolumeHud.tsx?raw";
 import TvNativeLayer from "./TvNativeLayer";
 import { renderTv, setupTvTest } from "./tvTestUtils";
 
@@ -41,4 +42,11 @@ it("TvApp draws More settings, then the action menu, then the prompt", () => {
   expect(at(/<TvNativeLayer\b/)).toBeGreaterThan(-1);
   expect(at(/<TvNativeLayer\b/)).toBeLessThan(at(/<TvMenuHost\b/));
   expect(at(/<TvMenuHost\b/)).toBeLessThan(at(/<TvPrompt\b/));
+});
+
+it("the volume indicator is a TV overlay drawn last", () => {
+  expect(hudSrc).toContain("fixed inset-0 z-[10000] tv-overlay");
+  expect(tvAppSrc.search(/<TvPrompt\b/)).toBeLessThan(
+    tvAppSrc.search(/<TvVolumeHud\b/),
+  );
 });

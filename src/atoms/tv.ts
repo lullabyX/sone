@@ -47,3 +47,7 @@ export function nextTvOverscan(v: TvOverscan): TvOverscan {
   const i = TV_OVERSCAN_STEPS.indexOf(v);
   return TV_OVERSCAN_STEPS[(i + 1) % TV_OVERSCAN_STEPS.length];
 }
+
+/** Bumped each time a volume command meets the bit-perfect lock, so the TV
+ *  volume indicator can say why nothing changed. */
+export const tvVolumeLockedPingAtom = atom(0);

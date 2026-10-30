@@ -55,6 +55,7 @@ import TvListScreen from "./TvListScreen";
 import TvNativeLayer from "./TvNativeLayer";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
+import TvVolumeHud from "./TvVolumeHud";
 import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
@@ -844,6 +845,7 @@ export default function TvApp() {
         onPlaylistDeleted={leavePlaylist}
       />
       {prompt && <TvPrompt request={prompt} onDone={finishPrompt} />}
+      <TvVolumeHud />
     </TvNavContext.Provider>
   );
 }

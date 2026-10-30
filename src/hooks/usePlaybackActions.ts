@@ -39,6 +39,7 @@ import {
   videoPlayingAtom,
   videoExpandedAtom,
 } from "../atoms/video";
+import { tvVolumeLockedPingAtom } from "../atoms/tv";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
@@ -585,7 +586,10 @@ export function usePlaybackActions() {
       const isVideo = !!store.get(currentVideoAtom);
       // Bit-perfect audio stays locked at unity; video audio is lossy, so the
       // slider must still work for it.
-      if (bitPerfect && !isVideo) return;
+      if (bitPerfect && !isVideo) {
+        store.set(tvVolumeLockedPingAtom, (n) => n + 1);
+        return;
+      }
       store.set(volumeAtom, level); // the <video> element reads this atom
       // Never push a non-unity level to the GStreamer pipeline while bit-perfect
       // is on — that would attenuate (and un-bit-perfect) audio playback.

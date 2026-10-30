@@ -1,10 +1,12 @@
 import { useCallback } from "react";
 import { useStore } from "jotai";
 import {
+  bitPerfectAtom,
   currentTrackAtom,
   preMuteVolumeAtom,
   volumeAtom,
 } from "../../atoms/playback";
+import { tvVolumeLockedPingAtom } from "../../atoms/tv";
 import { currentVideoAtom } from "../../atoms/video";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
@@ -30,6 +32,14 @@ export function useTvMediaCommands(): (cmd: TvMediaCommand) => void {
 
   return useCallback(
     (cmd: TvMediaCommand) => {
+      if (
+        (cmd.kind === "volume" || cmd.kind === "mute") &&
+        store.get(bitPerfectAtom) &&
+        !store.get(currentVideoAtom)
+      ) {
+        store.set(tvVolumeLockedPingAtom, (n) => n + 1);
+        return;
+      }
       switch (cmd.kind) {
         case "toggle":
           void togglePlayPause();
