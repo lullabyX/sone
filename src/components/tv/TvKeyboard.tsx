@@ -1,26 +1,33 @@
 import { useContext, useEffect, useRef } from "react";
+import { useStore } from "jotai";
 import { Delete, X } from "lucide-react";
+import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { TvScreenContext } from "./TvNavContext";
 
 const KEYS = "abcdefghijklmnopqrstuvwxyz1234567890".split("");
 
 /**
  * The on-screen keyboard for typing with the remote (search, names). A
- * physical keyboard types too, wherever focus is on the keys: printable
- * keys add their character and Backspace deletes, instead of moving focus
- * or going back.
+ * physical keyboard types too while focus is on the keys (or anywhere in
+ * the prompt holding them): printable keys add their character and
+ * Backspace deletes, instead of moving focus or going back. Backspace on
+ * empty text is left to go back.
  */
 export default function TvKeyboard({
   onChange,
   autoFocus,
+  empty,
 }: {
   /** Applies an edit to the current text. */
   onChange: (edit: (text: string) => string) => void;
   /** Focus the first key when the screen opens. */
   autoFocus?: boolean;
+  /** The text is empty, so Backspace means Back. */
+  empty?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { active } = useContext(TvScreenContext);
+  const store = useStore();
 
   useEffect(() => {
     if (!active) return;
@@ -28,6 +35,7 @@ export default function TvKeyboard({
       const root = rootRef.current;
       if (!root || e.defaultPrevented) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (store.get(currentVideoAtom) && store.get(videoExpandedAtom)) return;
       // A text field types natively.
       const el = document.activeElement;
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -37,9 +45,15 @@ export default function TvKeyboard({
       const modals = document.querySelectorAll("[data-tv-modal]");
       const top = modals[modals.length - 1];
       if (top && !top.contains(root)) return;
+      const scope = root.closest("[data-tv-modal]") ?? root;
+      if (!scope.contains(el)) return;
       if (e.key === "Backspace") {
-        e.preventDefault();
-        onChange((t) => t.slice(0, -1));
+        if (!empty) {
+          e.preventDefault();
+          onChange((t) => t.slice(0, -1));
+        } else if (e.repeat) {
+          e.preventDefault();
+        }
       } else if (e.key.length === 1) {
         e.preventDefault();
         onChange((t) => t + e.key);
@@ -48,10 +62,14 @@ export default function TvKeyboard({
     // Capture: ahead of the TV interface's arrow/Back handling.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [active, onChange]);
+  }, [active, onChange, empty, store]);
 
   return (
-    <div ref={rootRef} className="grid grid-cols-6 gap-[0.4rem]">
+    <div
+      ref={rootRef}
+      data-tv-keyboard
+      className="grid grid-cols-6 gap-[0.4rem]"
+    >
       {KEYS.map((k, i) => (
         <button
           key={k}

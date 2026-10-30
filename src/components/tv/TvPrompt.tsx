@@ -65,7 +65,7 @@ export default function TvPrompt({
           />
         </label>
         <div className="mt-[1rem]">
-          <TvKeyboard autoFocus onChange={setText} />
+          <TvKeyboard autoFocus onChange={setText} empty={text === ""} />
         </div>
         <div className="mt-[1.4rem] flex gap-[0.8rem]">
           <TvButton

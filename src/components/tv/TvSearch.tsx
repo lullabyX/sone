@@ -1,6 +1,8 @@
 import { useContext, useEffect, useRef, useState } from "react";
+import { useStore } from "jotai";
 import { Search } from "lucide-react";
 import { searchTidal } from "../../api/tidal";
+import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { safeErrorMessage } from "../../lib/errorUtils";
 import type { SearchResults } from "../../types";
 import { TvScreenContext, useTvInitialFocus } from "./TvNavContext";
@@ -15,6 +17,7 @@ let lastQuery = "";
 
 export default function TvSearch() {
   const { active } = useContext(TvScreenContext);
+  const store = useStore();
   const [query, setQuery] = useState(lastQuery);
   // Latest finished search; kept on screen while the next one is pending.
   const [outcome, setOutcome] = useState<{
@@ -60,19 +63,25 @@ export default function TvSearch() {
   const error = shown?.error ?? null;
   const loading = !!q && outcome?.q !== q;
 
-  // Typing on a real keyboard goes to the search field wherever focus is, so
-  // the on-screen keys are only needed with a remote.
+  // Typing on a real keyboard goes to the search field from anywhere on the
+  // screen, so the on-screen keys are only needed with a remote. Not from a
+  // prompt or menu, the on-screen keys (they type themselves) or a video.
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key.length !== 1 || e.key === " ") return;
-      if (document.activeElement === inputRef.current) return;
+      const el = document.activeElement;
+      if (el === inputRef.current) return;
+      if (document.querySelector("[data-tv-modal]")) return;
+      if (el?.closest("[data-tv-keyboard]")) return;
+      if (store.get(currentVideoAtom) && store.get(videoExpandedAtom)) return;
       inputRef.current?.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [active]);
+  }, [active, store]);
 
   const sections = results
     ? [
@@ -117,7 +126,7 @@ export default function TvSearch() {
           />
         </label>
         <div className="mt-[1rem]">
-          <TvKeyboard autoFocus onChange={setQuery} />
+          <TvKeyboard autoFocus onChange={setQuery} empty={query === ""} />
         </div>
       </div>
 
