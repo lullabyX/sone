@@ -2,7 +2,7 @@ import { act, fireEvent, screen } from "@testing-library/react";
 import type { RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TvMenuHostHandle } from "./TvMenuHost";
-import type { TvMenuSpec } from "./tvMenu";
+import { linkMenu, type TvMenuSpec } from "./tvMenu";
 import { mkTrack, renderMenuHost, setupTvTest, stubLayout } from "./tvTestUtils";
 
 setupTvTest();
@@ -90,4 +90,9 @@ it("Track radio opens the mix with its seed artist", async () => {
   const { ref, onNavigate } = renderMenuHost();
   await act(async () => { await ref.current!.trackMenu({ ...mkTrack(1), mixes: { TRACK_MIX: "m" } }).items.find((i) => i.label === "Track radio")!.onSelect!(); });
   expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ type: "mix", mixId: "m", mixType: "TRACK_MIX", artist: { id: 101, name: "A1" } }));
+});
+it("shows a QR code for a link panel", () => {
+  const { ref } = renderMenuHost();
+  act(() => ref.current!.open(linkMenu("https://x.io/a", "Read")));
+  expect(screen.getByRole("img", { name: "Link code" })).toBeTruthy();
 });

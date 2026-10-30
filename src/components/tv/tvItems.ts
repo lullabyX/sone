@@ -62,7 +62,9 @@ export type TvListSource =
 export type TvAction =
   | { kind: "open"; view: TvView }
   | { kind: "playTrack"; track: Track }
-  | { kind: "playVideo"; item: Extract<MediaItemType, { type: "video" }> };
+  | { kind: "playVideo"; item: Extract<MediaItemType, { type: "video" }> }
+  /** An external link, shown as a QR code (a remote cannot follow it). */
+  | { kind: "showLink"; url: string; title: string };
 
 export interface TvEntry {
   key: string;
@@ -263,6 +265,11 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
           action: { kind: "playVideo", item: video },
         };
       }
+      case "EXTURL":
+        return {
+          ...base,
+          action: { kind: "showLink", url: id, title: promoTitle },
+        };
       default:
         return null;
     }

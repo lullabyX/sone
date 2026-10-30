@@ -50,7 +50,7 @@ import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import TvVolumeHud from "./TvVolumeHud";
 import TvMiniBar from "./TvMiniBar";
-import { menuForElement } from "./tvMenu";
+import { linkMenu, menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
 import { useTvPlayback } from "./useTvPlayback";
@@ -384,6 +384,8 @@ export default function TvApp() {
 
   const tvPlay = useTvPlayback(openNowPlaying);
 
+  const menuRef = useRef<TvMenuHostHandle>(null);
+
   const run = useCallback<TvNav["run"]>(
     (action: TvAction, queue) => {
       switch (action.kind) {
@@ -405,12 +407,13 @@ export default function TvApp() {
           });
           return;
         }
+        case "showLink":
+          menuRef.current?.open(linkMenu(action.url, action.title));
+          return;
       }
     },
     [push, tvPlay],
   );
-
-  const menuRef = useRef<TvMenuHostHandle>(null);
 
   // A text prompt (a playlist name) over everything; resolves with the text,
   // or null when cancelled.

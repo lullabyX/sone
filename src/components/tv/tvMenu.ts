@@ -20,7 +20,19 @@ export interface TvMenuSpec {
   round?: boolean;
   /** A wider panel for reading long entries. */
   wide?: boolean;
+  /** Text shown as a QR code under the header. */
+  qr?: string;
   items: TvMenuItem[];
+}
+
+/** An external link to open on a phone: its QR code and its address. */
+export function linkMenu(url: string, title: string): TvMenuSpec {
+  return {
+    title: title || "Link",
+    subtitle: "Scan with your phone to open this link",
+    qr: url,
+    items: [{ label: url, multiline: true }],
+  };
 }
 
 /** A destructive confirmation; "Cancel" comes first so it gets the focus. */

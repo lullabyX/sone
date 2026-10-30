@@ -97,6 +97,22 @@ describe("sectionEntries", () => {
     expect(entries[0].image).toBe("https://img/a.jpg");
   });
 
+  it("turns an external-link promo into a link panel action", () => {
+    expect(
+      sectionEntries(
+        [
+          {
+            _itemType: "MAGAZINE",
+            type: "EXTURL",
+            artifactId: "https://x.io/a",
+            shortHeader: "Read",
+          },
+        ],
+        "HORIZONTAL_LIST",
+      ).entries[0].action,
+    ).toEqual({ kind: "showLink", url: "https://x.io/a", title: "Read" });
+  });
+
   it("drops duplicates and items with nowhere to go", () => {
     const { entries } = sectionEntries(
       [track(1), track(1), null, {}],

@@ -53,6 +53,7 @@ import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { actionForMedia, type TvView } from "./tvItems";
 import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
 import type { TvPromptRequest } from "./TvPrompt";
+import { TvQrCode } from "./TvQrCode";
 import { useTvPlayback } from "./useTvPlayback";
 
 export interface TvMenuHostHandle {
@@ -679,6 +680,15 @@ const TvMenuHost = forwardRef<
             )}
           </div>
         </div>
+        {spec.qr && (
+          <div className="flex justify-center mb-[1.4rem]">
+            <TvQrCode
+              value={spec.qr}
+              label="Link code"
+              className="w-[14rem] h-[14rem]"
+            />
+          </div>
+        )}
         <div className="flex flex-col gap-[0.2rem]">
           {spec.items.map((item, i) => {
             const Icon = item.icon;
