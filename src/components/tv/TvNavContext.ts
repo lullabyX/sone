@@ -66,7 +66,8 @@ export const TvScreenContext = createContext<TvScreen>({
 /**
  * Put focus on the screen's first item (or its `data-tv-autofocus` one) once
  * its content has loaded — unless focus is already inside it, e.g. restored
- * by Back, or the user moved it to the rail or a menu while it loaded.
+ * by Back, or the user moved it to the rail, a menu or the mini bar while it
+ * loaded.
  * Checked a frame later so a restore in the same commit wins.
  */
 export function useTvInitialFocus(ready: boolean) {
@@ -80,7 +81,7 @@ export function useTvInitialFocus(ready: boolean) {
       if (
         current instanceof HTMLElement &&
         isShown(current) &&
-        current.closest("[data-tv-rail], [data-tv-modal]")
+        current.closest("[data-tv-rail], [data-tv-modal], [data-tv-dock]")
       ) {
         return;
       }

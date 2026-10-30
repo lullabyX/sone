@@ -33,6 +33,12 @@ it("leaves focus in an open menu", async () => {
   await show();
   expect(document.activeElement?.textContent).toBe("Cancel");
 });
+it("leaves focus on the mini bar", async () => {
+  const { host, show } = setup(`<div data-tv-dock><button data-tv-focusable>Play</button></div>`);
+  host.querySelector<HTMLElement>("[data-tv-dock] button")!.focus();
+  await show();
+  expect(document.activeElement?.textContent).toBe("Play");
+});
 it("takes focus from a hidden screen's side panel", async () => {
   const { host, show } = setup(`<div class="hidden"><aside data-tv-side><button data-tv-focusable>Play</button></aside></div>`);
   host.querySelector<HTMLElement>("aside button")!.focus();

@@ -15,17 +15,14 @@ import {
   Home,
   Library,
   LogOut,
-  Pause,
-  Play,
   Search,
   Settings,
 } from "lucide-react";
-import TidalImage from "../TidalImage";
 import ProxyNoticeBanner from "../ProxyNoticeBanner";
 import SettingsSheet from "../settings/SettingsSheet";
 import { tvModeAtom } from "../../atoms/tv";
 import { feedUnseenCountAtom } from "../../atoms/ui";
-import { currentTrackAtom, isPlayingAtom } from "../../atoms/playback";
+import { currentTrackAtom } from "../../atoms/playback";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { useMediaPlay } from "../../hooks/useMediaPlay";
 import { useMiniplayerEmitter } from "../../hooks/useMiniplayerEmitter";
@@ -37,8 +34,6 @@ import {
   moveFocus,
   rememberFocus,
 } from "../../lib/spatialNav";
-import { getTidalImageUrl } from "../../types";
-import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { TvNavContext, TvScreenContext, type TvNav } from "./TvNavContext";
 import type { TvAction, TvView } from "./tvItems";
 import TvHome from "./TvHome";
@@ -56,6 +51,7 @@ import TvNativeLayer from "./TvNativeLayer";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import TvVolumeHud from "./TvVolumeHud";
+import TvMiniBar from "./TvMiniBar";
 import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
@@ -154,38 +150,6 @@ function Screen({ active, view }: { active: boolean; view: TvView }) {
         {renderScreen(view)}
       </div>
     </TvScreenContext.Provider>
-  );
-}
-
-/** Slim now-playing strip along the bottom; opens Now Playing on click. */
-function MiniBar({ onOpen }: { onOpen: () => void }) {
-  const track = useAtomValue(currentTrackAtom);
-  const playing = useAtomValue(isPlayingAtom);
-  if (!track) return null;
-  return (
-    <div
-      onClick={onOpen}
-      className="shrink-0 flex items-center gap-[1rem] h-[3.6rem] pl-[1.5rem] pr-[3rem] bg-th-surface border-t border-th-border-subtle cursor-pointer"
-    >
-      <TidalImage
-        src={getTidalImageUrl(trackCoverId(track), 160) || undefined}
-        alt=""
-        className="w-[2.6rem] h-[2.6rem] rounded-[0.3rem] overflow-hidden shrink-0"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[0.8rem] font-semibold text-th-text-primary">
-          {track.title}
-        </div>
-        <div className="truncate text-[0.75rem] text-th-text-muted">
-          {getTrackArtistDisplay(track)}
-        </div>
-      </div>
-      {playing ? (
-        <Pause className="w-[1.1rem] h-[1.1rem] text-th-text-secondary" />
-      ) : (
-        <Play className="w-[1.1rem] h-[1.1rem] text-th-text-secondary" />
-      )}
-    </div>
   );
 }
 
@@ -829,7 +793,7 @@ export default function TvApp() {
           </main>
         </div>
         <div className={nowPlayingOpen ? "hidden" : undefined}>
-          <MiniBar onOpen={openNowPlaying} />
+          <TvMiniBar />
         </div>
       </div>
       {more.tab && (
