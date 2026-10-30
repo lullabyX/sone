@@ -54,16 +54,12 @@ import { isContentBlocked } from "../lib/contentFilter";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { useToast } from "../contexts/ToastContext";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
-import {
-  getMixItems,
-  getTrackLyrics,
-  getTrackCredits,
-  getArtistBio,
-} from "../api/tidal";
+import { getTrackLyrics, getTrackCredits, getArtistBio } from "../api/tidal";
 import BioText from "./BioText";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import { COVER_TEXT_GAP, MAX_COVER_SIZE } from "../lib/coverFit";
 import { useFittedCoverSize } from "../hooks/useFittedCoverSize";
+import { useSuggestedTracks } from "../hooks/useSuggestedTracks";
 import {
   getTidalImageUrl,
   getTrackDisplayTitle,
@@ -790,38 +786,7 @@ const SuggestedTab = memo(function SuggestedTab() {
   const { navigateToArtist, navigateToAlbum } = useNavigation();
   const { showToast } = useToast();
 
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!currentTrack) return;
-
-    let active = true;
-    setLoading(true);
-    setError(null);
-
-    const trackMixId = currentTrack.mixes?.TRACK_MIX;
-    if (trackMixId) {
-      getMixItems(trackMixId)
-        .then(({ tracks }) => {
-          if (active) setTracks(tracks);
-        })
-        .catch((err) => {
-          if (active) setError(String(err));
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-    } else {
-      setTracks([]);
-      setLoading(false);
-    }
-
-    return () => {
-      active = false;
-    };
-  }, [currentTrack?.id]);
+  const { tracks, loading, error } = useSuggestedTracks(currentTrack);
 
   // Stable callbacks passed to every row — hooks called once here, not per row
   const handleAddToQueue = useCallback(

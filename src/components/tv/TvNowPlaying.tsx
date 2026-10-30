@@ -57,6 +57,7 @@ import {
 } from "../../atoms/tv";
 import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
+import { useSuggestedTracks } from "../../hooks/useSuggestedTracks";
 import { useVolumeLocked } from "../../hooks/useVolumeLocked";
 import { formatTime } from "../../lib/format";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
@@ -69,7 +70,7 @@ import {
 import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import { useToast } from "../../contexts/ToastContext";
-import { TvButton, TvTrackRow } from "./TvParts";
+import { TvButton, TvSpinner, TvTrackRow } from "./TvParts";
 import type { TvMenuItem } from "./tvMenu";
 import { moveInQueue, queueIndexOf } from "./tvQueue";
 import { viewForSource } from "./tvItems";
@@ -453,6 +454,35 @@ function HistoryPanel() {
   );
 }
 
+/** The playing track's mix. Playing one keeps the queue, as in the desktop
+ *  drawer's suggested tab. */
+function SuggestedPanel() {
+  const track = useAtomValue(currentTrackAtom);
+  const { tracks, loading, error } = useSuggestedTracks(track);
+  const { playTrack } = usePlaybackActions();
+  const screen = useContext(TvScreenContext);
+
+  if (loading) return <TvSpinner />;
+  if (error || tracks.length === 0)
+    return <PanelEmpty text="No suggested tracks available for this track" />;
+  return (
+    <div>
+      {tracks.map((t, i) => (
+        <TvTrackRow
+          key={`${t.id}:${i}`}
+          track={t}
+          index={i}
+          showCover
+          onSelect={() => {
+            void playTrack(t);
+            focusPlayerSoon(screen.element);
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function PanelEmpty({ text }: { text: string }) {
   return (
     <p className="px-[1rem] py-[1rem] text-[0.8rem] text-th-text-muted">
@@ -464,9 +494,9 @@ function PanelEmpty({ text }: { text: string }) {
 /** Tabs about the track itself, not offered while a video plays. */
 const TRACK_ONLY_TABS: TvNowPlayingTab[] = ["suggested", "credits"];
 
-/** Up next / History under the player. Focusing a tab selects it, so Left
- *  and Right switch panels without Enter; only the selected panel is
- *  mounted, and the last one used is kept for the session. */
+/** Up next / Suggested / History under the player. Focusing a tab selects
+ *  it, so Left and Right switch panels without Enter; only the selected
+ *  panel is mounted, and the last one used is kept for the session. */
 function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
   const queue = useAtomValue(queueAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
@@ -475,6 +505,7 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
   const n = manualQueue.length + queue.length;
   const tabs: { id: TvNowPlayingTab; label: string }[] = [
     { id: "queue" as const, label: n > 0 ? `Up next · ${n}` : "Up next" },
+    { id: "suggested" as const, label: "Suggested" },
     { id: "history" as const, label: "History" },
   ].filter((t) => !(isVideo && TRACK_ONLY_TABS.includes(t.id)));
   const selected = tabs.some((t) => t.id === stored) ? stored : "queue";
@@ -518,7 +549,13 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
         id={panelId(selected)}
         aria-labelledby={tabId(selected)}
       >
-        {selected === "history" ? <HistoryPanel /> : <QueuePanel />}
+        {selected === "history" ? (
+          <HistoryPanel />
+        ) : selected === "suggested" ? (
+          <SuggestedPanel />
+        ) : (
+          <QueuePanel />
+        )}
       </div>
     </>
   );

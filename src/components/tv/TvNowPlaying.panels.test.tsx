@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   getTrackLyrics: vi.fn(
     async () => ({ subtitles: "", isRightToLeft: false }) as Lyrics,
   ),
+  getMixItems: vi.fn(),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()),
@@ -23,6 +24,7 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
+import type { MixPageResult } from "../../api/tidal";
 import {
   historyAtom,
   manualQueueAtom,
@@ -131,6 +133,49 @@ describe("TvNowPlaying tabs", () => {
         .getAttribute("aria-selected"),
     ).toBe("true");
     expect(store.get(tvNowPlayingTabAtom)).toBe("history");
+  });
+});
+
+describe("TvNowPlaying suggested tracks", () => {
+  const withMix = () =>
+    playing(mkTrack(1, { mixes: { TRACK_MIX: "m1" } }), [mkTrack(50)]);
+
+  it("lists the track mix and plays a track without changing the queue", async () => {
+    api.getMixItems.mockResolvedValue({
+      tracks: [mkTrack(21), mkTrack(22)],
+    } as MixPageResult);
+    const store = withMix();
+    const queue = store.get(queueAtom);
+    renderTv(<TvNowPlaying />, { store });
+    focusTab("Suggested");
+    await screen.findByText("T21");
+    expect(api.getMixItems).toHaveBeenCalledWith("m1");
+    fireEvent.click(within(rowFor("T21")).getAllByRole("button")[0]);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "play_tidal_track",
+        expect.objectContaining({ trackId: 21 }),
+      ),
+    );
+    expect(store.get(queueAtom)).toBe(queue);
+  });
+
+  it("says when there are no suggestions", async () => {
+    api.getMixItems.mockResolvedValue({
+      tracks: [] as Track[],
+    } as MixPageResult);
+    renderTv(<TvNowPlaying />, { store: withMix() });
+    focusTab("Suggested");
+    expect(
+      await screen.findByText("No suggested tracks available for this track"),
+    ).toBeTruthy();
+  });
+
+  it("is not offered while a video plays", () => {
+    renderTv(<TvNowPlaying />, {
+      store: playing(mkTrack(9, { itemType: "video" })),
+    });
+    expect(screen.queryByRole("tab", { name: "Suggested" })).toBeNull();
   });
 });
 
