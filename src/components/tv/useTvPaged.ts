@@ -60,7 +60,9 @@ const hasMorePages = <T>(page: TvPage<T>) =>
 /** A list that loads page by page and keeps the rows it has when a later
  *  page fails. Without a `seed` page 0 is fetched; a `null` seed waits; a
  *  seed object is the first page (or the whole list when `fetchPage` is
- *  null). A new `key` or seed object starts over, so keep the seed stable. */
+ *  null). A new `key` or seed content (its `items` array, `hasMore`,
+ *  `cursor`) starts over; the wrapper may be rebuilt each render.
+ *  `fetchPage` must not filter within a page: offsets count `items`. */
 export function useTvPaged<T>(
   fetchPage: FetchPage<T> | null,
   key: string,
@@ -68,13 +70,26 @@ export function useTvPaged<T>(
 ) {
   const hasFetcher = fetchPage !== null;
   const [state, setState] = useState(() => startState(seed, hasFetcher));
-  const [inputs, setInputs] = useState({ key, seed, hasFetcher });
+  const seedKind =
+    seed === undefined ? "none" : seed === null ? "wait" : "page";
+  const seedItems = seed?.items;
+  const seedHasMore = seed?.hasMore;
+  const seedCursor = seed?.cursor ?? null;
+  const next = {
+    key,
+    seedKind,
+    seedItems,
+    seedHasMore,
+    seedCursor,
+    hasFetcher,
+  };
+  const [inputs, setInputs] = useState(next);
   if (
-    inputs.key !== key ||
-    inputs.seed !== seed ||
-    inputs.hasFetcher !== hasFetcher
+    (Object.keys(next) as (keyof typeof next)[]).some(
+      (k) => inputs[k] !== next[k],
+    )
   ) {
-    setInputs({ key, seed, hasFetcher });
+    setInputs(next);
     setState(startState(seed, hasFetcher));
   }
 
@@ -131,17 +146,25 @@ export function useTvPaged<T>(
   useLayoutEffect(() => {
     const run: Run = { live: true, inFlight: null };
     runRef.current = run;
-    if (seed === undefined) fetchFirst();
+    if (seedKind === "none") fetchFirst();
     return () => {
       run.live = false;
     };
-  }, [key, seed, hasFetcher, fetchFirst]);
+  }, [
+    key,
+    seedKind,
+    seedItems,
+    seedHasMore,
+    seedCursor,
+    hasFetcher,
+    fetchFirst,
+  ]);
 
   const loadMore = useCallback(async () => {
     const s = stateRef.current;
     const fp = fetchRef.current;
     const run = runRef.current;
-    if (run.inFlight || !fp) return;
+    if (!run.live || run.inFlight || !fp) return;
     if (s.loading || s.error || !s.hasMore || s.moreError) return;
     commit({ ...s, loadingMore: true });
     await track(

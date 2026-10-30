@@ -154,6 +154,27 @@ it("uses a seed page, waits for a null seed, never fetches page 0 when seeded", 
   expect(result.current.items).toEqual([1, 2]);
 });
 
+it("keeps its rows when the seed wrapper is rebuilt around the same items", async () => {
+  const first = [1, 2];
+  const fp = vi
+    .fn<FetchPage<number>>()
+    .mockResolvedValueOnce({ items: [3], hasMore: true });
+  const { result, rerender } = renderHook(
+    ({ n }: { n: number }) =>
+      useTvPaged(fp, "k", n >= 0 ? { items: first, hasMore: true } : null),
+    { initialProps: { n: 0 } },
+  );
+  await act(() => result.current.loadMore());
+  expect(result.current).toMatchObject({ items: [1, 2, 3], offset: 3 });
+  rerender({ n: 1 });
+  expect(result.current).toMatchObject({
+    items: [1, 2, 3],
+    offset: 3,
+    hasMore: true,
+  });
+  expect(fp).toHaveBeenCalledTimes(1);
+});
+
 it("treats the seed as the whole list without a fetcher", () => {
   const seed = { items: [1, 2], hasMore: true };
   const { result } = renderHook(() => useTvPaged<number>(null, "k", seed));
