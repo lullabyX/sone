@@ -1,86 +1,125 @@
-import { useCallback, useEffect, useState } from "react";
-import { getHomePage, getHomePageMore } from "../../api/tidal";
-import { safeErrorMessage } from "../../lib/errorUtils";
-import type { HomeSection } from "../../types";
-import { useTvInitialFocus } from "./TvNavContext";
-import { TvError, TvRow, TvSpinner } from "./TvParts";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
+import { useHomeFeed } from "../../hooks/useHomeFeed";
+import { focusFirstIn } from "../../lib/spatialNav";
+import { TvScreenContext, useTvInitialFocus } from "./TvNavContext";
+import { TvButton, TvError, TvRow, TvSpinner } from "./TvParts";
+import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 import { sectionEntries } from "./tvItems";
 
-/** Extra feed pages fetched after the first, so the screen has enough rows
- *  without an infinite-scroll sentinel (focus moves, the page doesn't). */
-const EXTRA_PAGES = 3;
-
 export default function TvHome() {
-  const [sections, setSections] = useState<HomeSection[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { active, element } = useContext(TvScreenContext);
+  const activeRef = useRef(active);
+  useLayoutEffect(() => {
+    activeRef.current = active;
+  });
 
+  // The section focus is in, or -1 (tabs, quick access, outside Home).
+  const focusedSection = () => {
+    const root = rootRef.current;
+    const item = document.activeElement?.closest("[data-tv-index]");
+    return root && item && root.contains(item)
+      ? Number(item.getAttribute("data-tv-index"))
+      : -1;
+  };
+  // A refresh never pulls rows out from under focus further down.
+  const feed = useHomeFeed("tv", {
+    allowReplace: () => !activeRef.current || focusedSection() <= 0,
+  });
+  const { sections, revalidate } = feed;
+
+  useTvGrowOnFocus(rootRef, sections.length, feed.loadMore, 2);
+
+  // A refresh may replace the rows focus was on.
+  const refocusIfLost = useCallback(() => {
+    const current = document.activeElement;
+    if (current && current !== document.body && current.isConnected) return;
+    const el = element();
+    if (el) focusFirstIn(el);
+  }, [element]);
+
+  const wasActive = useRef(active);
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      let loaded = false;
-      try {
-        const { home } = await getHomePage();
-        if (cancelled) return;
-        setSections(home.sections);
-        loaded = true;
-        let cursor = home.cursor;
-        for (let i = 0; i < EXTRA_PAGES && cursor; i++) {
-          const more = await getHomePageMore(cursor);
-          if (cancelled) return;
-          setSections((prev) => [...(prev ?? []), ...more.sections]);
-          cursor = more.cursor;
-        }
-      } catch (e) {
-        // A later page failing keeps the rows already shown.
-        if (!cancelled && !loaded) {
-          setError(safeErrorMessage(e, "Couldn't load home"));
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt]);
+    if (active && !wasActive.current) {
+      revalidate();
+      refocusIfLost();
+    }
+    wasActive.current = active;
+  }, [active, revalidate, refocusIfLost]);
 
-  const retry = useCallback(() => {
-    setError(null);
-    setSections(null);
-    setAttempt((a) => a + 1);
-  }, []);
+  const prevCount = useRef(sections.length);
+  useEffect(() => {
+    if (activeRef.current && prevCount.current > 0) refocusIfLost();
+    prevCount.current = sections.length;
+  }, [sections, refocusIfLost]);
 
-  useTvInitialFocus(sections !== null || error !== null);
-
-  if (error) return <TvError message={error} onRetry={retry} />;
-  if (!sections) return <TvSpinner />;
+  useTvInitialFocus(!feed.loading);
 
   return (
-    <div className="pt-[2rem] pb-[2rem]">
-      {sections.map((section, i) => {
-        const { entries, tracks } = sectionEntries(
-          section.items,
-          section.sectionType,
-        );
-        return (
-          <TvRow
-            key={`${section.title}:${i}`}
-            title={section.title}
-            entries={entries}
-            queueTracks={tracks}
-            queueId={`home:${section.title}`}
-            viewAll={
-              section.hasMore && section.apiPath
-                ? {
-                    type: "page",
-                    title: section.title,
-                    apiPath: section.apiPath,
-                    all: true,
-                  }
-                : undefined
-            }
-          />
-        );
-      })}
+    <div
+      ref={rootRef}
+      data-tv-loading={feed.loadingMore || undefined}
+      className="pt-[2rem] pb-[2rem]"
+    >
+      {feed.tabs.length > 1 && (
+        <div className="flex gap-[0.8rem] px-[3rem] mb-[1.2rem]">
+          {feed.tabs.map((tab) => (
+            <TvButton
+              key={tab.tabType}
+              label={tab.name}
+              active={tab.tabType === feed.activeType}
+              onClick={() => feed.selectTab(tab.tabType)}
+            />
+          ))}
+        </div>
+      )}
+      {feed.loading ? (
+        <TvSpinner />
+      ) : feed.error && sections.length === 0 ? (
+        <TvError message={feed.error} onRetry={feed.retry} />
+      ) : (
+        sections.map((section, i) => {
+          const { entries, tracks } = sectionEntries(
+            section.items,
+            section.sectionType,
+          );
+          return (
+            <div
+              key={`${feed.activeType}:${section.title}:${i}`}
+              data-tv-index={i}
+            >
+              <TvRow
+                title={section.title}
+                entries={entries}
+                queueTracks={tracks}
+                queueId={`home:${section.title}`}
+                showExplicit
+                viewAll={
+                  section.hasMore && section.apiPath
+                    ? {
+                        type: "page",
+                        title: section.title,
+                        apiPath: section.apiPath,
+                        all: true,
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          );
+        })
+      )}
+      {feed.loadingMore && (
+        <div role="status" aria-label="Loading more">
+          <TvSpinner />
+        </div>
+      )}
     </div>
   );
 }
