@@ -58,7 +58,7 @@ import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
 import { textEntryKind, type TvKeyAction } from "./tvKeys";
-import { topTvModal, useTvKeyRouter } from "./useTvKeyRouter";
+import { topTvModal, tvLayer, useTvKeyRouter } from "./useTvKeyRouter";
 import { useTvMediaCommands } from "./useTvMediaCommands";
 import "./tv.css";
 
@@ -511,9 +511,17 @@ export default function TvApp() {
           if (textEntryKind(e.target) && e.target instanceof HTMLElement) {
             e.target.blur();
           }
-          if (menuRef.current?.isOpen()) menuRef.current.back();
-          else if (promptResolve.current) finishPrompt(null);
-          else back();
+          switch (tvLayer()) {
+            case "prompt":
+              finishPrompt(null);
+              return;
+            case "menu":
+              menuRef.current?.back();
+              return;
+            case "none":
+              back();
+              return;
+          }
           return;
         case "nativeEscape":
           if (textEntryKind(e.target) && e.target instanceof HTMLElement) {
@@ -691,6 +699,11 @@ export default function TvApp() {
           <MiniBar onOpen={() => goTo("nowPlaying")} />
         )}
       </div>
+      {more.tab && (
+        <TvNativeLayer width={800}>
+          <SettingsSheet open initialTab={more.tab} onClose={more.close} />
+        </TvNativeLayer>
+      )}
       <TvMenuHost
         ref={menuRef}
         onNavigate={push}
@@ -699,11 +712,6 @@ export default function TvApp() {
         onPlaylistDeleted={leavePlaylist}
       />
       {prompt && <TvPrompt request={prompt} onDone={finishPrompt} />}
-      {more.tab && (
-        <TvNativeLayer width={800}>
-          <SettingsSheet open initialTab={more.tab} onClose={more.close} />
-        </TvNativeLayer>
-      )}
     </TvNavContext.Provider>
   );
 }

@@ -39,6 +39,11 @@ function layerOf(el: HTMLElement | null): TvLayer {
   return "none";
 }
 
+/** Kind of the top TV layer, which Back closes first. */
+export function tvLayer(): TvLayer {
+  return layerOf(topTvModal());
+}
+
 function readVideoFacts(store: Store): TvKeyFacts["video"] {
   if (!store.get(currentVideoAtom) || !store.get(videoExpandedAtom)) {
     return null;
@@ -72,7 +77,7 @@ function readTvKeyFacts(
     target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
       ? target
       : null;
-  const layer = layerOf(topTvModal());
+  const layer = tvLayer();
   const active = document.activeElement;
   const root = opts.rootRef.current;
 
@@ -84,7 +89,7 @@ function readTvKeyFacts(
     key: e.key,
     code: e.code,
     repeat: e.repeat,
-    composing: e.isComposing,
+    composing: e.isComposing || e.keyCode === 229,
     modified: e.ctrlKey || e.altKey || e.metaKey,
     video: readVideoFacts(store),
     layer,

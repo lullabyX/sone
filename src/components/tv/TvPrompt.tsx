@@ -57,6 +57,8 @@ export default function TvPrompt({
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
+              // Enter that commits an input method's text is not a submit.
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (e.key === "Enter" && name) onDone(name);
             }}
             spellCheck={false}

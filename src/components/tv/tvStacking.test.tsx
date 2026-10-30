@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import videoSrc from "../VideoPlayer.tsx?raw";
 import menuSrc from "./TvMenuHost.tsx?raw";
 import promptSrc from "./TvPrompt.tsx?raw";
+import tvAppSrc from "./TvApp.tsx?raw";
 import TvNativeLayer from "./TvNativeLayer";
 import { renderTv, setupTvTest } from "./tvTestUtils";
 
@@ -33,4 +34,11 @@ it("a native layer (More settings, Signal path) is one layer above the video pla
   const layer = container.querySelector("[data-tv-native]") as HTMLElement;
   expect(layer.style.position).toBe("relative");
   expect(Number(layer.style.zIndex)).toBeGreaterThan(VIDEO);
+});
+
+it("TvApp draws More settings, then the action menu, then the prompt", () => {
+  const at = (re: RegExp) => tvAppSrc.search(re);
+  expect(at(/<TvNativeLayer\b/)).toBeGreaterThan(-1);
+  expect(at(/<TvNativeLayer\b/)).toBeLessThan(at(/<TvMenuHost\b/));
+  expect(at(/<TvMenuHost\b/)).toBeLessThan(at(/<TvPrompt\b/));
 });

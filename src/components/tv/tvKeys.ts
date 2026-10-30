@@ -186,6 +186,8 @@ function routeVideoKey(
 
 export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   if (f.modified) return { type: "none" };
+  // An input method owns every key until the text is composed.
+  if (f.composing) return { type: "none" };
   // A held OK must not click over and over (or confirm what it just opened).
   if (
     f.key === "Enter" &&
@@ -231,12 +233,17 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   }
 
   const typing = f.field === "caret" || f.field === "field";
-  if (BACK_KEYS.has(f.key) || (f.key === "Backspace" && !typing)) {
+  // Backspace on the prompt's empty text cancels it.
+  const cancelsPrompt = f.layer === "prompt" && f.fieldEmpty;
+  if (
+    BACK_KEYS.has(f.key) ||
+    (f.key === "Backspace" && (!typing || cancelsPrompt))
+  ) {
     // A desktop dialog handles Escape through its own dismiss handler.
-    if (f.layer === "native") {
-      return f.key === "Escape" ? { type: "none" } : { type: "nativeEscape" };
-    }
-    return { type: "back" };
+    if (f.layer === "native" && f.key === "Escape") return { type: "none" };
+    // A held Back goes back once.
+    if (f.repeat) return { type: "swallow" };
+    return f.layer === "native" ? { type: "nativeEscape" } : { type: "back" };
   }
   return { type: "none" };
 }

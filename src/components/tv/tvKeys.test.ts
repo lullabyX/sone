@@ -95,3 +95,19 @@ it("maps media keys, swallowing repeated transport keys", () => {
   expect(r({ key: "AudioVolumeUp", repeat: true })).toEqual({ type: "media", command: { kind: "volume", by: 0.05 } });
   expect(r({ key: "MediaPlay", code: "MediaPlayPause", field: "caret" })).toEqual({ type: "media", command: { kind: "toggle" } });
 });
+it("Backspace cancels an empty prompt; nothing routes while composing", () => {
+  expect(r({ key: "Backspace", field: "caret", fieldEmpty: true, layer: "prompt" })).toEqual({ type: "back" });
+  expect(r({ key: "Backspace", field: "caret", fieldEmpty: true, layer: "prompt", repeat: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "ArrowLeft", field: "caret", composing: true })).toEqual({ type: "none" });
+  expect(r({ key: "Backspace", field: "caret", fieldEmpty: true })).toEqual({ type: "none" });
+  expect(r({ key: "Enter", field: "caret", composing: true })).toEqual({ type: "none" });
+});
+it("never repeats a held Back", () => {
+  expect(r({ key: "Escape", repeat: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "BrowserBack", repeat: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "GoBack", repeat: true, layer: "menu" })).toEqual({ type: "swallow" });
+  expect(r({ key: "Backspace", repeat: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "BrowserBack", repeat: true, layer: "native" })).toEqual({ type: "swallow" });
+  expect(r({ key: "Backspace", repeat: true, field: "caret" })).toEqual({ type: "none" });
+  expect(r({ key: "Backspace", repeat: true, field: "caret", layer: "prompt" })).toEqual({ type: "none" });
+});
