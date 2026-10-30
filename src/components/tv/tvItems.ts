@@ -21,6 +21,7 @@ export type TvView =
   | { type: "favorites" }
   | { type: "explore" }
   | { type: "feed" }
+  | { type: "profile" }
   /** A TIDAL page by its API path: an Explore genre, mood or shortcut, or
    *  (with `all`) every item of a home row behind "View all". */
   | { type: "page"; title: string; apiPath: string; all?: boolean }

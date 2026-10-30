@@ -336,6 +336,11 @@ export default function TvSettings() {
 
       <TvSettingsSection title="Account">
         <TvSettingsRow
+          title="Your profile"
+          subtitle="Your name, bio and public playlists"
+          onSelect={() => nav.push({ type: "profile" })}
+        />
+        <TvSettingsRow
           title={userName ? `Signed in as ${userName}` : "Signed in"}
           subtitle="Log out of TIDAL on this device"
           value={

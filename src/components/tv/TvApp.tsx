@@ -50,6 +50,7 @@ import TvArtistScreen from "./TvArtistScreen";
 import TvSettings from "./TvSettings";
 import TvPageScreen from "./TvPageScreen";
 import TvFeedScreen from "./TvFeedScreen";
+import TvProfileScreen from "./TvProfileScreen";
 import TvListScreen from "./TvListScreen";
 import TvNativeLayer from "./TvNativeLayer";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
@@ -132,6 +133,8 @@ function renderScreen(view: TvView): ReactNode {
       return <TvPageScreen title="Explore" apiPath="pages/explore" />;
     case "feed":
       return <TvFeedScreen />;
+    case "profile":
+      return <TvProfileScreen />;
     case "list":
       return <TvListScreen title={view.title} source={view.source} />;
     case "page":
