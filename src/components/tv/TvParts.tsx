@@ -23,6 +23,7 @@ function TvCard({
   wide,
   menu,
   showExplicit,
+  index,
 }: {
   entry: TvEntry;
   onSelect: () => void;
@@ -31,6 +32,8 @@ function TvCard({
   menu?: () => TvMenuSpec;
   /** Badge explicit media, where the desktop's cards do. */
   showExplicit?: boolean;
+  /** Position in a list that grows as focus nears its end (`data-tv-index`). */
+  index?: number;
 }) {
   const { dimmed, explicitBadge, aiBadge } = entryState(
     entry,
@@ -44,6 +47,7 @@ function TvCard({
       data-tv-focusable
       data-tv-has-menu={menu ? true : undefined}
       data-tv-dimmed={dimmed || undefined}
+      data-tv-index={index}
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
       className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
@@ -139,9 +143,10 @@ export function TvGrid({
       data-tv-remember
       className="flex flex-wrap gap-x-[1.1rem] gap-y-[1.4rem] px-[3rem] py-[0.8rem]"
     >
-      {entries.map((entry) => (
+      {entries.map((entry, i) => (
         <TvCard
           key={entry.key}
+          index={i}
           entry={entry}
           wide={wide}
           menu={cardMenu(nav, entry)}
@@ -288,6 +293,8 @@ export function TvTrackRow({
   entry,
   menuExtra,
   rowId,
+  position,
+  number,
   onSelect,
 }: {
   track: Track;
@@ -299,6 +306,10 @@ export function TvTrackRow({
   menuExtra?: TvMenuItem[];
   /** Finds the row again after the list changes (`data-tv-row-id`). */
   rowId?: string;
+  /** Position in the whole list (`data-tv-index`); defaults to `index`. */
+  position?: number;
+  /** The number shown; defaults to `index + 1`. */
+  number?: number;
   onSelect: () => void;
 }) {
   const nav = useTvNav();
@@ -315,7 +326,7 @@ export function TvTrackRow({
     <div
       className="tv-track-row flex items-center gap-[0.4rem]"
       data-tv-row-id={rowId}
-      data-tv-index={index}
+      data-tv-index={position ?? index}
     >
       <button
         data-tv-focusable
@@ -328,7 +339,11 @@ export function TvTrackRow({
         }`}
       >
         <span className="w-[1.6rem] shrink-0 text-right text-[0.75rem] text-th-text-muted tabular-nums">
-          {isCurrent ? <PlayingBars playing={playing} /> : index + 1}
+          {isCurrent ? (
+            <PlayingBars playing={playing} />
+          ) : (
+            (number ?? index + 1)
+          )}
         </span>
         {showCover && (
           <TidalImage
