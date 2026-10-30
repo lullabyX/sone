@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { claimsKey, routeTvKey, type TvKeyFacts } from "./tvKeys";
+import { caretAllowsLeaving, claimsKey, routeTvKey, textEntryKind, type TvKeyFacts } from "./tvKeys";
 import { setupTvTest } from "./tvTestUtils";
 
 setupTvTest();
@@ -50,4 +50,23 @@ it("claims TV navigation keys and keys it routes", () => {
   expect(claimsKey(facts({ key: "m" }), { type: "none" })).toBe(false);
   expect(claimsKey(facts({ key: " ", video: v }), { type: "videoToggle" })).toBe(true);
   expect(claimsKey(facts({ key: "ArrowUp", modified: true }), { type: "none" })).toBe(false);
+});
+const input = (type: string, value = "") => Object.assign(document.createElement("input"), { type, value });
+it("classifies inputs", () => {
+  expect(textEntryKind(input("text"))).toBe("caret");
+  expect(textEntryKind(input("number"))).toBe("field");
+  expect(textEntryKind(input("email"))).toBe("field");
+  expect(textEntryKind(input("range"))).toBe("range");
+  expect(textEntryKind(input("checkbox"))).toBe(null);
+  expect(textEntryKind(document.createElement("textarea"))).toBe("caret");
+});
+it("lets Left and Right leave a filled number field", () => {
+  expect(caretAllowsLeaving(input("number", "8080"), "right")).toBe(true);
+  expect(caretAllowsLeaving(input("number", "8080"), "left")).toBe(true);
+});
+it("keeps Left/Right on a range input, Up/Down leave", () => {
+  expect(r({ key: "ArrowRight", field: "range" })).toEqual({ type: "none" });
+  expect(r({ key: "ArrowDown", field: "range" })).toEqual({ type: "move", dir: "down", enterSide: true });
+  expect(r({ key: "Backspace", field: "range" })).toEqual({ type: "back" });
+  expect(r({ key: "Backspace", field: "field" })).toEqual({ type: "none" });
 });

@@ -2,10 +2,27 @@ import type { Direction } from "../../lib/spatialNav";
 
 export type TextEntryKind = "caret" | "field" | "range" | null;
 
+/** Input types with a selection, where Left/Right move the caret. */
+const CARET_TYPES = new Set(["text", "search", "url", "tel", "password"]);
+
+const NON_TEXT_TYPES = new Set([
+  "checkbox",
+  "radio",
+  "button",
+  "submit",
+  "reset",
+  "color",
+  "file",
+  "image",
+  "hidden",
+]);
+
 export function textEntryKind(el: EventTarget | null): TextEntryKind {
-  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
-    ? "caret"
-    : null;
+  if (el instanceof HTMLTextAreaElement) return "caret";
+  if (!(el instanceof HTMLInputElement)) return null;
+  if (CARET_TYPES.has(el.type)) return "caret";
+  if (el.type === "range") return "range";
+  return NON_TEXT_TYPES.has(el.type) ? null : "field";
 }
 
 /** Left/Right inside a text field move the caret until it reaches the edge. */
@@ -14,6 +31,7 @@ export function caretAllowsLeaving(
   dir: Direction,
 ): boolean {
   if (dir === "up" || dir === "down") return true;
+  if (textEntryKind(el) !== "caret") return true;
   const start = el.selectionStart ?? 0;
   const end = el.selectionEnd ?? 0;
   if (start !== end) return false;
@@ -154,9 +172,8 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   const dir = ARROWS[f.key];
   if (dir) {
     if (
-      f.field !== null &&
       (dir === "left" || dir === "right") &&
-      !f.caretLeaves[dir]
+      (f.field === "range" || (f.field === "caret" && !f.caretLeaves[dir]))
     ) {
       return { type: "none" };
     }
@@ -168,7 +185,8 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
     return { type: "move", dir, enterSide: !f.repeat };
   }
 
-  if (BACK_KEYS.has(f.key) || (f.key === "Backspace" && f.field === null)) {
+  const typing = f.field === "caret" || f.field === "field";
+  if (BACK_KEYS.has(f.key) || (f.key === "Backspace" && !typing)) {
     // A desktop dialog handles Escape through its own dismiss handler.
     if (f.layer === "native") {
       return f.key === "Escape" ? { type: "none" } : { type: "nativeEscape" };

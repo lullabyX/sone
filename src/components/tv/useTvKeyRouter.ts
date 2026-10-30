@@ -90,7 +90,7 @@ function readTvKeyFacts(
     field,
     fieldEmpty: !!text && text.value === "",
     caretLeaves:
-      field && text
+      field === "caret" && text
         ? {
             left: caretAllowsLeaving(text, "left"),
             right: caretAllowsLeaving(text, "right"),
