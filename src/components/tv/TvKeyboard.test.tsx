@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { createStore } from "jotai";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
@@ -42,4 +42,29 @@ it("stands down while a video is full screen", () => {
   const { key } = setup(false, store);
   key.focus();
   expect(pressKey(key, { key: "Backspace" }).defaultPrevented).toBe(false);
+});
+it("types capitals and symbols", () => {
+  const onChange = vi.fn();
+  renderTv(<TvKeyboard onChange={onChange} />);
+  const apply = (t: string) => onChange.mock.lastCall![0](t);
+  fireEvent.click(screen.getByLabelText("Shift"));
+  fireEvent.click(screen.getByText("A"));
+  expect(apply("")).toBe("A");
+  fireEvent.click(screen.getByLabelText("Symbols"));
+  fireEvent.click(screen.getByText("."));
+  expect(apply("x")).toBe("x.");
+  expect(screen.getByLabelText("Letters")).toBeTruthy();
+});
+it("keeps focus on the toggle key across a case or layer switch", () => {
+  renderTv(<TvKeyboard onChange={vi.fn()} />);
+  const shift = screen.getByLabelText("Shift");
+  shift.focus();
+  fireEvent.click(shift);
+  expect(document.activeElement).toBe(shift);
+  expect(shift.getAttribute("aria-pressed")).toBe("true");
+  const layer = screen.getByLabelText("Symbols");
+  layer.focus();
+  fireEvent.click(layer);
+  expect(document.activeElement).toBe(layer);
+  expect(layer.getAttribute("aria-label")).toBe("Letters");
 });

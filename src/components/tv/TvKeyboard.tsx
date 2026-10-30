@@ -1,13 +1,18 @@
-import { useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useStore } from "jotai";
 import { Delete, X } from "lucide-react";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { TvScreenContext } from "./TvNavContext";
 
-const KEYS = "abcdefghijklmnopqrstuvwxyz1234567890".split("");
+const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
+const SYMBOLS = `. - _ @ : / # { } ( ) ! ? , ' & + = % ~ * $ ; " < >`.split(
+  " ",
+);
+const DIGITS = "1234567890".split("");
 
 /**
- * The on-screen keyboard for typing with the remote (search, names). A
+ * The on-screen keyboard for typing with the remote (search, names), with
+ * a Shift case lock and a symbols layer. A
  * physical keyboard types too while focus is on the keys (or anywhere in
  * the prompt holding them): printable keys add their character and
  * Backspace deletes, instead of moving focus or going back. Backspace on
@@ -26,6 +31,14 @@ export default function TvKeyboard({
   empty?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<"lower" | "upper" | "symbols">("lower");
+  const keys = (
+    layout === "symbols"
+      ? SYMBOLS
+      : layout === "upper"
+        ? LETTERS.map((k) => k.toUpperCase())
+        : LETTERS
+  ).concat(DIGITS);
   const { active } = useContext(TvScreenContext);
   const store = useStore();
 
@@ -70,21 +83,47 @@ export default function TvKeyboard({
       data-tv-keyboard
       className="grid grid-cols-6 gap-[0.4rem]"
     >
-      {KEYS.map((k, i) => (
+      {keys.map((k, i) => (
         <button
-          key={k}
+          key={i}
           data-tv-focusable
           data-tv-autofocus={(autoFocus && i === 0) || undefined}
           onClick={() => onChange((t) => t + k)}
-          className="tv-key h-[2.4rem] rounded-[0.4rem] bg-th-surface text-[0.85rem] font-semibold uppercase text-th-text-primary"
+          className="tv-key h-[2.4rem] rounded-[0.4rem] bg-th-surface text-[0.85rem] font-semibold text-th-text-primary"
         >
           {k}
         </button>
       ))}
       <button
         data-tv-focusable
+        aria-label="Shift"
+        title="Shift"
+        aria-pressed={layout === "upper"}
+        onClick={() => setLayout((l) => (l === "upper" ? "lower" : "upper"))}
+        className={`tv-key h-[2.4rem] rounded-[0.4rem] bg-th-surface flex flex-col items-center justify-center text-[0.95rem] font-semibold ${
+          layout === "upper" ? "text-th-accent" : "text-th-text-primary"
+        }`}
+      >
+        ⇧
+        {layout === "upper" && (
+          <span className="w-[0.8rem] h-[0.12rem] rounded-full bg-current" />
+        )}
+      </button>
+      <button
+        data-tv-focusable
+        aria-label={layout === "symbols" ? "Letters" : "Symbols"}
+        title={layout === "symbols" ? "Letters" : "Symbols"}
+        onClick={() =>
+          setLayout((l) => (l === "symbols" ? "lower" : "symbols"))
+        }
+        className="tv-key h-[2.4rem] rounded-[0.4rem] bg-th-surface text-[0.75rem] font-semibold text-th-text-primary"
+      >
+        {layout === "symbols" ? "abc" : "#+="}
+      </button>
+      <button
+        data-tv-focusable
         onClick={() => onChange((t) => t + " ")}
-        className="tv-key col-span-3 h-[2.4rem] rounded-[0.4rem] bg-th-surface text-[0.75rem] font-semibold text-th-text-primary"
+        className="tv-key col-span-2 h-[2.4rem] rounded-[0.4rem] bg-th-surface text-[0.75rem] font-semibold text-th-text-primary"
       >
         Space
       </button>
@@ -93,7 +132,7 @@ export default function TvKeyboard({
         aria-label="Delete"
         title="Delete"
         onClick={() => onChange((t) => t.slice(0, -1))}
-        className="tv-key col-span-2 h-[2.4rem] rounded-[0.4rem] bg-th-surface flex items-center justify-center text-th-text-primary"
+        className="tv-key h-[2.4rem] rounded-[0.4rem] bg-th-surface flex items-center justify-center text-th-text-primary"
       >
         <Delete className="w-[1.1rem] h-[1.1rem]" />
       </button>
