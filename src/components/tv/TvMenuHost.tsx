@@ -94,7 +94,7 @@ const TvMenuHost = forwardRef<
   const setAllPlaylists = useSetAtom(allPlaylistsAtom);
 
   const [stack, setStack] = useState<TvMenuSpec[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingFor, setLoadingFor] = useState<TvMenuSpec | null>(null);
   const stackRef = useRef(stack);
   useLayoutEffect(() => {
     stackRef.current = stack;
@@ -608,20 +608,28 @@ const TvMenuHost = forwardRef<
   );
 
   const select = async (item: TvMenuItem) => {
-    if (loading) return;
+    const from = stackRef.current[stackRef.current.length - 1];
+    if (loadingFor === from) return;
     if (item.submenu) {
-      setLoading(true);
+      setLoadingFor(from);
       try {
         const next = await item.submenu();
+        // Dropped if its menu was closed or replaced meanwhile.
+        if (stackRef.current[stackRef.current.length - 1] !== from) return;
         setStack((s) => [...s, next]);
       } catch {
         showToast("Couldn't load", "error");
       } finally {
-        setLoading(false);
+        setLoadingFor((cur) => (cur === from ? null : cur));
       }
       return;
     }
     if (!item.onSelect) return;
+    // Run with focus back on the opener, so a screen the action opens
+    // remembers it for Back.
+    const el = returnFocus.current;
+    returnFocus.current = null;
+    if (el?.isConnected) focusElement(el);
     close();
     await item.onSelect();
   };
@@ -686,7 +694,7 @@ const TvMenuHost = forwardRef<
                 )}
                 <span className="flex-1 min-w-0 truncate">{item.label}</span>
                 {item.submenu &&
-                  (loading ? (
+                  (loadingFor === spec ? (
                     <Loader2 className="w-[1rem] h-[1rem] animate-spin text-th-text-muted" />
                   ) : (
                     <ChevronRight className="w-[1rem] h-[1rem] text-th-text-muted" />
