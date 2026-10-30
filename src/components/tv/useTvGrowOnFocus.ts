@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 
 /** Calls `onNearEnd` when focus reaches one of the last `threshold` items
  *  (`data-tv-index`) inside `ref`, at most once per `count`; `null` turns
@@ -17,7 +17,7 @@ export function useTvGrowOnFocus(
     onNearEndRef.current = onNearEnd;
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = ref.current;
     if (!root) return;
     const onFocusIn = (e: FocusEvent) => {

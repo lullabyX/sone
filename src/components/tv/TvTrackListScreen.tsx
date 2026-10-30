@@ -62,6 +62,7 @@ import { groupByVolume, type TvView } from "./tvItems";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 import { useTvLoader } from "./useTvLoader";
 import { useTvPaged } from "./useTvPaged";
+import { useTvProgressive } from "./useTvProgressive";
 import {
   FAVORITES_TRACK_SORT,
   TRACK_SORT_OPTIONS,
@@ -406,12 +407,24 @@ function TrackListPage({
       return disc;
     });
   }, [view.type, rows]);
+  // A complete list (album, mix) renders in chunks as focus moves down.
+  const win = useTvProgressive(spec.pager ? 0 : rows.length, {
+    initial: 60,
+    step: 60,
+  });
+  const shown = spec.pager ? Infinity : win.shown;
+  const shownDiscs = discs?.filter((d) => d.start < shown);
   // No new page while removals are in flight: their offsets would shift
   // under the fetch.
+  const grow = spec.pager
+    ? pendingRemovals === 0
+      ? paged.loadMore
+      : null
+    : win.grow;
   useTvGrowOnFocus(
     listRef,
-    listed.length,
-    spec.pager && pendingRemovals === 0 && !filtering ? paged.loadMore : null,
+    spec.pager ? listed.length : win.shown,
+    filtering ? null : grow,
   );
 
   const playable = (): PlayableSource =>
@@ -842,8 +855,8 @@ function TrackListPage({
           <p className="px-[1rem] text-[0.85rem] text-th-text-muted">
             {filtering ? `No tracks match “${query}”.` : "No tracks here yet."}
           </p>
-        ) : discs ? (
-          discs.map(({ vol, tracks, start }) => (
+        ) : shownDiscs ? (
+          shownDiscs.map(({ vol, tracks, start }) => (
             // A disc's first row scrolls into view with its heading.
             <section
               key={vol}
@@ -856,15 +869,24 @@ function TrackListPage({
               >
                 Volume {vol}
               </h2>
-              {tracks.map((track, n) =>
-                renderRow(`${track.id}:${start + n}`, track, start + n, n + 1),
-              )}
+              {tracks
+                .slice(0, shown - start)
+                .map((track, n) =>
+                  renderRow(
+                    `${track.id}:${start + n}`,
+                    track,
+                    start + n,
+                    n + 1,
+                  ),
+                )}
             </section>
           ))
         ) : (
-          listed.map(({ track, pos }, i) =>
-            renderRow(`${track.id}:${pos}`, track, i, pos + 1),
-          )
+          listed
+            .slice(0, shown)
+            .map(({ track, pos }, i) =>
+              renderRow(`${track.id}:${pos}`, track, i, pos + 1),
+            )
         )}
         {(paged.loadingMore || loadingAll) && (
           <p className="px-[1rem] py-[1rem] text-[0.85rem] text-th-text-muted">

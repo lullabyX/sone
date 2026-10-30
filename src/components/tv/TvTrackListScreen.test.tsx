@@ -70,6 +70,29 @@ it("a single-disc album has no disc headings", async () => {
   expect(screen.queryByText(/^Volume \d/)).toBeNull();
 });
 
+const shownRows = () => document.querySelectorAll(".tv-track-row[data-tv-index]").length;
+
+it("renders a 300-track album in chunks", async () => {
+  api.getAlbumPage.mockResolvedValue(album(range(300).map((i) => mkTrack(i + 1))));
+  renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  await screen.findByText("T1");
+  expect(shownRows()).toBe(60);
+  act(() => rowButton("T46").focus());
+  expect(shownRows()).toBe(120);
+});
+
+it("a later disc's heading shows once its first row is in the window", async () => {
+  const tracks = range(100).map((i) => mkTrack(i + 1, { volumeNumber: i < 70 ? 1 : 2 }));
+  api.getAlbumPage.mockResolvedValue(album(tracks));
+  renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  await screen.findByText("Volume 1");
+  expect(screen.queryByText("Volume 2")).toBeNull();
+  expect(shownRows()).toBe(60);
+  act(() => rowButton("T46").focus());
+  expect(screen.getByText("Volume 2")).toBeTruthy();
+  expect(shownRows()).toBe(100);
+});
+
 it("a blocked row has no action menu", async () => {
   api.getAlbumPage.mockResolvedValue(album([t1, mkTrack(2, { explicit: true })]));
   const store = createStore();
