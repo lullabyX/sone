@@ -24,6 +24,7 @@ import {
   playbackSourceAtom,
   volumeAtom,
 } from "../../atoms/playback";
+import { videoCoversAtom } from "../../atoms/ui";
 import { currentVideoAtom } from "../../atoms/video";
 import type { Lyrics, TidalVideo, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
@@ -154,5 +155,36 @@ describe("TvNowPlaying source", () => {
     renderTv(<TvNowPlaying />, { store });
     expect(screen.getByText("Playing from Row")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Playing from/ })).toBeNull();
+  });
+});
+
+describe("TvNowPlaying animated cover", () => {
+  const motion = () =>
+    playing(
+      mkTrack(1, {
+        album: { id: 3, title: "Al", cover: "c", videoCover: "11-22" },
+      }),
+    );
+  const video = (c: HTMLElement) =>
+    c.querySelector('video[src$="/1280x1280.mp4"]');
+
+  it("plays the motion cover", () => {
+    const { container } = renderTv(<TvNowPlaying />, { store: motion() });
+    expect(video(container)).not.toBeNull();
+  });
+
+  it("shows the still cover when animated covers are off", () => {
+    const store = motion();
+    store.set(videoCoversAtom, false);
+    const { container } = renderTv(<TvNowPlaying />, { store });
+    expect(container.querySelector("video")).toBeNull();
+  });
+
+  it("shows the still cover while Now Playing is closed", () => {
+    const { container } = renderTv(<TvNowPlaying />, {
+      store: motion(),
+      active: false,
+    });
+    expect(container.querySelector("video")).toBeNull();
   });
 });

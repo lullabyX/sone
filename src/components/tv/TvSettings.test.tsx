@@ -19,11 +19,20 @@ import {
 } from "./tvTestUtils";
 import TvSettings from "./TvSettings";
 import type { TvNav } from "./TvNavContext";
+import { videoCoversAtom } from "../../atoms/ui";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
 
 setupTvTest();
-beforeEach(() => mockInvoke({ get_gapless_supported: () => false }));
+let devices: { id: string; name: string }[] = [];
+beforeEach(() => {
+  devices = [];
+  mockInvoke({
+    get_gapless_supported: () => false,
+    list_audio_devices: () => devices,
+    set_exclusive_device: () => undefined,
+  });
+});
 const labels = (nav: TvNav) =>
   vi.mocked(nav.openMenu).mock.calls[0][0].items.map((i) => i.label);
 
@@ -36,7 +45,9 @@ it("asks before logging out, with Cancel first", () => {
 it("asks before turning explicit content off while something plays, with Cancel first", () => {
   const store = withQueue([mkTrack(1), mkTrack(2)], mkTrack(1));
   const { nav } = renderTv(<TvSettings />, { store });
-  fireEvent.click(screen.getByRole("button", { name: /Allow explicit content/ }));
+  fireEvent.click(
+    screen.getByRole("button", { name: /Allow explicit content/ }),
+  );
   expect(labels(nav)).toEqual(["Cancel", "Yes, turn off"]);
 });
 
@@ -74,4 +85,12 @@ it("Down from Log out moves focus into About and on to the release QR", async ()
   } finally {
     restore();
   }
+});
+
+it("toggles animated covers", () => {
+  const { store } = renderTv(<TvSettings />);
+  fireEvent.click(
+    screen.getByRole("button", { name: /Animated album covers/ }),
+  );
+  expect(store.get(videoCoversAtom)).toBe(false);
 });

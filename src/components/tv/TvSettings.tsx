@@ -17,6 +17,7 @@ import {
   volumeNormalizationAtom,
 } from "../../atoms/playback";
 import { themeAtom } from "../../atoms/theme";
+import { videoCoversAtom } from "../../atoms/ui";
 import {
   nextTvOverscan,
   tvLyricsAtom,
@@ -58,6 +59,7 @@ export default function TvSettings() {
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
   const [gapless, setGapless] = useAtom(gaplessAtom);
   const [normalize, setNormalize] = useAtom(volumeNormalizationAtom);
+  const [videoCovers, setVideoCovers] = useAtom(videoCoversAtom);
   const [allowExplicit, setAllowExplicit] = useAtom(allowExplicitAtom);
   const [allowAi, setAllowAi] = useAtom(allowAiAtom);
   const [exclusive, setExclusive] = useAtom(exclusiveModeAtom);
@@ -242,6 +244,12 @@ export default function TvSettings() {
               () => {},
             );
           }}
+        />
+        <TvSettingsRow
+          title="Animated album covers"
+          subtitle="Play motion covers in the player when available"
+          toggle={videoCovers}
+          onSelect={() => setVideoCovers(!videoCovers)}
         />
         <TvSettingsRow
           title="Allow explicit content"

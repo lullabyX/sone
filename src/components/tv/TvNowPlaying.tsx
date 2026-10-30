@@ -31,6 +31,7 @@ import {
   Trash2,
 } from "lucide-react";
 import TidalImage from "../TidalImage";
+import TidalVideoCover from "../TidalVideoCover";
 import SignalPathPanel from "../SignalPathPanel";
 import TvNativeLayer from "./TvNativeLayer";
 import {
@@ -46,6 +47,7 @@ import {
   streamInfoAtom,
   volumeAtom,
 } from "../../atoms/playback";
+import { videoCoversAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
   videoExpandedAtom,
@@ -689,6 +691,7 @@ export default function TvNowPlaying() {
   const [videoExpanded, setVideoExpanded] = useAtom(videoExpandedAtom);
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
   const [signalPathOpen, setSignalPathOpen] = useState(false);
+  const videoCovers = useAtomValue(videoCoversAtom);
   const lyrics = useTvLyrics(
     track && track.itemType !== "video" ? track.id : undefined,
   );
@@ -739,6 +742,8 @@ export default function TvNowPlaying() {
 
   const isVideo = track.itemType === "video";
   const cover = getTidalImageUrl(trackCoverId(track), 1280);
+  const animated =
+    !isVideo && videoCovers && !!track.album?.videoCover && screen.active;
   // The backdrop is blurred anyway: a small image scaled up is soft by
   // itself and needs only a light blur, which is far cheaper to paint on
   // weak integrated graphics than a heavy blur over a full-size cover.
@@ -794,11 +799,22 @@ export default function TvNowPlaying() {
                 : undefined
             }
           >
-            <TidalImage
-              src={cover || undefined}
-              alt=""
-              className="w-full h-full"
-            />
+            {animated ? (
+              <TidalVideoCover
+                cover={track.album?.cover}
+                videoCover={track.album?.videoCover}
+                size={1280}
+                imageSize={1280}
+                alt=""
+                className="w-full h-full"
+              />
+            ) : (
+              <TidalImage
+                src={cover || undefined}
+                alt=""
+                className="w-full h-full"
+              />
+            )}
           </div>
         )}
 
