@@ -35,7 +35,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 setupTvTest();
 
 beforeEach(() => {
-  mockInvoke({});
+  mockInvoke({ get_proxy_status: () => ({ state: "off" }) });
   auth.startDeviceAuth.mockReset();
   auth.startDeviceAuth.mockReturnValue(new Promise(() => {}));
 });

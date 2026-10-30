@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useAtomValue } from "jotai";
 import { safeErrorMessage } from "../lib/errorUtils";
 import { PROXY_SAVED_EVENT, type ProxySettings } from "../atoms/proxy";
+import { tvModeAtom } from "../atoms/tv";
 
 /** The serialized `proxy::ProxyStatus`, `#[serde(tag = "state")]`. */
 export type ProxyStatus =
@@ -218,6 +220,8 @@ export default function ProxyNoticeBanner({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const tvMode = useAtomValue(tvModeAtom);
+  const focusable = tvMode ? { "data-tv-focusable": true } : {};
 
   const refresh = useCallback(async () => {
     try {
@@ -318,7 +322,7 @@ export default function ProxyNoticeBanner({
   return (
     <div
       role="alert"
-      className={`flex flex-wrap items-center gap-2.5 px-4 py-2.5 border-b ${tone.box}`}
+      className={`sone-proxy-banner flex flex-wrap items-center gap-2.5 px-4 py-2.5 border-b ${tone.box}`}
     >
       <span
         className={`w-2 h-2 rounded-full flex-shrink-0 ${tone.dot}`}
@@ -342,6 +346,7 @@ export default function ProxyNoticeBanner({
       <div className="ml-auto flex flex-shrink-0 items-center gap-2">
         {offerSettings && (
           <button
+            {...focusable}
             onClick={() =>
               window.dispatchEvent(
                 new CustomEvent(OPEN_SETTINGS_EVENT, { detail: "network" }),
@@ -353,6 +358,7 @@ export default function ProxyNoticeBanner({
           </button>
         )}
         <button
+          {...focusable}
           onClick={() => void disableProxy()}
           disabled={busy}
           className={`px-2.5 py-1 rounded-md text-[11.5px] font-semibold border text-th-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${tone.button}`}
@@ -361,6 +367,7 @@ export default function ProxyNoticeBanner({
         </button>
         {offerSettings && (
           <button
+            {...focusable}
             onClick={() => setDismissed(key)}
             aria-label="Dismiss"
             title={DISMISS_TITLE[notice.tone]}

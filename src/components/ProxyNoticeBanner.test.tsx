@@ -6,6 +6,8 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
+import { Provider, createStore } from "jotai";
+import { tvModeAtom } from "../atoms/tv";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -23,6 +25,10 @@ beforeEach(() => {
   invoke.mockReset();
 });
 afterEach(() => cleanup());
+afterEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+});
 
 describe("proxyNotice", () => {
   it("reports only the states that stop the app working", () => {
@@ -505,5 +511,47 @@ describe("the banner", () => {
     render(<ProxyNoticeBanner />);
     await waitFor(() => expect(invoke).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("is reachable by remote in TV mode", async () => {
+    invoke.mockImplementation((c: string) =>
+      Promise.resolve(
+        c === "get_proxy_status"
+          ? { state: "blocked", reason: "r" }
+          : undefined,
+      ),
+    );
+    const store = createStore();
+    store.set(tvModeAtom, true);
+    render(
+      <Provider store={store}>
+        <ProxyNoticeBanner />
+      </Provider>,
+    );
+    const b = await screen.findByRole("button", { name: /turn off proxy/i });
+    expect(b.hasAttribute("data-tv-focusable")).toBe(true);
+    expect(
+      screen.getByRole("alert").classList.contains("sone-proxy-banner"),
+    ).toBe(true);
+  });
+
+  it("leaves desktop buttons unmarked", async () => {
+    invoke.mockImplementation((c: string) =>
+      Promise.resolve(
+        c === "get_proxy_status"
+          ? { state: "blocked", reason: "r" }
+          : undefined,
+      ),
+    );
+    render(
+      <Provider store={createStore()}>
+        <ProxyNoticeBanner />
+      </Provider>,
+    );
+    expect(
+      (
+        await screen.findByRole("button", { name: /turn off proxy/i })
+      ).hasAttribute("data-tv-focusable"),
+    ).toBe(false);
   });
 });

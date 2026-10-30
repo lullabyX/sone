@@ -118,6 +118,19 @@ html.tv-mode {
   zoom: var(--tv-px-scale, 1);
 }
 
+/* The proxy notice is sized in px for the desktop; scale it up on a TV.
+   12px (not its 11.5px) so the text stays at 0.75rem once zoomed. */
+.tv-mode .sone-proxy-banner {
+  zoom: var(--tv-px-scale, 1);
+}
+.tv-mode .sone-proxy-banner :is(span, button) {
+  font-size: 12px;
+}
+.tv-mode .sone-proxy-banner button:focus {
+  box-shadow: 0 0 0 3px var(--th-text-primary);
+  outline: none;
+}
+
 /* Overlays outside the TV shell (menu, prompt) keep their content inside
    the screen margin; their backdrop still covers the whole screen. */
 .tv-mode .tv-overlay {

@@ -13,6 +13,7 @@ import type { AuthTokens } from "../../types";
 import { useAuth } from "../../hooks/useAuth";
 import { formatSoneError, isNetworkError } from "../../lib/errorUtils";
 import { focusFirstIn } from "../../lib/spatialNav";
+import ProxyNoticeBanner from "../ProxyNoticeBanner";
 import { TvButton } from "./TvParts";
 import { TvQrCode } from "./TvQrCode";
 import { useTvLocalNav } from "./useTvLocalNav";
@@ -189,55 +190,58 @@ export default function TvLogin() {
     return (
       <div
         ref={rootRef}
-        className="tv-root h-full w-full flex items-center justify-center px-[5rem] bg-th-base text-th-text-primary"
+        className="tv-root h-full w-full flex flex-col bg-th-base text-th-text-primary"
       >
-        <div className="max-w-[40rem]">
-          <h1 className="text-[2.4rem] font-extrabold leading-tight">
-            Sign in to TIDAL
-          </h1>
-          {pkce === null ? (
-            <p className="mt-[1rem] text-[1rem] text-th-text-secondary">…</p>
-          ) : (
-            <>
-              <div className="mt-[2rem]">
-                <TvButton
-                  primary
-                  autoFocus
-                  icon={<Tv className="w-[1rem] h-[1rem]" />}
-                  label="Sign in on this TV"
-                  onClick={signInOnTv}
-                />
-                <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
-                  Full quality, up to Hi-Res. Opens TIDAL&apos;s sign-in page;
-                  e-mail and password need a keyboard.
-                </p>
-                {tvError && (
-                  <p className="mt-[0.6rem] text-[0.85rem] text-red-400">
-                    {tvError}
+        <ProxyNoticeBanner />
+        <div className="flex-1 min-h-0 flex items-center justify-center px-[5rem]">
+          <div className="max-w-[40rem]">
+            <h1 className="text-[2.4rem] font-extrabold leading-tight">
+              Sign in to TIDAL
+            </h1>
+            {pkce === null ? (
+              <p className="mt-[1rem] text-[1rem] text-th-text-secondary">…</p>
+            ) : (
+              <>
+                <div className="mt-[2rem]">
+                  <TvButton
+                    primary
+                    autoFocus
+                    icon={<Tv className="w-[1rem] h-[1rem]" />}
+                    label="Sign in on this TV"
+                    onClick={signInOnTv}
+                  />
+                  <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
+                    Full quality, up to Hi-Res. Opens TIDAL&apos;s sign-in page;
+                    e-mail and password need a keyboard.
                   </p>
-                )}
-              </div>
-              <div className="mt-[2rem]">
-                <TvButton
-                  icon={<Smartphone className="w-[1rem] h-[1rem]" />}
-                  label="Sign in with your phone"
-                  onClick={choosePhone}
-                />
-                <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
-                  Scan a QR code, nothing to type. TIDAL limits this kind of
-                  sign-in to High quality (AAC, 320 kbps).
-                </p>
-              </div>
-              <div className="mt-[2rem]">
-                <TvButton
-                  icon={<LogOut className="w-[1rem] h-[1rem]" />}
-                  label="Other sign-in options"
-                  title="Leave TV mode for the desktop sign-in"
-                  onClick={() => setTvMode(false)}
-                />
-              </div>
-            </>
-          )}
+                  {tvError && (
+                    <p className="mt-[0.6rem] text-[0.85rem] text-red-400">
+                      {tvError}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-[2rem]">
+                  <TvButton
+                    icon={<Smartphone className="w-[1rem] h-[1rem]" />}
+                    label="Sign in with your phone"
+                    onClick={choosePhone}
+                  />
+                  <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
+                    Scan a QR code, nothing to type. TIDAL limits this kind of
+                    sign-in to High quality (AAC, 320 kbps).
+                  </p>
+                </div>
+                <div className="mt-[2rem]">
+                  <TvButton
+                    icon={<LogOut className="w-[1rem] h-[1rem]" />}
+                    label="Other sign-in options"
+                    title="Leave TV mode for the desktop sign-in"
+                    onClick={() => setTvMode(false)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -246,84 +250,88 @@ export default function TvLogin() {
   return (
     <div
       ref={rootRef}
-      className="tv-root h-full w-full flex items-center justify-center gap-[5rem] px-[5rem] bg-th-base text-th-text-primary"
+      className="tv-root h-full w-full flex flex-col bg-th-base text-th-text-primary"
     >
-      <div className="max-w-[34rem]">
-        <h1 className="text-[2.4rem] font-extrabold leading-tight">
-          Sign in to TIDAL
-        </h1>
-        {state.step === "code" && (
-          <>
+      <ProxyNoticeBanner />
+      <div className="flex-1 min-h-0 flex items-center justify-center gap-[5rem] px-[5rem]">
+        <div className="max-w-[34rem]">
+          <h1 className="text-[2.4rem] font-extrabold leading-tight">
+            Sign in to TIDAL
+          </h1>
+          {state.step === "code" && (
+            <>
+              <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
+                Scan the code with your phone and sign in there. Or open
+              </p>
+              <p className="mt-[0.3rem] text-[1.1rem] font-semibold text-th-accent break-all">
+                {state.verificationUri.replace(/^https?:\/\//, "")}
+              </p>
+              <p className="mt-[0.3rem] text-[1rem] text-th-text-secondary">
+                and enter this code:
+              </p>
+              <p className="mt-[0.8rem] text-[2.6rem] font-extrabold tracking-[0.2em] tabular-nums">
+                {state.userCode}
+              </p>
+              <p className="mt-[0.8rem] text-[0.8rem] text-th-text-muted">
+                TIDAL limits this kind of sign-in to High quality (AAC, 320
+                kbps).
+              </p>
+            </>
+          )}
+          {state.step === "starting" && (
             <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-              Scan the code with your phone and sign in there. Or open
+              Getting a sign-in code…
             </p>
-            <p className="mt-[0.3rem] text-[1.1rem] font-semibold text-th-accent break-all">
-              {state.verificationUri.replace(/^https?:\/\//, "")}
-            </p>
-            <p className="mt-[0.3rem] text-[1rem] text-th-text-secondary">
-              and enter this code:
-            </p>
-            <p className="mt-[0.8rem] text-[2.6rem] font-extrabold tracking-[0.2em] tabular-nums">
-              {state.userCode}
-            </p>
-            <p className="mt-[0.8rem] text-[0.8rem] text-th-text-muted">
-              TIDAL limits this kind of sign-in to High quality (AAC, 320 kbps).
-            </p>
-          </>
-        )}
-        {state.step === "starting" && (
-          <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-            Getting a sign-in code…
-          </p>
-        )}
-        {state.step === "signing-in" && (
-          <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-            Signed in — loading your library…
-          </p>
-        )}
-        {state.step === "error" && (
-          <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-            {state.message}
-          </p>
-        )}
-        {state.step === "no-credentials" && (
-          <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-            This build has no built-in sign-in code. Sign in once in the desktop
-            layout; TV mode picks up from there.
-          </p>
-        )}
-        <div className="mt-[2rem] flex flex-wrap gap-[0.8rem]">
-          {(state.step === "code" || state.step === "error") && (
-            <TvButton
-              primary={state.step === "error"}
-              icon={<RefreshCw className="w-[1rem] h-[1rem]" />}
-              label={state.step === "error" ? "Try again" : "New code"}
-              onClick={retry}
-            />
           )}
-          {pkce && (
-            <TvButton
-              icon={<ArrowLeft className="w-[1rem] h-[1rem]" />}
-              label="Back"
-              onClick={back}
-            />
+          {state.step === "signing-in" && (
+            <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
+              Signed in — loading your library…
+            </p>
           )}
-          <TvButton
-            primary={state.step === "no-credentials"}
-            icon={<LogOut className="w-[1rem] h-[1rem]" />}
-            label="Other sign-in options"
-            title="Leave TV mode for the desktop sign-in"
-            onClick={() => setTvMode(false)}
-          />
+          {state.step === "error" && (
+            <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
+              {state.message}
+            </p>
+          )}
+          {state.step === "no-credentials" && (
+            <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
+              This build has no built-in sign-in code. Sign in once in the
+              desktop layout; TV mode picks up from there.
+            </p>
+          )}
+          <div className="mt-[2rem] flex flex-wrap gap-[0.8rem]">
+            {(state.step === "code" || state.step === "error") && (
+              <TvButton
+                primary={state.step === "error"}
+                icon={<RefreshCw className="w-[1rem] h-[1rem]" />}
+                label={state.step === "error" ? "Try again" : "New code"}
+                onClick={retry}
+              />
+            )}
+            {pkce && (
+              <TvButton
+                icon={<ArrowLeft className="w-[1rem] h-[1rem]" />}
+                label="Back"
+                onClick={back}
+              />
+            )}
+            <TvButton
+              primary={state.step === "no-credentials"}
+              icon={<LogOut className="w-[1rem] h-[1rem]" />}
+              label="Other sign-in options"
+              title="Leave TV mode for the desktop sign-in"
+              onClick={() => setTvMode(false)}
+            />
+          </div>
         </div>
+        {state.step === "code" && (
+          <TvQrCode
+            value={state.qrUrl}
+            label="Phone sign-in code"
+            className="w-[16rem] h-[16rem]"
+          />
+        )}
       </div>
-      {state.step === "code" && (
-        <TvQrCode
-          value={state.qrUrl}
-          label="Phone sign-in code"
-          className="w-[16rem] h-[16rem]"
-        />
-      )}
     </div>
   );
 }
