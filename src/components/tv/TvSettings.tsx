@@ -28,6 +28,7 @@ import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useAuth } from "../../hooks/useAuth";
 import { resetPlaybackForContentChange } from "../../lib/playbackReset";
 import { PRESET_THEMES } from "../../lib/theme";
+import { TvAboutSection } from "./TvAbout";
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { TvSettingsRow, TvSettingsSection } from "./TvSettingsParts";
 
@@ -352,6 +353,8 @@ export default function TvSettings() {
           }
         />
       </TvSettingsSection>
+
+      <TvAboutSection />
     </div>
   );
 }

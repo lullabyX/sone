@@ -38,9 +38,11 @@ vi.mock("../hooks/useMcpBridge", () => ({ useMcpBridge: () => {} }));
 import { AppInitializer } from "./AppInitializer";
 import { ToastProvider } from "../contexts/ToastContext";
 import { maximizedPlayerAtom } from "../atoms/ui";
+import { updateInfoAtom } from "../atoms/updates";
 
 afterEach(() => {
   cleanup();
+  vi.mocked(invoke).mockImplementation(() => Promise.resolve(undefined));
   localStorage.clear();
   sessionStorage.clear();
 });
@@ -63,4 +65,21 @@ it("MPRIS SetFullscreen opens the maximized player and the state is reported bac
   expect(invoke).toHaveBeenLastCalledWith("update_mpris_fullscreen", {
     fullscreen: true,
   });
+});
+
+it("keeps the update check's answer for TV Settings", async () => {
+  const info = { available: true, current: "1.0.0", latest: "1.1.0", url: "u" };
+  vi.mocked(invoke).mockImplementation((cmd: string) =>
+    Promise.resolve(cmd === "check_for_update" ? info : undefined),
+  );
+  const store = createStore();
+  render(
+    <Provider store={store}>
+      <ToastProvider>
+        <AppInitializer />
+      </ToastProvider>
+    </Provider>,
+  );
+  await act(async () => {});
+  expect(store.get(updateInfoAtom)).toEqual(info);
 });

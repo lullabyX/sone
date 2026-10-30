@@ -16,7 +16,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseTidalUrl } from "../lib/tidalUrl";
-import { updateToastSeenAtom } from "../atoms/updates";
+import { updateInfoAtom, updateToastSeenAtom } from "../atoms/updates";
 import { shouldShowUpdateToast, type UpdateInfo } from "../lib/updateToast";
 import { refreshApp } from "../lib/refreshApp";
 
@@ -258,6 +258,7 @@ export function AppInitializer() {
   useEffect(() => {
     invoke<UpdateInfo>("check_for_update")
       .then((info) => {
+        store.set(updateInfoAtom, info);
         const { show, next } = shouldShowUpdateToast(
           info,
           store.get(updateToastSeenAtom),
