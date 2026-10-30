@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, LogOut, SlidersHorizontal } from "lucide-react";
@@ -28,6 +28,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useAuth } from "../../hooks/useAuth";
 import { resetPlaybackForContentChange } from "../../lib/playbackReset";
+import { focusElement } from "../../lib/spatialNav";
 import { PRESET_THEMES } from "../../lib/theme";
 import { TvAboutSection } from "./TvAbout";
 import { confirmMenu } from "./tvMenu";
@@ -71,10 +72,12 @@ export default function TvSettings() {
   const setTvMode = useSetAtom(tvModeAtom);
   const { userName, logout } = useAuth();
   const [gaplessSupported, setGaplessSupported] = useState(false);
-  const [devices, setDevices] = useState<
-    { id: string; name: string }[] | null
-  >(null);
+  const [devices, setDevices] = useState<{ id: string; name: string }[] | null>(
+    null,
+  );
   const [reload, setReload] = useState(0);
+  const deviceListRef = useRef<HTMLDivElement>(null);
+  const focusFoundDevice = useRef(false);
 
   useTvInitialFocus(true);
 
@@ -100,6 +103,22 @@ export default function TvSettings() {
       })
       .catch(() => setDevices([]));
   }, [exclusive, store, setDevice, reload]);
+
+  // "No output devices found" goes away when a look-again finds one: focus
+  // the first device instead of leaving focus nowhere.
+  useEffect(() => {
+    if (!focusFoundDevice.current || !devices) return;
+    focusFoundDevice.current = false;
+    if (devices.length === 0) return;
+    const id = requestAnimationFrame(() => {
+      const row = deviceListRef.current?.querySelector<HTMLElement>(
+        "[data-tv-focusable]",
+      );
+      const active = document.activeElement;
+      if (row && (!active || active === document.body)) focusElement(row);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [devices]);
 
   const gaplessDisabled = !gaplessSupported || exclusive || bitPerfect;
 
@@ -178,24 +197,30 @@ export default function TvSettings() {
           <TvSettingsRow
             title="No output devices found"
             subtitle="Connect the device, then select to look again"
-            onSelect={() => setReload((n) => n + 1)}
+            onSelect={() => {
+              focusFoundDevice.current = true;
+              setReload((n) => n + 1);
+            }}
           />
         )}
-        {exclusive &&
-          devices?.map((d) => (
-            <TvSettingsRow
-              key={d.id}
-              title={d.name}
-              subtitle="Output device"
-              checked={device === d.id}
-              onSelect={() => {
-                setDevice(d.id);
-                invoke("set_exclusive_device", { device: d.id }).catch(
-                  () => {},
-                );
-              }}
-            />
-          ))}
+        {exclusive && (
+          <div ref={deviceListRef} className="contents">
+            {devices?.map((d) => (
+              <TvSettingsRow
+                key={d.id}
+                title={d.name}
+                subtitle="Output device"
+                checked={device === d.id}
+                onSelect={() => {
+                  setDevice(d.id);
+                  invoke("set_exclusive_device", { device: d.id }).catch(
+                    () => {},
+                  );
+                }}
+              />
+            ))}
+          </div>
+        )}
         {exclusive && (
           <TvSettingsRow
             title="Bit-perfect"

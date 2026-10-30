@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { createStore } from "jotai";
 
 const auth = vi.hoisted(() => ({ userName: "Ann", logout: vi.fn() })); // one object: useAuth keeps stable identities
@@ -15,6 +15,7 @@ import {
   renderTv,
   setupTvTest,
   stubLayout,
+  deferred,
   withQueue,
 } from "./tvTestUtils";
 import TvSettings from "./TvSettings";
@@ -114,4 +115,45 @@ it("a failed listing shows the same row", async () => {
   store.set(exclusiveModeAtom, true);
   renderTv(<TvSettings />, { store });
   expect(await screen.findByText("No output devices found")).toBeTruthy();
+});
+
+it("moves focus to the first device the look-again finds", async () => {
+  const restore = stubLayout();
+  try {
+    const store = createStore();
+    store.set(exclusiveModeAtom, true);
+    renderTv(<TvSettings />, { store });
+    const row = await screen.findByRole("button", {
+      name: /No output devices found/,
+    });
+    act(() => row.focus());
+    devices = [{ id: "hw:1", name: "DAC" }];
+    fireEvent.click(row);
+    const dac = await screen.findByRole("button", { name: /^DAC/ });
+    await waitFor(() => expect(document.activeElement).toBe(dac));
+  } finally {
+    restore();
+  }
+});
+
+it("shows no device rows while the list loads", async () => {
+  const list = deferred<{ id: string; name: string }[]>();
+  mockInvoke({
+    get_gapless_supported: () => false,
+    list_audio_devices: () => list.promise,
+  });
+  const store = createStore();
+  store.set(exclusiveModeAtom, true);
+  renderTv(<TvSettings />, { store });
+  await act(async () => {});
+  expect(screen.queryByText("No output devices found")).toBeNull();
+  expect(screen.queryByText("Output device")).toBeNull();
+  await act(async () => list.resolve([]));
+  expect(screen.getByText("No output devices found")).toBeTruthy();
+});
+
+it("shows no empty-device row while exclusive output is off", async () => {
+  renderTv(<TvSettings />);
+  await act(async () => {});
+  expect(screen.queryByText("No output devices found")).toBeNull();
 });
