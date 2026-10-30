@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../lib/playbackPosition", async (importOriginal) => ({
@@ -33,6 +33,7 @@ import {
   mockInvoke,
   renderTv,
   setupTvTest,
+  stubLayout,
   withQueue,
 } from "./tvTestUtils";
 
@@ -186,5 +187,33 @@ describe("TvNowPlaying animated cover", () => {
       active: false,
     });
     expect(container.querySelector("video")).toBeNull();
+  });
+});
+
+describe("TvNowPlaying close video", () => {
+  it("closes the video and keeps focus on a control", async () => {
+    const restore = stubLayout();
+    const store = playing(mkTrack(9, { itemType: "video" }));
+    store.set(currentVideoAtom, {
+      id: 9,
+      title: "V",
+      duration: 100,
+    } as TidalVideo);
+    renderTv(<TvNowPlaying />, { store });
+    const play = () => screen.getByRole("button", { name: "Play" });
+    // Let the screen's initial focus land first, so it cannot be what
+    // refocuses Play after the close.
+    await waitFor(() => expect(document.activeElement).toBe(play()));
+    const close = screen.getByRole("button", { name: "Close video" });
+    close.focus();
+    fireEvent.click(close);
+    expect(store.get(currentVideoAtom)).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(play()));
+    restore();
+  });
+
+  it("no Close video without a current video", () => {
+    renderTv(<TvNowPlaying />, { store: playing() });
+    expect(screen.queryByRole("button", { name: "Close video" })).toBeNull();
   });
 });

@@ -29,6 +29,7 @@ import {
   SkipBack,
   SkipForward,
   Trash2,
+  X,
 } from "lucide-react";
 import TidalImage from "../TidalImage";
 import TidalVideoCover from "../TidalVideoCover";
@@ -62,6 +63,7 @@ import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useSuggestedTracks } from "../../hooks/useSuggestedTracks";
 import { useTrackCredits } from "../../hooks/useTrackCredits";
+import { useVideoPlayback } from "../../hooks/useVideoPlayback";
 import { useVolumeLocked } from "../../hooks/useVolumeLocked";
 import { formatTime } from "../../lib/format";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
@@ -708,6 +710,7 @@ export default function TvNowPlaying() {
   const videoPlaying = useAtomValue(videoPlayingAtom);
   const { togglePlayPause, playNext, playPrevious, toggleShuffle } =
     usePlaybackActions();
+  const { closeVideo } = useVideoPlayback();
 
   useTvInitialFocus(true);
   const screen = useContext(TvScreenContext);
@@ -971,6 +974,16 @@ export default function TvNowPlaying() {
                 icon={<Maximize2 className={icon} />}
                 label="Full screen"
                 onClick={() => setVideoExpanded(true)}
+              />
+            )}
+            {isVideo && currentVideo && (
+              <TvButton
+                icon={<X className={icon} />}
+                label="Close video"
+                onClick={() => {
+                  closeVideo();
+                  focusPlayerSoon(screen.element);
+                }}
               />
             )}
             {!isVideo && artist && (
