@@ -197,6 +197,31 @@ describe("playlist removals", () => {
     }
   });
 
+  it("no re-sort while a removal is in flight", async () => {
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+    await screen.findByText("T2");
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    const sortMenu = vi.mocked(nav.openMenu).mock.lastCall![0];
+    fireEvent.click(rowMore("T2"));
+    act(() => {
+      void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!();
+    });
+    await act(async () => {
+      await sortMenu.items.find((i) => i.label === "Title")!.onSelect!();
+    });
+    expect(store.get(trackSortPrefsAtom)).toEqual({});
+    expect(screen.getAllByText("Wait for removals to finish")).toHaveLength(1);
+    const sortMenus = () => vi.mocked(nav.openMenu).mock.calls.filter(([m]) => m.title === "Sort by").length;
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    expect(sortMenus()).toBe(1);
+    expect(screen.getAllByText("Wait for removals to finish")).toHaveLength(2);
+    await act(async () => {});
+    expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(1);
+    await act(async () => pending[0].resolve());
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    expect(sortMenus()).toBe(2);
+  });
+
   it("no further page loads while a removal is in flight", async () => {
     const tracks = range(30).map((i) => mkTrack(i + 1));
     api.getPlaylistTracksPage.mockResolvedValue({ items: tracks, totalNumberOfItems: 250 });
@@ -265,6 +290,25 @@ describe("sorting", () => {
       fireEvent.click(rowMore("T1"));
       expect(vi.mocked(nav.trackMenu).mock.lastCall![1]!.map((i) => i.label)).toEqual(["Remove from this playlist"]);
     });
+  });
+
+  it("Remove stays hidden until the list is back in playlist order", async () => {
+    const store = signedIn(42);
+    store.set(trackSortPrefsAtom, { p: { order: "ARTIST", direction: "DESC" } });
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+    await screen.findByText("T1");
+    const d = deferred<{ items: Track[]; totalNumberOfItems: number }>();
+    api.getPlaylistTracksPage.mockReturnValueOnce(d.promise);
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    await act(async () => {
+      await vi.mocked(nav.openMenu).mock.lastCall![0].items.find((i) => i.label === "Playlist order")!.onSelect!();
+    });
+    await waitFor(() => expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(2));
+    fireEvent.click(rowMore("T1"));
+    expect(vi.mocked(nav.trackMenu).mock.lastCall![1] ?? []).toEqual([]);
+    await act(async () => d.resolve({ items: [t1, t2], totalNumberOfItems: 2 }));
+    fireEvent.click(rowMore("T1"));
+    expect(vi.mocked(nav.trackMenu).mock.lastCall![1]!.map((i) => i.label)).toEqual(["Remove from this playlist"]);
   });
 
   it("My Tracks uses its saved sort for the first page and the pager, and newest first stores no key", async () => {

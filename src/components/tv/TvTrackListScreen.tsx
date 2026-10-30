@@ -307,7 +307,8 @@ function TrackListPage({
     chain: Promise<void>;
     gen: number;
     staleSpec: TrackListSpec | null;
-  }>({ chain: Promise.resolve(), gen: 0, staleSpec: null });
+    pending: number;
+  }>({ chain: Promise.resolve(), gen: 0, staleSpec: null, pending: 0 });
   const specRef = useRef(spec);
   useLayoutEffect(() => {
     specRef.current = spec;
@@ -428,20 +429,29 @@ function TrackListPage({
     : shownSort.direction === "ASC"
       ? ArrowUp
       : ArrowDown;
+  // A re-sorted list loads from the server, where removals still in flight
+  // have not landed yet; its rows' positions would then be off.
+  const removalsPending = () => {
+    if (removal.current.pending === 0) return false;
+    showToast("Wait for removals to finish");
+    return true;
+  };
   const openSort = () => {
-    if (!sortKey) return;
+    if (!sortKey || removalsPending()) return;
     nav.openMenu(
       trackSortMenu({
         current: sort,
         own: ownPlaylist,
         favorites: view.type === "favorites",
-        onPick: (s) =>
+        onPick: (s) => {
+          if (removalsPending()) return;
           setSortPrefs((prev) => {
             const next = { ...prev };
             if (s) next[sortKey] = s;
             else delete next[sortKey];
             return next;
-          }),
+          });
+        },
       }),
     );
   };
@@ -457,6 +467,7 @@ function TrackListPage({
     const gen = r.gen;
     setCountDelta((d) => d - 1);
     setPendingRemovals((n) => n + 1);
+    r.pending++;
     r.chain = r.chain
       .then(async () => {
         if (gen !== r.gen) return;
@@ -471,7 +482,10 @@ function TrackListPage({
           reload();
         }
       })
-      .finally(() => setPendingRemovals((n) => n - 1));
+      .finally(() => {
+        r.pending--;
+        setPendingRemovals((n) => n - 1);
+      });
     // The removed row had focus: move it to the row that took its place
     // (or the new last one), once the menu has closed and the list has
     // re-rendered. Rows are found by position: blocked rows have no menu,
