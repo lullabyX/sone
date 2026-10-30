@@ -179,6 +179,20 @@ export default function TvArtistScreen({
                     }
                   />
                 ))}
+                {isTopTracks && (
+                  <div className="px-[1rem] pt-[0.6rem]">
+                    <TvButton
+                      label="View all"
+                      onClick={() =>
+                        nav.push({
+                          type: "artistTracks",
+                          artistId: view.id,
+                          name,
+                        })
+                      }
+                    />
+                  </div>
+                )}
               </div>
             </section>
           );

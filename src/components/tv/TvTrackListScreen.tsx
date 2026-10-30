@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import {
   getAlbumPage,
+  getArtistTopTracksAll,
   getFavoriteTracks,
   getMixItems,
   getPlaylistDetails,
@@ -42,6 +43,8 @@ import { usePlaylistRecommendations } from "../../hooks/usePlaylistRecommendatio
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { useToast } from "../../contexts/ToastContext";
 import {
+  ARTIST_TRACKS_PAGE_SIZE,
+  artistTopTracksPager,
   FAVORITE_TRACKS_PAGE_SIZE,
   favoriteTracksPager,
   PLAYLIST_PAGE_SIZE,
@@ -86,7 +89,7 @@ function descriptionParagraphs(s: string): string[] {
 
 type ListView = Extract<
   TvView,
-  { type: "album" | "playlist" | "mix" | "favorites" }
+  { type: "album" | "playlist" | "mix" | "favorites" | "artistTracks" }
 >;
 
 interface TrackListSpec {
@@ -103,6 +106,8 @@ interface TrackListSpec {
   pager?: NonNullable<PlayableSource["fetchPage"]>;
   /** Rows to show; tracks it rejects stay loaded but hidden. */
   include?: (t: Track) => boolean;
+  /** Drop repeated track ids from the rows and from what plays (rows with
+   *  `include` are always deduped; they play as loaded, as on the desktop). */
   dedupe?: boolean;
   /** For a first page that reports `hasMore` instead of a total. */
   hasMore?: boolean;
@@ -125,7 +130,9 @@ const viewKey = (view: ListView) =>
       ? `playlist:${view.uuid}`
       : view.type === "mix"
         ? `mix:${view.mixId}`
-        : "favorites";
+        : view.type === "artistTracks"
+          ? `artistTracks:${view.artistId}`
+          : "favorites";
 
 /** The list's key in the sort prefs the desktop pages share. */
 const sortKeyOf = (view: ListView) =>
@@ -268,9 +275,27 @@ async function loadList(
         first: page.items,
         total: page.totalNumberOfItems,
         pager: favoriteTracksPager(userId, order, direction),
-        dedupe: true,
         sort,
         meta: { type: "favorites", id: "favorites", name: "Loved Tracks" },
+      };
+    }
+    case "artistTracks": {
+      const page = await getArtistTopTracksAll(
+        view.artistId,
+        0,
+        ARTIST_TRACKS_PAGE_SIZE,
+      );
+      return {
+        kicker: "Artist",
+        title: `${view.name}: Top tracks`,
+        first: page.items,
+        // The endpoint reports no total, so no track count is shown.
+        total: page.items.length,
+        hasMore: page.hasMore,
+        pager: artistTopTracksPager(view.artistId),
+        // Its pages can overlap, as on the desktop ArtistTracksPage.
+        dedupe: true,
+        meta: { type: "artist-tracks", id: view.artistId, name: view.name },
       };
     }
   }
@@ -449,6 +474,7 @@ function TrackListPage({
           nextOffset: paged.offset,
           hasMore: paged.hasMore,
           include: spec.include,
+          dedupe: spec.dedupe,
         }
       : { meta: spec.meta, loaded: paged.items, albumMode: spec.albumMode };
   const media: MediaItemType | null =

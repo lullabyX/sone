@@ -128,6 +128,7 @@ function renderScreen(view: TvView): ReactNode {
     case "playlist":
     case "mix":
     case "favorites":
+    case "artistTracks":
       return <TvTrackListScreen view={view} />;
   }
 }

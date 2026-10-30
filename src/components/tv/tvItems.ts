@@ -47,7 +47,9 @@ export type TvView =
       /** A track radio's seed artist. */
       artist?: { id: number; name: string };
     }
-  | { type: "artist"; id: number; name?: string; image?: string };
+  | { type: "artist"; id: number; name?: string; image?: string }
+  /** Every top track of an artist, behind its page's "View all". */
+  | { type: "artistTracks"; artistId: number; name: string };
 
 export type TvListSource =
   | {
@@ -173,8 +175,9 @@ export function viewForSource(source: PlaybackSource | null): TvView | null {
         mixType: source.mixType ?? "TRACK_MIX",
       };
     case "artist":
-    case "artist-tracks":
       return { type: "artist", id: Number(id), name: title };
+    case "artist-tracks":
+      return { type: "artistTracks", artistId: Number(id), name: title };
     case "favorites":
       return { type: "favorites" };
     default:

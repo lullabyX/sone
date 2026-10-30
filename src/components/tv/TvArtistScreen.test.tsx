@@ -95,6 +95,25 @@ it("shows only the first 10 rows of a track section", async () => {
   expect(screen.queryByText("T11")).toBeNull();
 });
 
+it("View all opens the artist's top tracks", async () => {
+  const T = range(3).map((i) => mkTrack(i + 1));
+  api.getArtistPage.mockResolvedValue({
+    artistName: "X",
+    topTracks: T,
+    sections: [
+      { type: "TRACK_LIST", title: "Popular tracks", items: T, apiPath: "v" },
+      { type: "TRACK_LIST", title: "Appears on", items: [mkTrack(9)] },
+    ],
+  } as ArtistPageData);
+  const { nav } = renderTv(<TvArtistScreen view={{ type: "artist", id: 9 }} />);
+  expect(await screen.findByText("Appears on")).toBeTruthy();
+  const viewAll = screen.getAllByRole("button", { name: "View all" });
+  expect(viewAll).toHaveLength(1);
+  expect(viewAll[0].closest("section")!.textContent).toContain("Popular tracks");
+  fireEvent.click(viewAll[0]);
+  expect(nav.push).toHaveBeenCalledWith({ type: "artistTracks", artistId: 9, name: "X" });
+});
+
 it("says when the artist has nothing", async () => {
   api.getArtistPage.mockResolvedValue({
     artistName: "X",

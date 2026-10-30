@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   getPlaylistTracksPage: vi.fn(),
   getFavoriteTracks: vi.fn(),
   getMixItems: vi.fn(),
+  getArtistTopTracksAll: vi.fn(),
   getPlaylistRecommendations: vi.fn(async () => ({ items: [] as Track[] })),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
@@ -94,6 +95,25 @@ it("a track radio without a seed artist links its first track's artist; a mix li
   expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "mix", mixType: "ARTIST_MIX" });
 });
 
+it("the top-tracks screen pages and plays as the artist", async () => {
+  api.getArtistTopTracksAll.mockResolvedValueOnce({ items: [mkTrack(1), mkTrack(2), mkTrack(1)], hasMore: true });
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "artistTracks", artistId: 9, name: "X" }} />);
+  expect(await screen.findByText("X: Top tracks")).toBeTruthy();
+  expect(api.getArtistTopTracksAll).toHaveBeenCalledWith(9, 0, 50);
+  expect(screen.getByText("Artist")).toBeTruthy();
+  expect(screen.getAllByText("T1")).toHaveLength(1);
+  expect(screen.queryByText(/\d+ tracks/)).toBeNull();
+  const side = document.querySelector("aside")!;
+  expect(within(side).queryByRole("button", { name: "Add to collection" })).toBeNull();
+  expect(within(side).queryByRole("button", { name: "More options" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  const src = vi.mocked(nav.playSource).mock.lastCall![0];
+  expect(src).toMatchObject({ meta: { type: "artist-tracks", id: 9, name: "X" }, dedupe: true, nextOffset: 3, hasMore: true });
+  api.getArtistTopTracksAll.mockResolvedValueOnce({ items: [], hasMore: false });
+  await src.fetchPage!(3);
+  expect(api.getArtistTopTracksAll).toHaveBeenLastCalledWith(9, 3, 50);
+});
+
 const shownRows = () => document.querySelectorAll(".tv-track-row[data-tv-index]").length;
 
 it("renders a 300-track album in chunks", async () => {
@@ -163,6 +183,7 @@ it("My Tracks renders the first page, hides un-liked rows and plays the rest laz
   const src = vi.mocked(nav.playSource).mock.lastCall![0];
   expect(src).toMatchObject({ meta: { type: "favorites", id: "favorites", name: "Loved Tracks" }, nextOffset: 3, hasMore: true });
   expect(src.include!(c)).toBe(false);
+  expect(src.dedupe).toBeUndefined();
 });
 
 it("a failing second page keeps the rows, marks loading, and offers a retry", async () => {

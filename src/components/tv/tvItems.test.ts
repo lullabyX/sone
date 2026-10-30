@@ -147,6 +147,12 @@ describe("viewForSource", () => {
     ).toMatchObject({ type: "mix", mixId: "m", mixType: "ARTIST_MIX" });
   });
 
+  it("opens an artist's top tracks as their own list", () => {
+    expect(
+      viewForSource({ type: "artist-tracks", id: 9, name: "X", tracks: [] }),
+    ).toEqual({ type: "artistTracks", artistId: 9, name: "X" });
+  });
+
   it("has nowhere to go for other sources", () => {
     expect(
       viewForSource({ type: "tv-row", id: "x", name: "Row", tracks: [] }),
