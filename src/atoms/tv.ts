@@ -51,3 +51,8 @@ export function nextTvOverscan(v: TvOverscan): TvOverscan {
 /** Bumped each time a volume command meets the bit-perfect lock, so the TV
  *  volume indicator can say why nothing changed. */
 export const tvVolumeLockedPingAtom = atom(0);
+
+export type TvNowPlayingTab = "queue" | "suggested" | "history" | "credits";
+
+/** The last Now Playing tab used, kept for the session only. */
+export const tvNowPlayingTabAtom = atom<TvNowPlayingTab>("queue");
