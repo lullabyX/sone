@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { focusElement } from "../../lib/spatialNav";
 import { useAtomValue } from "jotai";
 import { Heart, ListX, MoreHorizontal, Play, Shuffle } from "lucide-react";
@@ -10,10 +10,15 @@ import {
   getPlaylistTracks,
 } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
+import { favoriteTrackIdsAtom } from "../../atoms/favorites";
 import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { useToast } from "../../contexts/ToastContext";
-import type { PlayableSource } from "../../lib/trackSources";
+import {
+  FAVORITE_TRACKS_PAGE_SIZE,
+  favoriteTracksPager,
+  type PlayableSource,
+} from "../../lib/trackSources";
 import type { AlbumDetail, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
 import {
@@ -25,7 +30,9 @@ import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import TidalImage from "../TidalImage";
 import { TvButton, TvError, TvSpinner, TvTrackRow } from "./TvParts";
 import type { TvView } from "./tvItems";
+import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 import { useTvLoader } from "./useTvLoader";
+import { useTvPaged } from "./useTvPaged";
 
 /** Cover side in the left column: its full width, unless the text and
  *  buttons below (about 15rem) would then no longer fit under it. */
@@ -43,7 +50,15 @@ interface TrackListSpec {
   image?: string;
   /** Show the liked-tracks heart tile instead of a cover image. */
   heart?: boolean;
-  tracks: Track[];
+  /** The first page, or the whole list when there is no `pager`. */
+  first: Track[];
+  total: number;
+  pager?: NonNullable<PlayableSource["fetchPage"]>;
+  /** Rows to show; tracks it rejects stay loaded but hidden. */
+  include?: (t: Track) => boolean;
+  dedupe?: boolean;
+  /** For a first page that reports `hasMore` instead of a total. */
+  hasMore?: boolean;
   artist?: { id: number; name: string };
   /** The album / playlist itself, handed to the like call so the
    *  collection shows it straight away (as the desktop pages do). */
@@ -54,7 +69,20 @@ interface TrackListSpec {
   albumMode?: boolean;
 }
 
-const FAVORITES_PAGE = 100;
+const viewKey = (view: ListView) =>
+  view.type === "album"
+    ? `album:${view.id}`
+    : view.type === "playlist"
+      ? `playlist:${view.uuid}`
+      : view.type === "mix"
+        ? `mix:${view.mixId}`
+        : "favorites";
+
+/** Keeps the first of each track id, as the desktop favorites view does. */
+function dedupeById(tracks: Track[]): Track[] {
+  const seen = new Set<number>();
+  return tracks.filter((t) => !seen.has(t.id) && !!seen.add(t.id));
+}
 
 async function loadList(
   view: ListView,
@@ -79,7 +107,8 @@ async function loadList(
           .filter(Boolean)
           .join(" · "),
         image,
-        tracks: page.tracks,
+        first: page.tracks,
+        total: page.tracks.length,
         album: a,
         artist: artist ? { id: artist.id, name: artist.name } : undefined,
         meta: { type: "album", id: view.id, name: a.title, image },
@@ -112,7 +141,8 @@ async function loadList(
           .filter(Boolean)
           .join(" · "),
         image,
-        tracks,
+        first: tracks,
+        total: tracks.length,
         playlist: details ?? undefined,
         meta: { type: "playlist", id: view.uuid, name: title, image },
       };
@@ -126,37 +156,30 @@ async function loadList(
         title,
         subtitle: mix.subtitle ?? undefined,
         image,
-        tracks: mix.tracks,
+        first: mix.tracks,
+        total: mix.tracks.length,
         meta: { type: "mix", id: view.mixId, name: title, image },
       };
     }
     case "favorites": {
       if (!userId) throw new Error("Not signed in");
-      // Same paging as the desktop favorites view: advance by what came
-      // back (a page can be short of the limit) until the total is reached.
-      const tracks: Track[] = [];
-      const seen = new Set<number>();
-      let offset = 0;
-      for (;;) {
-        const page = await getFavoriteTracks(userId, offset, FAVORITES_PAGE);
-        for (const t of page.items) {
-          if (!seen.has(t.id)) {
-            seen.add(t.id);
-            tracks.push(t);
-          }
-        }
-        offset += page.items.length;
-        if (page.items.length === 0 || offset >= page.totalNumberOfItems) {
-          break;
-        }
-      }
+      // Only the first page here; the rest load as focus nears the end.
+      const page = await getFavoriteTracks(
+        userId,
+        0,
+        FAVORITE_TRACKS_PAGE_SIZE,
+        "DATE",
+        "DESC",
+      );
       return {
         kicker: "Collection",
         title: "My Tracks",
-        subtitle: `${tracks.length} tracks`,
         // Shown as the heart tile, as in the collection and on the desktop.
         heart: true,
-        tracks,
+        first: page.items,
+        total: page.totalNumberOfItems,
+        pager: favoriteTracksPager(userId, "DATE", "DESC"),
+        dedupe: true,
         meta: { type: "favorites", id: "favorites", name: "Loved Tracks" },
       };
     }
@@ -164,44 +187,93 @@ async function loadList(
 }
 
 export default function TvTrackListScreen({ view }: { view: ListView }) {
-  const nav = useTvNav();
   const userId = useAtomValue(authTokensAtom)?.user_id;
-  const fav = useFavorites();
+  const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
   const load = useCallback(() => loadList(view, userId), [view, userId]);
   const { data, error, retry, update } = useTvLoader(
     load,
     "Couldn't load tracks",
   );
-  const { removeTrackFromPlaylist } = usePlaylists();
-  const listRef = useRef<HTMLDivElement>(null);
-  const { showToast } = useToast();
+  // Attached here rather than in the loader, so a like change re-filters
+  // the rows without loading again.
+  const spec = useMemo(
+    () =>
+      data && view.type === "favorites"
+        ? { ...data, include: (t: Track) => favoriteTrackIds.has(t.id) }
+        : data,
+    [data, view.type, favoriteTrackIds],
+  );
 
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!data) return <TvSpinner />;
+  if (!spec) return <TvSpinner />;
+  // The list's near-end detector needs its root at mount, so the page is
+  // its own component, mounted once the spec has loaded.
+  return (
+    <TrackListPage view={view} spec={spec} userId={userId} update={update} />
+  );
+}
 
-  const playable = (): PlayableSource => ({
-    meta: data.meta,
-    loaded: data.tracks,
-    albumMode: data.albumMode,
+function TrackListPage({
+  view,
+  spec,
+  userId,
+  update,
+}: {
+  view: ListView;
+  spec: TrackListSpec;
+  userId?: number;
+  update: (change: (spec: TrackListSpec) => TrackListSpec) => void;
+}) {
+  const nav = useTvNav();
+  const fav = useFavorites();
+  const { removeTrackFromPlaylist } = usePlaylists();
+  const listRef = useRef<HTMLDivElement>(null);
+  const { showToast } = useToast();
+
+  const paged = useTvPaged(spec.pager ?? null, viewKey(view), {
+    items: spec.first,
+    hasMore: !!spec.pager && (spec.hasMore ?? spec.first.length < spec.total),
   });
+  const rows = useMemo(
+    () =>
+      spec.include
+        ? dedupeById(paged.items).filter(spec.include)
+        : spec.dedupe
+          ? dedupeById(paged.items)
+          : paged.items,
+    [paged.items, spec.include, spec.dedupe],
+  );
+  useTvGrowOnFocus(listRef, rows.length, spec.pager ? paged.loadMore : null);
+
+  const playable = (): PlayableSource =>
+    spec.pager
+      ? {
+          meta: spec.meta,
+          loaded: paged.items,
+          fetchPage: spec.pager,
+          nextOffset: paged.offset,
+          hasMore: paged.hasMore,
+          include: spec.include,
+        }
+      : { meta: spec.meta, loaded: paged.items, albumMode: spec.albumMode };
   const media: MediaItemType | null =
     view.type === "album"
-      ? { type: "album", id: view.id, title: data.title, cover: data.image }
+      ? { type: "album", id: view.id, title: spec.title, cover: spec.image }
       : view.type === "playlist"
         ? {
             type: "playlist",
             uuid: view.uuid,
-            title: data.title,
-            image: data.image,
+            title: spec.title,
+            image: spec.image,
           }
         : view.type === "mix"
           ? {
               type: "mix",
               mixId: view.mixId,
-              title: data.title,
-              image: data.image,
+              title: spec.title,
+              image: spec.image,
             }
           : null;
   const liked =
@@ -217,22 +289,22 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
       view.type === "album"
         ? liked
           ? fav.removeFavoriteAlbum(view.id)
-          : fav.addFavoriteAlbum(view.id, data.album)
+          : fav.addFavoriteAlbum(view.id, spec.album)
         : view.type === "playlist"
           ? liked
             ? fav.removeFavoritePlaylist(view.uuid)
-            : fav.addFavoritePlaylist(view.uuid, data.playlist)
+            : fav.addFavoritePlaylist(view.uuid, spec.playlist)
           : view.type === "mix"
             ? liked
               ? fav.removeFavoriteMix(view.mixId)
               : fav.addFavoriteMix(view.mixId, {
                   id: view.mixId,
-                  title: data.title,
-                  subTitle: data.subtitle ?? "",
-                  images: data.image
+                  title: spec.title,
+                  subTitle: spec.subtitle ?? "",
+                  images: spec.image
                     ? {
-                        SMALL: { url: data.image },
-                        MEDIUM: { url: data.image },
+                        SMALL: { url: spec.image },
+                        MEDIUM: { url: spec.image },
                       }
                     : undefined,
                 })
@@ -243,15 +315,16 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   const ownPlaylist =
     view.type === "playlist" &&
     userId != null &&
-    data.playlist?.creator?.id === userId;
+    spec.playlist?.creator?.id === userId;
   const removeFromPlaylist = async (index: number) => {
     if (view.type !== "playlist") return;
-    const track = data.tracks[index];
+    const track = rows[index];
     try {
       await removeTrackFromPlaylist(view.uuid, index);
       update((d) => ({
         ...d,
-        tracks: d.tracks.filter((_, i) => i !== index),
+        first: d.first.filter((_, i) => i !== index),
+        total: d.total - 1,
       }));
       // The removed row had focus: move it to the row that took its place
       // (or the new last one), once the menu has closed and the list has
@@ -261,9 +334,9 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
         requestAnimationFrame(() => {
           const list = listRef.current;
           if (!list) return;
-          const rows = list.querySelectorAll("[data-tv-index]").length;
+          const rowCount = list.querySelectorAll("[data-tv-index]").length;
           const next = list
-            .querySelector(`[data-tv-index="${Math.min(index, rows - 1)}"]`)
+            .querySelector(`[data-tv-index="${Math.min(index, rowCount - 1)}"]`)
             ?.querySelector<HTMLElement>("[data-tv-focusable]");
           if (next) focusElement(next);
         }),
@@ -274,7 +347,12 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
     }
   };
 
-  const totalSecs = data.tracks.reduce((s, t) => s + (t.duration ?? 0), 0);
+  // A paged list's loaded rows are not the whole list, so it shows its
+  // track count instead of a running time.
+  const totalSecs = spec.pager
+    ? 0
+    : rows.reduce((s, t) => s + (t.duration ?? 0), 0);
+  const count = spec.total - (paged.items.length - rows.length);
 
   // Same as the desktop pages: Play follows the shuffle setting, Shuffle is
   // a one-off shuffled run that leaves the setting alone.
@@ -282,7 +360,7 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   const shufflePlay = () => void nav.playSource(playable(), { shuffle: true });
 
   const subtitle = [
-    data.subtitle,
+    view.type === "favorites" ? `${count} tracks` : spec.subtitle,
     totalSecs > 0 ? formatTotalDuration(totalSecs) : undefined,
   ]
     .filter(Boolean)
@@ -304,7 +382,7 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
           className="aspect-square shrink-0 overflow-hidden rounded-[0.8rem] bg-th-surface shadow-2xl"
           style={{ width: COVER_SIZE }}
         >
-          {data.heart ? (
+          {spec.heart ? (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-th-accent to-th-surface">
               <Heart
                 className="w-[38%] h-[38%] text-white"
@@ -313,20 +391,20 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
             </div>
           ) : (
             <TidalImage
-              src={data.image || undefined}
-              alt={data.title}
+              src={spec.image || undefined}
+              alt={spec.title}
               type="album"
               className="w-full h-full"
             />
           )}
         </div>
-        {data.kicker && (
+        {spec.kicker && (
           <p className="mt-[1.4rem] text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
-            {data.kicker}
+            {spec.kicker}
           </p>
         )}
         <h1 className="text-[1.8rem] font-extrabold leading-tight text-th-text-primary line-clamp-2">
-          {data.title}
+          {spec.title}
         </h1>
         {subtitle && (
           <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary line-clamp-2">
@@ -373,15 +451,15 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
               onClick={() => nav.openMenu(nav.mediaMenu(media, true))}
             />
           )}
-          {data.artist && (
+          {spec.artist && (
             <TvButton
-              label={data.artist.name}
-              title={`Go to ${data.artist.name}`}
+              label={spec.artist.name}
+              title={`Go to ${spec.artist.name}`}
               onClick={() =>
                 nav.push({
                   type: "artist",
-                  id: data.artist!.id,
-                  name: data.artist!.name,
+                  id: spec.artist!.id,
+                  name: spec.artist!.name,
                 })
               }
             />
@@ -392,14 +470,15 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
         ref={listRef}
         data-tv-remember
         data-tv-scroll-root
+        data-tv-loading={paged.loadingMore || undefined}
         className="tv-scroll flex-1 min-w-0 h-full overflow-y-auto pl-[0.5rem] pr-[2rem] pt-[2.5rem] pb-[3rem]"
       >
-        {data.tracks.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="px-[1rem] text-[0.85rem] text-th-text-muted">
             No tracks here yet.
           </p>
         ) : (
-          data.tracks.map((track, i) => (
+          rows.map((track, i) => (
             <TvTrackRow
               key={`${track.id}:${i}`}
               track={track}
@@ -423,6 +502,19 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
               }
             />
           ))
+        )}
+        {paged.loadingMore && (
+          <p className="px-[1rem] py-[1rem] text-[0.85rem] text-th-text-muted">
+            Loading…
+          </p>
+        )}
+        {paged.moreError && (
+          <div className="flex items-center gap-[1rem] px-[1rem] py-[1rem]">
+            <p className="text-[0.85rem] text-th-text-secondary">
+              Couldn't load more
+            </p>
+            <TvButton label="Try again" onClick={paged.retry} />
+          </div>
         )}
       </div>
     </div>

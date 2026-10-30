@@ -1,10 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { createStore } from "jotai";
+import { favoriteTrackIdsAtom } from "../../atoms/favorites";
 import { allowExplicitAtom } from "../../atoms/playback";
 import type { Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
-import { mkTrack, mockInvoke, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
+import { deferred, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const api = vi.hoisted(() => ({
@@ -75,4 +76,42 @@ it("after a removal focus lands on the row that took its place, past a blocked r
   fireEvent.click(rowMore("T2"));
   await act(() => vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
   await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
+});
+
+it("My Tracks renders the first page, hides un-liked rows and plays the rest lazily", async () => {
+  const [a, b, c] = [mkTrack(1), mkTrack(2), mkTrack(3)];
+  api.getFavoriteTracks.mockResolvedValueOnce({ items: [a, b, c], totalNumberOfItems: 250 })
+    .mockResolvedValue({ items: [], totalNumberOfItems: 250 });
+  const store = signedIn(42); store.set(favoriteTrackIdsAtom, new Set([1, 2, 3]));
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "favorites" }} />, { store });
+  await screen.findByText("T3");
+  expect(api.getFavoriteTracks).toHaveBeenCalledTimes(1);
+  act(() => store.set(favoriteTrackIdsAtom, new Set([1, 2])));
+  expect(screen.queryByText("T3")).toBeNull();
+  expect(screen.getByText(/249 tracks/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  const src = vi.mocked(nav.playSource).mock.lastCall![0];
+  expect(src).toMatchObject({ meta: { type: "favorites", id: "favorites", name: "Loved Tracks" }, nextOffset: 3, hasMore: true });
+  expect(src.include!(c)).toBe(false);
+});
+
+it("a failing second page keeps the rows, marks loading, and offers a retry", async () => {
+  const d = deferred<{ items: Track[]; totalNumberOfItems: number }>();
+  api.getFavoriteTracks
+    .mockResolvedValueOnce({ items: range(30).map((i) => mkTrack(i + 1)), totalNumberOfItems: 250 })
+    .mockReturnValueOnce(d.promise);
+  const store = signedIn(42);
+  store.set(favoriteTrackIdsAtom, new Set(range(31).map((i) => i + 1)));
+  const { container } = renderTv(<TvTrackListScreen view={{ type: "favorites" }} />, { store });
+  await screen.findByText("T25");
+  const root = container.querySelector("[data-tv-scroll-root]")!;
+  act(() => rowButton("T25").focus());
+  expect(root.hasAttribute("data-tv-loading")).toBe(true);
+  await act(async () => d.reject(new Error("x")));
+  expect(screen.getByText("T1")).toBeTruthy();
+  const again = await screen.findByRole("button", { name: "Try again" });
+  expect(root.hasAttribute("data-tv-loading")).toBe(false);
+  api.getFavoriteTracks.mockResolvedValueOnce({ items: [mkTrack(31)], totalNumberOfItems: 31 });
+  fireEvent.click(again);
+  await screen.findByText("T31");
 });
