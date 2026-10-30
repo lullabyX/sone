@@ -286,6 +286,9 @@ export default function TvSettings() {
           toggle={videoCovers}
           onSelect={() => setVideoCovers(!videoCovers)}
         />
+      </TvSettingsSection>
+
+      <TvSettingsSection title="Content">
         <TvSettingsRow
           title="Allow explicit content"
           subtitle="Allow playing tracks marked as explicit"

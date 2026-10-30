@@ -1,5 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createStore } from "jotai";
 
 const auth = vi.hoisted(() => ({ userName: "Ann", logout: vi.fn() })); // one object: useAuth keeps stable identities
@@ -51,6 +57,19 @@ it("asks before turning explicit content off while something plays, with Cancel 
     screen.getByRole("button", { name: /Allow explicit content/ }),
   );
   expect(labels(nav)).toEqual(["Cancel", "Yes, turn off"]);
+});
+
+it("groups the content filters under Content", () => {
+  renderTv(<TvSettings />);
+  const content = screen
+    .getByRole("heading", { name: "Content" })
+    .closest("section")!;
+  expect(
+    within(content).getByRole("button", { name: /Allow explicit content/ }),
+  ).toBeTruthy();
+  expect(
+    within(content).getByRole("button", { name: /Allow AI content/ }),
+  ).toBeTruthy();
 });
 
 it("Down from Log out moves focus into About and on to the release QR", async () => {
