@@ -28,4 +28,6 @@ export const playlistSortAtom = makeSortAtom(
 export const trackSortPrefsAtom = atomWithStorage<Record<string, SortOrder>>(
   "sone.trackSortPrefs.v1",
   {},
+  undefined,
+  { getOnInit: true },
 );

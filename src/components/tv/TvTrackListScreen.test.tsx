@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { createStore } from "jotai";
-import { favoriteTrackIdsAtom } from "../../atoms/favorites";
+import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../../atoms/favorites";
 import { allowExplicitAtom } from "../../atoms/playback";
 import type { Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
@@ -212,5 +212,80 @@ describe("playlist removals", () => {
     await act(async () => pending[0].resolve());
     act(() => rowButton("T26").focus());
     await waitFor(() => expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("sorting", () => {
+  beforeEach(() => {
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 2, creator: { id: 42 } });
+    api.getPlaylistTracksPage.mockResolvedValue({ items: [t1, t2], totalNumberOfItems: 2 });
+    mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  });
+
+  it("sorting a playlist refetches in that order and hides Remove", async () => {
+    const { nav, store } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("T1");
+    fireEvent.click(rowMore("T1"));
+    expect(vi.mocked(nav.trackMenu).mock.lastCall![1]!.map((i) => i.label)).toEqual(["Remove from this playlist"]);
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    const spec = vi.mocked(nav.openMenu).mock.lastCall![0];
+    expect(spec.items.map((i) => i.label)).toContain("Date added");
+    await act(async () => {
+      await spec.items.find((i) => i.label === "Title")!.onSelect!();
+    });
+    await waitFor(() => expect(api.getPlaylistTracksPage).toHaveBeenLastCalledWith("p", 0, 100, "NAME", "ASC"));
+    expect(store.get(trackSortPrefsAtom).p).toEqual({ order: "NAME", direction: "ASC" });
+    fireEvent.click(rowMore("T1"));
+    expect(vi.mocked(nav.trackMenu).mock.lastCall![1] ?? []).toEqual([]);
+    expect(screen.getByRole("button", { name: /Sort/ }).textContent).toContain("Title");
+  });
+
+  it("a saved sort is used for the first fetch", async () => {
+    const store = signedIn(42);
+    store.set(trackSortPrefsAtom, { p: { order: "ARTIST", direction: "DESC" } });
+    renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+    await screen.findByText("T1");
+    expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(1);
+    expect(api.getPlaylistTracksPage).toHaveBeenLastCalledWith("p", 0, 100, "ARTIST", "DESC");
+  });
+
+  it("back to playlist order offers Remove again", async () => {
+    const store = signedIn(42);
+    store.set(trackSortPrefsAtom, { p: { order: "ARTIST", direction: "DESC" } });
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+    await screen.findByText("T1");
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    const spec = vi.mocked(nav.openMenu).mock.lastCall![0];
+    await act(async () => {
+      await spec.items.find((i) => i.label === "Playlist order")!.onSelect!();
+    });
+    await waitFor(() => expect(api.getPlaylistTracksPage).toHaveBeenCalledTimes(2));
+    expect(store.get(trackSortPrefsAtom)).toEqual({});
+    await waitFor(() => {
+      fireEvent.click(rowMore("T1"));
+      expect(vi.mocked(nav.trackMenu).mock.lastCall![1]!.map((i) => i.label)).toEqual(["Remove from this playlist"]);
+    });
+  });
+
+  it("My Tracks uses its saved sort for the first page and the pager, and newest first stores no key", async () => {
+    api.getFavoriteTracks.mockResolvedValue({ items: [t1, t2], totalNumberOfItems: 250 });
+    const store = signedIn(42);
+    store.set(favoriteTrackIdsAtom, new Set([1, 2]));
+    store.set(trackSortPrefsAtom, { __favorites__: { order: "DATE", direction: "ASC" } });
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "favorites" }} />, { store });
+    await screen.findByText("T2");
+    expect(api.getFavoriteTracks).toHaveBeenCalledTimes(1);
+    expect(api.getFavoriteTracks).toHaveBeenLastCalledWith(42, 0, 100, "DATE", "ASC");
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    await vi.mocked(nav.playSource).mock.lastCall![0].fetchPage!(2);
+    expect(api.getFavoriteTracks).toHaveBeenLastCalledWith(42, 2, 100, "DATE", "ASC");
+    fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
+    const spec = vi.mocked(nav.openMenu).mock.lastCall![0];
+    expect(spec.items.map((i) => i.label)).not.toContain("Playlist order");
+    await act(async () => {
+      await spec.items.find((i) => i.label === "Date added")!.onSelect!();
+    });
+    expect(store.get(trackSortPrefsAtom)).toEqual({});
+    await waitFor(() => expect(api.getFavoriteTracks).toHaveBeenLastCalledWith(42, 0, 100, "DATE", "DESC"));
   });
 });

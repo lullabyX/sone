@@ -1,7 +1,16 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { focusElement } from "../../lib/spatialNav";
-import { useAtomValue } from "jotai";
-import { Heart, ListX, MoreHorizontal, Play, Shuffle } from "lucide-react";
+import { useAtomValue, useSetAtom } from "jotai";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Heart,
+  ListX,
+  MoreHorizontal,
+  Play,
+  Shuffle,
+} from "lucide-react";
 import {
   getAlbumPage,
   getFavoriteTracks,
@@ -11,7 +20,11 @@ import {
   invalidateCache,
 } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
-import { favoriteTrackIdsAtom } from "../../atoms/favorites";
+import {
+  favoriteTrackIdsAtom,
+  trackSortPrefsAtom,
+  type SortOrder,
+} from "../../atoms/favorites";
 import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { useToast } from "../../contexts/ToastContext";
@@ -36,6 +49,11 @@ import type { TvView } from "./tvItems";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 import { useTvLoader } from "./useTvLoader";
 import { useTvPaged } from "./useTvPaged";
+import {
+  FAVORITES_TRACK_SORT,
+  TRACK_SORT_OPTIONS,
+  trackSortMenu,
+} from "./tvSort";
 
 /** Cover side in the left column: its full width, unless the text and
  *  buttons below (about 15rem) would then no longer fit under it. */
@@ -70,6 +88,8 @@ interface TrackListSpec {
   /** What "Playing from" and the saved queue show, as on the desktop. */
   meta: PlayableSource["meta"];
   albumMode?: boolean;
+  /** The stored sort the rows were loaded in (null: the list's own order). */
+  sort?: SortOrder | null;
 }
 
 const viewKey = (view: ListView) =>
@@ -81,6 +101,14 @@ const viewKey = (view: ListView) =>
         ? `mix:${view.mixId}`
         : "favorites";
 
+/** The list's key in the sort prefs the desktop pages share. */
+const sortKeyOf = (view: ListView) =>
+  view.type === "playlist"
+    ? view.uuid
+    : view.type === "favorites"
+      ? "__favorites__"
+      : null;
+
 /** Keeps the first of each track id, as the desktop favorites view does. */
 function dedupeById(tracks: Track[]): Track[] {
   const seen = new Set<number>();
@@ -89,7 +117,8 @@ function dedupeById(tracks: Track[]): Track[] {
 
 async function loadList(
   view: ListView,
-  userId?: number,
+  userId: number | undefined,
+  sort: SortOrder | null,
 ): Promise<TrackListSpec> {
   switch (view.type) {
     case "album": {
@@ -122,7 +151,13 @@ async function loadList(
       // Only the first page here; the rest load as focus nears the end.
       const [details, page] = await Promise.all([
         getPlaylistDetails(view.uuid).catch(() => null),
-        getPlaylistTracksPage(view.uuid, 0, PLAYLIST_PAGE_SIZE),
+        getPlaylistTracksPage(
+          view.uuid,
+          0,
+          PLAYLIST_PAGE_SIZE,
+          sort?.order,
+          sort?.direction,
+        ),
       ]);
       const title = details?.title ?? view.title ?? "Playlist";
       // Playlist images have no 1280px size; 640 is the largest the CDN
@@ -143,8 +178,9 @@ async function loadList(
         image,
         first: page.items,
         total: page.totalNumberOfItems,
-        pager: playlistTracksPager(view.uuid),
+        pager: playlistTracksPager(view.uuid, sort?.order, sort?.direction),
         playlist: details ?? undefined,
+        sort,
         meta: { type: "playlist", id: view.uuid, name: title, image },
       };
     }
@@ -165,12 +201,13 @@ async function loadList(
     case "favorites": {
       if (!userId) throw new Error("Not signed in");
       // Only the first page here; the rest load as focus nears the end.
+      const { order, direction } = sort ?? FAVORITES_TRACK_SORT;
       const page = await getFavoriteTracks(
         userId,
         0,
         FAVORITE_TRACKS_PAGE_SIZE,
-        "DATE",
-        "DESC",
+        order,
+        direction,
       );
       return {
         kicker: "Collection",
@@ -179,8 +216,9 @@ async function loadList(
         heart: true,
         first: page.items,
         total: page.totalNumberOfItems,
-        pager: favoriteTracksPager(userId, "DATE", "DESC"),
+        pager: favoriteTracksPager(userId, order, direction),
         dedupe: true,
+        sort,
         meta: { type: "favorites", id: "favorites", name: "Loved Tracks" },
       };
     }
@@ -190,7 +228,21 @@ async function loadList(
 export default function TvTrackListScreen({ view }: { view: ListView }) {
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
-  const load = useCallback(() => loadList(view, userId), [view, userId]);
+  const sortKey = sortKeyOf(view);
+  const sortPrefs = useAtomValue(trackSortPrefsAtom);
+  const saved = sortKey ? sortPrefs[sortKey] : undefined;
+  // Kept by value, so storage re-reads of the same prefs don't reload.
+  const sortOrder = saved?.order;
+  const sortDir = saved?.direction;
+  const sort = useMemo(
+    () =>
+      sortOrder && sortDir ? { order: sortOrder, direction: sortDir } : null,
+    [sortOrder, sortDir],
+  );
+  const load = useCallback(
+    () => loadList(view, userId, sort),
+    [view, userId, sort],
+  );
   const { data, error, retry, update } = useTvLoader(
     load,
     "Couldn't load tracks",
@@ -218,7 +270,13 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   // The list's near-end detector needs its root at mount, so the page is
   // its own component, mounted once the spec has loaded.
   return (
-    <TrackListPage view={view} spec={spec} userId={userId} reload={reload} />
+    <TrackListPage
+      view={view}
+      spec={spec}
+      userId={userId}
+      sort={sort}
+      reload={reload}
+    />
   );
 }
 
@@ -226,11 +284,14 @@ function TrackListPage({
   view,
   spec,
   userId,
+  sort,
   reload,
 }: {
   view: ListView;
   spec: TrackListSpec;
   userId?: number;
+  /** The stored sort; the rows still show `spec.sort` until it reloads. */
+  sort: SortOrder | null;
   reload: () => void;
 }) {
   const nav = useTvNav();
@@ -259,7 +320,10 @@ function TrackListPage({
     setCountDelta(0);
   }
 
-  const paged = useTvPaged(spec.pager ?? null, viewKey(view), {
+  const pagedKey = spec.sort
+    ? `${viewKey(view)}:${spec.sort.order}:${spec.sort.direction}`
+    : viewKey(view);
+  const paged = useTvPaged(spec.pager ?? null, pagedKey, {
     items: spec.first,
     hasMore: !!spec.pager && (spec.hasMore ?? spec.first.length < spec.total),
   });
@@ -349,6 +413,38 @@ function TrackListPage({
     view.type === "playlist" &&
     userId != null &&
     spec.playlist?.creator?.id === userId;
+  // Removal sends the row's position in the playlist's own order, which a
+  // sorted list does not show.
+  const canRemove = ownPlaylist && !sort && !spec.sort;
+  const setSortPrefs = useSetAtom(trackSortPrefsAtom);
+  const sortKey = sortKeyOf(view);
+  const shownSort =
+    view.type === "favorites" ? (sort ?? FAVORITES_TRACK_SORT) : sort;
+  const sortLabel = TRACK_SORT_OPTIONS.find(
+    (o) => o.value === (shownSort?.order ?? null),
+  )?.label;
+  const SortIcon = !shownSort
+    ? ArrowUpDown
+    : shownSort.direction === "ASC"
+      ? ArrowUp
+      : ArrowDown;
+  const openSort = () => {
+    if (!sortKey) return;
+    nav.openMenu(
+      trackSortMenu({
+        current: sort,
+        own: ownPlaylist,
+        favorites: view.type === "favorites",
+        onPick: (s) =>
+          setSortPrefs((prev) => {
+            const next = { ...prev };
+            if (s) next[sortKey] = s;
+            else delete next[sortKey];
+            return next;
+          }),
+      }),
+    );
+  };
   const removeFromPlaylist = (track: Track) => {
     if (view.type !== "playlist") return;
     const uuid = view.uuid;
@@ -503,6 +599,13 @@ function TrackListPage({
               onClick={() => nav.openMenu(nav.mediaMenu(media, true))}
             />
           )}
+          {sortKey && (
+            <TvButton
+              label={sortLabel ? `Sort: ${sortLabel}` : "Sort"}
+              icon={<SortIcon className="w-[1rem] h-[1rem]" />}
+              onClick={openSort}
+            />
+          )}
           {spec.artist && (
             <TvButton
               label={spec.artist.name}
@@ -537,7 +640,7 @@ function TrackListPage({
               index={i}
               entry={i === 0}
               menuExtra={
-                ownPlaylist
+                canRemove
                   ? [
                       {
                         label: "Remove from this playlist",
