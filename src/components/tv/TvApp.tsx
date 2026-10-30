@@ -59,6 +59,7 @@ import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
 import { textEntryKind, type TvKeyAction } from "./tvKeys";
 import { topTvModal, useTvKeyRouter } from "./useTvKeyRouter";
+import { useTvMediaCommands } from "./useTvMediaCommands";
 import "./tv.css";
 
 type RootType =
@@ -197,8 +198,8 @@ export default function TvApp() {
   const videoExpanded = useAtomValue(videoExpandedAtom);
   const overlayShowing = !!currentVideo && videoExpanded;
   const feedUnseen = useAtomValue(feedUnseenCountAtom);
-  const { playFromSource, togglePlayPause, playNext, playPrevious } =
-    usePlaybackActions();
+  const { playFromSource } = usePlaybackActions();
+  const runMedia = useTvMediaCommands();
   const playMedia = useMediaPlay();
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -455,17 +456,7 @@ export default function TvApp() {
 
       switch (action.type) {
         case "media":
-          switch (action.command.kind) {
-            case "toggle":
-              void togglePlayPause();
-              return;
-            case "next":
-              void playNext({ explicit: true });
-              return;
-            case "previous":
-              void playPrevious();
-              return;
-          }
+          runMedia(action.command);
           return;
         case "openMenu":
           openMenuFor(active);
@@ -600,9 +591,7 @@ export default function TvApp() {
     [
       store,
       back,
-      togglePlayPause,
-      playNext,
-      playPrevious,
+      runMedia,
       finishPrompt,
       openMenuFor,
     ],

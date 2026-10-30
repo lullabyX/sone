@@ -66,7 +66,15 @@ export interface TvKeyFacts {
   nativeEditable: boolean;
 }
 
-export type TvMediaCommand = { kind: "toggle" | "next" | "previous" };
+export type TvMediaCommand =
+  | { kind: "toggle" | "play" | "pause" | "next" | "previous" | "mute" }
+  /** Seconds, ±TV_SEEK_STEP_S. */
+  | { kind: "seek"; by: number }
+  /** ±TV_VOLUME_STEP. */
+  | { kind: "volume"; by: number };
+
+export const TV_SEEK_STEP_S = 10;
+export const TV_VOLUME_STEP = 0.05;
 
 export type TvKeyAction =
   | { type: "none" }
@@ -108,14 +116,31 @@ const TV_NAV_KEYS = new Set([
   "ContextMenu",
 ]);
 
-const MEDIA_KEYS: Record<string, TvMediaCommand["kind"]> = {
-  MediaPlayPause: "toggle",
-  MediaTrackNext: "next",
-  MediaTrackPrevious: "previous",
+const MEDIA_KEYS: Record<string, TvMediaCommand> = {
+  MediaPlayPause: { kind: "toggle" },
+  MediaPause: { kind: "pause" },
+  // The TV interface has no stopped state.
+  MediaStop: { kind: "pause" },
+  MediaTrackNext: { kind: "next" },
+  MediaTrackPrevious: { kind: "previous" },
+  MediaFastForward: { kind: "seek", by: TV_SEEK_STEP_S },
+  MediaRewind: { kind: "seek", by: -TV_SEEK_STEP_S },
+  AudioVolumeUp: { kind: "volume", by: TV_VOLUME_STEP },
+  AudioVolumeDown: { kind: "volume", by: -TV_VOLUME_STEP },
+  AudioVolumeMute: { kind: "mute" },
 };
 
-/** How far Left/Right skip in a video, in seconds. */
-const VIDEO_SKIP_S = 10;
+/** WebKitGTK reports the play/pause key as `MediaPlay`; only its `code` is
+ *  `MediaPlayPause`. */
+export function mediaCommandForKey(
+  key: string,
+  code: string,
+): TvMediaCommand | null {
+  if (key === "MediaPlay") {
+    return { kind: code === "MediaPlayPause" ? "toggle" : "play" };
+  }
+  return MEDIA_KEYS[key] ?? null;
+}
 
 /**
  * The video player owns the screen. Without a control focused, Enter pauses
@@ -141,12 +166,11 @@ function routeVideoKey(
   switch (f.key) {
     case "Enter":
     case " ":
-    case "MediaPlayPause":
       return f.repeat ? { type: "swallow" } : { type: "videoToggle" };
     case "ArrowLeft":
-      return { type: "videoSeek", by: -VIDEO_SKIP_S };
+      return { type: "videoSeek", by: -TV_SEEK_STEP_S };
     case "ArrowRight":
-      return { type: "videoSeek", by: VIDEO_SKIP_S };
+      return { type: "videoSeek", by: TV_SEEK_STEP_S };
     case "ArrowUp":
     case "ArrowDown":
       return { type: "videoControls" };
@@ -165,10 +189,16 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   ) {
     return { type: "swallow" };
   }
+  // Media keys work everywhere: in every layer, text field and the video.
+  const media = mediaCommandForKey(f.key, f.code);
+  if (media) {
+    const repeats = media.kind === "seek" || media.kind === "volume";
+    return f.repeat && !repeats
+      ? { type: "swallow" }
+      : { type: "media", command: media };
+  }
   if (f.video) return routeVideoKey(f, f.video);
 
-  const media = MEDIA_KEYS[f.key];
-  if (media) return { type: "media", command: { kind: media } };
   if (f.key === "ContextMenu") return { type: "openMenu" };
   if (f.key === "Enter") {
     // While Enter is held after a long press, its auto-repeat must not

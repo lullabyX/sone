@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { caretAllowsLeaving, claimsKey, routeTvKey, textEntryKind, type TvKeyFacts } from "./tvKeys";
+import { caretAllowsLeaving, claimsKey, mediaCommandForKey, routeTvKey, textEntryKind, type TvKeyFacts } from "./tvKeys";
 import { setupTvTest } from "./tvTestUtils";
 
 setupTvTest();
@@ -33,7 +33,7 @@ it("characterizes today's routing", () => {
   expect(r({ key: "MediaTrackNext" })).toEqual({ type: "media", command: { kind: "next" } });
   expect(r({ key: "Enter", video: v })).toEqual({ type: "videoToggle" });
   expect(r({ key: " ", video: v })).toEqual({ type: "videoToggle" });
-  expect(r({ key: "MediaPlayPause", video: v })).toEqual({ type: "videoToggle" });
+  expect(r({ key: "MediaPlayPause", video: v })).toEqual({ type: "media", command: { kind: "toggle" } });
   expect(r({ key: "Enter", video: v, repeat: true })).toEqual({ type: "swallow" });
   expect(r({ key: "ArrowLeft", video: v })).toEqual({ type: "videoSeek", by: -10 });
   expect(r({ key: "ArrowUp", video: v })).toEqual({ type: "videoControls" });
@@ -42,7 +42,7 @@ it("characterizes today's routing", () => {
   expect(r({ key: "Enter", video: { ...v, inControls: true } })).toEqual({ type: "none" });
   expect(r({ key: "Enter", video: { inControls: true, inQualityList: true } })).toEqual({ type: "videoNativeEnter" });
   expect(r({ key: "Escape", video: v })).toEqual({ type: "none" }); // today: the player's own Escape closes it
-  expect(r({ key: "MediaTrackNext", video: v })).toEqual({ type: "none" });
+  expect(r({ key: "MediaTrackNext", video: v })).toEqual({ type: "media", command: { kind: "next" } });
   expect(r({ key: "m", video: v })).toEqual({ type: "none" });
 });
 it("claims TV navigation keys and keys it routes", () => {
@@ -74,4 +74,15 @@ it("never repeats a held OK outside a text field", () => {
   expect(r({ key: "Enter", repeat: true, layer: "native" })).toEqual({ type: "swallow" });
   expect(r({ key: "Enter", repeat: true, video: { inControls: true, inQualityList: false } })).toEqual({ type: "swallow" });
   expect(r({ key: "Enter", repeat: true, field: "caret" })).toEqual({ type: "none" });
+});
+it("maps media keys, swallowing repeated transport keys", () => {
+  expect(mediaCommandForKey("MediaPlay", "MediaPlayPause")).toEqual({ kind: "toggle" });
+  expect(mediaCommandForKey("MediaPlay", "")).toEqual({ kind: "play" });
+  expect(mediaCommandForKey("MediaPlayPause", "")).toEqual({ kind: "toggle" });
+  expect(mediaCommandForKey("MediaStop", "")).toEqual({ kind: "pause" });
+  expect(mediaCommandForKey("MediaFastForward", "")).toEqual({ kind: "seek", by: 10 });
+  expect(mediaCommandForKey("AudioVolumeDown", "")).toEqual({ kind: "volume", by: -0.05 });
+  expect(r({ key: "MediaTrackNext", repeat: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "AudioVolumeUp", repeat: true })).toEqual({ type: "media", command: { kind: "volume", by: 0.05 } });
+  expect(r({ key: "MediaPlay", code: "MediaPlayPause", field: "caret" })).toEqual({ type: "media", command: { kind: "toggle" } });
 });
