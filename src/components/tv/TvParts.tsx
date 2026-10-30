@@ -121,6 +121,64 @@ function cardMenu(nav: TvNav, entry: TvEntry): (() => TvMenuSpec) | undefined {
   return media ? () => nav.mediaMenu(media) : undefined;
 }
 
+/** A compact tile (small art + one-line title) for Home's quick access. */
+export function TvTile({
+  entry,
+  onSelect,
+  autoFocus,
+}: {
+  entry: TvEntry;
+  onSelect: () => void;
+  autoFocus?: boolean;
+}) {
+  const nav = useTvNav();
+  const { dimmed, explicitBadge, aiBadge } = entryState(
+    entry,
+    useContentPrefs(),
+  );
+  const menu = cardMenu(nav, entry);
+  return (
+    <button
+      data-tv-focusable
+      data-tv-autofocus={autoFocus || undefined}
+      data-tv-has-menu={menu ? true : undefined}
+      data-tv-dimmed={dimmed || undefined}
+      ref={menu ? tvMenuRef(menu) : undefined}
+      onClick={onSelect}
+      className={`tv-card min-w-0 text-left${dimmed ? " opacity-50" : ""}`}
+    >
+      <div className="tv-card-art flex items-center gap-[0.8rem] h-[3.6rem] overflow-hidden rounded-[0.5rem] bg-th-surface pr-[0.8rem]">
+        <div className="w-[3.6rem] h-[3.6rem] shrink-0 overflow-hidden">
+          {!entry.image && entry.icon === "heart" ? (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-th-accent to-th-surface">
+              <Heart
+                className="w-[40%] h-[40%] text-white"
+                fill="currentColor"
+              />
+            </div>
+          ) : (
+            <TidalImage
+              src={entry.image || undefined}
+              alt={entry.title}
+              type={entry.round ? "artist" : "album"}
+              className="w-full h-full"
+            />
+          )}
+        </div>
+        <span className="min-w-0 truncate text-[0.8rem] font-semibold text-th-text-primary">
+          {entry.title}
+        </span>
+        {explicitBadge && <span className={`shrink-0 ${BADGE}`}>E</span>}
+        {aiBadge && (
+          <span title="AI-generated" className={`shrink-0 ${BADGE}`}>
+            AI
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
 /** Every entry as a wrapping grid of cards (a "View all" page, a list of
  *  genres). The grid remembers the card it was left on. */
 export function TvGrid({

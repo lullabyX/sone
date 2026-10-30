@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { __resetHomeFeedForTests } from "../../hooks/useHomeFeed";
 import TvHome from "./TvHome";
-import { deferred, renderTv, setupTvTest } from "./tvTestUtils";
+import { deferred, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
 
 setupTvTest();
 const api = vi.hoisted(() => ({
@@ -132,4 +132,75 @@ it("applies a stale refresh while focus is on the first row", async () => {
   await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
   expect(await screen.findByText("Fresh")).toBeTruthy();
   expect(screen.queryByText("A")).toBeNull();
+});
+
+const myTracks = { id: "tidal://my-collection/tracks", title: "My Tracks" };
+const pl1 = { uuid: "u1", title: "Road", squareImage: "i" };
+const alb1 = { id: 3, title: "Blue", cover: "c" };
+
+it("shows shortcuts as a quick-access grid led by My Tracks", async () => {
+  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
+    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [myTracks, pl1, alb1] }, s("Row")] }, isStale: false });
+  renderTv(<TvHome />);
+  const grid = await screen.findByTestId("tv-quick-access");
+  expect(within(grid).getAllByRole("button").map((b) => b.textContent)).toEqual(["My Tracks", "Road", "Blue"]);
+  expect(grid.querySelector("[data-tv-autofocus]")!.textContent).toBe("My Tracks");
+  expect(screen.queryByRole("heading", { name: "Shortcuts" })).toBeNull();
+});
+
+it("opens My Tracks and shortcuts from the quick-access grid", async () => {
+  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
+    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [myTracks, pl1] }] }, isStale: false });
+  const r = renderTv(<TvHome />);
+  const grid = await screen.findByTestId("tv-quick-access");
+  fireEvent.click(within(grid).getByText("My Tracks"));
+  expect(vi.mocked(r.nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "favorites" } });
+  fireEvent.click(within(grid).getByText("Road"));
+  expect(vi.mocked(r.nav.run).mock.lastCall![0]).toMatchObject({ kind: "open", view: { type: "playlist", uuid: "u1" } });
+  expect(within(grid).getByText("Road").closest("button")!.hasAttribute("data-tv-has-menu")).toBe(true);
+  expect(within(grid).getByText("My Tracks").closest("button")!.hasAttribute("data-tv-has-menu")).toBe(false);
+});
+
+it("hands focus from Load more to the first new row below the quick access", async () => {
+  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: "c1",
+    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [pl1] }, s("A")] }, isStale: false });
+  api.getHomePageMore.mockResolvedValue({ tabs: [], sections: [s("D")], cursor: null });
+  renderTv(<TvHome />);
+  const more = await screen.findByRole("button", { name: "Load more" });
+  act(() => more.focus());
+  fireEvent.click(more);
+  await screen.findByText("D");
+  expect(document.activeElement).toBe(firstCardOf("D"));
+});
+
+it("focuses My Tracks on entry but leaves focus on a tab it switches to", async () => {
+  const restore = stubLayout();
+  try {
+    const tabs = [
+      { tabType: "STATIC", name: "For You" },
+      { tabType: "MUSIC", name: "Music" },
+    ];
+    const shortcuts = { title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [pl1] };
+    api.getHomePage.mockImplementation(async (feedType?: string) =>
+      feedType === "MUSIC"
+        ? { home: { tabs, sections: [s("Beats")], cursor: null }, isStale: false }
+        : { home: { tabs, sections: [shortcuts, s("Mine")], cursor: null }, isStale: false },
+    );
+    renderTv(<TvHome />);
+    const grid = await screen.findByTestId("tv-quick-access");
+    await waitFor(() => expect(document.activeElement).toBe(within(grid).getByText("My Tracks").closest("button")));
+    const music = screen.getByRole("button", { name: "Music" });
+    act(() => music.focus());
+    fireEvent.click(music);
+    await screen.findByText("Beats");
+    expect(screen.queryByTestId("tv-quick-access")).toBeNull();
+    const forYou = screen.getByRole("button", { name: "For You" });
+    act(() => forYou.focus());
+    fireEvent.click(forYou);
+    await screen.findByTestId("tv-quick-access");
+    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+    expect(document.activeElement).toBe(forYou);
+  } finally {
+    restore();
+  }
 });

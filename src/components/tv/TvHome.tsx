@@ -7,10 +7,55 @@ import {
 } from "react";
 import { useHomeFeed } from "../../hooks/useHomeFeed";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
-import { TvScreenContext, useTvInitialFocus } from "./TvNavContext";
-import { TvButton, TvError, TvRow, TvSpinner } from "./TvParts";
+import { isMyTracksItem } from "../../utils/itemHelpers";
+import type { HomeSection } from "../../types";
+import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
+import { TvButton, TvError, TvRow, TvSpinner, TvTile } from "./TvParts";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
-import { sectionEntries } from "./tvItems";
+import { sectionEntries, type TvEntry } from "./tvItems";
+
+const MY_TRACKS: TvEntry = {
+  key: "my-tracks",
+  title: "My Tracks",
+  subtitle: "",
+  image: "",
+  icon: "heart",
+  action: { kind: "open", view: { type: "favorites" } },
+};
+
+/** The feed's shortcuts as a grid led by My Tracks (desktop Home's quick
+ *  access: the first shortcut section, up to 7 of its items). */
+function QuickAccess({ section }: { section: HomeSection }) {
+  const nav = useTvNav();
+  const { entries, tracks } = sectionEntries(
+    (Array.isArray(section.items) ? section.items : []).filter(
+      (i) => !isMyTracksItem(i),
+    ),
+    "SHORTCUT_LIST",
+  );
+  return (
+    <div
+      data-tv-remember
+      data-testid="tv-quick-access"
+      className="grid grid-cols-4 gap-x-[1.1rem] gap-y-[0.9rem] px-[3rem] pb-[0.8rem] mb-[1.2rem]"
+    >
+      {[MY_TRACKS, ...entries.slice(0, 7)].map((entry, i) => (
+        <TvTile
+          key={entry.key}
+          entry={entry}
+          autoFocus={i === 0}
+          onSelect={() =>
+            nav.run(entry.action, {
+              tracks,
+              name: section.title,
+              id: `home:${section.title}`,
+            })
+          }
+        />
+      ))}
+    </div>
+  );
+}
 
 export default function TvHome() {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -33,8 +78,10 @@ export default function TvHome() {
     allowReplace: () => !activeRef.current || focusedSection() <= 0,
   });
   const { sections, revalidate } = feed;
+  const shortcuts = sections.find((s) => s.sectionType === "SHORTCUT_LIST");
+  const rows = sections.filter((s) => s.sectionType !== "SHORTCUT_LIST");
 
-  useTvGrowOnFocus(rootRef, sections.length, feed.loadMore, 2);
+  useTvGrowOnFocus(rootRef, rows.length, feed.loadMore, 2);
 
   // A refresh may replace the rows focus was on.
   const refocusIfLost = useCallback(() => {
@@ -63,7 +110,7 @@ export default function TvHome() {
   // (or back to the button) once the page is in.
   const focusFrom = useRef<number | null>(null);
   const loadMoreFromButton = (retry: boolean) => {
-    focusFrom.current = sections.length;
+    focusFrom.current = rows.length;
     if (retry) feed.retryMore();
     else feed.loadMore();
   };
@@ -111,36 +158,41 @@ export default function TvHome() {
       ) : feed.error && sections.length === 0 ? (
         <TvError message={feed.error} onRetry={feed.retry} />
       ) : (
-        sections.map((section, i) => {
-          const { entries, tracks } = sectionEntries(
-            section.items,
-            section.sectionType,
-          );
-          return (
-            <div
-              key={`${feed.activeType}:${section.title}:${i}`}
-              data-tv-index={i}
-            >
-              <TvRow
-                title={section.title}
-                entries={entries}
-                queueTracks={tracks}
-                queueId={`home:${section.title}`}
-                showExplicit
-                viewAll={
-                  section.hasMore && section.apiPath
-                    ? {
-                        type: "page",
-                        title: section.title,
-                        apiPath: section.apiPath,
-                        all: true,
-                      }
-                    : undefined
-                }
-              />
-            </div>
-          );
-        })
+        <>
+          {shortcuts && (
+            <QuickAccess key={feed.activeType} section={shortcuts} />
+          )}
+          {rows.map((section, i) => {
+            const { entries, tracks } = sectionEntries(
+              section.items,
+              section.sectionType,
+            );
+            return (
+              <div
+                key={`${feed.activeType}:${section.title}:${i}`}
+                data-tv-index={i}
+              >
+                <TvRow
+                  title={section.title}
+                  entries={entries}
+                  queueTracks={tracks}
+                  queueId={`home:${section.title}`}
+                  showExplicit
+                  viewAll={
+                    section.hasMore && section.apiPath
+                      ? {
+                          type: "page",
+                          title: section.title,
+                          apiPath: section.apiPath,
+                          all: true,
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            );
+          })}
+        </>
       )}
       {feed.loadingMore && (
         <div role="status" aria-label="Loading more">
