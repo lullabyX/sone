@@ -74,7 +74,7 @@ export default function TvArtistScreen({
             label="Play"
             onClick={() => {
               void playAllFromSource(data.topTracks, { source });
-              nav.showNowPlaying();
+              nav.openNowPlaying();
             }}
           />
         )}

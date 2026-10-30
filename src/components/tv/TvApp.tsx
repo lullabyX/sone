@@ -33,6 +33,7 @@ import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import {
   focusElement,
   focusFirstIn,
+  isShown,
   moveFocus,
   rememberFocus,
 } from "../../lib/spatialNav";
@@ -61,6 +62,12 @@ import { textEntryKind, type TvKeyAction } from "./tvKeys";
 import { fieldLabel, setNativeInputValue } from "./tvFields";
 import { topTvModal, tvLayer, useTvKeyRouter } from "./useTvKeyRouter";
 import { useTvMediaCommands } from "./useTvMediaCommands";
+import {
+  tvBackStep,
+  tvPush,
+  type TvBackStep,
+  type TvStackEntry,
+} from "./tvStack";
 import "./tv.css";
 
 type RootType =
@@ -88,13 +95,8 @@ const ROOTS = new Set<string>(RAIL.map((r) => r.type));
  *  activating the focused item. */
 const LONG_PRESS_MS = 550;
 
-interface Entry {
-  id: number;
-  view: TvView;
-}
-
 let nextEntryId = 1;
-const entry = (view: TvView): Entry => ({ id: nextEntryId++, view });
+const entry = (view: TvView): TvStackEntry => ({ id: nextEntryId++, view });
 
 function renderScreen(view: TvView): ReactNode {
   switch (view.type) {
@@ -205,32 +207,47 @@ export default function TvApp() {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
-  const [stack, setStack] = useState<Entry[]>(() => [entry({ type: "home" })]);
+  const [stack, setStack] = useState<TvStackEntry[]>(() => [
+    entry({ type: "home" }),
+  ]);
   const stackRef = useRef(stack);
   useLayoutEffect(() => {
     stackRef.current = stack;
   }, [stack]);
+  // Now Playing is a layer above the stack. It mounts on first open, then
+  // stays mounted (hidden) while closed.
+  const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
+  const [nowPlayingMounted, setNowPlayingMounted] = useState(false);
+  const nowPlayingOpenRef = useRef(nowPlayingOpen);
+  useLayoutEffect(() => {
+    nowPlayingOpenRef.current = nowPlayingOpen;
+  }, [nowPlayingOpen]);
   // Focus to give back to each screen when the one above it closes.
   const savedFocus = useRef(new Map<number, HTMLElement>());
   const pendingRestore = useRef<number | null>(null);
+  // What was focused when Now Playing opened; closing the layer returns there.
+  const nowPlayingOpener = useRef<HTMLElement | null>(null);
+  // Per screen opened from Now Playing: the layer control that opened it,
+  // and the layer's opener at that time, for when Back reopens the layer.
+  const returnFocus = useRef(new Map<number, HTMLElement>());
+  const reopenOpener = useRef(new Map<number, HTMLElement | null>());
+  // What to focus after the next commit; only Back sets it.
+  const layerFocus = useRef<HTMLElement | "screen" | null>(null);
 
   useMiniplayerEmitter();
 
   // A new video starts full screen. When the one before it was playing
-  // small in Now Playing and Now Playing is still the screen on top (Next,
-  // or the queue moving on), the new one stays small there too.
+  // small in Now Playing and Now Playing is still open (Next, or the queue
+  // moving on), the new one stays small there too.
   const lastVideo = useRef<{ id: number; expanded: boolean } | null>(null);
   useLayoutEffect(() => {
     if (!currentVideo) return;
     const prev = lastVideo.current;
-    const stackNow = stackRef.current;
-    const onNowPlaying =
-      stackNow[stackNow.length - 1]?.view.type === "nowPlaying";
     if (
       prev &&
       prev.id !== currentVideo.id &&
       !prev.expanded &&
-      onNowPlaying &&
+      nowPlayingOpenRef.current &&
       videoExpanded
     ) {
       store.set(videoExpandedAtom, false);
@@ -249,43 +266,94 @@ export default function TvApp() {
     return () => document.removeEventListener("focusin", onFocusIn);
   }, []);
 
-  const goTo = useCallback((type: RootType) => {
-    savedFocus.current.clear();
-    // The rail closes, and the new screen takes focus once it has loaded
-    // (it leaves focus alone while it is in the rail).
+  // Starting playback opens Now Playing above the current screen, so Back
+  // returns to the album or list it was started from.
+  const openNowPlaying = useCallback(() => {
+    if (nowPlayingOpenRef.current) return;
     const active = document.activeElement;
-    if (active instanceof HTMLElement && railRef.current?.contains(active)) {
-      active.blur();
-    }
-    setStack([entry({ type })]);
+    const opener =
+      active instanceof HTMLElement && active !== document.body ? active : null;
+    nowPlayingOpener.current = opener;
+    // The layer focuses Play itself unless focus is held in the rail.
+    if (opener && railRef.current?.contains(opener)) opener.blur();
+    setNowPlayingMounted(true);
+    setNowPlayingOpen(true);
   }, []);
 
-  /** Put a screen on the stack, remembering where focus was below it. */
+  const closeNowPlaying = useCallback(() => {
+    if (!nowPlayingOpenRef.current) return;
+    layerFocus.current = nowPlayingOpener.current ?? "screen";
+    nowPlayingOpener.current = null;
+    setNowPlayingOpen(false);
+  }, []);
+
+  useLayoutEffect(() => {
+    const target = layerFocus.current;
+    if (target == null) return;
+    layerFocus.current = null;
+    if (target !== "screen" && target.isConnected && isShown(target)) {
+      focusElement(target);
+      return;
+    }
+    const screen = rootRef.current?.querySelector<HTMLElement>(
+      ".tv-screen:not(.hidden)",
+    );
+    if (screen) focusFirstIn(screen);
+  }, [nowPlayingOpen, stack]);
+
+  const goTo = useCallback(
+    (type: RootType) => {
+      if (type === "nowPlaying") {
+        openNowPlaying();
+        return;
+      }
+      // The rail closes, and the new screen takes focus once it has loaded
+      // (it leaves focus alone while it is in the rail).
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && railRef.current?.contains(active)) {
+        active.blur();
+      }
+      savedFocus.current.clear();
+      returnFocus.current.clear();
+      reopenOpener.current.clear();
+      nowPlayingOpener.current = null;
+      setNowPlayingOpen(false);
+      setStack([entry({ type })]);
+    },
+    [openNowPlaying],
+  );
+
+  /** Put a screen on the stack, remembering where focus was below it. Opened
+   *  from Now Playing, it closes the layer, and Back reopens it. */
   const stackPush = useCallback((view: TvView) => {
-    const top = stackRef.current[stackRef.current.length - 1];
+    const e = entry(view);
     const active = document.activeElement;
+    if (nowPlayingOpenRef.current) {
+      if (active instanceof HTMLElement) returnFocus.current.set(e.id, active);
+      reopenOpener.current.set(e.id, nowPlayingOpener.current);
+      setNowPlayingOpen(false);
+      setStack((s) => tvPush(s, e, true));
+      return;
+    }
+    const top = stackRef.current[stackRef.current.length - 1];
     if (active instanceof HTMLElement) savedFocus.current.set(top.id, active);
-    setStack((s) => [...s, entry(view)]);
+    setStack((s) => tvPush(s, e, false));
   }, []);
 
   const push = useCallback(
     (view: TvView) => {
+      if (view.type === "nowPlaying") {
+        openNowPlaying();
+        return;
+      }
       if (ROOTS.has(view.type)) {
         goTo(view.type as RootType);
         return;
       }
       stackPush(view);
     },
-    [goTo, stackPush],
+    [openNowPlaying, goTo, stackPush],
   );
-
-  // Starting playback opens Now Playing on top of the current screen, so
-  // Back returns to the album or list it was started from.
-  const showNowPlaying = useCallback(() => {
-    const s = stackRef.current;
-    if (s[s.length - 1].view.type === "nowPlaying") return;
-    stackPush({ type: "nowPlaying" });
-  }, [stackPush]);
 
   const focusRail = useCallback(() => {
     const rail = railRef.current;
@@ -296,20 +364,40 @@ export default function TvApp() {
   }, []);
 
   const back = useCallback(() => {
-    const s = stackRef.current;
-    if (s.length > 1) {
-      const below = s[s.length - 2];
-      pendingRestore.current = below.id;
-      savedFocus.current.delete(s[s.length - 1].id);
-      setStack(s.slice(0, -1));
-      return;
+    const step: TvBackStep = tvBackStep(
+      stackRef.current,
+      nowPlayingOpenRef.current,
+    );
+    switch (step.kind) {
+      case "closeNowPlaying":
+        closeNowPlaying();
+        return;
+      case "pop": {
+        const { popped } = step;
+        savedFocus.current.delete(popped.id);
+        const opener = reopenOpener.current.get(popped.id);
+        reopenOpener.current.delete(popped.id);
+        if (step.reopenNowPlaying) {
+          // The opener the layer had when this page left it.
+          nowPlayingOpener.current = opener ?? null;
+          layerFocus.current = returnFocus.current.get(popped.id) ?? "screen";
+          returnFocus.current.delete(popped.id);
+          setNowPlayingOpen(true);
+        } else {
+          pendingRestore.current = step.stack[step.stack.length - 1].id;
+        }
+        setStack(step.stack);
+        return;
+      }
+      case "root":
+        if (!railRef.current?.contains(document.activeElement)) {
+          focusRail();
+          return;
+        }
+        if (stackRef.current[0].view.type !== "home") goTo("home");
+        return;
     }
-    if (!railRef.current?.contains(document.activeElement)) {
-      focusRail();
-      return;
-    }
-    if (s[0].view.type !== "home") goTo("home");
-  }, [focusRail, goTo]);
+  }, [closeNowPlaying, focusRail, goTo]);
 
   // A deleted playlist's page closes if it is the one on top.
   const leavePlaylist = useCallback(
@@ -338,9 +426,9 @@ export default function TvApp() {
       if (store.get(currentTrackAtom)?.id !== track.id) {
         void playFromSource(track, tracks, options);
       }
-      showNowPlaying();
+      openNowPlaying();
     },
-    [store, playFromSource, showNowPlaying],
+    [store, playFromSource, openNowPlaying],
   );
 
   const run = useCallback<TvNav["run"]>(
@@ -398,7 +486,7 @@ export default function TvApp() {
       push,
       back,
       run,
-      showNowPlaying,
+      openNowPlaying,
       playTrack,
       openMenu: (spec) => menuRef.current?.open(spec),
       trackMenu: (track, extra) => menuRef.current!.trackMenu(track, extra),
@@ -407,7 +495,7 @@ export default function TvApp() {
       openMoreSettings: more.open,
       prompt: askText,
     }),
-    [push, back, run, showNowPlaying, playTrack, more.open, askText],
+    [push, back, run, openNowPlaying, playTrack, more.open, askText],
   );
 
   // The desktop "focus search" shortcut opens the Search screen here.
@@ -664,11 +752,8 @@ export default function TvApp() {
     };
   }, []);
 
-  // Now Playing opened on top of another screen still counts as being on
-  // Now Playing for the rail's highlight.
   const top = stack[stack.length - 1];
-  const rootType =
-    top.view.type === "nowPlaying" ? "nowPlaying" : stack[0].view.type;
+  const rootType = nowPlayingOpen ? "nowPlaying" : stack[0].view.type;
 
   return (
     <TvNavContext.Provider value={nav}>
@@ -727,13 +812,24 @@ export default function TvApp() {
 
           <main data-tv-remember className="absolute inset-0 bg-th-base">
             {stack.map((e) => (
-              <Screen key={e.id} view={e.view} active={e.id === top.id} />
+              <Screen
+                key={e.id}
+                view={e.view}
+                active={e.id === top.id && !nowPlayingOpen}
+              />
             ))}
+            {nowPlayingMounted && (
+              <Screen
+                key="nowPlaying"
+                view={{ type: "nowPlaying" }}
+                active={nowPlayingOpen}
+              />
+            )}
           </main>
         </div>
-        {top.view.type !== "nowPlaying" && (
-          <MiniBar onOpen={() => goTo("nowPlaying")} />
-        )}
+        <div className={nowPlayingOpen ? "hidden" : undefined}>
+          <MiniBar onOpen={openNowPlaying} />
+        </div>
       </div>
       {more.tab && (
         <TvNativeLayer width={800}>
@@ -743,7 +839,7 @@ export default function TvApp() {
       <TvMenuHost
         ref={menuRef}
         onNavigate={push}
-        onPlayed={showNowPlaying}
+        onPlayed={openNowPlaying}
         onPrompt={askText}
         onPlaylistDeleted={leavePlaylist}
       />

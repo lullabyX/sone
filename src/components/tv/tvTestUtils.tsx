@@ -64,7 +64,7 @@ export function makeTvNav(over: Partial<TvNav> = {}): TvNav {
   return {
     push: vi.fn(),
     back: vi.fn(),
-    showNowPlaying: vi.fn(),
+    openNowPlaying: vi.fn(),
     playTrack: vi.fn(async () => true),
     openMenu: vi.fn(),
     trackMenu: vi.fn((t: Track, extra = []) => ({

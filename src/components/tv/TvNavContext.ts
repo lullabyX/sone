@@ -11,8 +11,9 @@ export interface TvNav {
   /** Open a screen on top of the current one; Back returns to it. */
   push: (view: TvView) => void;
   back: () => void;
-  /** Show Now Playing on top of the current screen (after starting playback). */
-  showNowPlaying: () => void;
+  /** Show the Now Playing layer above the current screen; a no-op while it
+   *  is open. */
+  openNowPlaying: () => void;
   /** Play `track` with `tracks` queued around it and show Now Playing. If
    *  it is the track already playing, it only shows Now Playing. */
   playTrack: (
