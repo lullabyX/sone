@@ -283,12 +283,12 @@ export function TvTrackRow({
     <div
       className="tv-track-row flex items-center gap-[0.4rem]"
       data-tv-row-id={rowId}
+      data-tv-index={index}
     >
       <button
         data-tv-focusable
         data-tv-has-menu
         data-tv-default={entry || undefined}
-        data-tv-index={index}
         ref={tvMenuRef(menu)}
         onClick={onSelect}
         className={`tv-track flex-1 min-w-0 flex items-center gap-[1rem] px-[1rem] py-[0.45rem] rounded-[0.6rem] text-left ${

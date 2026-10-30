@@ -253,6 +253,20 @@ describe("TvNowPlaying queue", () => {
     expect(rows()).toHaveLength(80);
   });
 
+  it("grows when a row's More options button takes focus", () => {
+    renderTv(<TvNowPlaying />, {
+      store: playing(
+        mkTrack(500),
+        range(100).map((i) => mkTrack(i + 1)),
+      ),
+    });
+    expect(rows()).toHaveLength(40);
+    act(() =>
+      within(rows()[25]).getByRole("button", { name: "More options" }).focus(),
+    );
+    expect(rows()).toHaveLength(80);
+  });
+
   it("labels the parts of the queue", () => {
     const store = playing(mkTrack(500), [mkTrack(1), mkTrack(2)]);
     store.set(manualQueueAtom, [mkTrack(60, { _qid: "m" })]);

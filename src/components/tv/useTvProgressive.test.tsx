@@ -15,3 +15,12 @@ it("shows a window that grows by a step and never exceeds the total", () => {
   rerender({ n: 50 });
   expect(result.current.shown).toBe(50);
 });
+
+it("honours a custom initial size and step", () => {
+  const { result } = renderHook(() =>
+    useTvProgressive(500, { initial: 60, step: 60 }),
+  );
+  expect(result.current.shown).toBe(60);
+  act(() => result.current.grow());
+  expect(result.current.shown).toBe(120);
+});
