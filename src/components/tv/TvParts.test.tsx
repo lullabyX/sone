@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { act, screen, within } from "@testing-library/react";
+import { createStore } from "jotai";
 import { allowExplicitAtom } from "../../atoms/playback";
 import { TvGrid, TvRow, TvTrackRow } from "./TvParts";
 import { sectionEntries } from "./tvItems";
@@ -29,6 +30,20 @@ it("indexes a row by position and shows its number", () => {
   const row = screen.getByText("T1").closest("button")!;
   expect(row.closest(".tv-track-row")!.getAttribute("data-tv-index")).toBe("12");
   expect(within(row).getByText("3")).toBeTruthy();
+});
+
+it("keeps the menu on a blocked row unless asked to drop it", () => {
+  const store = createStore();
+  store.set(allowExplicitAtom, false);
+  const track = mkTrack(1, { explicit: true });
+  const r = renderTv(<TvTrackRow track={track} index={0} onSelect={() => {}} />, { store });
+  const button = () => screen.getByText("T1").closest("button")!;
+  const more = () => within(button().closest(".tv-track-row") as HTMLElement).queryByRole("button", { name: "More options" });
+  expect(button().hasAttribute("data-tv-has-menu")).toBe(true);
+  expect(more()).not.toBeNull();
+  r.rerender(<TvTrackRow track={track} index={0} blockedNoMenu onSelect={() => {}} />);
+  expect(button().hasAttribute("data-tv-has-menu")).toBe(false);
+  expect(more()).toBeNull();
 });
 
 it("indexes grid cards", () => {

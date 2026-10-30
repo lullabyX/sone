@@ -10,11 +10,10 @@ import {
   getPlaylistTracks,
 } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
-import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { useToast } from "../../contexts/ToastContext";
-import { isTrackUnavailable } from "../../lib/trackAvailability";
+import type { PlayableSource } from "../../lib/trackSources";
 import type { AlbumDetail, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
 import {
@@ -37,7 +36,7 @@ type ListView = Extract<
   { type: "album" | "playlist" | "mix" | "favorites" }
 >;
 
-interface Loaded {
+interface TrackListSpec {
   kicker: string;
   title: string;
   subtitle?: string;
@@ -50,17 +49,24 @@ interface Loaded {
    *  collection shows it straight away (as the desktop pages do). */
   album?: AlbumDetail;
   playlist?: Playlist;
+  /** What "Playing from" and the saved queue show, as on the desktop. */
+  meta: PlayableSource["meta"];
+  albumMode?: boolean;
 }
 
 const FAVORITES_PAGE = 100;
 
-async function loadList(view: ListView, userId?: number): Promise<Loaded> {
+async function loadList(
+  view: ListView,
+  userId?: number,
+): Promise<TrackListSpec> {
   switch (view.type) {
     case "album": {
       const { page } = await getAlbumPage(view.id);
       const a = page.album;
       const year = a.releaseDate?.slice(0, 4);
       const artist = a.artist ?? a.artists?.[0];
+      const image = getTidalImageUrl(a.cover, 1280);
       return {
         kicker:
           a.albumType === "SINGLE"
@@ -72,10 +78,12 @@ async function loadList(view: ListView, userId?: number): Promise<Loaded> {
         subtitle: [getTrackArtistDisplay(a, ""), year]
           .filter(Boolean)
           .join(" · "),
-        image: getTidalImageUrl(a.cover, 1280),
+        image,
         tracks: page.tracks,
         album: a,
         artist: artist ? { id: artist.id, name: artist.name } : undefined,
+        meta: { type: "album", id: view.id, name: a.title, image },
+        albumMode: true,
       };
     }
     case "playlist": {
@@ -83,6 +91,12 @@ async function loadList(view: ListView, userId?: number): Promise<Loaded> {
         getPlaylistDetails(view.uuid).catch(() => null),
         getPlaylistTracks(view.uuid),
       ]);
+      const title = details?.title ?? view.title ?? "Playlist";
+      // Playlist images have no 1280px size; 640 is the largest the CDN
+      // serves for both square and wide playlist art.
+      const image =
+        getTidalImageUrl(details?.squareImage ?? details?.image, 640) ||
+        view.image;
       const creator = details?.creator?.name
         ? `By ${details.creator.name}`
         : details?.creator?.id === 0
@@ -90,30 +104,30 @@ async function loadList(view: ListView, userId?: number): Promise<Loaded> {
           : undefined;
       return {
         kicker: "Playlist",
-        title: details?.title ?? view.title ?? "Playlist",
+        title,
         subtitle: [
           creator,
           playlistCountLabel(details?.numberOfTracks, details?.numberOfVideos),
         ]
           .filter(Boolean)
           .join(" · "),
-        // Playlist images have no 1280px size; 640 is the largest the CDN
-        // serves for both square and wide playlist art.
-        image:
-          getTidalImageUrl(details?.squareImage ?? details?.image, 640) ||
-          view.image,
+        image,
         tracks,
         playlist: details ?? undefined,
+        meta: { type: "playlist", id: view.uuid, name: title, image },
       };
     }
     case "mix": {
       const mix = await getMixItems(view.mixId);
+      const title = mix.title ?? view.title ?? "Mix";
+      const image = mix.image ?? view.image;
       return {
         kicker: "Mix",
-        title: mix.title ?? view.title ?? "Mix",
+        title,
         subtitle: mix.subtitle ?? undefined,
-        image: mix.image ?? view.image,
+        image,
         tracks: mix.tracks,
+        meta: { type: "mix", id: view.mixId, name: title, image },
       };
     }
     case "favorites": {
@@ -143,21 +157,9 @@ async function loadList(view: ListView, userId?: number): Promise<Loaded> {
         // Shown as the heart tile, as in the collection and on the desktop.
         heart: true,
         tracks,
+        meta: { type: "favorites", id: "favorites", name: "Loved Tracks" },
       };
     }
-  }
-}
-
-function sourceId(view: ListView): string | number {
-  switch (view.type) {
-    case "album":
-      return view.id;
-    case "playlist":
-      return view.uuid;
-    case "mix":
-      return view.mixId;
-    case "favorites":
-      return "favorites";
   }
 }
 
@@ -165,8 +167,6 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   const nav = useTvNav();
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const fav = useFavorites();
-  const { playAllFromSource, setShuffledQueue, playTrack } =
-    usePlaybackActions();
   const load = useCallback(() => loadList(view, userId), [view, userId]);
   const { data, error, retry, update } = useTvLoader(
     load,
@@ -181,14 +181,11 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   if (error) return <TvError message={error} onRetry={retry} />;
   if (!data) return <TvSpinner />;
 
-  const source = {
-    type: view.type === "favorites" ? "favorites" : view.type,
-    id: sourceId(view),
-    name: data.title,
-    image: data.image,
-    allTracks: data.tracks,
-  };
-  const albumMode = view.type === "album";
+  const playable = (): PlayableSource => ({
+    meta: data.meta,
+    loaded: data.tracks,
+    albumMode: data.albumMode,
+  });
   const media: MediaItemType | null =
     view.type === "album"
       ? { type: "album", id: view.id, title: data.title, cover: data.image }
@@ -258,14 +255,16 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
       }));
       // The removed row had focus: move it to the row that took its place
       // (or the new last one), once the menu has closed and the list has
-      // re-rendered.
+      // re-rendered. Rows are found by position: blocked rows have no menu,
+      // so counting menus would skip them.
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          const rows =
-            listRef.current?.querySelectorAll<HTMLElement>(
-              "[data-tv-has-menu]",
-            ) ?? [];
-          const next = rows[Math.min(index, rows.length - 1)];
+          const list = listRef.current;
+          if (!list) return;
+          const rows = list.querySelectorAll("[data-tv-index]").length;
+          const next = list
+            .querySelector(`[data-tv-index="${Math.min(index, rows - 1)}"]`)
+            ?.querySelector<HTMLElement>("[data-tv-focusable]");
           if (next) focusElement(next);
         }),
       );
@@ -279,19 +278,8 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
 
   // Same as the desktop pages: Play follows the shuffle setting, Shuffle is
   // a one-off shuffled run that leaves the setting alone.
-  const playAll = () => {
-    void playAllFromSource(data.tracks, { source, albumMode });
-    nav.openNowPlaying();
-  };
-  const shufflePlay = () => {
-    const playable = data.tracks.filter((t) => !isTrackUnavailable(t));
-    if (playable.length === 0) return;
-    const pick = Math.floor(Math.random() * playable.length);
-    const rest = playable.filter((_, i) => i !== pick);
-    setShuffledQueue(rest, { source, albumMode });
-    void playTrack(playable[pick]);
-    nav.openNowPlaying();
-  };
+  const playAll = () => void nav.playSource(playable());
+  const shufflePlay = () => void nav.playSource(playable(), { shuffle: true });
 
   const subtitle = [
     data.subtitle,
@@ -429,8 +417,9 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
                   : undefined
               }
               showCover={view.type !== "album"}
+              blockedNoMenu
               onSelect={() =>
-                nav.playTrack(track, data.tracks, { source, albumMode })
+                void nav.playSource(playable(), { startAt: track })
               }
             />
           ))

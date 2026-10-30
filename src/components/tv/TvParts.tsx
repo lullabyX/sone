@@ -295,6 +295,7 @@ export function TvTrackRow({
   rowId,
   position,
   number,
+  blockedNoMenu,
   onSelect,
 }: {
   track: Track;
@@ -310,6 +311,9 @@ export function TvTrackRow({
   position?: number;
   /** The number shown; defaults to `index + 1`. */
   number?: number;
+  /** A row filtered out by the content settings gets no action menu
+   *  (the desktop track lists' rule; Now Playing rows keep theirs). */
+  blockedNoMenu?: boolean;
   onSelect: () => void;
 }) {
   const nav = useTvNav();
@@ -319,8 +323,9 @@ export function TvTrackRow({
   const contentPrefs = useContentPrefs();
   // Greyed like the desktop rows: unplayable here, or filtered out by the
   // explicit / AI content settings.
-  const unavailable =
-    isTrackUnavailable(track) || isContentBlocked(track, contentPrefs);
+  const blocked = isContentBlocked(track, contentPrefs);
+  const unavailable = isTrackUnavailable(track) || blocked;
+  const hasMenu = !(blockedNoMenu && blocked);
   const menu = () => nav.trackMenu(track, menuExtra);
   return (
     <div
@@ -330,9 +335,9 @@ export function TvTrackRow({
     >
       <button
         data-tv-focusable
-        data-tv-has-menu
+        data-tv-has-menu={hasMenu || undefined}
         data-tv-default={entry || undefined}
-        ref={tvMenuRef(menu)}
+        ref={hasMenu ? tvMenuRef(menu) : undefined}
         onClick={onSelect}
         className={`tv-track flex-1 min-w-0 flex items-center gap-[1rem] px-[1rem] py-[0.45rem] rounded-[0.6rem] text-left ${
           unavailable ? "opacity-40" : ""
@@ -382,15 +387,19 @@ export function TvTrackRow({
           {track.duration ? formatTime(track.duration) : ""}
         </span>
       </button>
-      <button
-        data-tv-focusable
-        aria-label="More options"
-        title="More options"
-        onClick={() => nav.openMenu(menu())}
-        className="tv-track shrink-0 w-[2.4rem] h-[2.4rem] flex items-center justify-center rounded-full text-th-text-muted"
-      >
-        <MoreHorizontal className="w-[1.2rem] h-[1.2rem]" />
-      </button>
+      {hasMenu ? (
+        <button
+          data-tv-focusable
+          aria-label="More options"
+          title="More options"
+          onClick={() => nav.openMenu(menu())}
+          className="tv-track shrink-0 w-[2.4rem] h-[2.4rem] flex items-center justify-center rounded-full text-th-text-muted"
+        >
+          <MoreHorizontal className="w-[1.2rem] h-[1.2rem]" />
+        </button>
+      ) : (
+        <span aria-hidden className="shrink-0 w-[2.4rem]" />
+      )}
     </div>
   );
 }
