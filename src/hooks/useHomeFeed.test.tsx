@@ -140,6 +140,24 @@ describe("useHomeFeed", () => {
     expect(api.getHomePageMore).toHaveBeenLastCalledWith("fresh", "STATIC");
   });
 
+  it("retryMore asks again for the page that failed", async () => {
+    api.getHomePage.mockResolvedValue(page([s("Old")], "c"));
+    api.getHomePageMore
+      .mockRejectedValueOnce({ kind: "Network", message: "offline" })
+      .mockResolvedValueOnce({ tabs: [], sections: [s("More")], cursor: null });
+    const { result } = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(result.current.cursor).toBe("c"));
+    expect(result.current.moreError).toBe(false);
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.moreError).toBe(true));
+
+    act(() => result.current.retryMore());
+    await waitFor(() => expect(titles(result)).toEqual(["Old", "More"]));
+    expect(result.current.moreError).toBe(false);
+    expect(api.getHomePageMore).toHaveBeenCalledTimes(2);
+    expect(api.getHomePageMore).toHaveBeenLastCalledWith("c", "STATIC");
+  });
+
   it("TV and desktop keep separate tabs and pages", async () => {
     const tabs = [
       { name: "For You", tabType: "STATIC" },

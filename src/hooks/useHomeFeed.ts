@@ -74,6 +74,7 @@ export function useHomeFeed(
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const failedCursorRef = useRef<string | null>(null);
+  const [failedCursor, setFailedCursor] = useState<string | null>(null);
 
   const loadTab = useCallback(
     async (feedType: string, isRevalidation: boolean) => {
@@ -239,6 +240,7 @@ export function useHomeFeed(
         // cursor failed the observer would re-fire the same doomed
         // request as soon as loadingMore flips back to false.
         failedCursorRef.current = cursor;
+        setFailedCursor(cursor);
         console.error("Failed to load more home sections:", err);
       })
       .finally(() => {
@@ -246,6 +248,13 @@ export function useHomeFeed(
         setLoadingMore(false);
       });
   }, [cursor, loadingMore, activeType, scope]);
+
+  // Asks again for a page that failed (loadMore refuses that cursor).
+  const retryMore = useCallback(() => {
+    failedCursorRef.current = null;
+    setFailedCursor(null);
+    loadMore();
+  }, [loadMore]);
 
   return {
     tabs,
@@ -258,6 +267,8 @@ export function useHomeFeed(
     error,
     retry,
     loadMore,
+    moreError: cursor !== null && cursor === failedCursor,
+    retryMore,
     revalidate,
   };
 }

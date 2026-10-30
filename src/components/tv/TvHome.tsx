@@ -6,7 +6,7 @@ import {
   useRef,
 } from "react";
 import { useHomeFeed } from "../../hooks/useHomeFeed";
-import { focusFirstIn } from "../../lib/spatialNav";
+import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import { TvScreenContext, useTvInitialFocus } from "./TvNavContext";
 import { TvButton, TvError, TvRow, TvSpinner } from "./TvParts";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
@@ -59,6 +59,30 @@ export default function TvHome() {
     prevCount.current = sections.length;
   }, [sections, refocusIfLost]);
 
+  // After Load more / Try again, focus goes to the first new row with cards
+  // (or back to the button) once the page is in.
+  const focusFrom = useRef<number | null>(null);
+  const loadMoreFromButton = (retry: boolean) => {
+    focusFrom.current = sections.length;
+    if (retry) feed.retryMore();
+    else feed.loadMore();
+  };
+  useLayoutEffect(() => {
+    const from = focusFrom.current;
+    const root = rootRef.current;
+    if (from === null || feed.loadingMore || !root) return;
+    focusFrom.current = null;
+    const current = document.activeElement;
+    if (current && current !== document.body && current.isConnected) return;
+    const next =
+      Array.from(root.querySelectorAll<HTMLElement>("[data-tv-index]"))
+        .filter((el) => Number(el.getAttribute("data-tv-index")) >= from)
+        .map((el) => el.querySelector<HTMLElement>("[data-tv-focusable]"))
+        .find((el) => el !== null) ??
+      root.querySelector<HTMLElement>("[data-tv-more] [data-tv-focusable]");
+    if (next) focusElement(next);
+  }, [feed.loadingMore, sections]);
+
   useTvInitialFocus(!feed.loading);
 
   return (
@@ -74,7 +98,10 @@ export default function TvHome() {
               key={tab.tabType}
               label={tab.name}
               active={tab.tabType === feed.activeType}
-              onClick={() => feed.selectTab(tab.tabType)}
+              onClick={() => {
+                focusFrom.current = null;
+                feed.selectTab(tab.tabType);
+              }}
             />
           ))}
         </div>
@@ -118,6 +145,30 @@ export default function TvHome() {
       {feed.loadingMore && (
         <div role="status" aria-label="Loading more">
           <TvSpinner />
+        </div>
+      )}
+      {!feed.loading && feed.moreError && (
+        <div
+          data-tv-more
+          className="flex items-center gap-[1rem] px-[3rem] py-[1rem]"
+        >
+          <p className="text-[0.85rem] text-th-text-secondary">
+            Couldn't load more
+          </p>
+          <TvButton
+            label="Try again"
+            onClick={() => loadMoreFromButton(true)}
+          />
+        </div>
+      )}
+      {/* Reachable when the last rows show no cards, so focus never nears
+          the end again. */}
+      {!feed.loading && feed.cursor && !feed.loadingMore && !feed.moreError && (
+        <div data-tv-more className="px-[3rem] py-[1rem]">
+          <TvButton
+            label="Load more"
+            onClick={() => loadMoreFromButton(false)}
+          />
         </div>
       )}
     </div>
