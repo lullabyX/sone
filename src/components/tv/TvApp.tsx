@@ -35,7 +35,6 @@ import {
   focusFirstIn,
   moveFocus,
   rememberFocus,
-  type Direction,
 } from "../../lib/spatialNav";
 import { getTidalImageUrl } from "../../types";
 import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
@@ -58,6 +57,8 @@ import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
+import { textEntryKind, type TvKeyAction } from "./tvKeys";
+import { topTvModal, useTvKeyRouter } from "./useTvKeyRouter";
 import "./tv.css";
 
 type RootType =
@@ -85,17 +86,6 @@ const ROOTS = new Set<string>(RAIL.map((r) => r.type));
  *  activating the focused item. */
 const LONG_PRESS_MS = 550;
 
-const ARROWS: Record<string, Direction> = {
-  ArrowUp: "up",
-  ArrowDown: "down",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-};
-
-const BACK_KEYS = new Set(["Escape", "BrowserBack", "GoBack"]);
-/** How far Left/Right skip in a video, in seconds. */
-const VIDEO_SKIP_S = 10;
-
 interface Entry {
   id: number;
   view: TvView;
@@ -103,19 +93,6 @@ interface Entry {
 
 let nextEntryId = 1;
 const entry = (view: TvView): Entry => ({ id: nextEntryId++, view });
-
-function isTextField(el: EventTarget | null): el is HTMLInputElement {
-  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
-}
-
-/** Left/Right inside a text field move the caret until it reaches the edge. */
-function caretAllowsLeaving(el: HTMLInputElement, dir: Direction): boolean {
-  if (dir === "up" || dir === "down") return true;
-  const start = el.selectionStart ?? 0;
-  const end = el.selectionEnd ?? 0;
-  if (start !== end) return false;
-  return dir === "left" ? start === 0 : end === el.value.length;
-}
 
 function renderScreen(view: TvView): ReactNode {
   switch (view.type) {
@@ -432,254 +409,228 @@ export default function TvApp() {
     return () => window.removeEventListener("focus-search", onFocusSearch);
   }, [goTo]);
 
-  useEffect(() => {
-    // Long-pressing Enter on an item that has an action menu opens the
-    // menu; a short press activates the item as usual.
-    let held: { el: HTMLElement; timer: number; fired: boolean } | null = null;
-    // Pointer x of the synthetic moves that wake the video controls; it must
-    // change each time, as the player ignores a move to the same spot.
-    let wakeX = 0;
-    // Set by an arrow move until the screen has been drawn after it.
-    let moveDrawing = false;
+  // Long-pressing Enter on an item that has an action menu opens the menu;
+  // a short press activates the item as usual.
+  const held = useRef<{
+    el: HTMLElement;
+    timer: number;
+    fired: boolean;
+  } | null>(null);
+  // Pointer x of the synthetic moves that wake the video controls; it must
+  // change each time, as the player ignores a move to the same spot.
+  const wakeX = useRef(0);
+  // Set by an arrow move until the screen has been drawn after it.
+  const moveDrawing = useRef(false);
 
-    const openMenuFor = (el: Element | null) => {
-      const build = menuForElement(el);
-      if (build) menuRef.current?.open(build());
-      return !!build;
-    };
+  const openMenuFor = useCallback((el: Element | null) => {
+    const build = menuForElement(el);
+    if (build) menuRef.current?.open(build());
+  }, []);
 
-    const onKey = (e: KeyboardEvent) => {
-      // An element (the seek bar) or the Escape dismiss stack handled it.
-      if (e.defaultPrevented) return;
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const wakeVideo = useCallback(() => {
+    const video = document.querySelector<HTMLVideoElement>(
+      "[role='dialog'] video",
+    );
+    if (!video) return;
+    wakeX.current = (wakeX.current + 1) % 1000;
+    video.dispatchEvent(
+      new MouseEvent("mousemove", { bubbles: true, clientX: wakeX.current }),
+    );
+  }, []);
 
-      if (store.get(currentVideoAtom) && store.get(videoExpandedAtom)) {
-        // The video player owns the screen. Without a control focused,
-        // Enter pauses and resumes, Left/Right skip 10 seconds and Up/Down
-        // move into the player's buttons; there the arrows move between
-        // them and Back leaves them again. Back otherwise returns to Now
-        // Playing with the video still playing (Escape closes it, through
-        // the player itself). Any key shows the controls for a moment.
-        const video = document.querySelector<HTMLVideoElement>(
-          "[role='dialog'] video",
-        );
-        const dialog = video?.closest<HTMLElement>("[role='dialog']") ?? null;
-        if (video) {
-          wakeX = (wakeX + 1) % 1000;
-          video.dispatchEvent(
-            new MouseEvent("mousemove", { bubbles: true, clientX: wakeX }),
-          );
-        }
-        const active = document.activeElement;
-        const inControls =
-          !!dialog &&
-          (active instanceof HTMLButtonElement ||
-            active instanceof HTMLInputElement) &&
-          dialog.contains(active);
-        const dir = ARROWS[e.key];
+  const execute = useCallback(
+    (action: TvKeyAction, e: KeyboardEvent) => {
+      const video = document.querySelector<HTMLVideoElement>(
+        "[role='dialog'] video",
+      );
+      const dialog = video?.closest<HTMLElement>("[role='dialog']") ?? null;
+      const qualityButton = dialog?.querySelector<HTMLElement>(
+        "button[title='Quality']",
+      );
+      const qualityList =
+        qualityButton?.nextElementSibling instanceof HTMLElement
+          ? qualityButton.nextElementSibling
+          : null;
+      const active = document.activeElement;
 
-        // The quality picker: its list follows the button while open.
-        const qualityButton = dialog?.querySelector<HTMLElement>(
-          "button[title='Quality']",
-        );
-        const qualityList =
-          qualityButton?.nextElementSibling instanceof HTMLElement
-            ? qualityButton.nextElementSibling
-            : null;
-
-        if (e.key === "Backspace" || e.key === "BrowserBack") {
-          e.preventDefault();
-          if (qualityList && qualityButton) {
-            // Back closes the open quality list first.
-            qualityButton.click();
-            focusElement(qualityButton);
-          } else if (inControls) active.blur();
-          else store.set(videoExpandedAtom, false);
-          return;
-        }
-        if (inControls) {
-          // Enter clicks the focused button natively. Picking a quality
-          // closes the list; focus goes back to its button.
-          if (
-            e.key === "Enter" &&
-            qualityButton &&
-            qualityList?.contains(active)
-          ) {
-            requestAnimationFrame(() => focusElement(qualityButton));
-          }
-          if (dir && dialog) {
-            e.preventDefault();
-            if (!moveFocus(dialog, dir) && (dir === "up" || dir === "down")) {
-              active.blur();
-            }
-            // Leaving the open quality list closes it.
-            const now = document.activeElement;
-            if (
-              qualityList &&
-              qualityButton &&
-              now !== qualityButton &&
-              !qualityList.contains(now)
-            ) {
-              qualityButton.click();
-            }
+      switch (action.type) {
+        case "media":
+          switch (action.command.kind) {
+            case "toggle":
+              void togglePlayPause();
+              return;
+            case "next":
+              void playNext({ explicit: true });
+              return;
+            case "previous":
+              void playPrevious();
+              return;
           }
           return;
-        }
-        switch (e.key) {
-          case "Enter":
-          case " ":
-          case "MediaPlayPause":
-            e.preventDefault();
-            if (!video || e.repeat) return;
-            if (video.paused) video.play().catch(() => {});
-            else video.pause();
-            return;
-          case "ArrowLeft":
-          case "ArrowRight": {
-            e.preventDefault();
-            if (!video || !Number.isFinite(video.duration)) return;
-            const step = e.key === "ArrowLeft" ? -VIDEO_SKIP_S : VIDEO_SKIP_S;
-            video.currentTime = Math.min(
-              Math.max(0, video.currentTime + step),
-              Math.max(0, video.duration - 0.5),
-            );
-            return;
-          }
-          case "ArrowUp":
-          case "ArrowDown": {
-            e.preventDefault();
-            if (!dialog) return;
-            // Start on play/pause, the button right after "Previous".
-            const play = dialog.querySelector<HTMLElement>(
-              "button[title='Previous'] + button",
-            );
-            if (play) focusElement(play);
-            else focusFirstIn(dialog);
-            return;
-          }
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case "MediaPlayPause":
-          e.preventDefault();
-          void togglePlayPause();
+        case "openMenu":
+          openMenuFor(active);
           return;
-        case "MediaTrackNext":
-          e.preventDefault();
-          void playNext({ explicit: true });
-          return;
-        case "MediaTrackPrevious":
-          e.preventDefault();
-          void playPrevious();
-          return;
-        case "ContextMenu":
-          e.preventDefault();
-          openMenuFor(document.activeElement);
-          return;
-        case "Enter": {
-          // While Enter is held after a long press, its auto-repeat must not
-          // activate whatever the menu focused (its first entry).
-          if (held) {
-            e.preventDefault();
-            return;
-          }
-          const target = document.activeElement as HTMLElement | null;
-          if (!target || !menuForElement(target)) return;
-          e.preventDefault();
-          if (e.repeat) return;
-          held = {
+        case "pressStart": {
+          const target = active as HTMLElement | null;
+          if (!target) return;
+          held.current = {
             el: target,
             fired: false,
             timer: window.setTimeout(() => {
-              if (!held) return;
-              held.fired = true;
-              openMenuFor(held.el);
+              const h = held.current;
+              if (!h) return;
+              h.fired = true;
+              openMenuFor(h.el);
             }, LONG_PRESS_MS),
           };
           return;
         }
-      }
-
-      // A modal (the action menu, the settings sheet) keeps focus to itself.
-      const modals = document.querySelectorAll<HTMLElement>("[data-tv-modal]");
-      const scope = modals[modals.length - 1] ?? rootRef.current;
-
-      const dir = ARROWS[e.key];
-      if (dir) {
-        if (isTextField(e.target) && !caretAllowsLeaving(e.target, dir)) {
+        case "move": {
+          const scope = topTvModal() ?? rootRef.current;
+          if (!scope) return;
+          // A held arrow can repeat faster than a slower machine moves focus
+          // down a long list. At most one repeat is handled per drawn frame;
+          // the rest are dropped instead of piling up, so focus stops when
+          // the key is released rather than working through a backlog.
+          if (e.repeat && moveDrawing.current) return;
+          const moved = moveFocus(scope, action.dir, {
+            enterSide: action.enterSide,
+          });
+          moveDrawing.current = true;
+          requestAnimationFrame(() =>
+            window.setTimeout(() => {
+              moveDrawing.current = false;
+            }),
+          );
+          // The action menu slides in from the right; Left leaves it.
+          if (!moved && action.dir === "left" && menuRef.current?.isOpen()) {
+            menuRef.current.back();
+          }
           return;
         }
-        e.preventDefault();
-        if (!scope) return;
-        // A held arrow can repeat faster than a slower machine moves focus
-        // down a long list. At most one repeat is handled per drawn frame;
-        // the rest are dropped instead of piling up, so focus stops when the
-        // key is released rather than working through a backlog.
-        if (e.repeat && moveDrawing) return;
-        // Focus got lost (its element went away, e.g. a played "Up next"
-        // row): pick up in the current screen, not in the hidden rail.
-        if (
-          scope === rootRef.current &&
-          !scope.contains(document.activeElement)
-        ) {
-          const screen = scope.querySelector<HTMLElement>(
+        case "focusContent": {
+          if (e.repeat && moveDrawing.current) return;
+          const screen = rootRef.current?.querySelector<HTMLElement>(
             ".tv-screen:not(.hidden)",
           );
-          if (screen && focusFirstIn(screen)) return;
+          if (screen) focusFirstIn(screen);
+          return;
         }
-        // Holding an arrow never opens the nav rail: only a fresh press at
-        // the start of a row does.
-        const moved = moveFocus(scope, dir, { enterSide: !e.repeat });
-        moveDrawing = true;
-        requestAnimationFrame(() =>
-          window.setTimeout(() => {
-            moveDrawing = false;
-          }),
-        );
-        // The action menu slides in from the right; Left leaves it.
-        if (!moved && dir === "left" && menuRef.current?.isOpen()) {
-          menuRef.current.back();
-        }
-        return;
-      }
-
-      if (
-        BACK_KEYS.has(e.key) ||
-        (e.key === "Backspace" && !isTextField(e.target))
-      ) {
-        // A desktop dialog handles Escape through its own dismiss handler.
-        if (e.key === "Escape" && scope?.hasAttribute("data-tv-native")) return;
-        e.preventDefault();
-        if (isTextField(e.target)) e.target.blur();
-        if (menuRef.current?.isOpen()) menuRef.current.back();
-        else if (promptResolve.current) finishPrompt(null);
-        else if (scope?.hasAttribute("data-tv-native")) {
+        case "back":
+          if (textEntryKind(e.target) && e.target instanceof HTMLElement) {
+            e.target.blur();
+          }
+          if (menuRef.current?.isOpen()) menuRef.current.back();
+          else if (promptResolve.current) finishPrompt(null);
+          else back();
+          return;
+        case "nativeEscape":
+          if (textEntryKind(e.target) && e.target instanceof HTMLElement) {
+            e.target.blur();
+          }
           // Desktop dialogs shown in TV mode close on Escape themselves.
           window.dispatchEvent(
             new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
           );
-        } else back();
+          return;
+        case "videoToggle":
+          if (!video) return;
+          if (video.paused) video.play().catch(() => {});
+          else video.pause();
+          return;
+        case "videoSeek":
+          if (!video || !Number.isFinite(video.duration)) return;
+          video.currentTime = Math.min(
+            Math.max(0, video.currentTime + action.by),
+            Math.max(0, video.duration - 0.5),
+          );
+          return;
+        case "videoControls": {
+          if (!dialog) return;
+          // Start on play/pause, the button right after "Previous".
+          const play = dialog.querySelector<HTMLElement>(
+            "button[title='Previous'] + button",
+          );
+          if (play) focusElement(play);
+          else focusFirstIn(dialog);
+          return;
+        }
+        case "videoMove": {
+          if (!dialog || !(active instanceof HTMLElement)) return;
+          if (
+            !moveFocus(dialog, action.dir) &&
+            (action.dir === "up" || action.dir === "down")
+          ) {
+            active.blur();
+          }
+          // Leaving the open quality list closes it.
+          const now = document.activeElement;
+          if (
+            qualityList &&
+            qualityButton &&
+            now !== qualityButton &&
+            !qualityList.contains(now)
+          ) {
+            qualityButton.click();
+          }
+          return;
+        }
+        case "videoBack":
+          if (qualityList && qualityButton) {
+            // Back closes the open quality list first.
+            qualityButton.click();
+            focusElement(qualityButton);
+          } else if (
+            dialog &&
+            (active instanceof HTMLButtonElement ||
+              active instanceof HTMLInputElement) &&
+            dialog.contains(active)
+          ) {
+            active.blur();
+          } else store.set(videoExpandedAtom, false);
+          return;
+        case "videoNativeEnter":
+          // Picking a quality closes the list; focus goes back to its button.
+          if (qualityButton) {
+            requestAnimationFrame(() => focusElement(qualityButton));
+          }
+          return;
       }
-    };
+    },
+    [
+      store,
+      back,
+      togglePlayPause,
+      playNext,
+      playPrevious,
+      finishPrompt,
+      openMenuFor,
+    ],
+  );
 
+  useTvKeyRouter({
+    rootRef,
+    railRef,
+    holding: () => held.current !== null,
+    execute,
+    wakeVideo,
+  });
+
+  useEffect(() => {
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key !== "Enter" || !held) return;
-      const { el, timer, fired } = held;
-      held = null;
-      window.clearTimeout(timer);
-      if (!fired) el.click();
+      const h = held.current;
+      if (e.key !== "Enter" || !h) return;
+      held.current = null;
+      window.clearTimeout(h.timer);
+      if (!h.fired) h.el.click();
     };
-
-    window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
     return () => {
-      window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKeyUp);
-      if (held) window.clearTimeout(held.timer);
+      if (held.current) window.clearTimeout(held.current.timer);
+      held.current = null;
     };
-  }, [store, back, togglePlayPause, playNext, playPrevious, finishPrompt]);
+  }, []);
 
   // Now Playing opened on top of another screen still counts as being on
   // Now Playing for the rail's highlight.

@@ -43,6 +43,7 @@ export default function TvPrompt({
       <div
         ref={panelRef}
         data-tv-modal
+        data-tv-prompt
         role="dialog"
         aria-label={request.title}
         className="w-[32rem] max-w-[90vw] rounded-[1rem] bg-th-elevated p-[2rem] shadow-2xl"
