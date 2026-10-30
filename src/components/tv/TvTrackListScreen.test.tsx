@@ -1,17 +1,18 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { createStore } from "jotai";
 import { favoriteTrackIdsAtom } from "../../atoms/favorites";
 import { allowExplicitAtom } from "../../atoms/playback";
 import type { Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
-import { deferred, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
+import { deferred, type Deferred, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
+import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const api = vi.hoisted(() => ({
   getAlbumPage: vi.fn(),
   getPlaylistDetails: vi.fn(),
-  getPlaylistTracks: vi.fn(),
+  getPlaylistTracksPage: vi.fn(),
   getFavoriteTracks: vi.fn(),
   getMixItems: vi.fn(),
 }));
@@ -64,7 +65,10 @@ it("a blocked row has no action menu", async () => {
 
 it("after a removal focus lands on the row that took its place, past a blocked row (guard)", async () => {
   api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 5, creator: { id: 42 } });
-  api.getPlaylistTracks.mockResolvedValue([mkTrack(1, { explicit: true }), mkTrack(2), mkTrack(3), mkTrack(4), mkTrack(5)]);
+  api.getPlaylistTracksPage.mockResolvedValue({
+    items: [mkTrack(1, { explicit: true }), mkTrack(2), mkTrack(3), mkTrack(4), mkTrack(5)],
+    totalNumberOfItems: 5,
+  });
   mockInvoke({
     remove_track_from_playlist: () => undefined,
     get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
@@ -114,4 +118,71 @@ it("a failing second page keeps the rows, marks loading, and offers a retry", as
   api.getFavoriteTracks.mockResolvedValueOnce({ items: [mkTrack(31)], totalNumberOfItems: 31 });
   fireEvent.click(again);
   await screen.findByText("T31");
+});
+
+describe("playlist removals", () => {
+  const [a, b, c] = [mkTrack(1), mkTrack(2), mkTrack(3)];
+  let pending: Deferred<void>[];
+  let store: ReturnType<typeof signedIn>;
+  const removeCalls = () =>
+    vi.mocked(invoke).mock.calls.filter(([c]) => c === "remove_track_from_playlist").map(([, x]) => x);
+
+  beforeEach(() => {
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 3, creator: { id: 42 } });
+    api.getPlaylistTracksPage.mockResolvedValue({ items: [a, b, c], totalNumberOfItems: 3 });
+    store = signedIn(42);
+    pending = [];
+    mockInvoke({
+      remove_track_from_playlist: () => {
+        const d = deferred<void>();
+        pending.push(d);
+        return d.promise;
+      },
+      get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
+    });
+  });
+
+  it("two quick removals remove the right tracks, in order", async () => {
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+    await screen.findByText("T2");
+    const removeEntry = (title: string) => {
+      fireEvent.click(rowMore(title));
+      return vi.mocked(nav.trackMenu).mock.lastCall![1]![0];
+    };
+    const [rb, rc] = [removeEntry("T2"), removeEntry("T3")];
+    act(() => {
+      void rb.onSelect!();
+      void rc.onSelect!();
+    });
+    expect(screen.queryByText("T2")).toBeNull();
+    expect(screen.queryByText("T3")).toBeNull();
+    expect(screen.getByText(/\b1 Track\b/)).toBeTruthy();
+    await act(async () => {});
+    expect(removeCalls()).toEqual([{ playlistId: "p", index: 1 }]);
+    await act(async () => pending[0].resolve());
+    expect(removeCalls()).toEqual([
+      { playlistId: "p", index: 1 },
+      { playlistId: "p", index: 1 },
+    ]);
+  });
+
+  it("a failed removal puts the row back and toasts (guard)", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+      await screen.findByText("T2");
+      fireEvent.click(rowMore("T2"));
+      const entry = vi.mocked(nav.trackMenu).mock.lastCall![1]![0];
+      act(() => {
+        void entry.onSelect!();
+      });
+      await act(async () => {});
+      await act(async () => pending[0].reject(new Error("x")));
+      expect(rowFor("T2").getAttribute("data-tv-index")).toBe("1");
+      expect(screen.getByText(/\b3 Tracks\b/)).toBeTruthy();
+      await screen.findByText("Failed to remove track");
+    } finally {
+      quiet.mockRestore();
+    }
+  });
 });

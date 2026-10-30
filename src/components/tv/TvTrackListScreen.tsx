@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { focusElement } from "../../lib/spatialNav";
 import { useAtomValue } from "jotai";
 import { Heart, ListX, MoreHorizontal, Play, Shuffle } from "lucide-react";
@@ -7,7 +7,7 @@ import {
   getFavoriteTracks,
   getMixItems,
   getPlaylistDetails,
-  getPlaylistTracks,
+  getPlaylistTracksPage,
 } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
 import { favoriteTrackIdsAtom } from "../../atoms/favorites";
@@ -17,6 +17,8 @@ import { useToast } from "../../contexts/ToastContext";
 import {
   FAVORITE_TRACKS_PAGE_SIZE,
   favoriteTracksPager,
+  PLAYLIST_PAGE_SIZE,
+  playlistTracksPager,
   type PlayableSource,
 } from "../../lib/trackSources";
 import type { AlbumDetail, MediaItemType, Playlist, Track } from "../../types";
@@ -116,9 +118,10 @@ async function loadList(
       };
     }
     case "playlist": {
-      const [details, tracks] = await Promise.all([
+      // Only the first page here; the rest load as focus nears the end.
+      const [details, page] = await Promise.all([
         getPlaylistDetails(view.uuid).catch(() => null),
-        getPlaylistTracks(view.uuid),
+        getPlaylistTracksPage(view.uuid, 0, PLAYLIST_PAGE_SIZE),
       ]);
       const title = details?.title ?? view.title ?? "Playlist";
       // Playlist images have no 1280px size; 640 is the largest the CDN
@@ -134,15 +137,12 @@ async function loadList(
       return {
         kicker: "Playlist",
         title,
-        subtitle: [
-          creator,
-          playlistCountLabel(details?.numberOfTracks, details?.numberOfVideos),
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        // The track count follows removals, so the page adds it.
+        subtitle: creator,
         image,
-        first: tracks,
-        total: tracks.length,
+        first: page.items,
+        total: page.totalNumberOfItems,
+        pager: playlistTracksPager(view.uuid),
         playlist: details ?? undefined,
         meta: { type: "playlist", id: view.uuid, name: title, image },
       };
@@ -190,10 +190,7 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
   const load = useCallback(() => loadList(view, userId), [view, userId]);
-  const { data, error, retry, update } = useTvLoader(
-    load,
-    "Couldn't load tracks",
-  );
+  const { data, error, retry } = useTvLoader(load, "Couldn't load tracks");
   // Attached here rather than in the loader, so a like change re-filters
   // the rows without loading again.
   const spec = useMemo(
@@ -210,27 +207,27 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   if (!spec) return <TvSpinner />;
   // The list's near-end detector needs its root at mount, so the page is
   // its own component, mounted once the spec has loaded.
-  return (
-    <TrackListPage view={view} spec={spec} userId={userId} update={update} />
-  );
+  return <TrackListPage view={view} spec={spec} userId={userId} />;
 }
 
 function TrackListPage({
   view,
   spec,
   userId,
-  update,
 }: {
   view: ListView;
   spec: TrackListSpec;
   userId?: number;
-  update: (change: (spec: TrackListSpec) => TrackListSpec) => void;
 }) {
   const nav = useTvNav();
   const fav = useFavorites();
   const { removeTrackFromPlaylist } = usePlaylists();
   const listRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
+  // Removals go out one at a time: each sends the row's position at the
+  // moment it is chosen, after the ones before it have landed.
+  const removalChain = useRef<Promise<unknown>>(Promise.resolve());
+  const [countDelta, setCountDelta] = useState(0);
 
   const paged = useTvPaged(spec.pager ?? null, viewKey(view), {
     items: spec.first,
@@ -316,35 +313,39 @@ function TrackListPage({
     view.type === "playlist" &&
     userId != null &&
     spec.playlist?.creator?.id === userId;
-  const removeFromPlaylist = async (index: number) => {
+  const removeFromPlaylist = (track: Track) => {
     if (view.type !== "playlist") return;
-    const track = rows[index];
-    try {
-      await removeTrackFromPlaylist(view.uuid, index);
-      update((d) => ({
-        ...d,
-        first: d.first.filter((_, i) => i !== index),
-        total: d.total - 1,
-      }));
-      // The removed row had focus: move it to the row that took its place
-      // (or the new last one), once the menu has closed and the list has
-      // re-rendered. Rows are found by position: blocked rows have no menu,
-      // so counting menus would skip them.
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const list = listRef.current;
-          if (!list) return;
-          const rowCount = list.querySelectorAll("[data-tv-index]").length;
-          const next = list
-            .querySelector(`[data-tv-index="${Math.min(index, rowCount - 1)}"]`)
-            ?.querySelector<HTMLElement>("[data-tv-focusable]");
-          if (next) focusElement(next);
-        }),
+    const uuid = view.uuid;
+    // Found by identity in the list as it is now, so an earlier removal
+    // still in flight cannot shift it onto the wrong row.
+    const idx = paged.remove(track);
+    if (idx < 0) return;
+    setCountDelta((d) => d - 1);
+    removalChain.current = removalChain.current
+      .then(() => removeTrackFromPlaylist(uuid, idx))
+      .then(
+        () => showToast(`Removed "${track.title}" from playlist`),
+        () => {
+          paged.insert(idx, track);
+          setCountDelta((d) => d + 1);
+          showToast("Failed to remove track", "error");
+        },
       );
-      showToast(`Removed "${track?.title ?? "track"}" from playlist`);
-    } catch {
-      showToast("Failed to remove track", "error");
-    }
+    // The removed row had focus: move it to the row that took its place
+    // (or the new last one), once the menu has closed and the list has
+    // re-rendered. Rows are found by position: blocked rows have no menu,
+    // so counting menus would skip them.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const list = listRef.current;
+        if (!list) return;
+        const rowCount = list.querySelectorAll("[data-tv-index]").length;
+        const next = list
+          .querySelector(`[data-tv-index="${Math.min(idx, rowCount - 1)}"]`)
+          ?.querySelector<HTMLElement>("[data-tv-focusable]");
+        if (next) focusElement(next);
+      }),
+    );
   };
 
   // A paged list's loaded rows are not the whole list, so it shows its
@@ -361,6 +362,12 @@ function TrackListPage({
 
   const subtitle = [
     view.type === "favorites" ? `${count} tracks` : spec.subtitle,
+    view.type === "playlist"
+      ? playlistCountLabel(
+          (spec.playlist?.numberOfTracks ?? 0) + countDelta,
+          spec.playlist?.numberOfVideos,
+        )
+      : undefined,
     totalSecs > 0 ? formatTotalDuration(totalSecs) : undefined,
   ]
     .filter(Boolean)
@@ -490,7 +497,7 @@ function TrackListPage({
                       {
                         label: "Remove from this playlist",
                         icon: ListX,
-                        onSelect: () => removeFromPlaylist(i),
+                        onSelect: () => removeFromPlaylist(track),
                       },
                     ]
                   : undefined
