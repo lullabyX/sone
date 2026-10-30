@@ -128,6 +128,7 @@ export default function SignalPathPanel({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
         ref={panelRef}
+        data-tv-fit
         className="bg-th-elevated rounded-xl shadow-2xl overflow-hidden relative transition-[width] duration-500"
         style={{
           width: expanded ? 680 : 480,

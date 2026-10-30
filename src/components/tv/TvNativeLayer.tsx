@@ -1,34 +1,40 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useAtomValue } from "jotai";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { tvOverscanAtom } from "../../atoms/tv";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
+import { tvNativeFitHeight, tvNativeZoom } from "./tvNative";
 
 /**
  * Hosts a desktop dialog (the settings sheet, the signal path panel) inside
- * TV mode: scaled up from its pixel sizes to TV size while still fitting on
- * screen, marked native so every control in it is reachable with the arrow
- * keys, focused on open, and focus handed back to where it was on close.
- * Back closes it via Escape, which these dialogs already handle.
+ * TV mode: scaled up from its pixel sizes to TV size while still fitting
+ * inside the screen margin, marked native so every control in it is
+ * reachable with the arrow keys, focused on open, and focus handed back to
+ * where it was on close. Back closes it via Escape, which these dialogs
+ * already handle. The dialog reads `--tv-native-fit-h` for its height.
  */
 export default function TvNativeLayer({
   width,
-  height,
   children,
 }: {
-  /** The dialog's largest size in CSS px, to keep it on screen. */
+  /** The dialog's largest width in CSS px, to keep it on screen. */
   width: number;
-  height: number;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [zoom] = useState(() => {
+  const overscan = useAtomValue(tvOverscanAtom);
+  const [{ zoom, fitH }] = useState(() => {
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    return Math.max(
-      1,
-      Math.min(
-        rem / 16,
-        (window.innerHeight * 0.94) / height,
-        (window.innerWidth * 0.95) / width,
-      ),
-    );
+    const z = tvNativeZoom(rem, window.innerWidth, width, overscan);
+    return {
+      zoom: z,
+      fitH: tvNativeFitHeight(window.innerHeight, z, overscan),
+    };
   });
 
   useLayoutEffect(() => {
@@ -49,7 +55,14 @@ export default function TvNativeLayer({
       ref={ref}
       data-tv-modal
       data-tv-native
-      style={{ zoom, position: "relative", zIndex: 10000 }}
+      style={
+        {
+          zoom,
+          position: "relative",
+          zIndex: 10000,
+          "--tv-native-fit-h": `${fitH}px`,
+        } as CSSProperties
+      }
     >
       {children}
     </div>

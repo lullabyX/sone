@@ -26,7 +26,7 @@ it("the menu and the prompt keep their content inside the screen margin", () => 
 
 it("a native layer (More settings, Signal path) is one layer above the video player", () => {
   const { container } = renderTv(
-    <TvNativeLayer width={800} height={740}>
+    <TvNativeLayer width={800}>
       <div className="fixed inset-0 z-50" />
     </TvNativeLayer>,
   );

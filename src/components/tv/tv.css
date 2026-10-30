@@ -113,6 +113,16 @@ html.tv-mode {
   border-radius: 8px;
 }
 
+/* Hosted desktop dialogs fit the screen height inside the margin, in the
+   layer's own (unzoomed) px. */
+.tv-mode [data-tv-native] [data-tv-sheet] {
+  height: min(var(--tv-native-fit-h), 740px);
+}
+.tv-mode [data-tv-native] [data-tv-fit] {
+  max-height: var(--tv-native-fit-h);
+  overflow-y: auto;
+}
+
 /* Toasts are sized in px for the desktop; scale them up on a TV. */
 .tv-mode .sone-toasts {
   zoom: var(--tv-px-scale, 1);

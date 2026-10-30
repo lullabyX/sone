@@ -760,7 +760,7 @@ export default function TvApp() {
       />
       {prompt && <TvPrompt request={prompt} onDone={finishPrompt} />}
       {more.tab && (
-        <TvNativeLayer width={800} height={740}>
+        <TvNativeLayer width={800}>
           <SettingsSheet open initialTab={more.tab} onClose={more.close} />
         </TvNativeLayer>
       )}

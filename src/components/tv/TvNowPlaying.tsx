@@ -435,7 +435,7 @@ export default function TvNowPlaying() {
             </button>
           )}
           {signalPathOpen && (
-            <TvNativeLayer width={680} height={720}>
+            <TvNativeLayer width={680}>
               <SignalPathPanel open onClose={() => setSignalPathOpen(false)} />
             </TvNativeLayer>
           )}
