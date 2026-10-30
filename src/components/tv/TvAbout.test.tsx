@@ -33,6 +33,25 @@ describe("TvAboutSection", () => {
     expect(screen.getByRole("img", { name: /release page/i })).toBeTruthy();
   });
 
+  it("every About line can take focus, so the remote scrolls it into view", async () => {
+    const store = createStore();
+    store.set(updateInfoAtom, {
+      available: true,
+      current: "1.2.3",
+      latest: "1.3.0",
+      url: "https://github.com/x/releases/tag/v1.3.0",
+    });
+    renderTv(<TvAboutSection />, { store });
+    await screen.findByText("1.2.3");
+    const version = screen.getByRole("button", { name: /sone.*1\.2\.3/i });
+    const update = screen.getByRole("button", { name: /update available/i });
+    const qr = screen.getByRole("group", { name: /release page qr code/i });
+    for (const el of [version, update, qr]) {
+      expect(el.hasAttribute("data-tv-focusable")).toBe(true);
+    }
+    expect(qr.tabIndex).toBe(0);
+  });
+
   it("a version that cannot be read leaves the row empty", async () => {
     vi.mocked(getVersion).mockRejectedValueOnce(new Error("x"));
     renderTv(<TvAboutSection />);
