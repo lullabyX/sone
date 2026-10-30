@@ -15,9 +15,11 @@ import {
   Heart,
   Info,
   ListFilter,
+  ListPlus,
   ListX,
   MoreHorizontal,
   Play,
+  RefreshCw,
   Shuffle,
   X,
 } from "lucide-react";
@@ -36,6 +38,7 @@ import {
   type SortOrder,
 } from "../../atoms/favorites";
 import { useFavorites } from "../../hooks/useFavorites";
+import { usePlaylistRecommendations } from "../../hooks/usePlaylistRecommendations";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { useToast } from "../../contexts/ToastContext";
 import {
@@ -330,7 +333,10 @@ function TrackListPage({
 }) {
   const nav = useTvNav();
   const fav = useFavorites();
-  const { removeTrackFromPlaylist } = usePlaylists();
+  const { addTrackToPlaylist, removeTrackFromPlaylist } = usePlaylists();
+  const recs = usePlaylistRecommendations(
+    view.type === "playlist" ? view.uuid : "",
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const sideRef = useRef<HTMLElement>(null);
   const { showToast } = useToast();
@@ -544,6 +550,22 @@ function TrackListPage({
       if (next) focusElement(next);
     });
   };
+  // The row at `idx` went away while it had focus: move focus to the row
+  // that took its place (or the new last one), once the menu has closed and
+  // the list has re-rendered. Rows are found by position: blocked rows have
+  // no menu, so counting menus would skip them.
+  const refocusRowAt = (idx: number) =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const list = listRef.current;
+        if (!list) return;
+        const rowCount = list.querySelectorAll("[data-tv-index]").length;
+        const next = list
+          .querySelector(`[data-tv-index="${Math.min(idx, rowCount - 1)}"]`)
+          ?.querySelector<HTMLElement>("[data-tv-focusable]");
+        if (next) focusElement(next);
+      }),
+    );
   const removeFromPlaylist = (track: Track) => {
     if (view.type !== "playlist") return;
     const uuid = view.uuid;
@@ -575,21 +597,19 @@ function TrackListPage({
         r.pending--;
         setPendingRemovals((n) => n - 1);
       });
-    // The removed row had focus: move it to the row that took its place
-    // (or the new last one), once the menu has closed and the list has
-    // re-rendered. Rows are found by position: blocked rows have no menu,
-    // so counting menus would skip them.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const list = listRef.current;
-        if (!list) return;
-        const rowCount = list.querySelectorAll("[data-tv-index]").length;
-        const next = list
-          .querySelector(`[data-tv-index="${Math.min(idx, rowCount - 1)}"]`)
-          ?.querySelector<HTMLElement>("[data-tv-focusable]");
-        if (next) focusElement(next);
-      }),
-    );
+    refocusRowAt(idx);
+  };
+  const addRecommendation = async (track: Track, position: number) => {
+    if (view.type !== "playlist") return;
+    recs.removeLocal(track.id);
+    refocusRowAt(position);
+    try {
+      await addTrackToPlaylist(view.uuid, track.id);
+      showToast(`Added "${track.title}" to playlist`);
+    } catch {
+      recs.restore(track);
+      showToast("Failed to add track", "error");
+    }
   };
 
   // A paged list's loaded rows are not the whole list, so it shows its
@@ -820,6 +840,59 @@ function TrackListPage({
             <TvButton label="Try again" onClick={paged.retry} />
           </div>
         )}
+        {view.type === "playlist" &&
+          !paged.hasMore &&
+          recs.visible.length > 0 && (
+            <section className="mt-[2rem]">
+              <h2 className="px-[1rem] pb-[0.6rem] text-[1.1rem] font-bold text-th-text-primary">
+                Recommended tracks
+              </h2>
+              {recs.visible.map((track, i) => (
+                <TvTrackRow
+                  key={`rec:${track.id}`}
+                  track={track}
+                  index={i}
+                  position={rows.length + i}
+                  menuExtra={
+                    ownPlaylist
+                      ? [
+                          {
+                            label: "Add to this playlist",
+                            icon: ListPlus,
+                            onSelect: () =>
+                              addRecommendation(track, rows.length + i),
+                          },
+                        ]
+                      : undefined
+                  }
+                  showCover
+                  blockedNoMenu
+                  onSelect={() =>
+                    void nav.playSource(
+                      {
+                        meta: {
+                          type: "playlist-recs",
+                          id: view.uuid,
+                          name: `${spec.title}: Recommended`,
+                        },
+                        loaded: recs.visible,
+                      },
+                      { startAt: track },
+                    )
+                  }
+                />
+              ))}
+              <div className="px-[1rem] pt-[1rem]">
+                <TvButton
+                  label="Refresh"
+                  icon={<RefreshCw className="w-[1rem] h-[1rem]" />}
+                  onClick={() => {
+                    if (!recs.loading) void recs.refresh();
+                  }}
+                />
+              </div>
+            </section>
+          )}
         {/* Reachable when a page adds no shown rows, so focus never nears
             the end again. */}
         {paged.hasMore &&

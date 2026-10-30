@@ -79,6 +79,7 @@ export function usePlaylistRecommendations(playlistId: string) {
     setRecPool([]);
     setRecPageIndex(0);
     setRecApiOffset(0);
+    if (playlistId === "") return;
     fetchRecBatch(0).then((tracks) => {
       setRecPool(tracks);
     });

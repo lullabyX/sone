@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   getPlaylistTracksPage: vi.fn(),
   getFavoriteTracks: vi.fn(),
   getMixItems: vi.fn(),
+  getPlaylistRecommendations: vi.fn(async () => ({ items: [] as Track[] })),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()),
@@ -129,6 +130,29 @@ it("shows the description and reads a long one in a wide panel", async () => {
   expect(await screen.findByText(/Late-night jazz\./)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "About" }));
   expect(vi.mocked(nav.openMenu).mock.lastCall![0]).toMatchObject({ wide: true, items: [{ multiline: true }, { label: "Second paragraph.", multiline: true }] });
+});
+
+it("shows recommendations once the playlist is fully loaded and adds one", async () => {
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 42 } });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: [mkTrack(900)], totalNumberOfItems: 1 });
+  api.getPlaylistRecommendations.mockResolvedValue({ items: range(12).map((i) => mkTrack(i + 1)) });
+  mockInvoke({
+    add_track_to_playlist: () => undefined,
+    get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
+  });
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+  expect(await screen.findByText("Recommended tracks")).toBeTruthy();
+  expect(screen.queryByText("T11")).toBeNull();
+  expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+  fireEvent.click(rowButton("T2"));
+  expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "playlist-recs", id: "p" });
+  fireEvent.click(rowMore("T2"));
+  await act(async () => {
+    await vi.mocked(nav.trackMenu).mock.lastCall![1]!.find((i) => i.label === "Add to this playlist")!.onSelect!();
+  });
+  expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", { playlistId: "p", trackId: 2 });
+  expect(screen.queryByText("T2")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
 });
 
 describe("playlist removals", () => {

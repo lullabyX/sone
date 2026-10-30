@@ -65,4 +65,11 @@ describe("usePlaylistRecommendations", () => {
     act(() => result.current.restore(mkTrack(3)));
     expect(ids(result.current.visible)).toEqual([1, 2, 4, 5, 3]);
   });
+
+  it("fetches nothing for an empty id", async () => {
+    const { result } = renderHook(() => usePlaylistRecommendations(""));
+    await act(async () => {});
+    expect(api.getPlaylistRecommendations).not.toHaveBeenCalled();
+    expect(result.current.visible).toEqual([]);
+  });
 });
