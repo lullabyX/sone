@@ -91,6 +91,7 @@ apps:
       - audio-playback
       - alsa
       - screen-inhibit-control
+      - joystick
 
 parts:
   build-app:

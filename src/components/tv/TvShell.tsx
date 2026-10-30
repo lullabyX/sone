@@ -17,6 +17,7 @@ import {
   videoPlayingAtom,
 } from "../../atoms/video";
 import { useHideMiniplayer } from "../../hooks/useMiniplayerWindow";
+import { useTvGamepad } from "./useTvGamepad";
 import "./tv.css";
 
 const TV_CURSOR_HIDE_MS = 2500;
@@ -36,7 +37,8 @@ function updateScale() {
  * The root of every TV surface (sign-in and the TV interface), kept mounted
  * across sign-in and sign-out: it scales the UI with the screen, keeps the
  * window fullscreen, hides the idle pointer and the always-on-top miniplayer,
- * keeps the screen awake while something plays, and undoes all of it on exit.
+ * keeps the screen awake while something plays, turns gamepad input into
+ * remote keys, and undoes all of it on exit.
  */
 export default function TvShell({ children }: { children: ReactNode }) {
   const store = useStore();
@@ -47,6 +49,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
   const inhibit = isPlaying || (!!currentVideo && videoPlaying);
   const overscan = useAtomValue(tvOverscanAtom);
   useHideMiniplayer();
+  useTvGamepad(true);
 
   // Before any child's layout effect, so they measure the TV sizes.
   useInsertionEffect(() => {
