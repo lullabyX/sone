@@ -133,8 +133,15 @@ export function rememberFocus(el: HTMLElement) {
 /** If `target` sits in a remembering group that `from` is outside of, the
  *  group's last focused child (when it is still on screen) wins. The
  *  outermost such group decides, so re-entering the content area from the
- *  nav rail lands where the user left off rather than in the nearest row. */
+ *  nav rail lands where the user left off rather than in the nearest row.
+ *  Entering a side panel lands on its `data-tv-default` child first, so the
+ *  rail opens on the current section rather than the last item passed. */
 function resolveRemembered(from: HTMLElement, target: HTMLElement) {
+  const side = target.closest(SIDE);
+  if (side && !side.contains(from)) {
+    const entry = side.querySelector<HTMLElement>("[data-tv-default]");
+    if (entry && isShown(entry)) return entry;
+  }
   let chosen = target;
   let group = target.parentElement?.closest(REMEMBER) ?? null;
   while (group && !group.contains(from)) {
@@ -202,10 +209,11 @@ export function moveFocus(
   // behind it, while Left/Right at the end of a row falls through to the
   // next group out.
   const from = boxes.get(current)!;
-  // A side panel (`data-tv-side`, the nav rail) is entered sideways only:
-  // Up/Down past the top or bottom of the content must not land in it.
+  // A side panel (`data-tv-side`, the nav rail) is entered and left sideways
+  // only: Up/Down past either end of the content or of the panel stays put.
   const sideways = dir === "left" || dir === "right";
-  const inSide = !!current.closest(SIDE);
+  const side = current.closest(SIDE);
+  const inSide = !!side;
   // Left/Right stay on the current line: at the end of a row nothing
   // happens, rather than jumping diagonally into the next row. A side panel
   // (the rail) is reachable sideways from anywhere, and leaving it lands on
@@ -219,7 +227,7 @@ export function moveFocus(
       el !== current &&
       (sideways
         ? inSide || (el.closest(SIDE) ? enterSide : onLine(el))
-        : inSide || !el.closest(SIDE)),
+        : el.closest(SIDE) === side),
   );
   let group: Element | null = current.parentElement?.closest(REMEMBER) ?? null;
   while (true) {
