@@ -3,8 +3,8 @@ import { getTrackLyrics } from "../../api/tidal";
 import { parseLrc, type LrcLine } from "../../lib/lrc";
 
 export type TvLyricsData =
-  | { kind: "synced"; lines: LrcLine[]; rtl: boolean }
-  | { kind: "plain"; text: string; rtl: boolean };
+  | { kind: "synced"; lines: LrcLine[]; rtl: boolean; provider?: string }
+  | { kind: "plain"; text: string; rtl: boolean; provider?: string };
 
 /**
  * The current track's lyrics: synced (timed lines) when TIDAL has them, else
@@ -25,12 +25,13 @@ export function useTvLyrics(
     getTrackLyrics(trackId)
       .then((l) => {
         const rtl = l.isRightToLeft ?? false;
+        const provider = l.lyricsProvider;
         const lines = l.subtitles ? parseLrc(l.subtitles) : [];
         const data: TvLyricsData | null =
           lines.length > 0
-            ? { kind: "synced", lines, rtl }
+            ? { kind: "synced", lines, rtl, provider }
             : l.lyrics?.trim()
-              ? { kind: "plain", text: l.lyrics.trim(), rtl }
+              ? { kind: "plain", text: l.lyrics.trim(), rtl, provider }
               : null;
         if (!cancelled) setResult({ id: trackId, data });
       })
