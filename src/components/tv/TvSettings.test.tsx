@@ -20,6 +20,7 @@ import {
 import TvSettings from "./TvSettings";
 import type { TvNav } from "./TvNavContext";
 import { videoCoversAtom } from "../../atoms/ui";
+import { exclusiveModeAtom } from "../../atoms/playback";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
 
@@ -93,4 +94,24 @@ it("toggles animated covers", () => {
     screen.getByRole("button", { name: /Animated album covers/ }),
   );
   expect(store.get(videoCoversAtom)).toBe(false);
+});
+
+it("says when no device is found and looks again", async () => {
+  const store = createStore();
+  store.set(exclusiveModeAtom, true);
+  renderTv(<TvSettings />, { store });
+  const row = await screen.findByRole("button", {
+    name: /No output devices found/,
+  });
+  devices = [{ id: "hw:1", name: "DAC" }];
+  fireEvent.click(row);
+  expect(await screen.findByText("DAC")).toBeTruthy();
+});
+
+it("a failed listing shows the same row", async () => {
+  mockInvoke({ get_gapless_supported: () => false });
+  const store = createStore();
+  store.set(exclusiveModeAtom, true);
+  renderTv(<TvSettings />, { store });
+  expect(await screen.findByText("No output devices found")).toBeTruthy();
 });

@@ -71,7 +71,10 @@ export default function TvSettings() {
   const setTvMode = useSetAtom(tvModeAtom);
   const { userName, logout } = useAuth();
   const [gaplessSupported, setGaplessSupported] = useState(false);
-  const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
+  const [devices, setDevices] = useState<
+    { id: string; name: string }[] | null
+  >(null);
+  const [reload, setReload] = useState(0);
 
   useTvInitialFocus(true);
 
@@ -95,8 +98,8 @@ export default function TvSettings() {
           );
         }
       })
-      .catch(() => {});
-  }, [exclusive, store, setDevice]);
+      .catch(() => setDevices([]));
+  }, [exclusive, store, setDevice, reload]);
 
   const gaplessDisabled = !gaplessSupported || exclusive || bitPerfect;
 
@@ -171,8 +174,15 @@ export default function TvSettings() {
             );
           }}
         />
+        {exclusive && devices?.length === 0 && (
+          <TvSettingsRow
+            title="No output devices found"
+            subtitle="Connect the device, then select to look again"
+            onSelect={() => setReload((n) => n + 1)}
+          />
+        )}
         {exclusive &&
-          devices.map((d) => (
+          devices?.map((d) => (
             <TvSettingsRow
               key={d.id}
               title={d.name}
