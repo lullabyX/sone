@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import TvKeyboard from "./TvKeyboard";
 import { TvButton } from "./TvParts";
@@ -9,6 +9,16 @@ export interface TvPromptRequest {
   initial?: string;
   /** Label of the confirming button. */
   confirm: string;
+  /** Shown while the field is empty; "Name" by default. */
+  placeholder?: string;
+  /** Empty text can be submitted. */
+  allowEmpty?: boolean;
+  /** `false` submits the text as typed, without trimming. */
+  trim?: boolean;
+  /** Masks the text (a password). */
+  secret?: boolean;
+  /** Longest text the field and the on-screen keyboard accept. */
+  maxLength?: number;
 }
 
 /**
@@ -24,6 +34,7 @@ export default function TvPrompt({
 }) {
   const [text, setText] = useState(request.initial ?? "");
   const panelRef = useRef<HTMLDivElement>(null);
+  const { maxLength } = request;
 
   // Take focus on open, give it back on close.
   useLayoutEffect(() => {
@@ -36,7 +47,23 @@ export default function TvPrompt({
     };
   }, []);
 
-  const name = text.trim();
+  const edit = useCallback(
+    (change: (text: string) => string) =>
+      setText((t) => {
+        const next = change(t);
+        return maxLength !== undefined &&
+          next.length > maxLength &&
+          next.length > t.length
+          ? t
+          : next;
+      }),
+    [maxLength],
+  );
+
+  const value = request.trim === false ? text : text.trim();
+  const submit = () => {
+    if (value || request.allowEmpty) onDone(value);
+  };
 
   return (
     <div className="fixed inset-0 z-[10000] tv-overlay flex items-center justify-center bg-black/60">
@@ -54,28 +81,28 @@ export default function TvPrompt({
         <label className="tv-input mt-[1rem] flex h-[2.8rem] items-center rounded-[0.6rem] bg-th-surface px-[1rem]">
           <input
             data-tv-focusable
+            type={request.secret ? "password" : "text"}
+            maxLength={maxLength}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               // Enter that commits an input method's text is not a submit.
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (e.key === "Enter" && name) onDone(name);
+              if (e.key === "Enter") submit();
             }}
             spellCheck={false}
-            placeholder="Name"
+            placeholder={request.placeholder ?? "Name"}
             className="min-w-0 flex-1 bg-transparent text-[0.95rem] text-th-text-primary outline-none placeholder:text-th-text-faint"
           />
         </label>
         <div className="mt-[1rem]">
-          <TvKeyboard autoFocus onChange={setText} empty={text === ""} />
+          <TvKeyboard autoFocus onChange={edit} empty={text === ""} />
         </div>
         <div className="mt-[1.4rem] flex gap-[0.8rem]">
           <TvButton
             primary
             label={request.confirm}
-            onClick={() => {
-              if (name) onDone(name);
-            }}
+            onClick={submit}
           />
           <TvButton label="Cancel" onClick={() => onDone(null)} />
         </div>
