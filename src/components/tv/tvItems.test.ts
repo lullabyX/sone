@@ -59,6 +59,44 @@ describe("sectionEntries", () => {
     ]);
   });
 
+  it("routes magazine cards to albums, artists and videos", () => {
+    const { entries } = sectionEntries(
+      [
+        {
+          _itemType: "MAGAZINE",
+          type: "ALBUM",
+          artifactId: "42",
+          shortHeader: "Album story",
+          imageURL: "https://img/a.jpg",
+        },
+        {
+          _itemType: "MAGAZINE",
+          type: "ARTIST",
+          artifactId: "7",
+          shortHeader: "Artist story",
+        },
+        {
+          _itemType: "MAGAZINE",
+          type: "VIDEO",
+          artifactId: "5",
+          shortHeader: "Clip",
+        },
+        {
+          type: "MAGAZINE",
+          data: { type: "PLAYLIST", artifactId: "p", shortHeader: "H" },
+        },
+      ],
+      "HORIZONTAL_LIST",
+    );
+    expect(entries.map((e) => e.action)).toMatchObject([
+      { kind: "open", view: { type: "album", id: 42 } },
+      { kind: "open", view: { type: "artist", id: 7 } },
+      { kind: "playVideo" },
+      { kind: "open", view: { type: "playlist", uuid: "p", title: "H" } },
+    ]);
+    expect(entries[0].image).toBe("https://img/a.jpg");
+  });
+
   it("drops duplicates and items with nowhere to go", () => {
     const { entries } = sectionEntries(
       [track(1), track(1), null, {}],

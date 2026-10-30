@@ -14,6 +14,7 @@ import {
   getItemSubtitle,
   getItemTitle,
   getItemType,
+  getMagazineData,
   isMagazineItem,
   isMyTracksItem,
   isTrackItem,
@@ -207,18 +208,21 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
     };
   }
 
-  // MULTIPLE_TOP_PROMOTIONS ("Featured") reference content by artifactId.
-  if (item.artifactId && item.type && !isMagazineItem(item)) {
-    const promoTitle = item.shortHeader || item.header || "";
-    const image = getTidalPromoImageUrl(item.imageId);
-    const id = String(item.artifactId);
+  // MULTIPLE_TOP_PROMOTIONS ("Featured") and MAGAZINE cards reference their
+  // content by artifactId (HomeSection's rule).
+  const magazine = isMagazineItem(item);
+  const promo = magazine ? getMagazineData(item) : item;
+  if (promo?.artifactId && promo?.type) {
+    const promoTitle = promo.shortHeader || promo.header || "";
+    const image = getTidalPromoImageUrl(promo.imageURL || promo.imageId);
+    const id = String(promo.artifactId);
     const base = {
-      key: `promo:${item.type}:${id}`,
+      key: `promo:${promo.type}:${id}`,
       title: promoTitle,
-      subtitle: item.shortSubHeader || item.subHeader || "",
+      subtitle: promo.shortSubHeader || promo.subHeader || "",
       image,
     };
-    switch (item.type) {
+    switch (promo.type) {
       case "PLAYLIST":
         return {
           ...base,
@@ -251,7 +255,7 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
           type: "video" as const,
           id: Number(id),
           title: promoTitle,
-          imageId: item.imageId,
+          imageId: promo.imageId,
         };
         return {
           ...base,
@@ -263,6 +267,7 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
         return null;
     }
   }
+  if (magazine) return null;
 
   // Explore links (genres, moods, decades, shortcuts) lead to another page.
   // They have no artwork (an `icon` is a small glyph, not a cover), so they
