@@ -5,7 +5,9 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useAtomValue } from "jotai";
 import { Check, X, AlertCircle } from "lucide-react";
+import { tvModeAtom } from "../atoms/tv";
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -79,10 +81,13 @@ function Toaster({
   toasts: Toast[];
   onDismiss: (id: string) => void;
 }) {
+  const tvMode = useAtomValue(tvModeAtom);
   if (toasts.length === 0) return null;
 
   return (
-    <div className="sone-toasts fixed bottom-[104px] left-1/2 -translate-x-1/2 z-[9900] flex flex-col-reverse items-center gap-2 pointer-events-none">
+    <div
+      className={`sone-toasts fixed bottom-[104px] left-1/2 -translate-x-1/2 ${tvMode ? "z-[10001]" : "z-[9900]"} flex flex-col-reverse items-center gap-2 pointer-events-none`}
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}
@@ -118,7 +123,7 @@ function Toaster({
           </span>
 
           {/* Action */}
-          {toast.action && (
+          {!tvMode && toast.action && (
             <button
               onClick={() => {
                 toast.action?.onClick();
@@ -131,12 +136,14 @@ function Toaster({
           )}
 
           {/* Dismiss */}
-          <button
-            onClick={() => onDismiss(toast.id)}
-            className="shrink-0 p-0.5 text-th-text-faint hover:text-th-text-primary transition-colors rounded"
-          >
-            <X size={14} />
-          </button>
+          {!tvMode && (
+            <button
+              onClick={() => onDismiss(toast.id)}
+              className="shrink-0 p-0.5 text-th-text-faint hover:text-th-text-primary transition-colors rounded"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       ))}
     </div>
