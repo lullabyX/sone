@@ -27,7 +27,7 @@ it("characterizes today's routing", () => {
   expect(r({ key: "Enter", hasMenu: true, repeat: true })).toEqual({ type: "swallow" });
   expect(r({ key: "Enter", holding: true })).toEqual({ type: "swallow" });
   expect(r({ key: "Enter" })).toEqual({ type: "none" });
-  expect(r({ key: "Enter", repeat: true })).toEqual({ type: "none" });
+  expect(r({ key: "Enter", repeat: true })).toEqual({ type: "swallow" });
   expect(r({ key: "ContextMenu" })).toEqual({ type: "openMenu" });
   expect(r({ key: "MediaPlayPause" })).toEqual({ type: "media", command: { kind: "toggle" } });
   expect(r({ key: "MediaTrackNext" })).toEqual({ type: "media", command: { kind: "next" } });
@@ -69,4 +69,9 @@ it("keeps Left/Right on a range input, Up/Down leave", () => {
   expect(r({ key: "ArrowDown", field: "range" })).toEqual({ type: "move", dir: "down", enterSide: true });
   expect(r({ key: "Backspace", field: "range" })).toEqual({ type: "back" });
   expect(r({ key: "Backspace", field: "field" })).toEqual({ type: "none" });
+});
+it("never repeats a held OK outside a text field", () => {
+  expect(r({ key: "Enter", repeat: true, layer: "native" })).toEqual({ type: "swallow" });
+  expect(r({ key: "Enter", repeat: true, video: { inControls: true, inQualityList: false } })).toEqual({ type: "swallow" });
+  expect(r({ key: "Enter", repeat: true, field: "caret" })).toEqual({ type: "none" });
 });

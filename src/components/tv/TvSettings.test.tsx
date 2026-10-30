@@ -1,17 +1,44 @@
-import { expect, it, vi } from "vitest";
-import { act, screen } from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { createStore } from "jotai";
 
+const auth = vi.hoisted(() => ({ userName: "Ann", logout: vi.fn() })); // one object: useAuth keeps stable identities
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn(() => Promise.resolve("1.2.3")),
 }));
+vi.mock("../../hooks/useAuth", () => ({ useAuth: () => auth }));
 
-import { renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
+import {
+  mkTrack,
+  mockInvoke,
+  renderTv,
+  setupTvTest,
+  stubLayout,
+  withQueue,
+} from "./tvTestUtils";
 import TvSettings from "./TvSettings";
+import type { TvNav } from "./TvNavContext";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
 
 setupTvTest();
+beforeEach(() => mockInvoke({ get_gapless_supported: () => false }));
+const labels = (nav: TvNav) =>
+  vi.mocked(nav.openMenu).mock.calls[0][0].items.map((i) => i.label);
+
+it("asks before logging out, with Cancel first", () => {
+  const { nav } = renderTv(<TvSettings />);
+  fireEvent.click(screen.getByRole("button", { name: /Signed in as Ann/ }));
+  expect(labels(nav)).toEqual(["Cancel", "Log out"]);
+});
+
+it("asks before turning explicit content off while something plays, with Cancel first", () => {
+  const store = withQueue([mkTrack(1), mkTrack(2)], mkTrack(1));
+  const { nav } = renderTv(<TvSettings />, { store });
+  fireEvent.click(screen.getByRole("button", { name: /Allow explicit content/ }));
+  expect(labels(nav)).toEqual(["Cancel", "Yes, turn off"]);
+});
 
 it("Down from Log out moves focus into About and on to the release QR", async () => {
   const restore = stubLayout();

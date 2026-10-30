@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import { X, type LucideIcon } from "lucide-react";
 
 export interface TvMenuItem {
   label: string;
@@ -17,6 +17,24 @@ export interface TvMenuSpec {
   image?: string;
   round?: boolean;
   items: TvMenuItem[];
+}
+
+/** A destructive confirmation; "Cancel" comes first so it gets the focus. */
+export function confirmMenu(opts: {
+  title: string;
+  subtitle?: string;
+  confirmLabel: string;
+  icon?: LucideIcon;
+  onConfirm: () => void | Promise<void>;
+}): TvMenuSpec {
+  return {
+    title: opts.title,
+    subtitle: opts.subtitle,
+    items: [
+      { label: "Cancel", icon: X, onSelect: () => {} },
+      { label: opts.confirmLabel, icon: opts.icon, onSelect: opts.onConfirm },
+    ],
+  };
 }
 
 /** Elements carrying a menu (long-press Enter / the Menu key opens it). */

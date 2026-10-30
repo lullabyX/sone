@@ -24,7 +24,6 @@ import {
   Plus,
   Trash2,
   Users,
-  X,
 } from "lucide-react";
 import TidalImage from "../TidalImage";
 import {
@@ -53,7 +52,7 @@ import type { MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
 import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { actionForMedia, type TvView } from "./tvItems";
-import type { TvMenuItem, TvMenuSpec } from "./tvMenu";
+import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
 import type { TvPromptRequest } from "./TvPrompt";
 
 export interface TvMenuHostHandle {
@@ -497,29 +496,25 @@ const TvMenuHost = forwardRef<
           {
             label: "Delete playlist",
             icon: Trash2,
-            submenu: () => ({
-              title: `Delete "${label(name)}"?`,
-              subtitle: "This can't be undone.",
-              items: [
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  onSelect: async () => {
-                    try {
-                      await deletePlaylist(item.uuid);
-                      setAllPlaylists((prev) =>
-                        prev.filter((p) => p.uuid !== item.uuid),
-                      );
-                      onPlaylistDeleted(item.uuid);
-                      showToast(`Deleted "${label(name)}"`);
-                    } catch {
-                      showToast("Couldn't delete the playlist", "error");
-                    }
-                  },
+            submenu: () =>
+              confirmMenu({
+                title: `Delete "${label(name)}"?`,
+                subtitle: "This can't be undone.",
+                confirmLabel: "Delete",
+                icon: Trash2,
+                onConfirm: async () => {
+                  try {
+                    await deletePlaylist(item.uuid);
+                    setAllPlaylists((prev) =>
+                      prev.filter((p) => p.uuid !== item.uuid),
+                    );
+                    onPlaylistDeleted(item.uuid);
+                    showToast(`Deleted "${label(name)}"`);
+                  } catch {
+                    showToast("Couldn't delete the playlist", "error");
+                  }
                 },
-                { label: "Cancel", icon: X, onSelect: () => {} },
-              ],
-            }),
+              }),
           },
         );
       }

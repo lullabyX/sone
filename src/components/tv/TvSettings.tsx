@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, LogOut, SlidersHorizontal, X } from "lucide-react";
+import { Check, LogOut, SlidersHorizontal } from "lucide-react";
 import {
   allowAiAtom,
   allowExplicitAtom,
@@ -29,6 +29,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { resetPlaybackForContentChange } from "../../lib/playbackReset";
 import { PRESET_THEMES } from "../../lib/theme";
 import { TvAboutSection } from "./TvAbout";
+import { confirmMenu } from "./tvMenu";
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { TvSettingsRow, TvSettingsSection } from "./TvSettingsParts";
 
@@ -119,14 +120,14 @@ export default function TvSettings() {
       return;
     }
     const label = which === "ai" ? "AI" : "explicit";
-    nav.openMenu({
-      title: `Turn off ${label} content?`,
-      subtitle: "Turning this off clears your current queue.",
-      items: [
-        { label: "Yes, turn off", onSelect: () => applyContentOff(which) },
-        { label: "Not now", icon: X, onSelect: () => {} },
-      ],
-    });
+    nav.openMenu(
+      confirmMenu({
+        title: `Turn off ${label} content?`,
+        subtitle: "Turning this off clears your current queue.",
+        confirmLabel: "Yes, turn off",
+        onConfirm: () => applyContentOff(which),
+      }),
+    );
   };
 
   return (
@@ -347,14 +348,15 @@ export default function TvSettings() {
             <LogOut className="w-[1.1rem] h-[1.1rem] text-th-text-muted" />
           }
           onSelect={() =>
-            nav.openMenu({
-              title: "Log out?",
-              subtitle: "You can sign in again right here.",
-              items: [
-                { label: "Log out", icon: LogOut, onSelect: () => logout() },
-                { label: "Cancel", icon: X, onSelect: () => {} },
-              ],
-            })
+            nav.openMenu(
+              confirmMenu({
+                title: "Log out?",
+                subtitle: "You can sign in again right here.",
+                confirmLabel: "Log out",
+                icon: LogOut,
+                onConfirm: () => logout(),
+              }),
+            )
           }
         />
       </TvSettingsSection>

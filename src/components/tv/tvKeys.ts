@@ -156,6 +156,15 @@ function routeVideoKey(
 
 export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   if (f.modified) return { type: "none" };
+  // A held OK must not click over and over (or confirm what it just opened).
+  if (
+    f.key === "Enter" &&
+    f.repeat &&
+    f.field !== "caret" &&
+    f.field !== "field"
+  ) {
+    return { type: "swallow" };
+  }
   if (f.video) return routeVideoKey(f, f.video);
 
   const media = MEDIA_KEYS[f.key];
