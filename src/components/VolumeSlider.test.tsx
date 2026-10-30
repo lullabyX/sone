@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { cleanup, render, fireEvent, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import type { PropsWithChildren } from "react";
 
@@ -10,12 +10,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import VolumeSlider from "./VolumeSlider";
-import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
+import { volumeAtom, bitPerfectAtom, preMuteVolumeAtom } from "../atoms/playback";
 import { currentVideoAtom } from "../atoms/video";
 import type { TidalVideo } from "../types";
 // usePlaybackActions (used by VolumeSlider) calls useToast(), which throws
 // outside a ToastProvider — so the rendered tree must be wrapped in it.
 import { ToastProvider } from "../contexts/ToastContext";
+
+afterEach(cleanup);
 
 function setup(
   initial: {
@@ -100,5 +102,22 @@ describe("VolumeSlider scroll-to-adjust", () => {
   it("does not prevent default while bit-perfect is active", () => {
     const { el } = setup({ volume: 0.5, bitPerfect: true });
     expect(fireEvent.wheel(el, { deltaY: -100 })).toBe(true);
+  });
+});
+
+describe("VolumeSlider mute button", () => {
+  it("unmutes to the level from before mute", () => {
+    const { store } = setup({ volume: 0.6 });
+    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
+    expect(store.get(volumeAtom)).toBe(0);
+    expect(store.get(preMuteVolumeAtom)).toBe(0.6);
+    fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+    expect(store.get(volumeAtom)).toBe(0.6);
+  });
+
+  it("unmutes to half volume when no level was saved", () => {
+    const { store } = setup({ volume: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+    expect(store.get(volumeAtom)).toBe(0.5);
   });
 });
