@@ -1,4 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { focusElement } from "../../lib/spatialNav";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
@@ -6,10 +13,12 @@ import {
   ArrowUp,
   ArrowUpDown,
   Heart,
+  ListFilter,
   ListX,
   MoreHorizontal,
   Play,
   Shuffle,
+  X,
 } from "lucide-react";
 import {
   getAlbumPage,
@@ -113,6 +122,17 @@ const sortKeyOf = (view: ListView) =>
 function dedupeById(tracks: Track[]): Track[] {
   const seen = new Set<number>();
   return tracks.filter((t) => !seen.has(t.id) && !!seen.add(t.id));
+}
+
+/** The desktop favorites filter: title, artist or album contains `q`
+ *  (already lower-cased). */
+function matchesTrack(t: Track, q: string): boolean {
+  return (
+    t.title.toLowerCase().includes(q) ||
+    !!t.artist?.name?.toLowerCase().includes(q) ||
+    !!t.artists?.some((a) => a.name?.toLowerCase().includes(q)) ||
+    !!t.album?.title?.toLowerCase().includes(q)
+  );
 }
 
 async function loadList(
@@ -298,6 +318,7 @@ function TrackListPage({
   const fav = useFavorites();
   const { removeTrackFromPlaylist } = usePlaylists();
   const listRef = useRef<HTMLDivElement>(null);
+  const sideRef = useRef<HTMLElement>(null);
   const { showToast } = useToast();
   // Removals go out one at a time: each sends the row's position at the
   // moment it is chosen, after the ones before it have landed. A failure
@@ -337,12 +358,27 @@ function TrackListPage({
           : paged.items,
     [paged.items, spec.include, spec.dedupe],
   );
+  // A filter needs every page: it loads the rest and keeps loading after a
+  // retry or a re-sort while it is on.
+  const [query, setQuery] = useState("");
+  const filtering = query !== "";
+  const loadingAll = filtering && paged.hasMore && !paged.moreError;
+  const { loadAll } = paged;
+  useEffect(() => {
+    if (filtering && !paged.moreError) void loadAll();
+  }, [filtering, paged.moreError, loadAll, pagedKey, spec.first]);
+  // Filtered rows keep their number in the whole list.
+  const listed = useMemo(() => {
+    const q = query.toLowerCase();
+    const all = rows.map((track, pos) => ({ track, pos }));
+    return q ? all.filter(({ track }) => matchesTrack(track, q)) : all;
+  }, [rows, query]);
   // No new page while removals are in flight: their offsets would shift
   // under the fetch.
   useTvGrowOnFocus(
     listRef,
-    rows.length,
-    spec.pager && pendingRemovals === 0 ? paged.loadMore : null,
+    listed.length,
+    spec.pager && pendingRemovals === 0 && !filtering ? paged.loadMore : null,
   );
 
   const playable = (): PlayableSource =>
@@ -455,6 +491,45 @@ function TrackListPage({
       }),
     );
   };
+  const openFilter = async () => {
+    const q = await nav.prompt({
+      title: "Filter My Tracks",
+      initial: query,
+      confirm: "Filter",
+      allowEmpty: true,
+      placeholder: "Title, artist or album",
+    });
+    if (q !== null) setQuery(q);
+  };
+  const clearFilter = () => {
+    setQuery("");
+    // The Clear button goes away with the filter.
+    requestAnimationFrame(() => {
+      const b = sideRef.current?.querySelector<HTMLElement>(
+        '[aria-label="Filter"]',
+      );
+      if (b) focusElement(b);
+    });
+  };
+  // The button goes away while the page loads: focus then moves to the
+  // first new row, or back to the button when the page added none.
+  const loadMore = async () => {
+    if (removalsPending()) return;
+    const first = listed.length;
+    await paged.loadMore();
+    requestAnimationFrame(() => {
+      const list = listRef.current;
+      const active = document.activeElement;
+      if (!list || (active && active !== document.body && active.isConnected))
+        return;
+      const next =
+        list
+          .querySelector(`[data-tv-index="${first}"]`)
+          ?.querySelector<HTMLElement>("[data-tv-focusable]") ??
+        list.querySelector<HTMLElement>('[aria-label="Load more"]');
+      if (next) focusElement(next);
+    });
+  };
   const removeFromPlaylist = (track: Track) => {
     if (view.type !== "playlist") return;
     const uuid = view.uuid;
@@ -535,6 +610,7 @@ function TrackListPage({
   return (
     <div className="flex h-full">
       <aside
+        ref={sideRef}
         data-tv-side
         data-tv-remember
         className="w-[32rem] shrink-0 h-full overflow-hidden flex flex-col justify-center pl-[3rem] pr-[1.5rem] py-[1.5rem]"
@@ -571,6 +647,11 @@ function TrackListPage({
         {subtitle && (
           <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary line-clamp-2">
             {subtitle}
+          </p>
+        )}
+        {filtering && (
+          <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary truncate">
+            Filter: “{query}”
           </p>
         )}
         {/* Play and Shuffle share the first line, the smaller actions the
@@ -620,6 +701,20 @@ function TrackListPage({
               onClick={openSort}
             />
           )}
+          {view.type === "favorites" && (
+            <TvButton
+              label="Filter"
+              icon={<ListFilter className="w-[1rem] h-[1rem]" />}
+              onClick={() => void openFilter()}
+            />
+          )}
+          {filtering && (
+            <TvButton
+              label="Clear"
+              icon={<X className="w-[1rem] h-[1rem]" />}
+              onClick={clearFilter}
+            />
+          )}
           {spec.artist && (
             <TvButton
               label={spec.artist.name}
@@ -639,19 +734,21 @@ function TrackListPage({
         ref={listRef}
         data-tv-remember
         data-tv-scroll-root
-        data-tv-loading={paged.loadingMore || undefined}
+        data-tv-loading={paged.loadingMore || loadingAll || undefined}
         className="tv-scroll flex-1 min-w-0 h-full overflow-y-auto pl-[0.5rem] pr-[2rem] pt-[2.5rem] pb-[3rem]"
       >
-        {rows.length === 0 ? (
+        {listed.length === 0 && !paged.hasMore ? (
           <p className="px-[1rem] text-[0.85rem] text-th-text-muted">
-            No tracks here yet.
+            {filtering ? `No tracks match “${query}”.` : "No tracks here yet."}
           </p>
         ) : (
-          rows.map((track, i) => (
+          listed.map(({ track, pos }, i) => (
             <TvTrackRow
-              key={`${track.id}:${i}`}
+              key={`${track.id}:${pos}`}
               track={track}
               index={i}
+              position={i}
+              number={pos + 1}
               entry={i === 0}
               menuExtra={
                 canRemove
@@ -672,7 +769,7 @@ function TrackListPage({
             />
           ))
         )}
-        {paged.loadingMore && (
+        {(paged.loadingMore || loadingAll) && (
           <p className="px-[1rem] py-[1rem] text-[0.85rem] text-th-text-muted">
             Loading…
           </p>
@@ -685,6 +782,16 @@ function TrackListPage({
             <TvButton label="Try again" onClick={paged.retry} />
           </div>
         )}
+        {/* Reachable when a page adds no shown rows, so focus never nears
+            the end again. */}
+        {paged.hasMore &&
+          !paged.loadingMore &&
+          !paged.moreError &&
+          !loadingAll && (
+            <div className="px-[1rem] py-[1rem]">
+              <TvButton label="Load more" onClick={() => void loadMore()} />
+            </div>
+          )}
       </div>
     </div>
   );

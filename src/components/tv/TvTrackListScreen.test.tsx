@@ -5,7 +5,7 @@ import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../../atoms/favorites"
 import { allowExplicitAtom } from "../../atoms/playback";
 import type { Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
-import { deferred, type Deferred, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
+import { deferred, type Deferred, makeTvNav, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -331,5 +331,71 @@ describe("sorting", () => {
     });
     expect(store.get(trackSortPrefsAtom)).toEqual({});
     await waitFor(() => expect(api.getFavoriteTracks).toHaveBeenLastCalledWith(42, 0, 100, "DATE", "DESC"));
+  });
+});
+
+describe("filtering My Tracks", () => {
+  it("filters My Tracks after loading every page", async () => {
+    api.getFavoriteTracks
+      .mockResolvedValueOnce({ items: [mkTrack(1, { title: "Blue" }), mkTrack(2)], totalNumberOfItems: 3 })
+      .mockResolvedValueOnce({
+        items: [mkTrack(3, { album: { id: 9, title: "Kind of Blue", cover: "c" } })],
+        totalNumberOfItems: 3,
+      });
+    const store = signedIn(42);
+    store.set(favoriteTrackIdsAtom, new Set([1, 2, 3]));
+    const nav = makeTvNav({ prompt: vi.fn(async () => "blue") });
+    renderTv(<TvTrackListScreen view={{ type: "favorites" }} />, { store, nav });
+    await screen.findByText("T2");
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+    await screen.findByText(/Filter: “blue”/);
+    expect(vi.mocked(nav.prompt).mock.lastCall![0]).toEqual({
+      title: "Filter My Tracks",
+      initial: "",
+      confirm: "Filter",
+      allowEmpty: true,
+      placeholder: "Title, artist or album",
+    });
+    await screen.findByText("T3");
+    expect(api.getFavoriteTracks).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Blue")).toBeTruthy();
+    expect(screen.queryByText("T2")).toBeNull();
+    expect(rowButton("T3").textContent).toMatch(/^3/);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.getByText("T2")).toBeTruthy();
+    expect(screen.queryByText(/Filter: “/)).toBeNull();
+  });
+
+  it("a page that adds no visible rows leaves a Load more button", async () => {
+    api.getFavoriteTracks
+      .mockResolvedValueOnce({ items: [mkTrack(1)], totalNumberOfItems: 3 })
+      .mockResolvedValueOnce({ items: [mkTrack(2)], totalNumberOfItems: 3 })
+      .mockResolvedValueOnce({ items: [mkTrack(3)], totalNumberOfItems: 3 });
+    const store = signedIn(42);
+    store.set(favoriteTrackIdsAtom, new Set([1, 3]));
+    renderTv(<TvTrackListScreen view={{ type: "favorites" }} />, { store });
+    await screen.findByText("T1");
+    act(() => rowButton("T1").focus());
+    await waitFor(() => expect(api.getFavoriteTracks).toHaveBeenCalledTimes(2));
+    const more = await screen.findByRole("button", { name: "Load more" });
+    act(() => more.focus());
+    fireEvent.click(more);
+    await screen.findByText("T3");
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
+  });
+
+  it("an empty first page with more to come offers Load more, not the empty text", async () => {
+    api.getFavoriteTracks
+      .mockResolvedValueOnce({ items: [mkTrack(1)], totalNumberOfItems: 2 })
+      .mockResolvedValueOnce({ items: [mkTrack(2)], totalNumberOfItems: 2 });
+    const store = signedIn(42);
+    store.set(favoriteTrackIdsAtom, new Set([2]));
+    renderTv(<TvTrackListScreen view={{ type: "favorites" }} />, { store });
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(screen.queryByText("No tracks here yet.")).toBeNull();
+    await screen.findByText("T2");
+    act(() => store.set(favoriteTrackIdsAtom, new Set()));
+    expect(screen.getByText("No tracks here yet.")).toBeTruthy();
   });
 });
