@@ -6,10 +6,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useStore } from "jotai";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   Heart,
+  ListStart,
   ListX,
   Maximize2,
   Mic2,
@@ -55,7 +58,7 @@ import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useVolumeLocked } from "../../hooks/useVolumeLocked";
 import { formatTime } from "../../lib/format";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
-import { getTidalImageUrl } from "../../types";
+import { getTidalImageUrl, type Track } from "../../types";
 import {
   formatStreamQuality,
   getTrackArtistDisplay,
@@ -65,6 +68,8 @@ import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import { useToast } from "../../contexts/ToastContext";
 import { TvButton, TvTrackRow } from "./TvParts";
+import type { TvMenuItem } from "./tvMenu";
+import { moveInQueue, queueIndexOf } from "./tvQueue";
 import { TvLyricsPanel } from "./TvLyrics";
 import { useTvLyrics } from "./useTvLyrics";
 import { useTvMiniVideo, useTvVideoAspect } from "./useTvMiniVideo";
@@ -270,31 +275,99 @@ function focusPlayerSoon(element: () => HTMLElement | null) {
   });
 }
 
+/** Focuses the queue row with this queue id; false when it is not shown. */
+function focusQueueRow(list: HTMLElement | null, qid: string | undefined) {
+  const row = qid
+    ? list?.querySelector<HTMLElement>(
+        `[data-tv-row-id="${qid}"] [data-tv-focusable]`,
+      )
+    : null;
+  if (row) focusElement(row);
+  return !!row;
+}
+
+/** Up next. Every action finds its track by queue id when it runs, so a
+ *  queue that moved on while the menu was open never hits another track. */
 function QueuePanel() {
+  const store = useStore();
   const queue = useAtomValue(queueAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
-  const { playFromQueue, removeFromQueue, clearQueue } = usePlaybackActions();
+  const { playFromQueue, removeFromQueue, clearQueue, setQueueTracks } =
+    usePlaybackActions();
   const { showToast } = useToast();
   const screen = useContext(TvScreenContext);
   const listRef = useRef<HTMLDivElement>(null);
+  const total = manualQueue.length + queue.length;
   const upNext = [...manualQueue, ...queue].slice(0, UP_NEXT_SHOWN);
+  const current = () => ({
+    manual: store.get(manualQueueAtom),
+    context: store.get(queueAtom),
+  });
   // After a row leaves the list, focus the row that took its place (or the
-  // player, when the list is now empty).
-  const refocusUpNext = (index: number) =>
+  // player, when there is none).
+  const refocusUpNext = (qid: string | undefined) =>
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        const rows =
-          listRef.current?.querySelectorAll<HTMLElement>(
-            "[data-tv-has-menu]",
-          ) ?? [];
-        const next = rows[Math.min(index, rows.length - 1)];
-        if (next) focusElement(next);
-        else {
-          const el = screen.element();
-          if (el) focusFirstIn(el);
-        }
+        if (focusQueueRow(listRef.current, qid)) return;
+        const el = screen.element();
+        if (el) focusFirstIn(el);
       }),
     );
+  const move = (t: Track, to: "up" | "down" | "top") => {
+    const { manual, context } = current();
+    const r = moveInQueue(manual, context, t, to);
+    if (!r) return;
+    setQueueTracks(r.tracks, { reorder: true, manualCount: r.manualCount });
+    requestAnimationFrame(() => focusQueueRow(listRef.current, t._qid));
+  };
+  const remove = (t: Track) => {
+    const { manual, context } = current();
+    const at = queueIndexOf(manual, context, t);
+    if (at < 0) return;
+    const all = [...manual, ...context];
+    const neighbour = all[at + 1] ?? all[at - 1];
+    removeFromQueue(at);
+    refocusUpNext(neighbour?._qid);
+  };
+  const queueMenu = (t: Track, i: number): TvMenuItem[] => [
+    ...(i > 0
+      ? [
+          {
+            label: "Move up",
+            icon: ArrowUp,
+            onSelect: () => move(t, "up"),
+          },
+        ]
+      : []),
+    ...(i < total - 1
+      ? [
+          {
+            label: "Move down",
+            icon: ArrowDown,
+            onSelect: () => move(t, "down"),
+          },
+        ]
+      : []),
+    ...(i > 0
+      ? [
+          {
+            label: "Move to top",
+            icon: ListStart,
+            onSelect: () => move(t, "top"),
+          },
+        ]
+      : []),
+    { label: "Remove from queue", icon: ListX, onSelect: () => remove(t) },
+    {
+      label: "Clear queue",
+      icon: Trash2,
+      onSelect: () => {
+        clearQueue();
+        showToast("Queue cleared");
+        refocusUpNext(undefined);
+      },
+    },
+  ];
 
   if (upNext.length === 0) return <PanelEmpty text="Nothing queued" />;
   return (
@@ -304,28 +377,14 @@ function QueuePanel() {
           key={t._qid ?? `${t.id}:${i}`}
           track={t}
           index={i}
+          rowId={t._qid}
           showCover
-          menuExtra={[
-            {
-              label: "Remove from queue",
-              icon: ListX,
-              onSelect: () => {
-                removeFromQueue(i);
-                refocusUpNext(i);
-              },
-            },
-            {
-              label: "Clear queue",
-              icon: Trash2,
-              onSelect: () => {
-                clearQueue();
-                showToast("Queue cleared");
-                refocusUpNext(0);
-              },
-            },
-          ]}
+          menuExtra={queueMenu(t, i)}
           onSelect={() => {
-            void playFromQueue(i);
+            const { manual, context } = current();
+            const at = queueIndexOf(manual, context, t);
+            if (at < 0) return;
+            void playFromQueue(at);
             focusPlayerSoon(screen.element);
           }}
         />

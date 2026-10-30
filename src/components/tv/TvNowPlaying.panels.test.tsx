@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../lib/playbackPosition", async (importOriginal) => ({
@@ -17,10 +23,11 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { historyAtom, queueAtom } from "../../atoms/playback";
+import { historyAtom, manualQueueAtom, queueAtom } from "../../atoms/playback";
 import { tvNowPlayingTabAtom } from "../../atoms/tv";
 import type { Lyrics, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
+import type { TvNav } from "./TvNavContext";
 import {
   mkTrack,
   mockInvoke,
@@ -49,6 +56,14 @@ const rows = () =>
   Array.from(panel().querySelectorAll<HTMLElement>(".tv-track-row"));
 const rowFor = (title: string) =>
   screen.getByText(title).closest<HTMLElement>(".tv-track-row")!;
+const menuOf = (nav: TvNav, title: string) => {
+  fireEvent.click(
+    within(rowFor(title)).getByRole("button", { name: "More options" }),
+  );
+  const calls = vi.mocked(nav.openMenu).mock.calls;
+  return calls[calls.length - 1][0].items;
+};
+const labels = (items: { label: string }[]) => items.map((i) => i.label);
 
 describe("TvNowPlaying tabs", () => {
   it("shows the last ten played tracks, most recent first", () => {
@@ -111,5 +126,109 @@ describe("TvNowPlaying tabs", () => {
         .getAttribute("aria-selected"),
     ).toBe("true");
     expect(store.get(tvNowPlayingTabAtom)).toBe("history");
+  });
+});
+
+describe("TvNowPlaying queue actions", () => {
+  it("removes the chosen track even if the queue shifted while the menu was open", () => {
+    const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+    const [, b, c] = store.get(queueAtom);
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    const items = menuOf(nav, "T2");
+    act(() => store.set(queueAtom, [b, c]));
+    act(
+      () =>
+        void items.find((i) => i.label === "Remove from queue")!.onSelect!(),
+    );
+    expect(store.get(queueAtom).map((t) => t._qid)).toEqual([c._qid]);
+  });
+
+  it("moves a track up and keeps focus on it", async () => {
+    const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+    const [a, b, c] = store.get(queueAtom);
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    act(
+      () =>
+        void menuOf(nav, "T2").find((i) => i.label === "Move up")!.onSelect!(),
+    );
+    expect(store.get(queueAtom).map((t) => t._qid)).toEqual([
+      b._qid,
+      a._qid,
+      c._qid,
+    ]);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        rowFor("T2").querySelector("[data-tv-focusable]"),
+      ),
+    );
+  });
+
+  it("moves a context track to the top of the manual queue", () => {
+    const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+    const [a, b, c] = store.get(queueAtom);
+    store.set(manualQueueAtom, [a]);
+    store.set(queueAtom, [b, c]);
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    act(
+      () =>
+        void menuOf(nav, "T3").find((i) => i.label === "Move to top")!
+          .onSelect!(),
+    );
+    expect(store.get(manualQueueAtom).map((t) => t._qid)).toEqual([
+      c._qid,
+      a._qid,
+    ]);
+    expect(store.get(queueAtom).map((t) => t._qid)).toEqual([b._qid]);
+  });
+
+  it("offers no Move up on the first row", () => {
+    const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    const first = labels(menuOf(nav, "T1"));
+    expect(first).not.toContain("Move up");
+    expect(first).not.toContain("Move to top");
+    expect(first).toContain("Move down");
+    expect(labels(menuOf(nav, "T3"))).not.toContain("Move down");
+  });
+
+  it("focuses the row that took a removed track's place", async () => {
+    const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    act(
+      () =>
+        void menuOf(nav, "T2").find((i) => i.label === "Remove from queue")!
+          .onSelect!(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        rowFor("T3").querySelector("[data-tv-focusable]"),
+      ),
+    );
+    act(
+      () =>
+        void menuOf(nav, "T3").find((i) => i.label === "Remove from queue")!
+          .onSelect!(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        rowFor("T1").querySelector("[data-tv-focusable]"),
+      ),
+    );
+  });
+
+  it("plays the chosen queue track even if the queue shifted", async () => {
+    const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+    const [, b, c] = store.get(queueAtom);
+    renderTv(<TvNowPlaying />, { store });
+    const t3 = within(rowFor("T3")).getAllByRole("button")[0];
+    act(() => store.set(queueAtom, [b, c]));
+    fireEvent.click(t3);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "play_tidal_track",
+        expect.objectContaining({ trackId: 3 }),
+      ),
+    );
+    expect(store.get(queueAtom).map((t) => t._qid)).toEqual([b._qid]);
   });
 });

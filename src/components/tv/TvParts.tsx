@@ -255,6 +255,7 @@ export function TvTrackRow({
   showCover,
   entry,
   menuExtra,
+  rowId,
   onSelect,
 }: {
   track: Track;
@@ -264,6 +265,8 @@ export function TvTrackRow({
   entry?: boolean;
   /** Extra action-menu entries for where the row is listed. */
   menuExtra?: TvMenuItem[];
+  /** Finds the row again after the list changes (`data-tv-row-id`). */
+  rowId?: string;
   onSelect: () => void;
 }) {
   const nav = useTvNav();
@@ -277,7 +280,10 @@ export function TvTrackRow({
     isTrackUnavailable(track) || isContentBlocked(track, contentPrefs);
   const menu = () => nav.trackMenu(track, menuExtra);
   return (
-    <div className="tv-track-row flex items-center gap-[0.4rem]">
+    <div
+      className="tv-track-row flex items-center gap-[0.4rem]"
+      data-tv-row-id={rowId}
+    >
       <button
         data-tv-focusable
         data-tv-has-menu
