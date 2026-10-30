@@ -52,6 +52,24 @@ it("plays, shuffles and starts at a row through the album's source", async () =>
   expect(nav.openNowPlaying).not.toHaveBeenCalled();
 });
 
+it("groups a multi-disc album and numbers each disc from 1", async () => {
+  const v = (id: number, vol?: number) => mkTrack(id, { volumeNumber: vol });
+  api.getAlbumPage.mockResolvedValue(album([v(1, 1), v(2, 1), v(3, 2)]));
+  renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  expect(await screen.findByText("Volume 2")).toBeTruthy();
+  expect(screen.getByText("Volume 1")).toBeTruthy();
+  const row = rowButton("T3");
+  expect(row.closest("[data-tv-index]")!.getAttribute("data-tv-index")).toBe("2");
+  expect(within(row).getByText("1")).toBeTruthy();
+});
+
+it("a single-disc album has no disc headings", async () => {
+  api.getAlbumPage.mockResolvedValue(album([t1, mkTrack(2, { volumeNumber: 1 })]));
+  renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  await screen.findByText("T2");
+  expect(screen.queryByText(/^Volume \d/)).toBeNull();
+});
+
 it("a blocked row has no action menu", async () => {
   api.getAlbumPage.mockResolvedValue(album([t1, mkTrack(2, { explicit: true })]));
   const store = createStore();

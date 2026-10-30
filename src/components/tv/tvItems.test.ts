@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   entryState,
   feedEntries,
+  groupByVolume,
   sectionEntries,
   viewForSource,
 } from "./tvItems";
@@ -158,5 +159,15 @@ describe("entryState", () => {
     expect(entryState(album, { allowExplicit: false, allowAi: true }).dimmed).toBe(false);
     const gone = sectionEntries([mkTrack(2, { streamReady: false })], "TRACK_LIST").entries[0];
     expect(entryState(gone, { allowExplicit: true, allowAi: true }).dimmed).toBe(true);
+  });
+});
+
+describe("groupByVolume", () => {
+  it("groups by disc in first-appearance order; no disc number is disc 1", () => {
+    const v = (id: number, vol?: number) => mkTrack(id, { volumeNumber: vol });
+    expect(
+      [...groupByVolume([v(1, 1), v(2, 1), v(3, 2)]).entries()].map(([k, ts]) => [k, ts.map((t) => t.id)]),
+    ).toEqual([[1, [1, 2]], [2, [3]]]);
+    expect([...groupByVolume([v(1)]).keys()]).toEqual([1]);
   });
 });

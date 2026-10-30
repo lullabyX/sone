@@ -330,3 +330,19 @@ export function feedEntries(items: FeedItem[]): TvEntry[] {
   }
   return entries;
 }
+
+/** An album's tracks by disc, in the order the discs first appear; a track
+ *  without a disc number is on disc 1 (AlbumView's rule). */
+export function groupByVolume(tracks: Track[]): Map<number, Track[]> {
+  const groups = new Map<number, Track[]>();
+  for (const track of tracks) {
+    const vol = track.volumeNumber ?? 1;
+    let group = groups.get(vol);
+    if (!group) {
+      group = [];
+      groups.set(vol, group);
+    }
+    group.push(track);
+  }
+  return groups;
+}

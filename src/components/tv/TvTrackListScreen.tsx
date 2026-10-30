@@ -58,7 +58,7 @@ import {
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import TidalImage from "../TidalImage";
 import { TvButton, TvError, TvSpinner, TvTrackRow } from "./TvParts";
-import type { TvView } from "./tvItems";
+import { groupByVolume, type TvView } from "./tvItems";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 import { useTvLoader } from "./useTvLoader";
 import { useTvPaged } from "./useTvPaged";
@@ -393,6 +393,19 @@ function TrackListPage({
     const all = rows.map((track, pos) => ({ track, pos }));
     return q ? all.filter(({ track }) => matchesTrack(track, q)) : all;
   }, [rows, query]);
+  // A multi-disc album lists each disc under its own heading, numbered from
+  // 1; `start` is the flat position of the disc's first row.
+  const discs = useMemo(() => {
+    if (view.type !== "album") return null;
+    const groups = groupByVolume(rows);
+    if (groups.size < 2) return null;
+    let start = 0;
+    return [...groups].map(([vol, tracks]) => {
+      const disc = { vol, tracks, start };
+      start += tracks.length;
+      return disc;
+    });
+  }, [view.type, rows]);
   // No new page while removals are in flight: their offsets would shift
   // under the fetch.
   useTvGrowOnFocus(
@@ -611,6 +624,36 @@ function TrackListPage({
       showToast("Failed to add track", "error");
     }
   };
+  // `position` is the row's flat index in the list, `number` the one shown.
+  const renderRow = (
+    key: string,
+    track: Track,
+    position: number,
+    number: number,
+  ) => (
+    <TvTrackRow
+      key={key}
+      track={track}
+      index={position}
+      position={position}
+      number={number}
+      entry={position === 0}
+      menuExtra={
+        canRemove
+          ? [
+              {
+                label: "Remove from this playlist",
+                icon: ListX,
+                onSelect: () => removeFromPlaylist(track),
+              },
+            ]
+          : undefined
+      }
+      showCover={view.type !== "album"}
+      blockedNoMenu
+      onSelect={() => void nav.playSource(playable(), { startAt: track })}
+    />
+  );
 
   // A paged list's loaded rows are not the whole list, so it shows its
   // track count instead of a running time.
@@ -799,33 +842,29 @@ function TrackListPage({
           <p className="px-[1rem] text-[0.85rem] text-th-text-muted">
             {filtering ? `No tracks match “${query}”.` : "No tracks here yet."}
           </p>
-        ) : (
-          listed.map(({ track, pos }, i) => (
-            <TvTrackRow
-              key={`${track.id}:${pos}`}
-              track={track}
-              index={i}
-              position={i}
-              number={pos + 1}
-              entry={i === 0}
-              menuExtra={
-                canRemove
-                  ? [
-                      {
-                        label: "Remove from this playlist",
-                        icon: ListX,
-                        onSelect: () => removeFromPlaylist(track),
-                      },
-                    ]
-                  : undefined
-              }
-              showCover={view.type !== "album"}
-              blockedNoMenu
-              onSelect={() =>
-                void nav.playSource(playable(), { startAt: track })
-              }
-            />
+        ) : discs ? (
+          discs.map(({ vol, tracks, start }) => (
+            // A disc's first row scrolls into view with its heading.
+            <section
+              key={vol}
+              className="[&>.tv-track-row:first-of-type_.tv-track]:scroll-mt-[3rem]"
+            >
+              <h2
+                className={`px-[1rem] pb-[0.5rem] text-[0.95rem] font-semibold text-th-text-secondary${
+                  start > 0 ? " pt-[1.5rem]" : ""
+                }`}
+              >
+                Volume {vol}
+              </h2>
+              {tracks.map((track, n) =>
+                renderRow(`${track.id}:${start + n}`, track, start + n, n + 1),
+              )}
+            </section>
           ))
+        ) : (
+          listed.map(({ track, pos }, i) =>
+            renderRow(`${track.id}:${pos}`, track, i, pos + 1),
+          )
         )}
         {(paged.loadingMore || loadingAll) && (
           <p className="px-[1rem] py-[1rem] text-[0.85rem] text-th-text-muted">
