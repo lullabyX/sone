@@ -82,6 +82,15 @@ describe("tvTestUtils", () => {
     expect(await d.promise).toBe(5);
   });
 
+  it("makeTvNav's playSource resolves true", async () => {
+    expect(
+      await makeTvNav().playSource({
+        meta: { type: "album", id: 1, name: "A" },
+        loaded: [],
+      }),
+    ).toBe(true);
+  });
+
   it("leaves state behind for the next test to check", () => {
     localStorage.setItem("x", "1");
     document.documentElement.className = "tv-mode";

@@ -84,6 +84,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { TvButton, TvSpinner, TvTrackRow } from "./TvParts";
 import type { TvMenuItem } from "./tvMenu";
 import { moveInQueue, queueIndexOf } from "./tvQueue";
+import { useTvPlayback } from "./useTvPlayback";
 import { viewForSource } from "./tvItems";
 import { TvLyricsPanel } from "./TvLyrics";
 import { useTvLyrics } from "./useTvLyrics";
@@ -312,8 +313,9 @@ function QueuePanel() {
   const contextSource = useAtomValue(contextSourceAtom);
   const playbackSource = useAtomValue(playbackSourceAtom);
   const source = contextSource ?? playbackSource;
-  const { playFromQueue, removeFromQueue, clearQueue, setQueueTracks } =
-    usePlaybackActions();
+  const { removeFromQueue, clearQueue, setQueueTracks } = usePlaybackActions();
+  const nav = useTvNav();
+  const { playQueued } = useTvPlayback(nav.openNowPlaying);
   const { showToast } = useToast();
   const screen = useContext(TvScreenContext);
   const listRef = useRef<HTMLDivElement>(null);
@@ -405,7 +407,7 @@ function QueuePanel() {
         const { manual, context } = current();
         const at = queueIndexOf(manual, context, t);
         if (at < 0) return;
-        void playFromQueue(at);
+        void playQueued(at);
         focusPlayerSoon(screen.element);
       }}
     />
@@ -442,7 +444,8 @@ function QueueHeading({ text }: { text: string }) {
  *  queue, as in the desktop queue tab. */
 function HistoryPanel() {
   const history = useAtomValue(historyAtom);
-  const { playTrack } = usePlaybackActions();
+  const nav = useTvNav();
+  const { playOne } = useTvPlayback(nav.openNowPlaying);
   const screen = useContext(TvScreenContext);
   const recent = history.slice(-10).reverse();
 
@@ -456,7 +459,7 @@ function HistoryPanel() {
           index={i}
           showCover
           onSelect={() => {
-            void playTrack(t);
+            void playOne(t);
             focusPlayerSoon(screen.element);
           }}
         />
@@ -470,7 +473,8 @@ function HistoryPanel() {
 function SuggestedPanel() {
   const track = useAtomValue(currentTrackAtom);
   const { tracks, loading, error } = useSuggestedTracks(track);
-  const { playTrack } = usePlaybackActions();
+  const nav = useTvNav();
+  const { playOne } = useTvPlayback(nav.openNowPlaying);
   const screen = useContext(TvScreenContext);
 
   if (loading) return <TvSpinner />;
@@ -485,7 +489,7 @@ function SuggestedPanel() {
           index={i}
           showCover
           onSelect={() => {
-            void playTrack(t);
+            void playOne(t);
             focusPlayerSoon(screen.element);
           }}
         />

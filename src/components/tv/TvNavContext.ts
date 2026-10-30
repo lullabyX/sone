@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect } from "react";
 import { focusFirstIn, isShown } from "../../lib/spatialNav";
 import type { MediaItemType, Track } from "../../types";
 import type { usePlaybackActions } from "../../hooks/usePlaybackActions";
+import type { PlayableSource } from "../../lib/trackSources";
 import type { TvAction, TvView } from "./tvItems";
 import type { TvMenuItem, TvMenuSpec } from "./tvMenu";
 import type { TvPromptRequest } from "./TvPrompt";
@@ -15,14 +16,21 @@ export interface TvNav {
    *  is open. */
   openNowPlaying: () => void;
   /** Play `track` with `tracks` queued around it and show Now Playing. If
-   *  it is the track already playing, it only shows Now Playing. */
+   *  it is the track already playing, it only shows Now Playing. Resolves
+   *  false when nothing started (the reason is toasted). */
   playTrack: (
     track: Track,
     tracks: Track[],
     options?: Parameters<
       ReturnType<typeof usePlaybackActions>["playFromSource"]
     >[2],
-  ) => void;
+  ) => Promise<boolean>;
+  /** Play a whole source (from `startAt` when given) and show Now Playing
+   *  once something started. */
+  playSource: (
+    src: PlayableSource,
+    opts?: { shuffle?: boolean; startAt?: Track },
+  ) => Promise<boolean>;
   /** Open the action menu (the TV's right-click menu). */
   openMenu: (spec: TvMenuSpec) => void;
   /** Action menus for a track and for an album / playlist / mix / artist.
@@ -39,7 +47,7 @@ export interface TvNav {
    *  track keeps the rest of that row queued behind it. */
   run: (
     action: TvAction,
-    queue?: { tracks: Track[]; name: string; id: string },
+    queue?: { tracks: Track[]; name: string; id: string; type?: string },
   ) => void;
 }
 

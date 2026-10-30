@@ -44,7 +44,6 @@ import {
 import { allPlaylistsAtom } from "../../atoms/playlists";
 import { useToast } from "../../contexts/ToastContext";
 import { useFavorites } from "../../hooks/useFavorites";
-import { useMediaPlay } from "../../hooks/useMediaPlay";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
@@ -54,6 +53,7 @@ import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { actionForMedia, type TvView } from "./tvItems";
 import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
 import type { TvPromptRequest } from "./TvPrompt";
+import { useTvPlayback } from "./useTvPlayback";
 
 export interface TvMenuHostHandle {
   open: (spec: TvMenuSpec) => void;
@@ -86,7 +86,7 @@ const TvMenuHost = forwardRef<
   const store = useStore();
   const { showToast } = useToast();
   const { addToQueue, playNextInQueue } = usePlaybackActions();
-  const playMedia = useMediaPlay();
+  const { playMedia } = useTvPlayback(onPlayed);
   const fav = useFavorites();
   const { addTrackToPlaylist, createPlaylist, updatePlaylist, deletePlaylist } =
     usePlaylists();
@@ -337,10 +337,7 @@ const TvMenuHost = forwardRef<
         {
           label: "Play",
           icon: Play,
-          onSelect: () => {
-            void playMedia(item);
-            if (item.type !== "video") onPlayed();
-          },
+          onSelect: () => void playMedia(item),
         },
       ];
       if (item.type !== "video") {
@@ -570,7 +567,6 @@ const TvMenuHost = forwardRef<
       playMedia,
       showToast,
       onNavigate,
-      onPlayed,
       userId,
       onPrompt,
       updatePlaylist,

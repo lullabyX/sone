@@ -22,11 +22,8 @@ import ProxyNoticeBanner from "../ProxyNoticeBanner";
 import SettingsSheet from "../settings/SettingsSheet";
 import { tvModeAtom } from "../../atoms/tv";
 import { feedUnseenCountAtom } from "../../atoms/ui";
-import { currentTrackAtom } from "../../atoms/playback";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
-import { useMediaPlay } from "../../hooks/useMediaPlay";
 import { useMiniplayerEmitter } from "../../hooks/useMiniplayerEmitter";
-import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import {
   dockFallback,
   focusElement,
@@ -56,6 +53,7 @@ import TvMiniBar from "./TvMiniBar";
 import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
+import { useTvPlayback } from "./useTvPlayback";
 import { textEntryKind, type TvKeyAction } from "./tvKeys";
 import { fieldLabel, setNativeInputValue } from "./tvFields";
 import { topTvModal, tvLayer, useTvKeyRouter } from "./useTvKeyRouter";
@@ -167,9 +165,7 @@ export default function TvApp() {
   const videoExpanded = useAtomValue(videoExpandedAtom);
   const overlayShowing = !!currentVideo && videoExpanded;
   const feedUnseen = useAtomValue(feedUnseenCountAtom);
-  const { playFromSource } = usePlaybackActions();
   const runMedia = useTvMediaCommands();
-  const playMedia = useMediaPlay();
 
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -385,17 +381,7 @@ export default function TvApp() {
     }
   }, [stack]);
 
-  // Picking the track that is already playing just shows it rather than
-  // restarting it from the beginning.
-  const playTrack = useCallback<TvNav["playTrack"]>(
-    (track, tracks, options) => {
-      if (store.get(currentTrackAtom)?.id !== track.id) {
-        void playFromSource(track, tracks, options);
-      }
-      openNowPlaying();
-    },
-    [store, playFromSource, openNowPlaying],
-  );
+  const tvPlay = useTvPlayback(openNowPlaying);
 
   const run = useCallback<TvNav["run"]>(
     (action: TvAction, queue) => {
@@ -404,13 +390,13 @@ export default function TvApp() {
           push(action.view);
           return;
         case "playVideo":
-          void playMedia(action.item);
+          void tvPlay.playMedia(action.item);
           return;
         case "playTrack": {
           const tracks = queue?.tracks.length ? queue.tracks : [action.track];
-          playTrack(action.track, tracks, {
+          void tvPlay.playTrack(action.track, tracks, {
             source: {
-              type: "tv-row",
+              type: queue?.type ?? "tv-row",
               id: queue?.id ?? action.track.id,
               name: queue?.name ?? action.track.title,
               allTracks: tracks,
@@ -420,7 +406,7 @@ export default function TvApp() {
         }
       }
     },
-    [push, playMedia, playTrack],
+    [push, tvPlay],
   );
 
   const menuRef = useRef<TvMenuHostHandle>(null);
@@ -453,7 +439,8 @@ export default function TvApp() {
       back,
       run,
       openNowPlaying,
-      playTrack,
+      playTrack: tvPlay.playTrack,
+      playSource: tvPlay.playSource,
       openMenu: (spec) => menuRef.current?.open(spec),
       trackMenu: (track, extra) => menuRef.current!.trackMenu(track, extra),
       mediaMenu: (item, onItsPage) =>
@@ -461,7 +448,7 @@ export default function TvApp() {
       openMoreSettings: more.open,
       prompt: askText,
     }),
-    [push, back, run, openNowPlaying, playTrack, more.open, askText],
+    [push, back, run, openNowPlaying, tvPlay, more.open, askText],
   );
 
   // The desktop "focus search" shortcut opens the Search screen here.

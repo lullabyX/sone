@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { Heart, Play, Radio } from "lucide-react";
 import { getArtistPage } from "../../api/tidal";
 import { useFavorites } from "../../hooks/useFavorites";
-import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { getArtistImage } from "../../utils/itemHelpers";
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import {
@@ -31,7 +30,6 @@ export default function TvArtistScreen({
   view: Extract<TvView, { type: "artist" }>;
 }) {
   const nav = useTvNav();
-  const { playAllFromSource } = usePlaybackActions();
   const { followedArtistIds, followArtist, unfollowArtist } = useFavorites();
   const load = useCallback(() => getArtistPage(view.id), [view.id]);
   const { data, error, retry } = useTvLoader(load, "Couldn't load artist");
@@ -72,10 +70,12 @@ export default function TvArtistScreen({
             autoFocus
             icon={<Play className="w-[1rem] h-[1rem]" fill="currentColor" />}
             label="Play"
-            onClick={() => {
-              void playAllFromSource(data.topTracks, { source });
-              nav.openNowPlaying();
-            }}
+            onClick={() =>
+              void nav.playSource({
+                meta: { type: "artist", id: view.id, name, image },
+                loaded: data.topTracks,
+              })
+            }
           />
         )}
         {data.radioMixId && (

@@ -27,6 +27,7 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
 import { invoke } from "@tauri-apps/api/core";
 import type { MixPageResult } from "../../api/tidal";
 import {
+  allowExplicitAtom,
   historyAtom,
   manualQueueAtom,
   playbackSourceAtom,
@@ -101,6 +102,40 @@ describe("TvNowPlaying tabs", () => {
       ),
     );
     expect(store.get(queueAtom)).toBe(queue);
+  });
+
+  it("an unavailable history row toasts and plays nothing", async () => {
+    const store = playing(mkTrack(100));
+    store.set(historyAtom, [mkTrack(11, { streamReady: false })]);
+    renderTv(<TvNowPlaying />, { store });
+    focusTab("History");
+    fireEvent.click(within(rowFor("T11")).getAllByRole("button")[0]);
+    expect(await screen.findByText("This track isn't available")).toBeTruthy();
+    expect(invoke).not.toHaveBeenCalledWith(
+      "play_tidal_track",
+      expect.anything(),
+    );
+  });
+
+  it("a blocked history row toasts and plays nothing", async () => {
+    const store = playing(mkTrack(100));
+    store.set(historyAtom, [mkTrack(12, { explicit: true })]);
+    store.set(allowExplicitAtom, false);
+    renderTv(<TvNowPlaying />, { store });
+    focusTab("History");
+    fireEvent.click(within(rowFor("T12")).getAllByRole("button")[0]);
+    expect(
+      await screen.findByText(
+        "Explicit content is off — turn it on in Settings › Content",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Explicit content is turned off in Settings"),
+    ).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith(
+      "play_tidal_track",
+      expect.anything(),
+    );
   });
 
   it("Up next is selected first", () => {
