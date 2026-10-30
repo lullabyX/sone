@@ -120,6 +120,17 @@ it("a failing second page keeps the rows, marks loading, and offers a retry", as
   await screen.findByText("T31");
 });
 
+it("shows the description and reads a long one in a wide panel", async () => {
+  const long = `${"Late-night jazz. ".repeat(8)}\nSecond paragraph.`;
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 42 }, description: long });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: [t1], totalNumberOfItems: 1 });
+  mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+  expect(await screen.findByText(/Late-night jazz\./)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "About" }));
+  expect(vi.mocked(nav.openMenu).mock.lastCall![0]).toMatchObject({ wide: true, items: [{ multiline: true }, { label: "Second paragraph.", multiline: true }] });
+});
+
 describe("playlist removals", () => {
   const [a, b, c] = [mkTrack(1), mkTrack(2), mkTrack(3)];
   let pending: Deferred<void>[];

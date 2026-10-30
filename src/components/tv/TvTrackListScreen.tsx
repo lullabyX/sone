@@ -13,6 +13,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Heart,
+  Info,
   ListFilter,
   ListX,
   MoreHorizontal,
@@ -67,6 +68,17 @@ import {
 /** Cover side in the left column: its full width, unless the text and
  *  buttons below (about 15rem) would then no longer fit under it. */
 const COVER_SIZE = "min(100cqw, 100cqh - 15rem)";
+/** The same with room for a three-line description. */
+const COVER_SIZE_DESCRIBED = "min(100cqw, 100cqh - 19rem)";
+/** Longer descriptions get "About", as the desktop's "Read more". */
+const LONG_DESCRIPTION = 120;
+
+function descriptionParagraphs(s: string): string[] {
+  return s
+    .split(/\n+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
 
 type ListView = Extract<
   TvView,
@@ -77,6 +89,7 @@ interface TrackListSpec {
   kicker: string;
   title: string;
   subtitle?: string;
+  description?: string;
   image?: string;
   /** Show the liked-tracks heart tile instead of a cover image. */
   heart?: boolean;
@@ -195,6 +208,7 @@ async function loadList(
         title,
         // The track count follows removals, so the page adds it.
         subtitle: creator,
+        description: details?.description?.trim() || undefined,
         image,
         first: page.items,
         total: page.totalNumberOfItems,
@@ -602,6 +616,18 @@ function TrackListPage({
   ]
     .filter(Boolean)
     .join(" · ");
+  const description = spec.description;
+  const coverSize = description ? COVER_SIZE_DESCRIBED : COVER_SIZE;
+  const openAbout = () =>
+    nav.openMenu({
+      title: "About",
+      subtitle: spec.title,
+      wide: true,
+      items: descriptionParagraphs(description ?? "").map((p) => ({
+        label: p,
+        multiline: true,
+      })),
+    });
 
   // Cover, title and actions stay in a column on the left while the tracks
   // scroll on the right, so a wide TV screen is not mostly empty. The column
@@ -618,7 +644,7 @@ function TrackListPage({
       >
         <div
           className="aspect-square shrink-0 overflow-hidden rounded-[0.8rem] bg-th-surface shadow-2xl"
-          style={{ width: COVER_SIZE }}
+          style={{ width: coverSize }}
         >
           {spec.heart ? (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-th-accent to-th-surface">
@@ -649,6 +675,11 @@ function TrackListPage({
             {subtitle}
           </p>
         )}
+        {description && (
+          <p className="mt-[0.3rem] text-[0.8rem] text-th-text-muted line-clamp-3">
+            {description}
+          </p>
+        )}
         {filtering && (
           <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary truncate">
             Filter: “{query}”
@@ -658,7 +689,7 @@ function TrackListPage({
             second, so nothing wraps awkwardly in the narrow column. */}
         <div
           className="mt-[1.2rem] grid grid-cols-2 gap-[0.7rem]"
-          style={{ width: COVER_SIZE }}
+          style={{ width: coverSize }}
         >
           <TvButton
             primary
@@ -692,6 +723,13 @@ function TrackListPage({
               title="More options"
               icon={<MoreHorizontal className="w-[1rem] h-[1rem]" />}
               onClick={() => nav.openMenu(nav.mediaMenu(media, true))}
+            />
+          )}
+          {description && description.length > LONG_DESCRIPTION && (
+            <TvButton
+              label="About"
+              icon={<Info className="w-[1rem] h-[1rem]" />}
+              onClick={openAbout}
             />
           )}
           {sortKey && (
