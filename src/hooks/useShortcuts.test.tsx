@@ -138,4 +138,30 @@ describe("useShortcuts", () => {
     expect(closeWindow).not.toHaveBeenCalled();
     expect(quitApp).not.toHaveBeenCalled();
   });
+
+  it("ignores a key an earlier handler already consumed", () => {
+    const muteToggle = vi.fn();
+    mount({ muteToggle });
+    const eat = (e: KeyboardEvent) => e.preventDefault();
+    window.addEventListener("keydown", eat, true);
+    press({ code: "KeyM", cancelable: true });
+    window.removeEventListener("keydown", eat, true);
+    expect(muteToggle).not.toHaveBeenCalled();
+  });
+
+  it("treats focus moved into a text field during the keydown as typing", () => {
+    const likeToggle = vi.fn();
+    mount({ likeToggle });
+    const input = document.createElement("input");
+    const button = document.createElement("button");
+    document.body.append(input, button);
+    button.focus();
+    const redirect = () => input.focus();
+    window.addEventListener("keydown", redirect, true);
+    pressIn(button, { code: "KeyL" });
+    window.removeEventListener("keydown", redirect, true);
+    input.remove();
+    button.remove();
+    expect(likeToggle).not.toHaveBeenCalled();
+  });
 });

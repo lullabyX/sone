@@ -10,6 +10,9 @@ import {
 
 type ShortcutDispatch = Partial<Record<ActionId, () => void>>;
 
+const isField = (el: EventTarget | null) =>
+  el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+
 export function useShortcuts(dispatch: ShortcutDispatch) {
   const bindings = useAtomValue(shortcutsAtom);
   const dispatchRef = useRef(dispatch);
@@ -37,6 +40,7 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const combo = keyFromEvent(e);
       if (!combo) return;
       const id = inverse.get(comboKey(combo));
@@ -45,9 +49,7 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
       const meta = ACTION_BY_ID.get(id);
       if (meta?.repeatable === false && e.repeat) return;
 
-      const inInput =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement;
+      const inInput = isField(e.target) || isField(document.activeElement);
       // Alt-modified combos type nothing, so they stay live inside text fields.
       if (inInput && !combo.mod && !combo.alt) return;
 
