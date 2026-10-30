@@ -24,6 +24,9 @@ const FOCUSABLE =
   "[data-tv-focusable], [data-tv-native] :is(button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1']))";
 const REMEMBER = "[data-tv-remember]";
 const SIDE = "[data-tv-side]";
+// The mini bar: moveFocus never enters it from outside (only dockFallback
+// does); from inside, only Up leaves it.
+const DOCK = "[data-tv-dock]";
 
 /** How much the sideways offset counts against the forward distance. A
  *  candidate straight ahead beats a nearer one far off to the side. */
@@ -222,9 +225,11 @@ export function moveFocus(
     const r = boxes.get(el)!;
     return r.top < from.bottom && r.bottom > from.top;
   };
+  const dock = current.closest(DOCK);
   const others = all.filter(
     (el) =>
       el !== current &&
+      (dock ? dir === "up" || el.closest(DOCK) === dock : !el.closest(DOCK)) &&
       (sideways
         ? inSide || (el.closest(SIDE) ? enterSide : onLine(el))
         : el.closest(SIDE) === side),
@@ -244,6 +249,37 @@ export function moveFocus(
     if (!group) return false;
     group = group.parentElement?.closest(REMEMBER) ?? null;
   }
+}
+
+function focusDock(scope: HTMLElement): boolean {
+  const dock = scope.querySelector<HTMLElement>(DOCK);
+  if (!dock) return false;
+  const preferred = dock.querySelector<HTMLElement>("[data-tv-default]");
+  const el = preferred && isShown(preferred) ? preferred : focusableIn(dock)[0];
+  if (!el) return false;
+  focusElement(el);
+  return true;
+}
+
+/** Down with nothing below: a fresh press from the active screen's content
+ *  (not a side panel, a modal or the dock itself) reaches the dock, unless
+ *  the screen is still loading more rows. */
+export function dockFallback(
+  scope: HTMLElement,
+  opts: { repeat: boolean },
+): boolean {
+  if (opts.repeat) return false;
+  const current = document.activeElement;
+  const screen = scope.querySelector(".tv-screen:not(.hidden)");
+  if (!current || !screen || !screen.contains(current)) return false;
+  if (current.closest(`${SIDE}, ${DOCK}, [data-tv-modal]`)) return false;
+  if (
+    screen.matches("[data-tv-loading]") ||
+    screen.querySelector("[data-tv-loading]")
+  ) {
+    return false;
+  }
+  return focusDock(scope);
 }
 
 /** Focus the element marked `data-tv-autofocus`, else the first focusable. */

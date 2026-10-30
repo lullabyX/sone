@@ -28,6 +28,7 @@ import { useMediaPlay } from "../../hooks/useMediaPlay";
 import { useMiniplayerEmitter } from "../../hooks/useMiniplayerEmitter";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import {
+  dockFallback,
   focusElement,
   focusFirstIn,
   isShown,
@@ -547,6 +548,8 @@ export default function TvApp() {
           const moved = moveFocus(scope, action.dir, {
             enterSide: action.enterSide,
           });
+          if (!moved && action.dir === "down" && scope === rootRef.current)
+            dockFallback(scope, { repeat: e.repeat });
           moveDrawing.current = true;
           requestAnimationFrame(() =>
             window.setTimeout(() => {
