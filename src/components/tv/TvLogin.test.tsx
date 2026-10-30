@@ -1,6 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
+import { createStore } from "jotai";
 import { startPkceLoginWindow } from "../../api/tidal";
+import { tvModeAtom } from "../../atoms/tv";
 import TvLogin from "./TvLogin";
 import { mockInvoke, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
 
@@ -97,6 +99,65 @@ it("closing the on-TV sign-in clears its error and puts focus back on it", async
     expect(screen.queryByText("boom")).toBeNull();
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Sign in on this TV" }),
+    );
+  } finally {
+    restore();
+  }
+});
+
+const inBanner = () =>
+  document.activeElement?.closest(".sone-proxy-banner") ?? null;
+const tvStore = () => {
+  const store = createStore();
+  store.set(tvModeAtom, true);
+  return { store };
+};
+
+it("phone sign-in never puts focus on the proxy notice", async () => {
+  mockInvoke({ get_proxy_status: () => ({ state: "blocked", reason: "r" }) });
+  auth.startDeviceAuth.mockResolvedValueOnce(CODE);
+  const restore = stubLayout();
+  try {
+    renderTv(<TvLogin />, tvStore());
+    await screen.findByRole("button", { name: /turn off proxy/i });
+    const choose = await screen.findByRole("button", {
+      name: "Sign in with your phone",
+    });
+    choose.focus();
+    fireEvent.click(choose);
+    expect(inBanner()).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Back" }),
+    );
+    await screen.findByText("AAAA");
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(inBanner()).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "New code" }),
+    );
+  } finally {
+    restore();
+  }
+});
+
+it("Try again never puts focus on the proxy notice", async () => {
+  mockInvoke({ get_proxy_status: () => ({ state: "blocked", reason: "r" }) });
+  auth.startDeviceAuth.mockRejectedValueOnce({
+    kind: "Network",
+    message: "error sending request",
+  });
+  const restore = stubLayout();
+  try {
+    renderTv(<TvLogin />, tvStore());
+    await screen.findByRole("button", { name: /turn off proxy/i });
+    await phone();
+    const tryAgain = await screen.findByRole("button", { name: "Try again" });
+    tryAgain.focus();
+    fireEvent.click(tryAgain);
+    expect(inBanner()).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Back" }),
     );
   } finally {
     restore();

@@ -535,6 +535,29 @@ describe("the banner", () => {
     ).toBe(true);
   });
 
+  it("marks every button for the remote when it offers settings", async () => {
+    invoke.mockImplementation((c: string) =>
+      Promise.resolve(
+        c === "get_proxy_status"
+          ? { state: "blocked", reason: "r" }
+          : undefined,
+      ),
+    );
+    const store = createStore();
+    store.set(tvModeAtom, true);
+    render(
+      <Provider store={store}>
+        <ProxyNoticeBanner offerSettings />
+      </Provider>,
+    );
+    await screen.findByRole("button", { name: /turn off proxy/i });
+    for (const name of [/open network settings/i, /dismiss/i]) {
+      expect(
+        screen.getByRole("button", { name }).hasAttribute("data-tv-focusable"),
+      ).toBe(true);
+    }
+  });
+
   it("leaves desktop buttons unmarked", async () => {
     invoke.mockImplementation((c: string) =>
       Promise.resolve(

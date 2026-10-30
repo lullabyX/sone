@@ -247,6 +247,8 @@ export default function TvLogin() {
     );
   }
 
+  // Default focus stays off the proxy notice, whose OK turns the proxy off.
+  const canRetry = state.step === "code" || state.step === "error";
   return (
     <div
       ref={rootRef}
@@ -300,9 +302,10 @@ export default function TvLogin() {
             </p>
           )}
           <div className="mt-[2rem] flex flex-wrap gap-[0.8rem]">
-            {(state.step === "code" || state.step === "error") && (
+            {canRetry && (
               <TvButton
                 primary={state.step === "error"}
+                autoFocus
                 icon={<RefreshCw className="w-[1rem] h-[1rem]" />}
                 label={state.step === "error" ? "Try again" : "New code"}
                 onClick={retry}
@@ -312,11 +315,13 @@ export default function TvLogin() {
               <TvButton
                 icon={<ArrowLeft className="w-[1rem] h-[1rem]" />}
                 label="Back"
+                autoFocus={!canRetry}
                 onClick={back}
               />
             )}
             <TvButton
               primary={state.step === "no-credentials"}
+              autoFocus={!canRetry && !pkce}
               icon={<LogOut className="w-[1rem] h-[1rem]" />}
               label="Other sign-in options"
               title="Leave TV mode for the desktop sign-in"
