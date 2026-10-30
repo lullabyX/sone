@@ -57,8 +57,8 @@ import { TvButton, TvTrackRow } from "./TvParts";
 import { TvLyricsPanel } from "./TvLyrics";
 import { useTvLyrics } from "./useTvLyrics";
 import { useTvMiniVideo, useTvVideoAspect } from "./useTvMiniVideo";
+import { TV_SEEK_STEP_S } from "./tvKeys";
 
-const SEEK_STEP_SECS = 10;
 const UP_NEXT_SHOWN = 20;
 
 /** The playing video's element (the video player's, wherever it is shown). */
@@ -66,19 +66,26 @@ function videoElement(): HTMLVideoElement | null {
   return document.querySelector<HTMLVideoElement>("[role='dialog'] video");
 }
 
-/** Re-reads the playback position a few times a second: the audio player's
- *  interpolated one, or a video's from its own element. */
-function usePosition(video: boolean): number {
+/** Re-reads the playback position a few times a second while the screen is
+ *  shown: the audio player's interpolated one, or a video's from its own
+ *  element. */
+function usePosition(video: boolean, active: boolean): number {
   const read = useCallback(
     () =>
       video ? (videoElement()?.currentTime ?? 0) : getInterpolatedPosition(),
     [video],
   );
   const [pos, setPos] = useState(read);
+  const [wasActive, setWasActive] = useState(active);
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (active) setPos(read());
+  }
   useEffect(() => {
+    if (!active) return;
     const id = setInterval(() => setPos(read()), 250);
     return () => clearInterval(id);
-  }, [read]);
+  }, [read, active]);
   return pos;
 }
 
@@ -166,7 +173,8 @@ function Progress({
   /** A video: position, play state and seeking go through its element. */
   video: boolean;
 }) {
-  const live = Math.min(usePosition(video), duration || Infinity);
+  const { active } = useContext(TvScreenContext);
+  const live = Math.min(usePosition(video, active), duration || Infinity);
   const audioPlaying = useAtomValue(isPlayingAtom);
   const videoPlaying = useAtomValue(videoPlayingAtom);
   const isPlaying = video ? videoPlaying : audioPlaying;
@@ -193,7 +201,7 @@ function Progress({
     if (duration <= 0) return;
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
-    const delta = e.key === "ArrowLeft" ? -SEEK_STEP_SECS : SEEK_STEP_SECS;
+    const delta = e.key === "ArrowLeft" ? -TV_SEEK_STEP_S : TV_SEEK_STEP_S;
     const next = Math.max(
       0,
       Math.min(duration - 1, (targetRef.current ?? live) + delta),
@@ -442,6 +450,7 @@ export default function TvNowPlaying() {
 
           <div className="mt-[2rem]">
             <Progress
+              key={track.id}
               duration={track.duration ?? 0}
               video={isVideo && !!currentVideo}
             />
