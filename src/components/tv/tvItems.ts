@@ -1,5 +1,11 @@
-import type { FeedItem, MediaItemType, Track } from "../../types";
+import type {
+  FeedItem,
+  MediaItemType,
+  PlaybackSource,
+  Track,
+} from "../../types";
 import { getTidalImageUrl, getTidalPromoImageUrl } from "../../types";
+import { isNavigableSource } from "../../lib/playbackSource";
 import {
   buildMediaItem,
   getItemImage,
@@ -99,6 +105,31 @@ export function actionForMedia(item: MediaItemType): TvAction {
       };
     case "video":
       return { kind: "playVideo", item };
+  }
+}
+
+/** The screen of what playback comes from, as the desktop drawer opens it;
+ *  null for a source with no page. */
+export function viewForSource(source: PlaybackSource | null): TvView | null {
+  if (!source || !isNavigableSource(source.type)) return null;
+  const { id, name: title, image } = source;
+  switch (source.type) {
+    case "album":
+      return { type: "album", id: Number(id), title, image };
+    case "playlist":
+      return { type: "playlist", uuid: String(id), title, image };
+    case "playlist-recs":
+      return { type: "playlist", uuid: String(id) };
+    case "mix":
+    case "radio":
+      return { type: "mix", mixId: String(id), title, image };
+    case "artist":
+    case "artist-tracks":
+      return { type: "artist", id: Number(id), name: title };
+    case "favorites":
+      return { type: "favorites" };
+    default:
+      return null;
   }
 }
 

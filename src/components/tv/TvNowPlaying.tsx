@@ -72,6 +72,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { TvButton, TvTrackRow } from "./TvParts";
 import type { TvMenuItem } from "./tvMenu";
 import { moveInQueue, queueIndexOf } from "./tvQueue";
+import { viewForSource } from "./tvItems";
 import { TvLyricsPanel } from "./TvLyrics";
 import { useTvLyrics } from "./useTvLyrics";
 import { useTvMiniVideo, useTvVideoAspect } from "./useTvMiniVideo";
@@ -530,6 +531,8 @@ export default function TvNowPlaying() {
   const streamInfo = useAtomValue(streamInfoAtom);
   const queue = useAtomValue(queueAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
+  const source = useAtomValue(playbackSourceAtom);
+  const sourceView = viewForSource(source);
   const shuffle = useAtomValue(shuffleAtom);
   const [repeat, setRepeat] = useAtom(repeatAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
@@ -667,6 +670,20 @@ export default function TvNowPlaying() {
               {track.album.title}
             </p>
           )}
+          {source &&
+            (sourceView ? (
+              <button
+                data-tv-focusable
+                onClick={() => nav.push(sourceView)}
+                className="tv-button mt-[0.6rem] block max-w-full origin-left truncate rounded-[0.3rem] px-[0.4rem] text-left text-[0.8rem] text-th-text-secondary"
+              >
+                Playing from {source.name}
+              </button>
+            ) : (
+              <p className="mt-[0.6rem] px-[0.4rem] text-[0.8rem] text-th-text-muted truncate">
+                Playing from {source.name}
+              </p>
+            ))}
           {quality && (
             <button
               data-tv-focusable

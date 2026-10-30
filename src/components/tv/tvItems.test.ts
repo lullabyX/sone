@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { feedEntries, sectionEntries } from "./tvItems";
+import { feedEntries, sectionEntries, viewForSource } from "./tvItems";
 
 const track = (id: number) => ({
   id,
@@ -113,5 +113,30 @@ describe("feedEntries", () => {
         view: expect.objectContaining({ type: "album", id: 7 }),
       }),
     ]);
+  });
+});
+
+describe("viewForSource", () => {
+  it("opens recommendations as their playlist", () => {
+    expect(
+      viewForSource({
+        type: "playlist-recs",
+        id: "u1",
+        name: "X: Recommended",
+        tracks: [],
+      }),
+    ).toEqual({ type: "playlist", uuid: "u1" });
+  });
+
+  it("opens a track radio as its mix", () => {
+    expect(
+      viewForSource({ type: "radio", id: 77, name: "R", tracks: [] }),
+    ).toEqual({ type: "mix", mixId: "77", title: "R" });
+  });
+
+  it("has nowhere to go for other sources", () => {
+    expect(
+      viewForSource({ type: "tv-row", id: "x", name: "Row", tracks: [] }),
+    ).toBeNull();
   });
 });

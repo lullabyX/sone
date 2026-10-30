@@ -21,6 +21,7 @@ import { getInterpolatedPosition } from "../../lib/playbackPosition";
 import {
   bitPerfectAtom,
   currentTrackAtom,
+  playbackSourceAtom,
   volumeAtom,
 } from "../../atoms/playback";
 import { currentVideoAtom } from "../../atoms/video";
@@ -121,5 +122,37 @@ describe("TvNowPlaying volume", () => {
     fireEvent.keyDown(slider, { key: "Enter" });
     fireEvent.keyDown(slider, { key: "Enter", repeat: true });
     expect(store.get(volumeAtom)).toBe(0);
+  });
+});
+
+describe("TvNowPlaying source", () => {
+  it("opens the source from Now Playing", () => {
+    const store = playing();
+    store.set(playbackSourceAtom, {
+      type: "album",
+      id: 5,
+      name: "Blue",
+      tracks: [],
+    });
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    fireEvent.click(screen.getByRole("button", { name: "Playing from Blue" }));
+    expect(nav.push).toHaveBeenCalledWith({
+      type: "album",
+      id: 5,
+      title: "Blue",
+    });
+  });
+
+  it("shows a non-navigable source as text", () => {
+    const store = playing();
+    store.set(playbackSourceAtom, {
+      type: "tv-row",
+      id: "x",
+      name: "Row",
+      tracks: [],
+    });
+    renderTv(<TvNowPlaying />, { store });
+    expect(screen.getByText("Playing from Row")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Playing from/ })).toBeNull();
   });
 });
