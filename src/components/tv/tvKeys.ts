@@ -64,6 +64,7 @@ export interface TvKeyFacts {
   hasMenu: boolean;
   /** An Enter long press is in progress. */
   holding: boolean;
+  /** A caret/field input in a desktop dialog shown in TV mode (not the video). */
   nativeEditable: boolean;
 }
 
@@ -88,6 +89,7 @@ export type TvKeyAction =
   | { type: "nativeEscape" }
   | { type: "openMenu" }
   | { type: "pressStart" }
+  | { type: "editField" }
   | { type: "videoToggle" }
   | { type: "videoSeek"; by: number }
   | { type: "videoBack" }
@@ -186,10 +188,22 @@ function routeVideoKey(
   return { type: "none" };
 }
 
+function isFieldEdit(f: TvKeyFacts): boolean {
+  return (
+    f.key === "Enter" &&
+    f.nativeEditable &&
+    !f.repeat &&
+    !f.composing &&
+    !f.modified
+  );
+}
+
 export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   if (f.modified) return { type: "none" };
   // An input method owns every key until the text is composed.
   if (f.composing) return { type: "none" };
+  // A settings text field is edited with the on-screen keyboard.
+  if (isFieldEdit(f)) return { type: "editField" };
   // A held OK must not click over and over (or confirm what it just opened).
   if (
     f.key === "Enter" &&
@@ -262,5 +276,7 @@ export function claimsKey(f: TvKeyFacts, action: TvKeyAction): boolean {
  *  never sees them: it would close the video or the layer under a TV one. */
 export function takesAtCapture(f: TvKeyFacts): boolean {
   if (f.video && !f.modified && BACK_KEYS.has(f.key)) return true;
+  // Before the field's own Enter handler applies the old value.
+  if (isFieldEdit(f)) return true;
   return f.key === "Escape" && (f.layer === "menu" || f.layer === "prompt");
 }

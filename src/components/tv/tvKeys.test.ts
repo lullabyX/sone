@@ -115,3 +115,8 @@ it("never repeats a held Back", () => {
   expect(r({ key: "Backspace", repeat: true, field: "caret" })).toEqual({ type: "none" });
   expect(r({ key: "Backspace", repeat: true, field: "caret", layer: "prompt" })).toEqual({ type: "none" });
 });
+it("edits a settings text field on Enter", () => {
+  expect(r({ key: "Enter", field: "caret", nativeEditable: true })).toEqual({ type: "editField" });
+  expect(takesAtCapture(facts({ key: "Enter", field: "field", nativeEditable: true }))).toBe(true);
+  expect(r({ key: "Enter", field: "caret", nativeEditable: true, composing: true })).toEqual({ type: "none" });
+});

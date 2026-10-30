@@ -119,7 +119,8 @@ function readTvKeyFacts(
     hasMenu: e.key === "Enter" && menuForElement(active) !== null,
     holding: opts.holding(),
     nativeEditable:
-      !!field && !!text?.closest("[data-tv-native]:not([data-tv-video])"),
+      (field === "caret" || field === "field") &&
+      !!text?.closest("[data-tv-native]:not([data-tv-video])"),
   };
 }
 

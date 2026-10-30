@@ -58,6 +58,7 @@ import { menuForElement } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
 import { textEntryKind, type TvKeyAction } from "./tvKeys";
+import { fieldLabel, setNativeInputValue } from "./tvFields";
 import { topTvModal, tvLayer, useTvKeyRouter } from "./useTvKeyRouter";
 import { useTvMediaCommands } from "./useTvMediaCommands";
 import "./tv.css";
@@ -516,6 +517,29 @@ export default function TvApp() {
         case "focusRail":
           focusRail();
           return;
+        case "editField": {
+          const el = e.target;
+          if (
+            !(el instanceof HTMLInputElement) &&
+            !(el instanceof HTMLTextAreaElement)
+          ) {
+            return;
+          }
+          // TvPrompt hands focus back to the field when it closes.
+          void askText({
+            title: fieldLabel(el),
+            initial: el.value,
+            confirm: "Done",
+            placeholder: el.placeholder,
+            allowEmpty: true,
+            trim: false,
+            secret: el.type === "password",
+            maxLength: el.maxLength > 0 ? el.maxLength : undefined,
+          }).then((value) => {
+            if (value !== null) setNativeInputValue(el, value);
+          });
+          return;
+        }
         case "back":
           if (textEntryKind(e.target) && e.target instanceof HTMLElement) {
             e.target.blur();
@@ -610,6 +634,7 @@ export default function TvApp() {
       back,
       focusRail,
       runMedia,
+      askText,
       finishPrompt,
       openMenuFor,
     ],
