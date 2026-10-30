@@ -491,6 +491,29 @@ fn apply_normalization_gain(
     signal_path.set_norm_gain_factor(gain as f32);
 }
 
+/// Resumes a paused Normal pipeline. The sink still holds audio scaled at the
+/// gain it was paused with, so if the gain changed since, that audio is flushed
+/// by re-seeking to the current position rather than played out at the old level.
+fn resume_normal_pipeline(
+    pipeline: &gst::Pipeline,
+    gain_at_pause: Option<f64>,
+    gain_now: f64,
+) -> Result<(), String> {
+    if gain_at_pause.is_some_and(|g| g != gain_now) {
+        if let Some(pos) = pipeline.query_position::<gst::ClockTime>() {
+            if let Err(e) =
+                pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, pos)
+            {
+                log::warn!("[audio] resume: flushing stale-gain audio failed: {e}");
+            }
+        }
+    }
+    pipeline
+        .set_state(gst::State::Playing)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to resume: {e}"))
+}
+
 /// 2b-A2: build + preroll the next-track branch on the executor thread.
 ///
 /// Mirrors the first branch's wiring (sink_0): legacy `uridecodebin` →
@@ -1864,6 +1887,7 @@ impl AudioPlayer {
 
             let mut current_volume: f64 = 1.0;
             let mut current_norm_gain: f64 = 1.0;
+            let mut gain_at_pause: Option<f64> = None;
             let mut track_generation: u64 = 0;
             // 2b: under `concat` (adjust-base=true), `query_position(TIME)` re-bases
             // to ~0 at each track boundary — it is per-track, NOT cumulative. So the
@@ -1936,6 +1960,7 @@ impl AudioPlayer {
                         start_secs,
                         reply,
                     } => {
+                        gain_at_pause = None;
                         let result = (|| -> Result<(), String> {
                             // ── Teardown old backend (GStreamer pipeline only) ──
                             if let Some(old_backend) = backend.take() {
@@ -2706,10 +2731,18 @@ impl AudioPlayer {
 
                     AudioCommand::Pause { reply } => {
                         let result = match backend.as_ref() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
-                                .set_state(gst::State::Paused)
-                                .map(|_| ())
-                                .map_err(|e| format!("Failed to pause: {e}")),
+                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
+                                let result = pipeline
+                                    .set_state(gst::State::Paused)
+                                    .map(|_| ())
+                                    .map_err(|e| format!("Failed to pause: {e}"));
+                                if result.is_ok() && gain_at_pause.is_none() {
+                                    gain_at_pause = Some(
+                                        slider_to_amplitude(current_volume) * current_norm_gain,
+                                    );
+                                }
+                                result
+                            }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 // The writer must keep draining until the pipeline
                                 // is paused: the appsink callback blocks in `send`
@@ -2738,10 +2771,13 @@ impl AudioPlayer {
 
                     AudioCommand::Resume { reply } => {
                         let result = match backend.as_ref() {
-                            Some(PlaybackBackend::Normal { pipeline, .. }) => pipeline
-                                .set_state(gst::State::Playing)
-                                .map(|_| ())
-                                .map_err(|e| format!("Failed to resume: {e}")),
+                            Some(PlaybackBackend::Normal { pipeline, .. }) => {
+                                resume_normal_pipeline(
+                                    pipeline,
+                                    gain_at_pause.take(),
+                                    slider_to_amplitude(current_volume) * current_norm_gain,
+                                )
+                            }
                             Some(PlaybackBackend::DirectAlsa { pipeline, .. }) => {
                                 paused.store(false, Ordering::Release);
                                 pipeline
@@ -2764,6 +2800,7 @@ impl AudioPlayer {
                         }
                         next_active.store(false, Ordering::Release);
                         current_branch = None;
+                        gain_at_pause = None;
                         // Cleared with `has_uri` below: nothing is playing, so a
                         // later route change has nothing to resume.
                         current_uri = None;
@@ -4632,6 +4669,123 @@ mod proxy_source_tests {
         let p = AudioProxy::new(off, HostCaps::assume_all_present()).with_launch_bypass(true);
         for c in [Capability::Lossy, Capability::Dash] {
             assert_eq!(p.route_for(c).expect("direct is unaffected"), Route::NoProxy);
+        }
+    }
+
+    mod resume_tests {
+        use super::*;
+        use gst_app::AppSink;
+
+        const TIMEOUT: gst::ClockTime = gst::ClockTime::from_seconds(5);
+
+        // A real-time sink behind a queue: like autoaudiosink, it is holding
+        // already-scaled audio whenever the pipeline is paused.
+        fn playing_pipeline() -> (gst::Pipeline, gst::Element, AppSink) {
+            gst::init().expect("gstreamer initializes");
+            let pipeline = gst::parse::launch(
+                "audiotestsrc volume=0.8 ! audio/x-raw,format=F32LE,channels=1 \
+                 ! volume name=vol ! queue ! appsink name=out sync=true",
+            )
+            .expect("every element here ships in core or base")
+            .downcast::<gst::Pipeline>()
+            .expect("a launch line with several elements is a pipeline");
+            let vol = pipeline.by_name("vol").expect("named in the launch line");
+            let sink = pipeline
+                .by_name("out")
+                .and_downcast::<AppSink>()
+                .expect("named in the launch line");
+            pipeline
+                .set_state(gst::State::Playing)
+                .expect("pipeline plays");
+            (pipeline, vol, sink)
+        }
+
+        fn pull(sink: &AppSink) -> gst::Sample {
+            sink.try_pull_sample(TIMEOUT)
+                .expect("the sink keeps receiving audio")
+        }
+
+        fn peak(sample: &gst::Sample) -> f32 {
+            let map = sample
+                .buffer()
+                .expect("samples carry a buffer")
+                .map_readable()
+                .unwrap();
+            map.chunks_exact(4)
+                .map(|b| f32::from_le_bytes(b.try_into().unwrap()).abs())
+                .fold(0.0, f32::max)
+        }
+
+        fn pause_after_some_audio(pipeline: &gst::Pipeline, sink: &AppSink) -> gst::Sample {
+            let mut last = pull(sink);
+            for _ in 0..5 {
+                last = pull(sink);
+            }
+            assert!(
+                peak(&last) > 0.5,
+                "the tone plays at full level before the pause"
+            );
+            pipeline
+                .set_state(gst::State::Paused)
+                .expect("pipeline pauses");
+            let (res, ..) = pipeline.state(TIMEOUT);
+            res.expect("pause completes");
+            last
+        }
+
+        #[test]
+        fn audio_buffered_at_pause_is_not_played_after_the_volume_drops() {
+            let (pipeline, vol, sink) = playing_pipeline();
+            pause_after_some_audio(&pipeline, &sink);
+
+            vol.set_property("volume", 0.0);
+            resume_normal_pipeline(&pipeline, Some(1.0), 0.0).expect("resume succeeds");
+
+            // Without the flush this is the queued tail scaled at 1.0: the burst.
+            assert_eq!(
+                peak(&pull(&sink)),
+                0.0,
+                "the first audio after resume must already be at the new gain"
+            );
+            pipeline.set_state(gst::State::Null).ok();
+        }
+
+        #[test]
+        fn the_flush_resumes_where_playback_was_paused() {
+            let (pipeline, vol, sink) = playing_pipeline();
+            let before = pause_after_some_audio(&pipeline, &sink);
+            let paused_at = before.buffer().unwrap().pts().unwrap();
+
+            vol.set_property("volume", 0.5);
+            resume_normal_pipeline(&pipeline, Some(1.0), 0.5).expect("resume succeeds");
+
+            // The seek targets the reported position, which trails the newest
+            // buffer by at most the one the sink was holding.
+            let after = pull(&sink);
+            let resumed_at = after.buffer().unwrap().pts().unwrap();
+            let one_buffer = before.buffer().unwrap().duration().unwrap();
+            assert!(
+                resumed_at + one_buffer >= paused_at && resumed_at <= paused_at + one_buffer,
+                "resumed at {resumed_at}, paused at {paused_at}: nothing may be skipped or replayed"
+            );
+            pipeline.set_state(gst::State::Null).ok();
+        }
+
+        #[test]
+        fn an_unchanged_gain_resumes_without_a_seek() {
+            let (pipeline, _vol, sink) = playing_pipeline();
+            let before = pause_after_some_audio(&pipeline, &sink);
+            let buf = before.buffer().unwrap();
+
+            resume_normal_pipeline(&pipeline, Some(1.0), 1.0).expect("resume succeeds");
+
+            // A seek would restart the stream from the reported position; without
+            // one the queued audio continues seamlessly.
+            assert_eq!(
+                pull(&sink).buffer().unwrap().pts(),
+                Some(buf.pts().unwrap() + buf.duration().unwrap())
+            );
+            pipeline.set_state(gst::State::Null).ok();
         }
     }
 }
