@@ -2,8 +2,10 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { useStore, type createStore } from "jotai";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { menuForElement } from "./tvMenu";
+import { claimKey } from "../../lib/keyClaim";
 import {
   caretAllowsLeaving,
+  claimsKey,
   routeTvKey,
   textEntryKind,
   type TvKeyAction,
@@ -108,9 +110,10 @@ function readTvKeyFacts(
 }
 
 /**
- * Routes every key the TV interface handles. Listens in the bubble phase so
- * element handlers (the seek bar, the on-screen keyboard) win first; a key
- * one of them prevented is left alone.
+ * Routes every key the TV interface handles. In the capture phase it only
+ * claims TV's keys, so desktop shortcuts skip them. It executes in the bubble
+ * phase so element handlers (the seek bar, the on-screen keyboard) win first;
+ * a key one of them prevented is left alone.
  */
 export function useTvKeyRouter(opts: TvKeyRouterOptions): void {
   const store = useStore();
@@ -120,6 +123,11 @@ export function useTvKeyRouter(opts: TvKeyRouterOptions): void {
   });
 
   useEffect(() => {
+    const onClaim = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const facts = readTvKeyFacts(e, store, optsRef.current);
+      if (claimsKey(facts, routeTvKey(facts))) claimKey(e);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       const o = optsRef.current;
@@ -130,7 +138,11 @@ export function useTvKeyRouter(opts: TvKeyRouterOptions): void {
       if (action.type !== "videoNativeEnter") e.preventDefault();
       o.execute(action, e);
     };
+    window.addEventListener("keydown", onClaim, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onClaim, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [store]);
 }

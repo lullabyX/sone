@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { routeTvKey, type TvKeyFacts } from "./tvKeys";
+import { claimsKey, routeTvKey, type TvKeyFacts } from "./tvKeys";
 import { setupTvTest } from "./tvTestUtils";
 
 setupTvTest();
@@ -44,4 +44,10 @@ it("characterizes today's routing", () => {
   expect(r({ key: "Escape", video: v })).toEqual({ type: "none" }); // today: the player's own Escape closes it
   expect(r({ key: "MediaTrackNext", video: v })).toEqual({ type: "none" });
   expect(r({ key: "m", video: v })).toEqual({ type: "none" });
+});
+it("claims TV navigation keys and keys it routes", () => {
+  expect(claimsKey(facts({ key: "Enter" }), { type: "none" })).toBe(true);
+  expect(claimsKey(facts({ key: "m" }), { type: "none" })).toBe(false);
+  expect(claimsKey(facts({ key: " ", video: v }), { type: "videoToggle" })).toBe(true);
+  expect(claimsKey(facts({ key: "ArrowUp", modified: true }), { type: "none" })).toBe(false);
 });

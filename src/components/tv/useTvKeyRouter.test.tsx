@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { createStore } from "jotai";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
+import { useShortcuts } from "../../hooks/useShortcuts";
+import { DEFAULT_BINDINGS, shortcutsAtom } from "../../lib/shortcuts";
 import type { TvKeyAction } from "./tvKeys";
 import { useTvKeyRouter } from "./useTvKeyRouter";
 import { pressKey, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
@@ -60,4 +62,28 @@ it("lets Enter on a quality choice click natively, then refocuses", () => {
   const e = pressKey($("q1"), { key: "Enter" });
   expect(execute).toHaveBeenCalledWith({ type: "videoNativeEnter" }, e);
   expect(e.defaultPrevented).toBe(false);
+});
+// useShortcuts must register FIRST, as AppInitializer's does in the app.
+// Mount it in its own render before the router: in one component, jotai's storage onMount re-sets
+// shortcutsAtom and useShortcuts re-registers after the router, which hides the bug.
+const bare = (code: string) => ({ code, mod: false, shift: false, alt: false });
+function Shortcuts(p: { d: Parameters<typeof useShortcuts>[0] }) { useShortcuts(p.d); return null; }
+it("keeps rebound desktop shortcuts off TV navigation keys", () => {
+  const store = createStore();
+  store.set(shortcutsAtom, { ...DEFAULT_BINDINGS, volumeDown: bare("ArrowDown"), nextTrack: bare("Enter"), prevTrack: bare("Backspace") });
+  const d = { volumeDown: vi.fn(), nextTrack: vi.fn(), prevTrack: vi.fn(), muteToggle: vi.fn() };
+  renderTv(<Shortcuts d={d} />, { store });
+  const { execute, $ } = mount(SCREEN, { store });
+  const b = $("b"); b.focus();
+  pressKey(b, { key: "ArrowDown", code: "ArrowDown" });
+  const enter = pressKey(b, { key: "Enter", code: "Enter" });
+  pressKey(b, { key: "Backspace", code: "Backspace" });
+  pressKey(b, { key: "m", code: "KeyM" });
+  expect(d.volumeDown).not.toHaveBeenCalled();
+  expect(d.nextTrack).not.toHaveBeenCalled();
+  expect(d.prevTrack).not.toHaveBeenCalled();
+  expect(enter.defaultPrevented).toBe(false);          // the native click still happens
+  expect(d.muteToggle).toHaveBeenCalledTimes(1);       // keys TV leaves alone still reach the desktop
+  expect(execute).toHaveBeenCalledWith({ type: "move", dir: "down", enterSide: true }, expect.any(KeyboardEvent));
+  expect(execute).toHaveBeenCalledWith({ type: "back" }, expect.any(KeyboardEvent));
 });

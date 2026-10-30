@@ -5,6 +5,7 @@ import type { PropsWithChildren } from "react";
 
 import { useShortcuts } from "./useShortcuts";
 import { shortcutsAtom, DEFAULT_BINDINGS } from "../lib/shortcuts";
+import { claimKey } from "../lib/keyClaim";
 
 function press(init: KeyboardEventInit) {
   window.dispatchEvent(
@@ -163,5 +164,15 @@ describe("useShortcuts", () => {
     input.remove();
     button.remove();
     expect(likeToggle).not.toHaveBeenCalled();
+  });
+
+  it("ignores a key the TV interface claimed", () => {
+    const muteToggle = vi.fn();
+    mount({ muteToggle });
+    const claim = (e: Event) => claimKey(e);
+    window.addEventListener("keydown", claim, true);
+    press({ code: "KeyM" });
+    window.removeEventListener("keydown", claim, true);
+    expect(muteToggle).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@ import {
   ACTION_BY_ID,
   type ActionId,
 } from "../lib/shortcuts";
+import { isKeyClaimed } from "../lib/keyClaim";
 
 type ShortcutDispatch = Partial<Record<ActionId, () => void>>;
 
@@ -40,7 +41,7 @@ export function useShortcuts(dispatch: ShortcutDispatch) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || isKeyClaimed(e)) return;
       const combo = keyFromEvent(e);
       if (!combo) return;
       const id = inverse.get(comboKey(combo));

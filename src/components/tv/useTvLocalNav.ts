@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { claimKey } from "../../lib/keyClaim";
 import { focusFirstIn, moveFocus, type Direction } from "../../lib/spatialNav";
 
 const ARROWS: Record<string, Direction> = {
@@ -15,6 +16,10 @@ export function useTvLocalNav(
   refocusKey: unknown,
 ): void {
   useEffect(() => {
+    const onClaim = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (ARROWS[e.key] || e.key === "Enter") claimKey(e);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && e.repeat) {
         e.preventDefault();
@@ -27,8 +32,12 @@ export function useTvLocalNav(
       if (!root.contains(document.activeElement)) focusFirstIn(root);
       else moveFocus(root, dir);
     };
+    window.addEventListener("keydown", onClaim, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onClaim, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [rootRef]);
 
   useEffect(() => {

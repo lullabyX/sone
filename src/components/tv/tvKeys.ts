@@ -77,6 +77,19 @@ const ARROWS: Record<string, Direction> = {
 
 const BACK_KEYS = new Set(["Escape", "BrowserBack", "GoBack"]);
 
+const TV_NAV_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Enter",
+  "Backspace",
+  "Escape",
+  "BrowserBack",
+  "GoBack",
+  "ContextMenu",
+]);
+
 const MEDIA_KEYS: Record<string, TvMediaCommand["kind"]> = {
   MediaPlayPause: "toggle",
   MediaTrackNext: "next",
@@ -163,4 +176,10 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
     return { type: "back" };
   }
   return { type: "none" };
+}
+
+/** The key is TV's, so desktop shortcuts must not fire on it. Enter on an
+ *  item without a menu routes "none" (a native click) but is still TV's. */
+export function claimsKey(f: TvKeyFacts, action: TvKeyAction): boolean {
+  return !f.modified && (action.type !== "none" || TV_NAV_KEYS.has(f.key));
 }
