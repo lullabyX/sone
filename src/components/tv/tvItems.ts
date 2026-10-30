@@ -38,7 +38,15 @@ export type TvView =
   | { type: "list"; title: string; source: TvListSource }
   | { type: "album"; id: number; title?: string; image?: string }
   | { type: "playlist"; uuid: string; title?: string; image?: string }
-  | { type: "mix"; mixId: string; title?: string; image?: string }
+  | {
+      type: "mix";
+      mixId: string;
+      title?: string;
+      image?: string;
+      mixType?: string;
+      /** A track radio's seed artist. */
+      artist?: { id: number; name: string };
+    }
   | { type: "artist"; id: number; name?: string; image?: string };
 
 export type TvListSource =
@@ -149,8 +157,21 @@ export function viewForSource(source: PlaybackSource | null): TvView | null {
     case "playlist-recs":
       return { type: "playlist", uuid: String(id) };
     case "mix":
+      return {
+        type: "mix",
+        mixId: String(id),
+        title,
+        image,
+        mixType: source.mixType,
+      };
     case "radio":
-      return { type: "mix", mixId: String(id), title, image };
+      return {
+        type: "mix",
+        mixId: String(id),
+        title,
+        image,
+        mixType: source.mixType ?? "TRACK_MIX",
+      };
     case "artist":
     case "artist-tracks":
       return { type: "artist", id: Number(id), name: title };

@@ -138,7 +138,13 @@ describe("viewForSource", () => {
   it("opens a track radio as its mix", () => {
     expect(
       viewForSource({ type: "radio", id: 77, name: "R", tracks: [] }),
-    ).toEqual({ type: "mix", mixId: "77", title: "R" });
+    ).toEqual({ type: "mix", mixId: "77", title: "R", mixType: "TRACK_MIX" });
+  });
+
+  it("opens a mix with its mix type", () => {
+    expect(
+      viewForSource({ type: "mix", id: "m", name: "M", mixType: "ARTIST_MIX", tracks: [] }),
+    ).toMatchObject({ type: "mix", mixId: "m", mixType: "ARTIST_MIX" });
   });
 
   it("has nowhere to go for other sources", () => {

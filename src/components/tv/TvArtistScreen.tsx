@@ -87,6 +87,7 @@ export default function TvArtistScreen({
                 type: "mix",
                 mixId: data.radioMixId!,
                 title: `${name} Radio`,
+                mixType: "ARTIST_MIX",
               })
             }
           />

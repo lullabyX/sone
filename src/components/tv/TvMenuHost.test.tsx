@@ -86,3 +86,8 @@ it("shows credits as wrapping lines in a wide panel", async () => {
   expect(spec.wide).toBe(true);
   expect(spec.items[0]).toMatchObject({ label: "Producer: A", multiline: true });
 });
+it("Track radio opens the mix with its seed artist", async () => {
+  const { ref, onNavigate } = renderMenuHost();
+  await act(async () => { await ref.current!.trackMenu({ ...mkTrack(1), mixes: { TRACK_MIX: "m" } }).items.find((i) => i.label === "Track radio")!.onSelect!(); });
+  expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ type: "mix", mixId: "m", mixType: "TRACK_MIX", artist: { id: 101, name: "A1" } }));
+});

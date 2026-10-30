@@ -70,6 +70,30 @@ it("a single-disc album has no disc headings", async () => {
   expect(screen.queryByText(/^Volume \d/)).toBeNull();
 });
 
+it("track radio plays as radio with its mix type and links the seed artist", async () => {
+  api.getMixItems.mockResolvedValue({ mixId: "m", mixType: "TRACK_MIX", title: "T Radio", subtitle: null, image: null, tracks: [mkTrack(1)] });
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "mix", mixId: "m", artist: { id: 7, name: "Seed" } }} />);
+  expect(await screen.findByText("Track Radio")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "radio", mixType: "TRACK_MIX" });
+  fireEvent.click(screen.getByRole("button", { name: /Seed/ }));
+  expect(nav.push).toHaveBeenCalledWith({ type: "artist", id: 7, name: "Seed" });
+});
+
+it("a track radio without a seed artist links its first track's artist; a mix links none", async () => {
+  api.getMixItems.mockResolvedValue({ mixId: "m", mixType: null, title: "T Radio", subtitle: null, image: null, tracks: [mkTrack(1)] });
+  const { unmount } = renderTv(<TvTrackListScreen view={{ type: "mix", mixId: "m", mixType: "TRACK_MIX" }} />);
+  expect(await screen.findByText("Track Radio")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Go to A1" })).toBeTruthy();
+  unmount();
+  api.getMixItems.mockResolvedValue({ mixId: "x", mixType: "ARTIST_MIX", title: "A Radio", subtitle: null, image: null, tracks: [mkTrack(1)] });
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "mix", mixId: "x" }} />);
+  expect(await screen.findByText("Mix")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Go to A1" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "mix", mixType: "ARTIST_MIX" });
+});
+
 const shownRows = () => document.querySelectorAll(".tv-track-row[data-tv-index]").length;
 
 it("renders a 300-track album in chunks", async () => {

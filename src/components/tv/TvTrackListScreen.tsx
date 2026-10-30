@@ -224,16 +224,29 @@ async function loadList(
     }
     case "mix": {
       const mix = await getMixItems(view.mixId);
+      // As the desktop MixPage: a track radio plays as "radio".
+      const mixType = view.mixType ?? mix.mixType ?? undefined;
+      const isTrackRadio = mixType === "TRACK_MIX";
       const title = mix.title ?? view.title ?? "Mix";
       const image = mix.image ?? view.image;
+      const seed = isTrackRadio
+        ? (view.artist ?? mix.tracks[0]?.artists?.[0] ?? mix.tracks[0]?.artist)
+        : undefined;
       return {
-        kicker: "Mix",
+        kicker: isTrackRadio ? "Track Radio" : "Mix",
         title,
         subtitle: mix.subtitle ?? undefined,
         image,
         first: mix.tracks,
         total: mix.tracks.length,
-        meta: { type: "mix", id: view.mixId, name: title, image },
+        artist: seed ? { id: seed.id, name: seed.name } : undefined,
+        meta: {
+          type: isTrackRadio ? "radio" : "mix",
+          id: view.mixId,
+          name: title,
+          image,
+          mixType,
+        },
       };
     }
     case "favorites": {

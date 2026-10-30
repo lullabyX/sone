@@ -249,10 +249,15 @@ const TvMenuHost = forwardRef<
                 showToast("Track radio unavailable", "info");
                 return;
               }
+              const artist = track.artists?.[0] ?? track.artist;
               onNavigate({
                 type: "mix",
                 mixId,
                 title: `${track.title} Radio`,
+                mixType: "TRACK_MIX",
+                artist: artist
+                  ? { id: artist.id, name: artist.name }
+                  : undefined,
               });
             },
           },
