@@ -11,6 +11,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  ChevronRight,
   Heart,
   ListStart,
   ListX,
@@ -58,10 +59,16 @@ import {
 import { useFavorites } from "../../hooks/useFavorites";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { useSuggestedTracks } from "../../hooks/useSuggestedTracks";
+import { useTrackCredits } from "../../hooks/useTrackCredits";
 import { useVolumeLocked } from "../../hooks/useVolumeLocked";
 import { formatTime } from "../../lib/format";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
-import { getTidalImageUrl, type Track } from "../../types";
+import {
+  getTidalImageUrl,
+  getTrackDisplayTitle,
+  type Credit,
+  type Track,
+} from "../../types";
 import {
   formatStreamQuality,
   getTrackArtistDisplay,
@@ -483,6 +490,108 @@ function SuggestedPanel() {
   );
 }
 
+/** The playing track's details and credits, as in the desktop drawer
+ *  (without the bio). Every row is focusable, so the remote can scroll
+ *  through them; a role with artist pages opens the artist, or a menu of
+ *  them when there are several. */
+function CreditsPanel() {
+  const nav = useTvNav();
+  const track = useAtomValue(currentTrackAtom);
+  const { credits, loading, error } = useTrackCredits(track?.id);
+
+  if (loading) return <TvSpinner />;
+  if (!track || error || credits.length === 0)
+    return <PanelEmpty text="No credits available for this track" />;
+
+  const releaseDate = track.album?.releaseDate
+    ? (() => {
+        const d = new Date(track.album.releaseDate);
+        return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+      })()
+    : null;
+  const details = (
+    [
+      ["Title", getTrackDisplayTitle(track)],
+      ["Artists", getTrackArtistDisplay(track)],
+      ["Album", track.album?.title],
+      ["Released", releaseDate],
+      ["Label", track.copyright],
+    ] as [string, string | null | undefined][]
+  ).filter((d): d is [string, string] => !!d[1]);
+  const openArtist = (a: { id: number; name: string }) =>
+    nav.push({ type: "artist", id: a.id, name: a.name });
+  const openCredit = (credit: Credit) => {
+    const linked = credit.contributors.filter(
+      (c): c is { name: string; id: number } => typeof c.id === "number",
+    );
+    if (linked.length === 0) return undefined;
+    if (linked.length === 1) return () => openArtist(linked[0]);
+    return () =>
+      nav.openMenu({
+        title: credit.creditType,
+        items: linked.map((c) => ({
+          label: c.name,
+          onSelect: () => openArtist(c),
+        })),
+      });
+  };
+
+  return (
+    <div>
+      {details.map(([label, value]) => (
+        <CreditRow key={label} label={label} value={value} />
+      ))}
+      {credits.map((credit, i) => (
+        <CreditRow
+          key={`${credit.creditType}-${i}`}
+          label={credit.creditType}
+          value={credit.contributors.map((c) => c.name).join(", ")}
+          onSelect={openCredit(credit)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CreditRow({
+  label,
+  value,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  onSelect?: () => void;
+}) {
+  const layout =
+    "tv-track flex w-full items-center gap-[1rem] px-[1rem] py-[0.7rem] rounded-[0.6rem] text-left";
+  const content = (
+    <span className="min-w-0 flex-1 flex flex-col gap-[0.2rem]">
+      <span className="text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
+        {label}
+      </span>
+      <span className="text-[0.95rem] font-medium text-th-text-primary break-words">
+        {value}
+      </span>
+    </span>
+  );
+
+  if (!onSelect)
+    return (
+      <div tabIndex={0} data-tv-focusable className={layout}>
+        {content}
+      </div>
+    );
+  return (
+    <button data-tv-focusable onClick={onSelect} className={layout}>
+      {content}
+      <ChevronRight
+        aria-hidden
+        className="w-[1.2rem] h-[1.2rem] shrink-0 text-th-text-muted"
+      />
+    </button>
+  );
+}
+
 function PanelEmpty({ text }: { text: string }) {
   return (
     <p className="px-[1rem] py-[1rem] text-[0.8rem] text-th-text-muted">
@@ -494,9 +603,10 @@ function PanelEmpty({ text }: { text: string }) {
 /** Tabs about the track itself, not offered while a video plays. */
 const TRACK_ONLY_TABS: TvNowPlayingTab[] = ["suggested", "credits"];
 
-/** Up next / Suggested / History under the player. Focusing a tab selects
- *  it, so Left and Right switch panels without Enter; only the selected
- *  panel is mounted, and the last one used is kept for the session. */
+/** Up next / Suggested / History / Credits under the player. Focusing a
+ *  tab selects it, so Left and Right switch panels without Enter; only the
+ *  selected panel is mounted, and the last one used is kept for the
+ *  session. */
 function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
   const queue = useAtomValue(queueAtom);
   const manualQueue = useAtomValue(manualQueueAtom);
@@ -507,6 +617,7 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
     { id: "queue" as const, label: n > 0 ? `Up next · ${n}` : "Up next" },
     { id: "suggested" as const, label: "Suggested" },
     { id: "history" as const, label: "History" },
+    { id: "credits" as const, label: "Credits" },
   ].filter((t) => !(isVideo && TRACK_ONLY_TABS.includes(t.id)));
   const selected = tabs.some((t) => t.id === stored) ? stored : "queue";
   const tabId = (id: TvNowPlayingTab) => `${baseId}-tab-${id}`;
@@ -553,6 +664,8 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
           <HistoryPanel />
         ) : selected === "suggested" ? (
           <SuggestedPanel />
+        ) : selected === "credits" ? (
+          <CreditsPanel />
         ) : (
           <QueuePanel />
         )}

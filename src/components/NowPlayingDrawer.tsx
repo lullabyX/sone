@@ -54,18 +54,18 @@ import { isContentBlocked } from "../lib/contentFilter";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { useToast } from "../contexts/ToastContext";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
-import { getTrackLyrics, getTrackCredits, getArtistBio } from "../api/tidal";
+import { getTrackLyrics, getArtistBio } from "../api/tidal";
 import BioText from "./BioText";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import { COVER_TEXT_GAP, MAX_COVER_SIZE } from "../lib/coverFit";
 import { useFittedCoverSize } from "../hooks/useFittedCoverSize";
 import { useSuggestedTracks } from "../hooks/useSuggestedTracks";
+import { useTrackCredits } from "../hooks/useTrackCredits";
 import {
   getTidalImageUrl,
   getTrackDisplayTitle,
   type Track,
   type Lyrics,
-  type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
 import { TITLEBAR_HEIGHT } from "./TitleBar";
@@ -1181,35 +1181,13 @@ function SkeletonRow({ first = false }: { first?: boolean }) {
 const CreditsTab = memo(function CreditsTab() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { navigateToArtist } = useNavigation();
-  const [credits, setCredits] = useState<Credit[]>([]);
-  const [creditsLoading, setCreditsLoading] = useState(true);
-  const [creditsError, setCreditsError] = useState<string | null>(null);
+  const {
+    credits,
+    loading: creditsLoading,
+    error: creditsError,
+  } = useTrackCredits(currentTrack?.id);
   const [bio, setBio] = useState<string | null>(null);
   const [bioLoading, setBioLoading] = useState(false);
-
-  useEffect(() => {
-    if (!currentTrack) return;
-
-    let active = true;
-    setCreditsLoading(true);
-    setCreditsError(null);
-    setCredits([]);
-
-    getTrackCredits(currentTrack.id)
-      .then((result) => {
-        if (active) setCredits(result);
-      })
-      .catch((err) => {
-        if (active) setCreditsError(String(err));
-      })
-      .finally(() => {
-        if (active) setCreditsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [currentTrack?.id]);
 
   useEffect(() => {
     const artistId = currentTrack?.artist?.id;

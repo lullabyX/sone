@@ -8,11 +8,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/tidal")>()),
   getMixItems: vi.fn(),
+  getTrackCredits: vi.fn(),
+  getArtistBio: vi.fn(async () => ""),
 }));
 
 import NowPlayingDrawer from "./NowPlayingDrawer";
 import { ToastProvider } from "../contexts/ToastContext";
-import { getMixItems, type MixPageResult } from "../api/tidal";
+import { getMixItems, getTrackCredits, type MixPageResult } from "../api/tidal";
 import { currentTrackAtom } from "../atoms/playback";
 import { drawerOpenAtom, drawerTabAtom } from "../atoms/ui";
 import type { Track } from "../types";
@@ -28,11 +30,11 @@ const mk = (id: number, over: Partial<Track> = {}) =>
     ...over,
   }) as Track;
 
-function renderSuggested(track: Track) {
+function renderTab(tab: "suggested" | "credits", track: Track) {
   const store = createStore();
   store.set(currentTrackAtom, track);
   store.set(drawerOpenAtom, true);
-  store.set(drawerTabAtom, "suggested");
+  store.set(drawerTabAtom, tab);
   render(
     <Provider store={store}>
       <ToastProvider>
@@ -52,17 +54,45 @@ describe("drawer suggested tracks tab", () => {
     vi.mocked(getMixItems).mockResolvedValue({
       tracks: [mk(21), mk(22)],
     } as MixPageResult);
-    renderSuggested(mk(1, { mixes: { TRACK_MIX: "m1" } }));
+    renderTab("suggested", mk(1, { mixes: { TRACK_MIX: "m1" } }));
     expect(await screen.findByText("T22")).toBeTruthy();
     expect(screen.getByText("T21")).toBeTruthy();
     expect(getMixItems).toHaveBeenCalledWith("m1");
   });
 
   it("shows the empty state for a track without a mix", async () => {
-    renderSuggested(mk(1));
+    renderTab("suggested", mk(1));
     expect(
       await screen.findByText("No suggested tracks available for this track"),
     ).toBeTruthy();
     expect(getMixItems).not.toHaveBeenCalled();
+  });
+});
+
+describe("drawer credits tab", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("lists each role with its contributors", async () => {
+    vi.mocked(getTrackCredits).mockResolvedValue([
+      {
+        creditType: "Producer",
+        contributors: [{ name: "A", id: 9 }, { name: "B" }],
+      },
+    ]);
+    renderTab("credits", mk(1));
+    expect(await screen.findByText("Producer")).toBeTruthy();
+    expect(screen.getByText("A, B")).toBeTruthy();
+    expect(getTrackCredits).toHaveBeenCalledWith(1);
+  });
+
+  it("shows the empty state when there are no credits", async () => {
+    vi.mocked(getTrackCredits).mockResolvedValue([]);
+    renderTab("credits", mk(1));
+    expect(
+      await screen.findByText("No credits available for this track"),
+    ).toBeTruthy();
   });
 });

@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
     async () => ({ subtitles: "", isRightToLeft: false }) as Lyrics,
   ),
   getMixItems: vi.fn(),
+  getTrackCredits: vi.fn(),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()),
@@ -32,7 +33,7 @@ import {
   queueAtom,
 } from "../../atoms/playback";
 import { tvNowPlayingTabAtom } from "../../atoms/tv";
-import type { Lyrics, Track } from "../../types";
+import type { Credit, Lyrics, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
 import type { TvNav } from "./TvNavContext";
 import {
@@ -176,6 +177,77 @@ describe("TvNowPlaying suggested tracks", () => {
       store: playing(mkTrack(9, { itemType: "video" })),
     });
     expect(screen.queryByRole("tab", { name: "Suggested" })).toBeNull();
+  });
+});
+
+describe("TvNowPlaying credits", () => {
+  const showCredits = async (credits: Credit[]) => {
+    api.getTrackCredits.mockResolvedValue(credits);
+    const r = renderTv(<TvNowPlaying />, { store: playing() });
+    focusTab("Credits");
+    return r;
+  };
+
+  it("opens the only credited artist of a role", async () => {
+    const { nav } = await showCredits([
+      {
+        creditType: "Producer",
+        contributors: [{ name: "A", id: 9 }, { name: "B" }],
+      },
+    ]);
+    await screen.findByText("Producer");
+    expect(screen.getByText("A, B")).toBeTruthy();
+    expect(api.getTrackCredits).toHaveBeenCalledWith(1);
+    fireEvent.click(screen.getByRole("button", { name: /Producer/ }));
+    expect(nav.push).toHaveBeenCalledWith({ type: "artist", id: 9, name: "A" });
+  });
+
+  it("offers a menu of the credited artists of a role", async () => {
+    const { nav } = await showCredits([
+      {
+        creditType: "Producer",
+        contributors: [
+          { name: "A", id: 9 },
+          { name: "B" },
+          { name: "C", id: 10 },
+        ],
+      },
+    ]);
+    await screen.findByText("Producer");
+    fireEvent.click(screen.getByRole("button", { name: /Producer/ }));
+    const spec = vi.mocked(nav.openMenu).mock.calls[0][0];
+    expect(spec.title).toBe("Producer");
+    expect(labels(spec.items)).toEqual(["A", "C"]);
+    void spec.items[1].onSelect!();
+    expect(nav.push).toHaveBeenCalledWith({
+      type: "artist",
+      id: 10,
+      name: "C",
+    });
+  });
+
+  it("leaves a role without artist pages as plain text", async () => {
+    await showCredits([{ creditType: "Mixer", contributors: [{ name: "M" }] }]);
+    const row = (await screen.findByText("Mixer")).closest<HTMLElement>(
+      "[data-tv-focusable]",
+    )!;
+    expect(row.tabIndex).toBe(0);
+    expect(row.getAttribute("role")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mixer/ })).toBeNull();
+  });
+
+  it("says when there are no credits", async () => {
+    await showCredits([]);
+    expect(
+      await screen.findByText("No credits available for this track"),
+    ).toBeTruthy();
+  });
+
+  it("is not offered while a video plays", () => {
+    renderTv(<TvNowPlaying />, {
+      store: playing(mkTrack(9, { itemType: "video" })),
+    });
+    expect(screen.queryByRole("tab", { name: "Credits" })).toBeNull();
   });
 });
 
