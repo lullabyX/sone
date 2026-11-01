@@ -15,6 +15,8 @@ import {
 } from "../api/tidal";
 import type { Playlist, PlaylistOrFolder } from "../types";
 
+export type OnDupes = "FAIL" | "SKIP" | "ADD";
+
 export function usePlaylists() {
   const [userPlaylists, setUserPlaylists] = useAtom(userPlaylistsAtom);
   const setDeletedPlaylistIds = useSetAtom(deletedPlaylistIdsAtom);
@@ -219,11 +221,22 @@ export function usePlaylists() {
     [authTokens?.user_id, setUserPlaylists, setDeletedPlaylistIds],
   );
 
+  /** Resolves with the ids actually added; rejects with a 409 SoneError on a duplicate under "FAIL". */
   const addTracksToPlaylist = useCallback(
-    async (playlistId: string, trackIds: number[]): Promise<void> => {
-      updatePlaylistTrackCount(playlistId, trackIds.length);
+    async (
+      playlistId: string,
+      trackIds: number[],
+      onDupes: OnDupes = "FAIL",
+    ): Promise<number[]> => {
       try {
-        await invoke("add_tracks_to_playlist", { playlistId, trackIds });
+        const added = await invoke<number[]>("add_tracks_to_playlist", {
+          playlistId,
+          trackIds,
+          onDupes,
+        });
+        if (added.length > 0) {
+          updatePlaylistTrackCount(playlistId, added.length);
+        }
         invalidateCache(`playlist:${playlistId}`);
         invalidateCache(`playlist-page:${playlistId}`);
         invalidateCache("user-playlists");
@@ -233,8 +246,8 @@ export function usePlaylists() {
           invalidateCache("user-playlists");
           refreshUserPlaylists();
         }, 3000);
+        return added;
       } catch (error: any) {
-        updatePlaylistTrackCount(playlistId, -trackIds.length);
         console.error("Failed to add tracks to playlist:", error);
         throw error;
       }
