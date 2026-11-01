@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { confirmMenu, linkMenu } from "./tvMenu";
+import { confirmMenu, linkMenu, navMenus } from "./tvMenu";
 import { setupTvTest } from "./tvTestUtils";
 
 setupTvTest();
@@ -19,4 +19,10 @@ it("shows a link as a QR code with its address", () => {
     items: [{ label: "https://x.io/a", multiline: true }],
   });
   expect(linkMenu("https://x.io/a", "").title).toBe("Link");
+});
+it("navMenus forwards the menu context to the host", () => {
+  const host = { open: vi.fn(), isOpen: () => false, back: vi.fn(), trackMenu: vi.fn(), mediaMenu: vi.fn(() => ({ title: "", items: [] })) };
+  const item = { type: "playlist" as const, uuid: "p", title: "P" };
+  navMenus(() => host).mediaMenu(item, false, { folderId: "f1" });
+  expect(host.mediaMenu).toHaveBeenCalledWith(item, false, { folderId: "f1" });
 });

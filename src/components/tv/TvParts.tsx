@@ -124,11 +124,15 @@ function TvCard({
 }
 
 /** The action menu of a card: a track's, or a media item's. */
-function cardMenu(nav: TvNav, entry: TvEntry): (() => TvMenuSpec) | undefined {
+function cardMenu(
+  nav: TvNav,
+  entry: TvEntry,
+  menuContext?: { folderId?: string },
+): (() => TvMenuSpec) | undefined {
   const action = entry.action;
   if (action.kind === "playTrack") return () => nav.trackMenu(action.track);
   const media = entry.media;
-  return media ? () => nav.mediaMenu(media) : undefined;
+  return media ? () => nav.mediaMenu(media, false, menuContext) : undefined;
 }
 
 /** A compact tile (small art + one-line title) for Home's quick access. */
@@ -197,12 +201,15 @@ export function TvGrid({
   queueId,
   name,
   showExplicit,
+  menuContext,
 }: {
   entries: TvEntry[];
   queueTracks?: Track[];
   queueId: string;
   name: string;
   showExplicit?: boolean;
+  /** Where the cards are listed, passed to their media menus. */
+  menuContext?: { folderId?: string };
 }) {
   const nav = useTvNav();
   const wide = entries.every((e) => e.key.startsWith("promo:"));
@@ -217,7 +224,7 @@ export function TvGrid({
           index={i}
           entry={entry}
           wide={wide}
-          menu={cardMenu(nav, entry)}
+          menu={cardMenu(nav, entry, menuContext)}
           showExplicit={showExplicit}
           onSelect={() =>
             nav.run(entry.action, {

@@ -62,7 +62,11 @@ export interface TvMenuHostHandle {
   /** Back inside the menu: leaves a submenu, or closes the menu. */
   back: () => void;
   trackMenu: (track: Track, extra?: TvMenuItem[]) => TvMenuSpec;
-  mediaMenu: (item: MediaItemType, onItsPage?: boolean) => TvMenuSpec;
+  mediaMenu: (
+    item: MediaItemType,
+    onItsPage?: boolean,
+    context?: { folderId?: string },
+  ) => TvMenuSpec;
 }
 
 /**

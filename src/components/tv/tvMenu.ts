@@ -1,4 +1,6 @@
 import { X, type LucideIcon } from "lucide-react";
+import type { TvMenuHostHandle } from "./TvMenuHost";
+import type { TvNav } from "./TvNavContext";
 
 export interface TvMenuItem {
   label: string;
@@ -32,6 +34,18 @@ export function linkMenu(url: string, title: string): TvMenuSpec {
     subtitle: "Scan with your phone to open this link",
     qr: url,
     items: [{ label: url, multiline: true }],
+  };
+}
+
+/** The nav's menu entry points, forwarded to the mounted menu host. */
+export function navMenus(
+  host: () => TvMenuHostHandle | null,
+): Pick<TvNav, "openMenu" | "trackMenu" | "mediaMenu"> {
+  return {
+    openMenu: (spec) => host()?.open(spec),
+    trackMenu: (track, extra) => host()!.trackMenu(track, extra),
+    mediaMenu: (item, onItsPage, context) =>
+      host()!.mediaMenu(item, onItsPage, context),
   };
 }
 

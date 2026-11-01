@@ -36,8 +36,13 @@ export interface TvNav {
   /** Action menus for a track and for an album / playlist / mix / artist.
    *  `extra` adds actions that depend on where the track is listed. */
   trackMenu: (track: Track, extra?: TvMenuItem[]) => TvMenuSpec;
-  /** `onItsPage`: opened from the item's own page (no "Open ..." entry). */
-  mediaMenu: (item: MediaItemType, onItsPage?: boolean) => TvMenuSpec;
+  /** `onItsPage`: opened from the item's own page (no "Open ..." entry).
+   *  `context.folderId`: the playlist folder the card is listed in. */
+  mediaMenu: (
+    item: MediaItemType,
+    onItsPage?: boolean,
+    context?: { folderId?: string },
+  ) => TvMenuSpec;
   /** Ask for a line of text with the on-screen keyboard; null if cancelled. */
   prompt: (request: TvPromptRequest) => Promise<string | null>;
   /** Open the full desktop settings sheet, navigable with the remote, on

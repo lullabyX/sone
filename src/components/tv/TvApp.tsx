@@ -50,7 +50,7 @@ import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import TvVolumeHud from "./TvVolumeHud";
 import TvMiniBar from "./TvMiniBar";
-import { linkMenu, menuForElement } from "./tvMenu";
+import { linkMenu, menuForElement, navMenus } from "./tvMenu";
 import { useTvVideoMarks } from "./useTvVideoMarks";
 import { useTvMoreSettings } from "./useTvMoreSettings";
 import { useTvPlayback } from "./useTvPlayback";
@@ -445,10 +445,7 @@ export default function TvApp() {
       openNowPlaying,
       playTrack: tvPlay.playTrack,
       playSource: tvPlay.playSource,
-      openMenu: (spec) => menuRef.current?.open(spec),
-      trackMenu: (track, extra) => menuRef.current!.trackMenu(track, extra),
-      mediaMenu: (item, onItsPage) =>
-        menuRef.current!.mediaMenu(item, onItsPage),
+      ...navMenus(() => menuRef.current),
       openMoreSettings: more.open,
       prompt: askText,
     }),
