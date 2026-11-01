@@ -134,6 +134,64 @@ it("applies a stale refresh while focus is on the first row", async () => {
   expect(screen.queryByText("A")).toBeNull();
 });
 
+it("while covered, holds a stale refresh back when focus was last below the first row", async () => {
+  const fresh = deferred<unknown>();
+  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B")], cursor: null }, isStale: true });
+  api.refreshHomePage.mockReturnValue(fresh.promise);
+  renderTv(<TvHome />, { active: false });
+  await screen.findByText("A");
+  act(() => firstCardOf("B").focus());
+  act(() => (document.activeElement as HTMLElement).blur());
+  await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
+  expect(screen.queryByText("Fresh")).toBeNull();
+  expect(screen.getByText("B")).toBeTruthy();
+});
+
+it("while covered, applies a stale refresh when focus was last on the first row", async () => {
+  const fresh = deferred<unknown>();
+  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B")], cursor: null }, isStale: true });
+  api.refreshHomePage.mockReturnValue(fresh.promise);
+  renderTv(<TvHome />, { active: false });
+  await screen.findByText("A");
+  act(() => firstCardOf("A").focus());
+  act(() => (document.activeElement as HTMLElement).blur());
+  await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
+  expect(await screen.findByText("Fresh")).toBeTruthy();
+});
+
+it("a page that failed on one tab shows no error while it loads again after another tab paged", async () => {
+  const tabs = [
+    { tabType: "STATIC", name: "For You" },
+    { tabType: "MUSIC", name: "Music" },
+  ];
+  api.getHomePage.mockImplementation(async (feedType?: string) =>
+    feedType === "MUSIC"
+      ? { home: { tabs, sections: [s("M1"), s("M2"), s("M3")], cursor: "m1" }, isStale: false }
+      : { home: { tabs, sections: [s("A"), s("B")], cursor: "c1" }, isStale: false },
+  );
+  const again = deferred<unknown>();
+  api.getHomePageMore
+    .mockRejectedValueOnce({ kind: "Network", message: "offline" })
+    .mockResolvedValueOnce({ tabs: [], sections: [s("M4")], cursor: null })
+    .mockReturnValueOnce(again.promise);
+  renderTv(<TvHome />);
+  await screen.findByText("A");
+  act(() => firstCardOf("B").focus());
+  expect(await screen.findByText("Couldn't load more")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Music" }));
+  await screen.findByText("M3");
+  act(() => firstCardOf("M3").focus());
+  await screen.findByText("M4");
+
+  fireEvent.click(screen.getByRole("button", { name: "For You" }));
+  await screen.findByText("B");
+  act(() => firstCardOf("B").focus());
+  await waitFor(() => expect(api.getHomePageMore).toHaveBeenCalledTimes(3));
+  expect(screen.getByRole("status", { name: "Loading more" })).toBeTruthy();
+  expect(screen.queryByText("Couldn't load more")).toBeNull();
+});
+
 const myTracks = { id: "tidal://my-collection/tracks", title: "My Tracks" };
 const pl1 = { uuid: "u1", title: "Road", squareImage: "i" };
 const alb1 = { id: 3, title: "Blue", cover: "c" };

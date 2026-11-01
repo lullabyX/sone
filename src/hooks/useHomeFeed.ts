@@ -33,9 +33,16 @@ const scopes: Record<Scope, ScopeState> = {
   tv: newScope(),
 };
 
-export function __resetHomeFeedForTests(): void {
+/** Forget every cached feed (sign-out): the next account starts afresh. A
+ *  request still in flight writes into the scope it started in, which is
+ *  gone by then. */
+export function resetHomeFeed(): void {
   scopes.desktop = newScope();
   scopes.tv = newScope();
+}
+
+export function __resetHomeFeedForTests(): void {
+  resetHomeFeed();
 }
 
 export const slugOf = (feedType: string) => feedType.toLowerCase();
@@ -88,9 +95,10 @@ export function useHomeFeed(
         invalidateCache("home");
       }
 
+      const st = scopes[scope];
       try {
         const result = await getHomePage(feedType);
-        const { tabCache } = scopes[scope];
+        const { tabCache } = st;
         const prev = tabCache.get(slug);
         if (
           !prev ||
@@ -103,7 +111,7 @@ export function useHomeFeed(
           });
         }
         if (result.home.tabs.length) {
-          scopes[scope].cachedTabs = result.home.tabs;
+          st.cachedTabs = result.home.tabs;
           setTabs(result.home.tabs);
         }
         forceRender((n) => n + 1);
@@ -111,7 +119,7 @@ export function useHomeFeed(
         if (result.isStale) {
           refreshHomePage(feedType)
             .then((fresh) => {
-              const cache = scopes[scope].tabCache;
+              const cache = st.tabCache;
               const cur = cache.get(slug);
               if (
                 cur &&
@@ -150,9 +158,10 @@ export function useHomeFeed(
   useEffect(() => {
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
-    const first = scopes[scope].cachedTabs[0]?.tabType ?? "STATIC";
+    const st = scopes[scope];
+    const first = st.cachedTabs[0]?.tabType ?? "STATIC";
     loadTab(first, false).then(() => {
-      const st = scopes[scope];
+      if (st !== scopes[scope]) return;
       for (const t of st.cachedTabs) {
         const s = slugOf(t.tabType);
         if (s !== slugOf(first) && !st.tabCache.has(s)) {
@@ -220,10 +229,12 @@ export function useHomeFeed(
       return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    const st = scopes[scope];
     getHomePageMore(cursor, activeType)
       .then((result) => {
         failedCursorRef.current = null;
-        const { tabCache } = scopes[scope];
+        setFailedCursor(null);
+        const { tabCache } = st;
         const slug = slugOf(activeType);
         const prev = tabCache.get(slug);
         if (prev) {

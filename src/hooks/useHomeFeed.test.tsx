@@ -17,7 +17,17 @@ vi.mock("../api/tidal", async (importOriginal) => ({
   ...api,
 }));
 
-import { useHomeFeed, __resetHomeFeedForTests } from "./useHomeFeed";
+import {
+  useHomeFeed,
+  resetHomeFeed,
+  __resetHomeFeedForTests,
+} from "./useHomeFeed";
+
+function later<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
 
 let nextId = 1;
 const s = (title: string) => ({
@@ -192,5 +202,109 @@ describe("useHomeFeed", () => {
     expect(desktop.result.current.tabs).toEqual(tabs);
     expect(titles(tv.result)).toEqual(["Music hits", "More"]);
     expect(tv.result.current.activeType).toBe("MUSIC");
+  });
+
+  it("a remount after Load more keeps the paged rows over a fresh load", async () => {
+    api.getHomePage.mockResolvedValue(page([s("Old")], "c"));
+    api.getHomePageMore.mockResolvedValue({
+      tabs: [],
+      sections: [s("More")],
+      cursor: null,
+    });
+    const first = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(titles(first.result)).toEqual(["Old"]));
+    act(() => first.result.current.loadMore());
+    await waitFor(() => expect(titles(first.result)).toEqual(["Old", "More"]));
+    first.unmount();
+
+    api.getHomePage.mockResolvedValue(page([s("Newer")], "n"));
+    const { result } = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(api.getHomePage).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(titles(result)).toEqual(["Old", "More"]);
+  });
+
+  it("a stale refresh that lands after Load more leaves the paged rows", async () => {
+    const fresh = later<unknown>();
+    api.getHomePage.mockResolvedValue(page([s("Old")], "c", true));
+    api.refreshHomePage.mockReturnValue(fresh.promise);
+    api.getHomePageMore.mockResolvedValue({
+      tabs: [],
+      sections: [s("More")],
+      cursor: null,
+    });
+    const { result } = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(api.refreshHomePage).toHaveBeenCalled());
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(titles(result)).toEqual(["Old", "More"]));
+    await act(async () =>
+      fresh.resolve({ tabs: [], sections: [s("New")], cursor: "c2" }),
+    );
+    expect(titles(result)).toEqual(["Old", "More"]);
+  });
+
+  it("resetHomeFeed drops the feed, and a request from before it lands nowhere", async () => {
+    const before = later<unknown>();
+    api.getHomePage.mockReturnValueOnce(before.promise);
+    const first = renderHook(() => useHomeFeed("tv"));
+    first.unmount();
+    resetHomeFeed();
+    await act(async () => before.resolve(page([s("Previous")], "p")));
+
+    api.getHomePage.mockResolvedValue(page([s("Next")], null));
+    const { result } = renderHook(() => useHomeFeed("tv"));
+    expect(result.current.loading).toBe(true);
+    expect(titles(result)).toEqual([]);
+    await waitFor(() => expect(titles(result)).toEqual(["Next"]));
+  });
+
+  it("resetHomeFeed lets a paged feed load afresh", async () => {
+    api.getHomePage.mockResolvedValue(page([s("Old")], "c"));
+    api.getHomePageMore.mockResolvedValue({
+      tabs: [],
+      sections: [s("More")],
+      cursor: null,
+    });
+    const first = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(titles(first.result)).toEqual(["Old"]));
+    act(() => first.result.current.loadMore());
+    await waitFor(() => expect(titles(first.result)).toEqual(["Old", "More"]));
+    first.unmount();
+
+    resetHomeFeed();
+    api.getHomePage.mockResolvedValue(page([s("Other account")], null));
+    const { result } = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(titles(result)).toEqual(["Other account"]));
+  });
+
+  it("a page loaded on another tab clears a failed page's error with its cursor", async () => {
+    const tabs = [
+      { name: "For You", tabType: "STATIC" },
+      { name: "Music", tabType: "MUSIC" },
+    ];
+    api.getHomePage.mockImplementation(async (feedType: string) => ({
+      home: {
+        tabs,
+        sections: [s(feedType)],
+        cursor: feedType === "MUSIC" ? "m1" : "s1",
+      },
+      isStale: false,
+    }));
+    api.getHomePageMore
+      .mockRejectedValueOnce({ kind: "Network", message: "offline" })
+      .mockResolvedValueOnce({ tabs: [], sections: [s("More")], cursor: null });
+    const { result } = renderHook(() => useHomeFeed("tv"));
+    await waitFor(() => expect(result.current.cursor).toBe("s1"));
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.moreError).toBe(true));
+
+    act(() => result.current.selectTab("MUSIC"));
+    await waitFor(() => expect(result.current.cursor).toBe("m1"));
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(titles(result)).toEqual(["MUSIC", "More"]));
+
+    act(() => result.current.selectTab("STATIC"));
+    expect(result.current.cursor).toBe("s1");
+    expect(result.current.moreError).toBe(false);
   });
 });

@@ -65,17 +65,23 @@ export default function TvHome() {
     activeRef.current = active;
   });
 
-  // The section focus is in, or -1 (tabs, quick access, outside Home).
-  const focusedSection = () => {
+  // The section `el` is in, or -1 (tabs, quick access, outside Home).
+  const sectionOf = (el: Element | null) => {
     const root = rootRef.current;
-    const item = document.activeElement?.closest("[data-tv-index]");
+    const item = el?.closest("[data-tv-index]");
     return root && item && root.contains(item)
       ? Number(item.getAttribute("data-tv-index"))
       : -1;
   };
-  // A refresh never pulls rows out from under focus further down.
+  // Where focus was on Home, for while a screen or Now Playing covers it.
+  const lastSectionRef = useRef(-1);
+  // A refresh never pulls rows out from under focus further down, nor from
+  // under the row Back returns to.
   const feed = useHomeFeed("tv", {
-    allowReplace: () => !activeRef.current || focusedSection() <= 0,
+    allowReplace: () =>
+      (activeRef.current
+        ? sectionOf(document.activeElement)
+        : lastSectionRef.current) <= 0,
   });
   const { sections, revalidate } = feed;
   const shortcuts = sections.find((s) => s.sectionType === "SHORTCUT_LIST");
@@ -136,6 +142,9 @@ export default function TvHome() {
     <div
       ref={rootRef}
       data-tv-loading={feed.loadingMore || undefined}
+      onFocus={(e) => {
+        lastSectionRef.current = sectionOf(e.target);
+      }}
       className="pt-[2rem] pb-[2rem]"
     >
       {feed.tabs.length > 1 && (
@@ -199,7 +208,7 @@ export default function TvHome() {
           <TvSpinner />
         </div>
       )}
-      {!feed.loading && feed.moreError && (
+      {!feed.loading && !feed.loadingMore && feed.moreError && (
         <div
           data-tv-more
           className="flex items-center gap-[1rem] px-[3rem] py-[1rem]"
