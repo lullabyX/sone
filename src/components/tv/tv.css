@@ -131,6 +131,18 @@ html.tv-mode {
   color: var(--th-text-primary);
 }
 
+/* Focus and the rail change at once, without the zoom or the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .tv-card,
+  .tv-card-art,
+  .tv-button,
+  .tv-key,
+  .tv-input,
+  .tv-rail {
+    transition: none;
+  }
+}
+
 /* The desktop settings sheet opened from TV mode: give its controls the
    same visible focus ring as the TV screens. */
 .tv-mode [data-tv-native] :focus {

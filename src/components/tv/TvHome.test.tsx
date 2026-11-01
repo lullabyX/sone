@@ -206,6 +206,25 @@ it("shows shortcuts as a quick-access grid led by My Tracks", async () => {
   expect(screen.queryByRole("heading", { name: "Shortcuts" })).toBeNull();
 });
 
+it("a quick-access track plays with only the shown tracks queued", async () => {
+  const tracks = Array.from({ length: 9 }, (_, i) => ({
+    id: 900 + i,
+    title: `Song ${i}`,
+    duration: 100,
+    artist: { id: 1, name: "X" },
+    album: { id: 2, title: "Y", cover: "c" },
+  }));
+  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
+    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: tracks }] }, isStale: false });
+  const r = renderTv(<TvHome />);
+  const grid = await screen.findByTestId("tv-quick-access");
+  expect(within(grid).getAllByRole("button")).toHaveLength(8);
+  fireEvent.click(within(grid).getByText("Song 2"));
+  const [action, context] = vi.mocked(r.nav.run).mock.lastCall!;
+  expect(action).toMatchObject({ kind: "playTrack", track: { id: 902 } });
+  expect(context!.tracks!.map((t) => t.id)).toEqual([900, 901, 902, 903, 904, 905, 906]);
+});
+
 it("opens My Tracks and shortcuts from the quick-access grid", async () => {
   api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
     sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [myTracks, pl1] }] }, isStale: false });

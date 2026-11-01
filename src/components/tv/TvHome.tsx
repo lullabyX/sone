@@ -24,14 +24,19 @@ const MY_TRACKS: TvEntry = {
 };
 
 /** The feed's shortcuts as a grid led by My Tracks (desktop Home's quick
- *  access: the first shortcut section, up to 7 of its items). */
+ *  access: the first shortcut section, up to 7 of its items, with the
+ *  desktop's small artwork). A track plays with the shown ones queued. */
 function QuickAccess({ section }: { section: HomeSection }) {
   const nav = useTvNav();
-  const { entries, tracks } = sectionEntries(
+  const shown = sectionEntries(
     (Array.isArray(section.items) ? section.items : []).filter(
       (i) => !isMyTracksItem(i),
     ),
     "SHORTCUT_LIST",
+    160,
+  ).entries.slice(0, 7);
+  const tracks = shown.flatMap((e) =>
+    e.action.kind === "playTrack" ? [e.action.track] : [],
   );
   return (
     <div
@@ -39,7 +44,7 @@ function QuickAccess({ section }: { section: HomeSection }) {
       data-testid="tv-quick-access"
       className="grid grid-cols-4 gap-x-[1.1rem] gap-y-[0.9rem] px-[3rem] pb-[0.8rem] mb-[1.2rem]"
     >
-      {[MY_TRACKS, ...entries.slice(0, 7)].map((entry, i) => (
+      {[MY_TRACKS, ...shown].map((entry, i) => (
         <TvTile
           key={entry.key}
           entry={entry}

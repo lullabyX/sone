@@ -32,6 +32,20 @@ describe("sectionEntries", () => {
     expect(tracks.map((t) => t.id)).toEqual([1, 2]);
   });
 
+  it("asks for artwork at the size given (640 by default)", () => {
+    const items = [track(1), { uuid: "pl-1", title: "P", squareImage: "def" }];
+    expect(sectionEntries(items).entries.map((e) => e.image)).toEqual([
+      expect.stringContaining("/640x640"),
+      expect.stringContaining("/640x640"),
+    ]);
+    expect(
+      sectionEntries(items, undefined, 160).entries.map((e) => e.image),
+    ).toEqual([
+      expect.stringContaining("/160x160"),
+      expect.stringContaining("/160x160"),
+    ]);
+  });
+
   it("opens albums, playlists, mixes and artists", () => {
     const { entries } = sectionEntries([
       { id: 5, title: "An Album", cover: "abc", artist: { name: "X" } },

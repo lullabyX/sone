@@ -218,8 +218,12 @@ export function viewForSource(source: PlaybackSource | null): TvView | null {
  * TV card. Mirrors HomeSection's click routing so a card does on the TV what
  * it does on the desktop. Returns null for items with nowhere to go.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toTvEntry(item: any, sectionType?: string): TvEntry | null {
+function toTvEntry(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  item: any,
+  sectionType?: string,
+  imageSize = 640,
+): TvEntry | null {
   if (!item) return null;
   const title = getItemTitle(item);
   const subtitle = getItemSubtitle(item);
@@ -229,7 +233,7 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
       key: "my-tracks",
       title: title || "My Tracks",
       subtitle: subtitle || "Your favorite tracks",
-      image: getItemImage(item, 640),
+      image: getItemImage(item, imageSize),
       icon: "heart",
       action: { kind: "open", view: { type: "favorites" } },
     };
@@ -325,7 +329,7 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
       key: `${media.type}:${"uuid" in media ? media.uuid : "mixId" in media ? media.mixId : media.id}`,
       title,
       subtitle,
-      image: getItemImage(item, 640),
+      image: getItemImage(item, imageSize),
       round: media.type === "artist",
       media,
       explicit: item.explicit,
@@ -339,7 +343,7 @@ function toTvEntry(item: any, sectionType?: string): TvEntry | null {
       key: `track:${item.id}`,
       title,
       subtitle,
-      image: getItemImage(item, 640),
+      image: getItemImage(item, imageSize),
       explicit: item.explicit,
       ai: item.ai,
       action: { kind: "playTrack", track: item as Track },
@@ -356,6 +360,7 @@ export function sectionEntries(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   items: any[],
   sectionType?: string,
+  imageSize?: number,
 ): { entries: TvEntry[]; tracks: Track[] } {
   const list = Array.isArray(items) ? items.filter(Boolean) : [];
   const mixed =
@@ -365,7 +370,7 @@ export function sectionEntries(
   const tracks: Track[] = [];
   const seen = new Set<string>();
   for (const item of list) {
-    const entry = toTvEntry(item, hint);
+    const entry = toTvEntry(item, hint, imageSize);
     if (!entry || seen.has(entry.key)) continue;
     seen.add(entry.key);
     entries.push(entry);
