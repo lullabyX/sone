@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
 import {
   act,
   fireEvent,
@@ -37,6 +38,7 @@ import {
 import { tvNowPlayingTabAtom } from "../../atoms/tv";
 import type { Credit, Lyrics, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
+import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import type { TvNav } from "./TvNavContext";
 import {
   deferred,
@@ -605,6 +607,42 @@ describe("TvNowPlaying panels on a track change", () => {
         ),
       );
       expect(inPanel()).toBe(true);
+    }));
+
+  it("closing a menu whose row left Up next meanwhile puts focus on the row now there", () =>
+    withLayout(async () => {
+      const host = createRef<TvMenuHostHandle>();
+      const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2), mkTrack(3)]);
+      renderTv(
+        <>
+          <TvNowPlaying />
+          <TvMenuHost
+            ref={host}
+            onNavigate={vi.fn()}
+            onPlayed={vi.fn()}
+            onPrompt={vi.fn(async () => null)}
+            onPlaylistDeleted={vi.fn()}
+          />
+        </>,
+        { store, nav: { openMenu: (spec) => host.current!.open(spec) } },
+      );
+      const t1 = within(rowFor("T1")).getAllByRole("button")[0];
+      act(() => t1.focus());
+      fireEvent.click(
+        within(rowFor("T1")).getByRole("button", { name: "More options" }),
+      );
+      expect(host.current!.isOpen()).toBe(true);
+      const [, b, c] = store.get(queueAtom);
+      act(() => {
+        store.set(currentTrackAtom, mkTrack(1));
+        store.set(queueAtom, [b, c]);
+      });
+      await act(async () => {});
+      act(() => host.current!.back());
+      await act(async () => {});
+      expect(document.activeElement).toBe(
+        within(rowFor("T2")).getAllByRole("button")[0],
+      );
     }));
 
   it("a video taking a track's place moves focus from its tabs to Up next", () =>

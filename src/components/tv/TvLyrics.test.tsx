@@ -10,7 +10,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { isPlayingAtom } from "../../atoms/playback";
 import type { Lyrics } from "../../types";
 import { TvLyricsPanel } from "./TvLyrics";
-import { mockInvoke, renderTv, setupTvTest } from "./tvTestUtils";
+import { deferred, mockInvoke, renderTv, setupTvTest } from "./tvTestUtils";
 import { useTvLyrics, type TvLyricsData } from "./useTvLyrics";
 
 const pos = vi.hoisted(() => ({ value: 0 }));
@@ -169,5 +169,46 @@ it("the hook carries the provider", async () => {
     lyricsProvider: "Musixmatch",
   } as Lyrics);
   const { result } = renderHook(() => useTvLyrics(4801));
-  await waitFor(() => expect(result.current?.provider).toBe("Musixmatch"));
+  await waitFor(() =>
+    expect(result.current.lyrics?.provider).toBe("Musixmatch"),
+  );
+});
+
+it("holds the highlighted line while the lyrics are the last track's", () => {
+  fakeFrames();
+  const store = createStore();
+  store.set(isPlayingAtom, true);
+  pos.value = 9.5;
+  const { rerender } = renderTv(
+    <TvLyricsPanel lyrics={synced} duration={100} />,
+    { store },
+  );
+  act(() => vi.advanceTimersByTime(20));
+  expect(screen.getByText("Three").getAttribute("aria-current")).toBe("true");
+
+  // The next track starts from 0 while its lyrics load.
+  pos.value = 0;
+  rerender(<TvLyricsPanel lyrics={synced} duration={100} stale />);
+  act(() => vi.advanceTimersByTime(100));
+  act(() => {
+    window.dispatchEvent(new CustomEvent("playback-seeked", { detail: 0 }));
+  });
+  expect(screen.getByText("Three").getAttribute("aria-current")).toBe("true");
+});
+
+it("the hook says which track the lyrics it returns belong to", async () => {
+  const next = deferred<Lyrics>();
+  api.getTrackLyrics
+    .mockResolvedValueOnce({ subtitles: "[00:01.00] One" } as Lyrics)
+    .mockReturnValueOnce(next.promise);
+  const { result, rerender } = renderHook(({ id }) => useTvLyrics(id), {
+    initialProps: { id: 1 },
+  });
+  await waitFor(() => expect(result.current.forId).toBe(1));
+  rerender({ id: 2 });
+  expect(result.current.forId).toBe(1);
+  expect(result.current.lyrics?.kind).toBe("synced");
+  await act(async () => next.resolve({ lyrics: "Plain" } as Lyrics));
+  expect(result.current.forId).toBe(2);
+  expect(result.current.lyrics?.kind).toBe("plain");
 });

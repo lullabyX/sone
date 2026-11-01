@@ -25,7 +25,9 @@ const nth = <T>(all: ArrayLike<T>, index: number): T | undefined =>
  * same place of its `data-tv-keep-list` container (same row, else same item,
  * else the last one), else to the element matching the selector of the
  * nearest `data-tv-keep-fallback`, else to the screen's `data-tv-autofocus`
- * one. Never moves focus that something else already placed.
+ * one. Never moves focus that something else already placed. When the
+ * element goes while focus is elsewhere (a menu opened from it), this waits
+ * until that focus is gone too (the menu closed with nothing to return to).
  */
 export function useTvKeepFocus(root: HTMLElement | null, active: boolean) {
   useEffect(() => {
@@ -48,7 +50,7 @@ export function useTvKeepFocus(root: HTMLElement | null, active: boolean) {
       };
     };
     const observer = new MutationObserver(() => {
-      if (!lost || lost.el.isConnected) return;
+      if (!lost || lost.el.isConnected || !root.isConnected) return;
       const current = document.activeElement;
       if (current && current !== document.body && current.isConnected) return;
       const { list, row, item, fallback } = lost;
@@ -65,7 +67,9 @@ export function useTvKeepFocus(root: HTMLElement | null, active: boolean) {
       if (next) focusElement(next);
     });
     root.addEventListener("focusin", onFocusIn);
-    observer.observe(root, { childList: true, subtree: true });
+    // The whole document: a layer outside `root` closing can leave focus
+    // nowhere too.
+    observer.observe(document.body, { childList: true, subtree: true });
     return () => {
       root.removeEventListener("focusin", onFocusIn);
       observer.disconnect();

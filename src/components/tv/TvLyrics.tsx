@@ -17,13 +17,16 @@ import type { TvLyricsData } from "./useTvLyrics";
  *  current line centred; each line is a button that jumps there, and
  *  entering the lyrics lands on the current line. Plain lyrics are not
  *  focusable and scroll along with the track's progress. Idle while the
- *  screen is hidden or playback is paused. */
+ *  screen is hidden or playback is paused, and held where it is while
+ *  `stale` (the last track's lyrics, shown until the next one's arrive). */
 export function TvLyricsPanel({
   lyrics,
   duration,
+  stale = false,
 }: {
   lyrics: TvLyricsData;
   duration: number;
+  stale?: boolean;
 }) {
   const { active: shown } = useContext(TvScreenContext);
   const isPlaying = useAtomValue(isPlayingAtom);
@@ -37,7 +40,7 @@ export function TvLyricsPanel({
   // One frame on show (a paused track opens on the right line), then every
   // frame while playing; state changes only when the line does.
   useEffect(() => {
-    if (lyrics.kind !== "synced" || !shown) return;
+    if (lyrics.kind !== "synced" || !shown || stale) return;
     const lines = lyrics.lines;
     let rafId = 0;
     const tick = () => {
@@ -50,11 +53,11 @@ export function TvLyricsPanel({
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [lyrics, shown, isPlaying]);
+  }, [lyrics, shown, isPlaying, stale]);
 
   // The frame loop is idle while paused — re-sync once per seek.
   useEffect(() => {
-    if (lyrics.kind !== "synced") return;
+    if (lyrics.kind !== "synced" || stale) return;
     const lines = lyrics.lines;
     const onSeeked = (e: Event) => {
       const idx = findActiveLine(lines, (e as CustomEvent<number>).detail);
@@ -63,10 +66,16 @@ export function TvLyricsPanel({
     };
     window.addEventListener("playback-seeked", onSeeked);
     return () => window.removeEventListener("playback-seeked", onSeeked);
-  }, [lyrics]);
+  }, [lyrics, stale]);
 
   useEffect(() => {
-    if (lyrics.kind !== "plain" || !shown || !isPlaying || duration <= 0) {
+    if (
+      lyrics.kind !== "plain" ||
+      !shown ||
+      !isPlaying ||
+      stale ||
+      duration <= 0
+    ) {
       return;
     }
     const tick = () => {
@@ -81,7 +90,7 @@ export function TvLyricsPanel({
     };
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
-  }, [lyrics, duration, shown, isPlaying]);
+  }, [lyrics, duration, shown, isPlaying, stale]);
 
   const isInside = (e: FocusEvent<HTMLElement>, node: EventTarget | null) =>
     node instanceof Node && e.currentTarget.contains(node);

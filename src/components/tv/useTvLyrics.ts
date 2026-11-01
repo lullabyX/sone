@@ -10,38 +10,45 @@ export type TvLyricsData =
  * The current track's lyrics: synced (timed lines) when TIDAL has them, else
  * plain text, else null. `undefined` while the first ones load. On a track
  * change the last lyrics stay until the new ones arrive, so the lyrics panel
- * (and the remote's focus on it) does not drop out in between; a video has
- * none and clears them.
+ * (and the remote's focus on it) does not drop out in between; `forId` says
+ * which track they belong to. A video has none and clears them.
  */
-export function useTvLyrics(
-  trackId: number | undefined,
-): TvLyricsData | null | undefined {
-  const [lyrics, setLyrics] = useState<TvLyricsData | null>();
-  if (trackId == null && lyrics !== undefined) setLyrics(undefined);
+export function useTvLyrics(trackId: number | undefined): {
+  lyrics: TvLyricsData | null | undefined;
+  forId: number | undefined;
+} {
+  const [loaded, setLoaded] = useState<{
+    id: number;
+    lyrics: TvLyricsData | null;
+  }>();
+  if (trackId == null && loaded !== undefined) setLoaded(undefined);
 
   useEffect(() => {
     if (trackId == null) return;
     let cancelled = false;
+    const settle = (lyrics: TvLyricsData | null) => {
+      if (!cancelled) setLoaded({ id: trackId, lyrics });
+    };
     getTrackLyrics(trackId)
       .then((l) => {
         const rtl = l.isRightToLeft ?? false;
         const provider = l.lyricsProvider;
         const lines = l.subtitles ? parseLrc(l.subtitles) : [];
-        const data: TvLyricsData | null =
+        settle(
           lines.length > 0
             ? { kind: "synced", lines, rtl, provider }
             : l.lyrics?.trim()
               ? { kind: "plain", text: l.lyrics.trim(), rtl, provider }
-              : null;
-        if (!cancelled) setLyrics(data);
+              : null,
+        );
       })
-      .catch(() => {
-        if (!cancelled) setLyrics(null);
-      });
+      .catch(() => settle(null));
     return () => {
       cancelled = true;
     };
   }, [trackId]);
 
-  return trackId == null ? null : lyrics;
+  return trackId == null
+    ? { lyrics: null, forId: undefined }
+    : { lyrics: loaded?.lyrics, forId: loaded?.id };
 }

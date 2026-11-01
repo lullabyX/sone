@@ -21,6 +21,7 @@ import { getInterpolatedPosition } from "../../lib/playbackPosition";
 import {
   bitPerfectAtom,
   currentTrackAtom,
+  isPlayingAtom,
   playbackSourceAtom,
   volumeAtom,
 } from "../../atoms/playback";
@@ -265,6 +266,35 @@ describe("TvNowPlaying track change", () => {
       );
       await waitFor(() => expect(document.activeElement).toBe(play()));
     } finally {
+      restore();
+    }
+  });
+
+  it("holds the last lyrics on their line while the next ones load", async () => {
+    const { store, restore } = await start(true);
+    const at = vi.mocked(getInterpolatedPosition);
+    try {
+      act(() => store.set(isPlayingAtom, true));
+      at.mockReturnValue(2.5);
+      await waitFor(() =>
+        expect(
+          screen
+            .getByRole("button", { name: "two" })
+            .getAttribute("aria-current"),
+        ).toBe("true"),
+      );
+      const next = deferred<Lyrics>();
+      api.getTrackLyrics.mockReturnValueOnce(next.promise);
+      at.mockReturnValue(0);
+      act(() => store.set(currentTrackAtom, mkTrack(2)));
+      await act(() => new Promise((r) => setTimeout(r, 100)));
+      expect(
+        screen
+          .getByRole("button", { name: "two" })
+          .getAttribute("aria-current"),
+      ).toBe("true");
+    } finally {
+      at.mockReturnValue(0);
       restore();
     }
   });

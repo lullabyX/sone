@@ -709,7 +709,7 @@ export default function TvNowPlaying() {
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
   const [signalPathOpen, setSignalPathOpen] = useState(false);
   const videoCovers = useAtomValue(videoCoversAtom);
-  const lyrics = useTvLyrics(
+  const { lyrics, forId: lyricsFor } = useTvLyrics(
     track && track.itemType !== "video" ? track.id : undefined,
   );
   const {
@@ -806,7 +806,11 @@ export default function TvNowPlaying() {
             data-tv-keep-fallback='[aria-label="Show cover"]'
             className="shrink-0 h-[min(72vh,40rem)] w-[min(46vw,48rem)]"
           >
-            <TvLyricsPanel lyrics={lyrics} duration={track.duration ?? 0} />
+            <TvLyricsPanel
+              lyrics={lyrics}
+              duration={track.duration ?? 0}
+              stale={lyricsFor !== track.id}
+            />
           </div>
         ) : (
           <div
