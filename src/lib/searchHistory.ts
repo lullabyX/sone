@@ -1,4 +1,4 @@
-// Same key and rules as the desktop SearchBar, so both share one history.
+// Recent searches, shared by the desktop search bar and TV Search.
 const HISTORY_KEY = "sone.search-history";
 const MAX_HISTORY = 10;
 

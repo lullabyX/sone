@@ -25,32 +25,11 @@ import TrackContextMenu from "./TrackContextMenu";
 import MediaContextMenu from "./MediaContextMenu";
 import { useContentPrefs } from "../hooks/useContentPrefs";
 import { isContentBlocked } from "../lib/contentFilter";
-
-const HISTORY_KEY = "sone.search-history";
-const MAX_HISTORY = 10;
-
-function loadHistory(): string[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed))
-        return parsed
-          .filter((s) => typeof s === "string")
-          .slice(0, MAX_HISTORY);
-    }
-  } catch {}
-  return [];
-}
-
-function saveHistory(history: string[]) {
-  try {
-    localStorage.setItem(
-      HISTORY_KEY,
-      JSON.stringify(history.slice(0, MAX_HISTORY)),
-    );
-  } catch {}
-}
+import {
+  addToSearchHistory,
+  loadSearchHistory,
+  removeFromSearchHistory,
+} from "../lib/searchHistory";
 
 export default function SearchBar() {
   const { playSingle } = usePlaybackActions();
@@ -70,7 +49,8 @@ export default function SearchBar() {
   );
   const [directHits, setDirectHits] = useState<DirectHitItem[]>([]);
   const [searching, setSearching] = useState(false);
-  const [searchHistory, setSearchHistory] = useState<string[]>(loadHistory);
+  const [searchHistory, setSearchHistory] =
+    useState<string[]>(loadSearchHistory);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -128,24 +108,11 @@ export default function SearchBar() {
   );
 
   const addToHistory = useCallback((query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed) return;
-    setSearchHistory((prev) => {
-      const filtered = prev.filter(
-        (h) => h.toLowerCase() !== trimmed.toLowerCase(),
-      );
-      const next = [trimmed, ...filtered].slice(0, MAX_HISTORY);
-      saveHistory(next);
-      return next;
-    });
+    setSearchHistory((prev) => addToSearchHistory(prev, query));
   }, []);
 
   const removeFromHistory = useCallback((query: string) => {
-    setSearchHistory((prev) => {
-      const next = prev.filter((h) => h !== query);
-      saveHistory(next);
-      return next;
-    });
+    setSearchHistory((prev) => removeFromSearchHistory(prev, query));
   }, []);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {

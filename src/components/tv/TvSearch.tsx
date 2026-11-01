@@ -14,7 +14,7 @@ import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import type { SearchResults, Track } from "../../types";
 import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import TvKeyboard from "./TvKeyboard";
-import { TvButton, TvRow, TvSpinner } from "./TvParts";
+import { TvButton, TvError, TvRow, TvSpinner } from "./TvParts";
 import {
   SEARCH_LIMIT,
   type SearchKind,
@@ -59,6 +59,8 @@ export default function TvSearch() {
   const pendingFocus = useRef<{ q: string; from: Element | null } | null>(
     null,
   );
+  // Bumped to ask again for a search that failed.
+  const [attempt, setAttempt] = useState(0);
   // After a recent search is removed: the row to focus in its place.
   const refocusRecent = useRef<number | null>(null);
   const q = query.trim();
@@ -114,7 +116,7 @@ export default function TvSearch() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [q]);
+  }, [q, attempt]);
 
   const shown = q ? outcome : null;
   const results = shown?.results ?? null;
@@ -180,12 +182,21 @@ export default function TvSearch() {
   const record = (text: string) =>
     setHistory(addToSearchHistory(history, text));
 
+  // Ask again for the search that failed; focus goes to its results once
+  // they are in, unless it moved on meanwhile.
+  const retry = () => {
+    pendingFocus.current = { q, from: document.activeElement };
+    setAttempt((n) => n + 1);
+  };
+
   // The Search key, or Enter in the box: record the query and go to the
-  // first result (as soon as there is one).
+  // first result (as soon as there is one). A failed search is asked again.
   const submit = () => {
     if (!q) return;
     record(q);
-    if (loading) pendingFocus.current = { q, from: document.activeElement };
+    if (error && !loading) retry();
+    else if (loading)
+      pendingFocus.current = { q, from: document.activeElement };
     else if (resultsRef.current) focusFirstIn(resultsRef.current);
   };
 
@@ -253,9 +264,7 @@ export default function TvSearch() {
         {loading && !shown ? (
           <TvSpinner />
         ) : error ? (
-          <p className="px-[3rem] pt-[1rem] text-[0.85rem] text-th-text-secondary">
-            {error}
-          </p>
+          <TvError message={error} onRetry={retry} />
         ) : empty ? (
           <p className="px-[3rem] pt-[1rem] text-[0.85rem] text-th-text-secondary">
             Nothing found for “{q}”.

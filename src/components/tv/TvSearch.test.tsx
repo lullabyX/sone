@@ -201,3 +201,34 @@ it("searches 50 per kind and caps rows with View all", async () => {
   expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "searchResults", query: "x", what: "tracks", title: "Tracks" } });
   expect(stored()).toEqual(["x"]);
 });
+it("a failed search offers Try again, which asks again and moves focus to the results", async () => {
+  const restore = stubLayout();
+  try {
+    vi.mocked(searchTidal)
+      .mockRejectedValueOnce({ kind: "Network", message: "offline" })
+      .mockResolvedValueOnce(oneTrack());
+    renderTv(<TvSearch />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "abc" } });
+    const again = await screen.findByRole("button", { name: "Try again" });
+    again.focus();
+    fireEvent.click(again);
+    const card = (await screen.findByText("T1")).closest("button")!;
+    expect(document.activeElement).toBe(card);
+    expect(searchTidal).toHaveBeenCalledTimes(2);
+    expect(searchTidal.mock.lastCall![0]).toBe("abc");
+  } finally {
+    restore();
+  }
+});
+it("the Search key asks again for a failed search", async () => {
+  vi.mocked(searchTidal)
+    .mockRejectedValueOnce({ kind: "Network", message: "offline" })
+    .mockResolvedValueOnce(oneTrack());
+  renderTv(<TvSearch />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "abc" } });
+  await screen.findByRole("button", { name: "Try again" });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(await screen.findByText("T1")).toBeTruthy();
+  expect(searchTidal).toHaveBeenCalledTimes(2);
+  expect(stored()).toEqual(["abc"]);
+});
