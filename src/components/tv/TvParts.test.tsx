@@ -1,8 +1,9 @@
 import { expect, it, vi } from "vitest";
-import { act, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { createStore } from "jotai";
 import { allowExplicitAtom } from "../../atoms/playback";
-import { TvGrid, TvRow, TvTrackRow } from "./TvParts";
+import { TvGrid, TvRow, TvTile, TvTrackRow } from "./TvParts";
+import { armMarquee, marqueeShift } from "./tvMarquee";
 import { sectionEntries } from "./tvItems";
 import { menuForElement } from "./tvMenu";
 import { mkTrack, renderTv, setupTvTest } from "./tvTestUtils";
@@ -91,4 +92,49 @@ it("calls onActivate before opening a row's card or its View all card", () => {
   expect(onActivate.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(nav.run).mock.invocationCallOrder[0]);
   act(() => screen.getByText("A").closest("button")!.click());
   expect(onActivate).toHaveBeenCalledTimes(2);
+});
+
+it("marqueeShift", () => {
+  expect(marqueeShift(300, 200)).toBe(-100); expect(marqueeShift(201, 200)).toBeNull();
+});
+it("arms only overflowing titles, measuring the outer box", () => {
+  const root = document.createElement("div");
+  root.innerHTML = '<span class="tv-marquee"><span>long</span></span><span class="tv-marquee"><span>short</span></span>';
+  const [long, short] = Array.from(root.querySelectorAll<HTMLElement>(".tv-marquee"));
+  Object.defineProperty(long, "clientWidth", { value: 200 }); Object.defineProperty(long, "scrollWidth", { value: 300 });
+  Object.defineProperty(short, "clientWidth", { value: 200 }); Object.defineProperty(short, "scrollWidth", { value: 200 });
+  armMarquee(root);
+  expect(long.dataset.overflow).toBeDefined(); expect(long.style.getPropertyValue("--tv-marquee-shift")).toBe("-100px");
+  expect(short.dataset.overflow).toBeUndefined();
+});
+it("clears a title that no longer overflows", () => {
+  const root = document.createElement("div");
+  root.innerHTML = '<span class="tv-marquee"><span>t</span></span>';
+  const el = root.firstElementChild as HTMLElement;
+  let scroll = 1000;
+  Object.defineProperty(el, "clientWidth", { value: 200 });
+  Object.defineProperty(el, "scrollWidth", { get: () => scroll });
+  armMarquee(root);
+  expect(el.style.getPropertyValue("--tv-marquee-duration")).toBe("20s");
+  scroll = 200;
+  armMarquee(root);
+  expect(el.dataset.overflow).toBeUndefined();
+  expect(el.style.getPropertyValue("--tv-marquee-shift")).toBe("");
+  expect(el.style.getPropertyValue("--tv-marquee-duration")).toBe("");
+});
+it("focusing a card, tile or track row arms its title", () => {
+  const entries = sectionEntries([{ id: 5, title: "Card", cover: "c" }], "ALBUM_LIST").entries;
+  renderTv(<>
+    <TvRow title="R" entries={entries} />
+    <TvTile entry={sectionEntries([{ id: 6, title: "Tile", cover: "c" }], "ALBUM_LIST").entries[0]} onSelect={() => {}} />
+    <TvTrackRow track={mkTrack(1)} index={0} onSelect={() => {}} />
+  </>);
+  for (const text of ["Card", "Tile", "T1"]) {
+    const marquee = screen.getByText(text).closest(".tv-marquee") as HTMLElement;
+    Object.defineProperty(marquee, "clientWidth", { value: 100 });
+    Object.defineProperty(marquee, "scrollWidth", { value: 180 });
+    fireEvent.focus(screen.getByText(text).closest("button")!);
+    expect(marquee.dataset.overflow).toBeDefined();
+    expect(marquee.style.getPropertyValue("--tv-marquee-shift")).toBe("-80px");
+  }
 });

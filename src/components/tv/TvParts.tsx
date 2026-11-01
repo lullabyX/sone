@@ -19,9 +19,26 @@ import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { type TvNav, useTvNav } from "./TvNavContext";
 import { entryState, type TvEntry, type TvView } from "./tvItems";
 import { tvMenuRef, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
+import { armMarquee } from "./tvMarquee";
 
 const BADGE =
   "inline-block px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]";
+
+/** A one-line title, cut off with an ellipsis at rest; scrolls to its end
+ *  while its item is focused once `armMarquee` finds it overflowing. */
+function TvMarquee({
+  className,
+  children,
+}: {
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className={`tv-marquee ${className}`}>
+      <span>{children}</span>
+    </span>
+  );
+}
 
 function TvCard({
   entry,
@@ -59,6 +76,7 @@ function TvCard({
       data-tv-autofocus={autoFocus || undefined}
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
+      onFocus={(e) => armMarquee(e.currentTarget)}
       className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
         dimmed ? " opacity-50" : ""
       }`}
@@ -105,9 +123,9 @@ function TvCard({
               entry.round ? "justify-center" : ""
             }`}
           >
-            <span className="text-[0.8rem] font-semibold text-th-text-primary truncate">
+            <TvMarquee className="min-w-0 text-[0.8rem] font-semibold text-th-text-primary">
               {entry.title}
-            </span>
+            </TvMarquee>
             {explicitBadge && <span className={`shrink-0 ${BADGE}`}>E</span>}
             {aiBadge && (
               <span title="AI-generated" className={`shrink-0 ${BADGE}`}>
@@ -162,6 +180,7 @@ export function TvTile({
       data-tv-dimmed={dimmed || undefined}
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
+      onFocus={(e) => armMarquee(e.currentTarget)}
       className={`tv-card min-w-0 text-left${dimmed ? " opacity-50" : ""}`}
     >
       <div className="tv-card-art flex items-center gap-[0.8rem] h-[3.6rem] overflow-hidden rounded-[0.5rem] bg-th-surface pr-[0.8rem]">
@@ -182,9 +201,9 @@ export function TvTile({
             />
           )}
         </div>
-        <span className="min-w-0 truncate text-[0.8rem] font-semibold text-th-text-primary">
+        <TvMarquee className="min-w-0 text-[0.8rem] font-semibold text-th-text-primary">
           {entry.title}
-        </span>
+        </TvMarquee>
         {explicitBadge && <span className={`shrink-0 ${BADGE}`}>E</span>}
         {aiBadge && (
           <span title="AI-generated" className={`shrink-0 ${BADGE}`}>
@@ -444,6 +463,7 @@ export function TvTrackRow({
         data-tv-default={entry || undefined}
         ref={hasMenu ? tvMenuRef(menu) : undefined}
         onClick={onSelect}
+        onFocus={(e) => armMarquee(e.currentTarget)}
         className={`tv-track flex-1 min-w-0 flex items-center gap-[1rem] px-[1rem] py-[0.45rem] rounded-[0.6rem] text-left ${
           unavailable ? "opacity-40" : ""
         }`}
@@ -463,8 +483,8 @@ export function TvTrackRow({
           />
         )}
         <span className="flex-1 min-w-0">
-          <span
-            className={`block truncate text-[0.8rem] font-semibold ${
+          <TvMarquee
+            className={`text-[0.8rem] font-semibold ${
               isCurrent ? "text-th-accent" : "text-th-text-primary"
             }`}
           >
@@ -475,7 +495,7 @@ export function TvTrackRow({
                 ({track.version})
               </span>
             )}
-          </span>
+          </TvMarquee>
           <span className="block truncate text-[0.75rem] text-th-text-muted">
             {track.explicit && (
               <span className={`mr-[0.4rem] ${BADGE}`}>E</span>
