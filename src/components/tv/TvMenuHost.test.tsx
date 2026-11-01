@@ -12,7 +12,9 @@ import {
 } from "../../atoms/playlists";
 import type { Playlist } from "../../types";
 import { linkMenu, navMenus, type TvMenuSpec } from "./tvMenu";
+import { playlistRevision, queuePlaylistEdit } from "./tvPlaylistEdits";
 import {
+  deferred,
   mkTrack,
   mockInvoke,
   rawFolderItem,
@@ -26,7 +28,7 @@ setupTvTest();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve(undefined)) }));
 import { invoke } from "@tauri-apps/api/core";
 const api = vi.hoisted(() => ({
-  getAllPlaylists: vi.fn(async () => ({ items: [] })),
+  getAllPlaylists: vi.fn(async (_userId: number, _offset: number): Promise<{ items: Playlist[]; totalNumberOfItems?: number }> => ({ items: [] })),
   getTrackCredits: vi.fn(),
   getPlaylistFolders: vi.fn(),
   getPlaylistDetails: vi.fn(),
@@ -392,5 +394,100 @@ describe("new playlists and playlist details", () => {
     store.set(allPlaylistsAtom, [{ uuid: "p", title: "Theirs", creator: { id: 7 } } as Playlist]);
     const { ref } = renderMenuHost({ store });
     expect(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Theirs" }).items.some((i) => i.label === "Edit details")).toBe(false);
+  });
+
+  const hasEdit = (menu: TvMenuSpec) => menu.items.some((i) => i.label === "Edit details");
+  const pl = (uuid: string, creator: number) => ({ uuid, title: uuid, creator: { id: creator } }) as Playlist;
+
+  it("a new playlist whose track can't be added says it was created", async () => {
+    mockInvoke({
+      create_playlist: () => ({ uuid: "new", title: "Mix" }),
+      add_track_to_playlist: () => {
+        throw new Error("x");
+      },
+    });
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { ref, onPrompt } = renderMenuHost();
+      onPrompt.mockResolvedValueOnce("Mix");
+      await newPlaylist(ref);
+      await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: "Private playlist" })); });
+      expect(await screen.findByText('Created "Mix" but couldn\'t add the track')).toBeTruthy();
+      expect(screen.queryByText("Couldn't create the playlist")).toBeNull();
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it("finds own playlists past the first 500", async () => {
+    api.getAllPlaylists.mockImplementation(async (_u: number, offset: number) =>
+      offset === 0
+        ? { items: [pl("a", 42)], totalNumberOfItems: 700 }
+        : { items: [pl("late", 42)], totalNumberOfItems: 700 },
+    );
+    const { ref, store } = renderMenuHost();
+    await waitFor(() => expect(store.get(allPlaylistsAtom)).toHaveLength(2));
+    expect(api.getAllPlaylists).toHaveBeenCalledWith(42, 500, 500);
+    expect(hasEdit(ref.current!.mediaMenu({ type: "playlist", uuid: "late", title: "late" }))).toBe(true);
+  });
+
+  it("a failed playlist load is tried again when a menu next opens", async () => {
+    api.getAllPlaylists.mockRejectedValueOnce(new Error("offline"));
+    const { ref, store } = renderMenuHost();
+    await waitFor(() => expect(api.getAllPlaylists).toHaveBeenCalledTimes(1));
+    api.getAllPlaylists.mockResolvedValue({ items: [pl("p", 42)], totalNumberOfItems: 1 });
+    await act(async () => {});
+    expect(hasEdit(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "p" }))).toBe(false);
+    await waitFor(() => expect(store.get(allPlaylistsAtom)).toHaveLength(1));
+    expect(api.getAllPlaylists).toHaveBeenCalledTimes(2);
+    expect(hasEdit(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "p" }))).toBe(true);
+    ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "p" });
+    expect(api.getAllPlaylists).toHaveBeenCalledTimes(2);
+  });
+
+  it("on its own page, a playlist the details say is theirs can be edited without the list", async () => {
+    api.getAllPlaylists.mockRejectedValue(new Error("offline"));
+    const { ref } = renderMenuHost();
+    await act(async () => {});
+    const item = { type: "playlist", uuid: "p", title: "p" } as const;
+    expect(hasEdit(ref.current!.mediaMenu(item, true, { creatorId: 42 }))).toBe(true);
+    expect(hasEdit(ref.current!.mediaMenu(item, true, { creatorId: 7 }))).toBe(false);
+  });
+
+  it("adding to a playlist waits for the writes already going to it", async () => {
+    const store = ownStore();
+    const { ref } = renderMenuHost({ store });
+    const removal = deferred<void>();
+    void queuePlaylistEdit("p", () => removal.promise);
+    const before = playlistRevision("p");
+    const sub = await ref.current!.trackMenu(mkTrack(1)).items.find((i) => i.label === "Add to playlist")!.submenu!();
+    const adding = sub.items.find((i) => i.label === "Old")!.onSelect!();
+    await act(async () => {});
+    expect(playlistRevision("p")).toBe(before + 1);
+    expect(vi.mocked(invoke).mock.calls.some(([c]) => c === "add_track_to_playlist")).toBe(false);
+    removal.resolve();
+    await act(async () => {
+      await adding;
+    });
+    expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", { playlistId: "p", trackId: 1 });
+  });
+
+  it("editing details goes behind the playlist's other writes and marks its pages out of date", async () => {
+    const { ref, onPrompt } = renderMenuHost({ store: ownStore() });
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "Old", description: "d0", accessType: "PUBLIC" } as Playlist);
+    const sub = await editDetails(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }));
+    const removal = deferred<void>();
+    void queuePlaylistEdit("p", () => removal.promise);
+    const before = playlistRevision("p");
+    onPrompt.mockResolvedValueOnce("New name");
+    const renaming = sub.items[0].onSelect!();
+    await act(async () => {});
+    expect(playlistRevision("p")).toBe(before + 1);
+    expect(updated()).toEqual([]);
+    removal.resolve();
+    await act(async () => {
+      await renaming;
+    });
+    expect(updated()).toHaveLength(1);
   });
 });

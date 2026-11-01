@@ -29,6 +29,7 @@ import { TvNavContext, TvScreenContext, type TvNav } from "./TvNavContext";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import type { TvPromptRequest } from "./TvPrompt";
 import type { TvView } from "./tvItems";
+import { __resetPlaylistEditsForTests } from "./tvPlaylistEdits";
 
 export type TvStore = ReturnType<typeof createStore>;
 
@@ -53,6 +54,7 @@ export function setupTvTest(): void {
     vi.useRealTimers();
     vi.clearAllMocks();
     if (vi.isMockFunction(invoke)) vi.mocked(invoke).mockReset();
+    __resetPlaylistEditsForTests();
     localStorage.clear();
     sessionStorage.clear();
     document.documentElement.className = "";

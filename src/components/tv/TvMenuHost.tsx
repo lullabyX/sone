@@ -63,6 +63,7 @@ import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { fetchAllFolders, recordFolderCreated } from "./tvFolders";
 import { actionForMedia, type TvView } from "./tvItems";
 import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
+import { queuePlaylistEdit } from "./tvPlaylistEdits";
 import type { TvPromptRequest } from "./TvPrompt";
 import { TvQrCode } from "./TvQrCode";
 import { useTvPlayback } from "./useTvPlayback";
@@ -76,13 +77,30 @@ export interface TvMenuHostHandle {
   mediaMenu: (
     item: MediaItemType,
     onItsPage?: boolean,
-    context?: { folderId?: string },
+    context?: { folderId?: string; creatorId?: number },
   ) => TvMenuSpec;
 }
 
 /** A playlist's visibility, to send back unchanged with an edit. */
 const accessOf = (p: Playlist) =>
   p.accessType ?? (p.sharingLevel === "PUBLIC" ? "PUBLIC" : "UNLISTED");
+
+const PLAYLISTS_PAGE = 500;
+
+/** All the user's playlists, page by page as AddToPlaylistMenu loads them. */
+async function fetchAllPlaylists(userId: number): Promise<Playlist[]> {
+  const first = await getAllPlaylists(userId, 0, PLAYLISTS_PAGE);
+  const rest = [];
+  for (
+    let offset = PLAYLISTS_PAGE;
+    offset < (first.totalNumberOfItems ?? 0);
+    offset += PLAYLISTS_PAGE
+  ) {
+    rest.push(getAllPlaylists(userId, offset, PLAYLISTS_PAGE));
+  }
+  const pages = await Promise.all(rest);
+  return first.items.concat(...pages.map((p) => p.items));
+}
 
 /** Names in folder toasts, cut at 25 characters as the desktop does. */
 const shortName = (text: string) =>
@@ -114,6 +132,20 @@ const TvMenuHost = forwardRef<
   const fav = useFavorites();
   const { addTrackToPlaylist, createPlaylist, updatePlaylist, deletePlaylist } =
     usePlaylists();
+  // Playlist writes wait behind the ones already going to that playlist
+  // (an open page's removals) and mark its pages out of date.
+  const addToPlaylist = useCallback(
+    (uuid: string, trackId: number) =>
+      queuePlaylistEdit(uuid, () => addTrackToPlaylist(uuid, trackId)),
+    [addTrackToPlaylist],
+  );
+  const editPlaylist = useCallback(
+    (uuid: string, title: string, description: string, access: string) =>
+      queuePlaylistEdit(uuid, async () => {
+        await updatePlaylist(uuid, title, description, access);
+      }),
+    [updatePlaylist],
+  );
   const { createFolder, movePlaylistTo } = useFolders();
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const setAllPlaylists = useSetAtom(allPlaylistsAtom);
@@ -236,12 +268,40 @@ const TvMenuHost = forwardRef<
     [store, movePlaylistTo, createFolder, onPrompt, showToast],
   );
 
+  // The user's playlists, for "Add to playlist" and for which playlists are
+  // their own (Edit details, Delete). Loaded once; a failed load is tried
+  // again the next time a menu needs them. Resolves whether they loaded.
+  const playlistsLoad = useRef<{
+    done: boolean;
+    running: Promise<boolean> | null;
+  }>({ done: false, running: null });
+  const loadPlaylists = useCallback((): Promise<boolean> => {
+    const s = playlistsLoad.current;
+    if (s.done) return Promise.resolve(true);
+    if (userId == null) return Promise.resolve(false);
+    if (!s.running) {
+      s.running = fetchAllPlaylists(userId)
+        .then(
+          (all) => {
+            setAllPlaylists(all);
+            s.done = true;
+            return true;
+          },
+          () => false,
+        )
+        .finally(() => {
+          s.running = null;
+        });
+    }
+    return s.running;
+  }, [userId, setAllPlaylists]);
+
   const playlistMenu = useCallback(
     async (track: Track): Promise<TvMenuSpec> => {
-      let playlists: Playlist[] = store.get(allPlaylistsAtom);
-      if (playlists.length === 0 && userId) {
-        playlists = (await getAllPlaylists(userId, 0, 500)).items;
-        setAllPlaylists(playlists);
+      const loaded = await loadPlaylists();
+      const playlists = store.get(allPlaylistsAtom);
+      if (!loaded && playlists.length === 0) {
+        throw new Error("Couldn't load your playlists");
       }
       // Only playlists the user can edit.
       const own = playlists.filter(
@@ -257,13 +317,22 @@ const TvMenuHost = forwardRef<
           });
           if (!title) return;
           const create = async (accessType: string) => {
+            let created: Playlist;
             try {
-              const created = await createPlaylist(title, "", accessType);
-              setAllPlaylists((prev) => [created, ...prev]);
-              await addTrackToPlaylist(created.uuid, track.id);
-              showToast(`Added to new playlist "${label(title)}"`);
+              created = await createPlaylist(title, "", accessType);
             } catch {
               showToast("Couldn't create the playlist", "error");
+              return;
+            }
+            setAllPlaylists((prev) => [created, ...prev]);
+            try {
+              await addToPlaylist(created.uuid, track.id);
+              showToast(`Added to new playlist "${label(title)}"`);
+            } catch {
+              showToast(
+                `Created "${label(title)}" but couldn't add the track`,
+                "error",
+              );
             }
           };
           // Back here cancels: nothing is created.
@@ -296,7 +365,7 @@ const TvMenuHost = forwardRef<
                 icon: ListPlus,
                 onSelect: async () => {
                   try {
-                    await addTrackToPlaylist(p.uuid, track.id);
+                    await addToPlaylist(p.uuid, track.id);
                     showToast(`Added to "${label(p.title)}"`);
                   } catch {
                     showToast("Couldn't add to playlist", "error");
@@ -310,8 +379,9 @@ const TvMenuHost = forwardRef<
     [
       store,
       userId,
+      loadPlaylists,
       setAllPlaylists,
-      addTrackToPlaylist,
+      addToPlaylist,
       createPlaylist,
       onPrompt,
       openMenu,
@@ -506,7 +576,7 @@ const TvMenuHost = forwardRef<
     (
       item: MediaItemType,
       onItsPage = false,
-      context?: { folderId?: string },
+      context?: { folderId?: string; creatorId?: number },
     ): TvMenuSpec => {
       const name = item.type === "artist" ? item.name : item.title;
       const open = actionForMedia(item);
@@ -654,16 +724,19 @@ const TvMenuHost = forwardRef<
         },
       });
       // The user's own playlists can be edited and deleted (same ownership
-      // rule as the desktop: they are its creator).
-      const own =
-        item.type === "playlist" && userId != null
-          ? store
-              .get(allPlaylistsAtom)
-              .find((p) => p.uuid === item.uuid && p.creator?.id === userId)
+      // rule as the desktop: they are its creator), as listed in their
+      // playlists or, on its page, as its details say.
+      const listed =
+        item.type === "playlist"
+          ? store.get(allPlaylistsAtom).find((p) => p.uuid === item.uuid)
           : undefined;
+      if (item.type === "playlist") void loadPlaylists();
+      const own =
+        userId != null &&
+        (listed?.creator?.id === userId || context?.creatorId === userId);
       if (item.type === "playlist" && own) {
         // Its name as last edited, which a card built earlier may not show.
-        const current = own.title || item.title;
+        const current = listed?.title || item.title;
         items.push(
           {
             label: "Edit details",
@@ -684,7 +757,7 @@ const TvMenuHost = forwardRef<
                     try {
                       // Keep its description and visibility as they are.
                       const details = await getPlaylistDetails(item.uuid);
-                      await updatePlaylist(
+                      await editPlaylist(
                         item.uuid,
                         title,
                         details.description ?? "",
@@ -728,7 +801,7 @@ const TvMenuHost = forwardRef<
                     }
                     try {
                       // Keep its name and visibility as they are.
-                      await updatePlaylist(
+                      await editPlaylist(
                         item.uuid,
                         details.title || current,
                         description,
@@ -828,7 +901,8 @@ const TvMenuHost = forwardRef<
       onNavigate,
       userId,
       onPrompt,
-      updatePlaylist,
+      loadPlaylists,
+      editPlaylist,
       deletePlaylist,
       setAllPlaylists,
       onPlaylistDeleted,
@@ -838,11 +912,13 @@ const TvMenuHost = forwardRef<
   // Owning a playlist is looked up in the user's playlists; load them once
   // so Edit details / Delete show up without visiting "Add to playlist" first.
   useEffect(() => {
-    if (userId == null || store.get(allPlaylistsAtom).length > 0) return;
-    getAllPlaylists(userId, 0, 500)
-      .then((r) => setAllPlaylists(r.items))
-      .catch(() => {});
-  }, [userId, store, setAllPlaylists]);
+    if (userId == null) return;
+    if (store.get(allPlaylistsAtom).length > 0) {
+      playlistsLoad.current.done = true;
+      return;
+    }
+    void loadPlaylists();
+  }, [userId, store, loadPlaylists]);
 
   useImperativeHandle(
     ref,

@@ -6,7 +6,8 @@ import { allowExplicitAtom } from "../../atoms/playback";
 import { allPlaylistsAtom } from "../../atoms/playlists";
 import type { Playlist, Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
-import { deferred, type Deferred, makeTvNav, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
+import { TvScreenContext, type TvNav } from "./TvNavContext";
+import { deferred, type Deferred, makeTvNav, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn, stubLayout } from "./tvTestUtils";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -242,6 +243,181 @@ it("shows recommendations once the playlist is fully loaded and adds one", async
   await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
 });
 
+describe("recommendations", () => {
+  const rec = mkTrack(500);
+  const addEntry = (nav: TvNav, title: string) => {
+    fireEvent.click(rowMore(title));
+    return vi.mocked(nav.trackMenu).mock.lastCall![1]?.find((i) => i.label === "Add to this playlist");
+  };
+  const playlist = (creator: number, tracks: Track[], total = tracks.length) => {
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: total, creator: { id: creator } });
+    api.getPlaylistTracksPage.mockResolvedValue({ items: tracks, totalNumberOfItems: total });
+  };
+  beforeEach(() => {
+    api.getPlaylistRecommendations.mockResolvedValue({ items: [rec] });
+    mockInvoke({
+      add_track_to_playlist: () => undefined,
+      remove_track_from_playlist: () => undefined,
+      get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
+    });
+  });
+
+  it("are hidden while more of the playlist is still to load", async () => {
+    playlist(42, [t1], 250);
+    renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("T1");
+    await act(async () => {});
+    expect(api.getPlaylistRecommendations).toHaveBeenCalled();
+    expect(screen.queryByText("Recommended tracks")).toBeNull();
+  });
+
+  it("are hidden under an empty playlist, as on the desktop", async () => {
+    playlist(42, []);
+    renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("No tracks here yet.");
+    await act(async () => {});
+    expect(api.getPlaylistRecommendations).toHaveBeenCalled();
+    expect(screen.queryByText("Recommended tracks")).toBeNull();
+  });
+
+  it("offer no Add on someone else's playlist", async () => {
+    playlist(7, [t1]);
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("Recommended tracks");
+    expect(addEntry(nav, "T500")).toBeUndefined();
+  });
+
+  it("a failed add puts the recommendation back", async () => {
+    playlist(42, [t1]);
+    mockInvoke({
+      add_track_to_playlist: () => {
+        throw new Error("x");
+      },
+      get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
+    });
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+      await screen.findByText("T500");
+      await act(async () => {
+        await addEntry(nav, "T500")!.onSelect!();
+      });
+      expect(await screen.findByText("Failed to add track")).toBeTruthy();
+      expect(screen.getByText("T500")).toBeTruthy();
+      expect(screen.getByText(/\b1 Track\b/)).toBeTruthy();
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it("an add goes out after a removal still in flight, and counts the track", async () => {
+    playlist(42, [t1, t2]);
+    const removal = deferred<void>();
+    mockInvoke({
+      add_track_to_playlist: () => undefined,
+      remove_track_from_playlist: () => removal.promise,
+      get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
+    });
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("T500");
+    fireEvent.click(rowMore("T2"));
+    act(() => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
+    await act(async () => {});
+    const adding = addEntry(nav, "T500")!.onSelect!();
+    await act(async () => {});
+    const sent = () => vi.mocked(invoke).mock.calls.map(([c]) => c).filter((c) => c.endsWith("_playlist"));
+    expect(sent()).toEqual(["remove_track_from_playlist"]);
+    removal.resolve();
+    await act(async () => {
+      await adding;
+    });
+    expect(sent()).toEqual(["remove_track_from_playlist", "add_track_to_playlist"]);
+    expect(screen.getByText(/\b2 Tracks\b/)).toBeTruthy();
+  });
+
+  it("after adding one, a removal reloads the list first (where the server put the track is not assumed)", async () => {
+    playlist(42, [t1, t2]);
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("T500");
+    await act(async () => {
+      await addEntry(nav, "T500")!.onSelect!();
+    });
+    playlist(42, [t1, t2, rec]);
+    fireEvent.click(rowMore("T2"));
+    await act(async () => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
+    expect(vi.mocked(invoke).mock.calls.some(([c]) => c === "remove_track_from_playlist")).toBe(false);
+    expect(screen.getByText("This playlist changed — reloading")).toBeTruthy();
+    await screen.findByText("T500");
+    fireEvent.click(rowMore("T2"));
+    await act(async () => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
+    expect(invoke).toHaveBeenCalledWith("remove_track_from_playlist", { playlistId: "p", index: 1 });
+  });
+
+  it("a Refresh that leaves none moves focus to the last row", async () => {
+    playlist(42, [t1, t2]);
+    api.getPlaylistRecommendations.mockResolvedValueOnce({ items: [rec] }).mockResolvedValue({ items: [] });
+    const restore = stubLayout();
+    try {
+      renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+      const refresh = await screen.findByRole("button", { name: "Refresh" });
+      act(() => refresh.focus());
+      await act(async () => {
+        fireEvent.click(refresh);
+      });
+      await waitFor(() => expect(screen.queryByText("Recommended tracks")).toBeNull());
+      expect(document.activeElement).toBe(rowButton("T2"));
+    } finally {
+      restore();
+    }
+  });
+});
+
+it("the page's More options knows its own playlist without the stored list", async () => {
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 42 } });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: [t1], totalNumberOfItems: 1 });
+  mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+  await screen.findByText("T1");
+  fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
+  expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([
+    expect.objectContaining({ type: "playlist", uuid: "p" }),
+    true,
+    { creatorId: 42 },
+  ]);
+});
+
+it("a paged playlist shows every loaded row, unwindowed", async () => {
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 250, creator: { id: 7 } });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: range(100).map((i) => mkTrack(i + 1)), totalNumberOfItems: 250 });
+  mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+  await screen.findByText("T1");
+  expect(document.querySelectorAll(".tv-track-row[data-tv-index]").length).toBe(100);
+});
+
+it("a row of a 300-track album plays the whole album from it", async () => {
+  const tracks = range(300).map((i) => mkTrack(i + 1));
+  api.getAlbumPage.mockResolvedValue(album(tracks));
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  await screen.findByText("T5");
+  fireEvent.click(rowButton("T5"));
+  const [src, opts] = vi.mocked(nav.playSource).mock.lastCall!;
+  expect(src.loaded).toHaveLength(300);
+  expect(src.loaded).toEqual(tracks);
+  expect(opts).toEqual({ startAt: tracks[4] });
+});
+
+it("a second-disc row plays the album from that track", async () => {
+  const tracks = [mkTrack(1, { volumeNumber: 1 }), mkTrack(2, { volumeNumber: 1 }), mkTrack(3, { volumeNumber: 2 })];
+  api.getAlbumPage.mockResolvedValue(album(tracks));
+  const { nav } = renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  await screen.findByText("Volume 2");
+  fireEvent.click(rowButton("T3"));
+  const [src, opts] = vi.mocked(nav.playSource).mock.lastCall!;
+  expect(src.loaded).toEqual(tracks);
+  expect(opts).toEqual({ startAt: tracks[2] });
+});
+
 it("shows an edited name and description at once", async () => {
   api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 42 }, description: "d0" });
   api.getPlaylistTracksPage.mockResolvedValue({ items: [t1], totalNumberOfItems: 1 });
@@ -391,6 +567,150 @@ describe("playlist removals", () => {
     await act(async () => pending[0].resolve());
     fireEvent.click(screen.getByRole("button", { name: /Sort/ }));
     expect(sortMenus()).toBe(2);
+  });
+
+  describe("never sends a position read from an outdated list", () => {
+    const d = mkTrack(4);
+    const view = { type: "playlist", uuid: "p" } as const;
+    // Two pages of the same playlist, as when "Playing from" opened it again.
+    function TwoCopies({ firstActive }: { firstActive: boolean }) {
+      return (
+        <>
+          <TvScreenContext.Provider value={{ active: firstActive, element: () => null }}>
+            <div data-testid="copy1">
+              <TvTrackListScreen view={view} />
+            </div>
+          </TvScreenContext.Provider>
+          <TvScreenContext.Provider value={{ active: !firstActive, element: () => null }}>
+            <div data-testid="copy2">
+              <TvTrackListScreen view={view} />
+            </div>
+          </TvScreenContext.Provider>
+        </>
+      );
+    }
+    const removeIn = (nav: TvNav, copy: string, title: string) => {
+      fireEvent.click(within(within(screen.getByTestId(copy)).getByText(title).closest(".tv-track-row") as HTMLElement)
+        .getByRole("button", { name: "More options" }));
+      return vi.mocked(nav.trackMenu).mock.lastCall![1]![0];
+    };
+    const serverHas = (tracks: Track[]) => {
+      api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: tracks.length, creator: { id: 42 } });
+      api.getPlaylistTracksPage.mockResolvedValue({ items: tracks, totalNumberOfItems: tracks.length });
+    };
+    const loads = () => api.getPlaylistTracksPage.mock.calls.length;
+
+    beforeEach(() => serverHas([a, b, c, d]));
+
+    it("a removal on one copy makes the other reload instead of removing (two copies via Playing from)", async () => {
+      const { nav, rerender } = renderTv(<TwoCopies firstActive={false} />, { store });
+      await waitFor(() => expect(within(screen.getByTestId("copy1")).getByText("T3")).toBeTruthy());
+      await waitFor(() => expect(within(screen.getByTestId("copy2")).getByText("T3")).toBeTruthy());
+      const staleRemoveC = removeIn(nav, "copy1", "T3");
+      act(() => void removeIn(nav, "copy2", "T2").onSelect!());
+      await act(async () => {});
+      serverHas([a, c, d]);
+      await act(async () => pending[0].resolve());
+      expect(removeCalls()).toEqual([{ playlistId: "p", index: 1 }]);
+      const before = loads();
+      // Copy 1 still lists T2, so T3 is at 2 there: on the server that is T4.
+      await act(async () => void staleRemoveC.onSelect!());
+      expect(removeCalls()).toEqual([{ playlistId: "p", index: 1 }]);
+      expect(screen.getByText("This playlist changed — reloading")).toBeTruthy();
+      await waitFor(() => expect(within(screen.getByTestId("copy1")).queryByText("T2")).toBeNull());
+      expect(loads()).toBe(before + 1);
+      // Now in step with the server, it removes the right track.
+      act(() => void removeIn(nav, "copy1", "T3").onSelect!());
+      await act(async () => {});
+      expect(removeCalls()).toEqual([
+        { playlistId: "p", index: 1 },
+        { playlistId: "p", index: 1 },
+      ]);
+      rerender(<TwoCopies firstActive={false} />);
+    });
+
+    it("a copy that comes back on top after the other changed the list reloads", async () => {
+      const { nav, rerender } = renderTv(<TwoCopies firstActive={false} />, { store });
+      await waitFor(() => expect(within(screen.getByTestId("copy1")).getByText("T3")).toBeTruthy());
+      await waitFor(() => expect(within(screen.getByTestId("copy2")).getByText("T3")).toBeTruthy());
+      act(() => void removeIn(nav, "copy2", "T2").onSelect!());
+      await act(async () => {});
+      serverHas([a, c, d]);
+      await act(async () => pending[0].resolve());
+      const before = loads();
+      rerender(<TwoCopies firstActive />);
+      expect(screen.getByText("This playlist changed — reloading")).toBeTruthy();
+      await waitFor(() => expect(within(screen.getByTestId("copy1")).queryByText("T2")).toBeNull());
+      expect(loads()).toBe(before + 1);
+    });
+
+    it("reopening a playlist left with removals queued waits for them before loading", async () => {
+      const { nav, unmount } = renderTv(<TvTrackListScreen view={view} />, { store });
+      await screen.findByText("T2");
+      const [rb, rc] = [rowMore("T2"), rowMore("T3")].map((m) => {
+        fireEvent.click(m);
+        return vi.mocked(nav.trackMenu).mock.lastCall![1]![0];
+      });
+      act(() => {
+        void rb.onSelect!();
+        void rc.onSelect!();
+      });
+      await act(async () => {});
+      unmount();
+      serverHas([a, d]);
+      renderTv(<TvTrackListScreen view={view} />, { store, nav });
+      await act(async () => {});
+      expect(loads()).toBe(1);
+      expect(document.querySelector(".animate-spin")).toBeTruthy();
+      await act(async () => pending[0].resolve());
+      expect(loads()).toBe(1);
+      await act(async () => pending[1].resolve());
+      await screen.findByText("T4");
+      expect(loads()).toBe(2);
+      expect(screen.queryByText("T3")).toBeNull();
+      fireEvent.click(rowMore("T4"));
+      act(() => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
+      await act(async () => {});
+      expect(removeCalls()).toEqual([
+        { playlistId: "p", index: 1 },
+        { playlistId: "p", index: 1 },
+        { playlistId: "p", index: 1 },
+      ]);
+    });
+
+    it("no copy re-sorts or reloads while another copy's removal is in flight", async () => {
+      const { nav } = renderTv(<TwoCopies firstActive={false} />, { store });
+      await waitFor(() => expect(within(screen.getByTestId("copy1")).getByText("T3")).toBeTruthy());
+      await waitFor(() => expect(within(screen.getByTestId("copy2")).getByText("T3")).toBeTruthy());
+      const sortButton = within(screen.getByTestId("copy2")).getByRole("button", { name: /Sort/ });
+      fireEvent.click(sortButton);
+      const sortMenu = vi.mocked(nav.openMenu).mock.lastCall![0];
+      act(() => void removeIn(nav, "copy1", "T2").onSelect!());
+      await act(async () => {});
+      await act(async () => {
+        await sortMenu.items.find((i) => i.label === "Title")!.onSelect!();
+      });
+      expect(store.get(trackSortPrefsAtom)).toEqual({});
+      fireEvent.click(sortButton);
+      expect(vi.mocked(nav.openMenu).mock.calls.filter(([m]) => m.title === "Sort by")).toHaveLength(1);
+      expect(screen.getAllByText("Wait for removals to finish")).toHaveLength(2);
+      // A sort change that does go through (from elsewhere) loads once the
+      // removal has landed, not before.
+      const before = loads();
+      act(() => store.set(trackSortPrefsAtom, { p: { order: "NAME", direction: "ASC" } }));
+      act(() => store.set(trackSortPrefsAtom, {}));
+      await act(async () => {});
+      expect(loads()).toBe(before);
+      serverHas([a, c, d]);
+      await act(async () => pending[0].resolve());
+      await waitFor(() => expect(within(screen.getByTestId("copy2")).queryByText("T2")).toBeNull());
+      act(() => void removeIn(nav, "copy2", "T4").onSelect!());
+      await act(async () => {});
+      expect(removeCalls()).toEqual([
+        { playlistId: "p", index: 1 },
+        { playlistId: "p", index: 2 },
+      ]);
+    });
   });
 
   it("no further page loads while a removal is in flight", async () => {
