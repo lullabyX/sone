@@ -3,7 +3,6 @@ import {
   act,
   fireEvent,
   screen,
-  waitFor,
   within,
 } from "@testing-library/react";
 import { createStore } from "jotai";
@@ -136,8 +135,13 @@ it("a failed listing shows the same row", async () => {
   expect(await screen.findByText("No output devices found")).toBeTruthy();
 });
 
+// The look-again can land before the screen's first frame, when its own
+// first-focus check runs: frames are held until then.
 it("moves focus to the first device the look-again finds", async () => {
   const restore = stubLayout();
+  vi.useFakeTimers({
+    toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+  });
   try {
     const store = createStore();
     store.set(exclusiveModeAtom, true);
@@ -149,7 +153,8 @@ it("moves focus to the first device the look-again finds", async () => {
     devices = [{ id: "hw:1", name: "DAC" }];
     fireEvent.click(row);
     const dac = await screen.findByRole("button", { name: /^DAC/ });
-    await waitFor(() => expect(document.activeElement).toBe(dac));
+    act(() => vi.advanceTimersByTime(50));
+    expect(document.activeElement).toBe(dac);
   } finally {
     restore();
   }
@@ -175,4 +180,11 @@ it("shows no empty-device row while exclusive output is off", async () => {
   renderTv(<TvSettings />);
   await act(async () => {});
   expect(screen.queryByText("No output devices found")).toBeNull();
+});
+
+it("explains a GStreamer without gapless support without naming a version", () => {
+  renderTv(<TvSettings />);
+  expect(
+    screen.getByRole("button", { name: /Gapless playback/ }).textContent,
+  ).toContain("Not available with this GStreamer installation");
 });

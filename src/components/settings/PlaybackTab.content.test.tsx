@@ -131,3 +131,19 @@ describe("content toggles", () => {
     expect(store.get(allowExplicitAtom)).toBe(false);
   });
 });
+
+describe("gapless", () => {
+  it("explains a GStreamer without gapless support without naming a version", async () => {
+    const { getByText } = render(
+      <Provider store={createStore()}>
+        <PlaybackTab />
+      </Provider>,
+    );
+    await Promise.resolve();
+    expect(
+      getByText("Gapless playback")
+        .closest("[data-setting-row]")!
+        .getAttribute("title"),
+    ).toBe("Not available with this GStreamer installation");
+  });
+});

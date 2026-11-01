@@ -169,3 +169,45 @@ describe("ScrobbleTab sign-in", () => {
     expect(screen.queryByRole("img", { name: /sign-in/i })).toBeNull();
   });
 });
+
+describe("ScrobbleTab ListenBrainz token page", () => {
+  beforeEach(() => {
+    statuses = [
+      { name: "lastfm", connected: false, username: null },
+      { name: "librefm", connected: false, username: null },
+      { name: "listenbrainz", connected: false, username: null },
+    ];
+  });
+
+  it("links listenbrainz.org/settings in the browser on the desktop", async () => {
+    render(
+      <Provider store={createStore()}>
+        <ScrobbleTab />
+      </Provider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /listenbrainz\.org\/settings/ }),
+    );
+    expect(openUrl).toHaveBeenCalledWith("https://listenbrainz.org/settings/");
+    expect(
+      screen.queryByRole("img", { name: "ListenBrainz settings" }),
+    ).toBeNull();
+  });
+
+  it("shows the page as a QR code in TV mode, with no link to a browser", async () => {
+    const store = createStore();
+    store.set(tvModeAtom, true);
+    render(
+      <Provider store={store}>
+        <ScrobbleTab />
+      </Provider>,
+    );
+    expect(
+      await screen.findByRole("img", { name: "ListenBrainz settings" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /listenbrainz\.org\/settings/ }),
+    ).toBeNull();
+    expect(screen.getByPlaceholderText("User token")).toBeTruthy();
+  });
+});

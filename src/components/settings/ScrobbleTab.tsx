@@ -36,6 +36,8 @@ const CONNECT_BTN =
 const ACCENT_TINT =
   "linear-gradient(90deg, color-mix(in srgb, var(--th-accent) 10%, transparent), transparent 72%)";
 
+const LISTENBRAINZ_SETTINGS_URL = "https://listenbrainz.org/settings/";
+
 const LASTFM_GLYPH = (
   <svg
     width="20"
@@ -450,6 +452,21 @@ export default function ScrobbleTab() {
 
             {!lbConnected && (
               <div className="mt-3 space-y-2">
+                {tvMode && (
+                  <>
+                    <div className="flex">
+                      <TvQrCode
+                        value={LISTENBRAINZ_SETTINGS_URL}
+                        label="ListenBrainz settings"
+                        className="w-[176px] h-[176px]"
+                      />
+                    </div>
+                    <p className="text-[11.5px] text-th-text-muted">
+                      Scan with your phone to get your token from
+                      listenbrainz.org/settings, then enter it below.
+                    </p>
+                  </>
+                )}
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -478,18 +495,18 @@ export default function ScrobbleTab() {
                     Connect
                   </button>
                 </div>
-                <p className="text-[11px] text-th-text-muted">
-                  Get your token from{" "}
-                  <button
-                    onClick={() =>
-                      openUrl("https://listenbrainz.org/settings/")
-                    }
-                    className="text-th-accent hover:underline inline-flex items-center gap-0.5"
-                  >
-                    listenbrainz.org/settings
-                    <ExternalLink size={10} />
-                  </button>
-                </p>
+                {!tvMode && (
+                  <p className="text-[11px] text-th-text-muted">
+                    Get your token from{" "}
+                    <button
+                      onClick={() => openUrl(LISTENBRAINZ_SETTINGS_URL)}
+                      className="text-th-accent hover:underline inline-flex items-center gap-0.5"
+                    >
+                      listenbrainz.org/settings
+                      <ExternalLink size={10} />
+                    </button>
+                  </p>
+                )}
                 {listenbrainz.error && (
                   <p className="text-[11.5px] text-red-400">
                     {listenbrainz.error}

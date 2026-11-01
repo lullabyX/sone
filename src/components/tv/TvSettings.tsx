@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, LogOut, SlidersHorizontal } from "lucide-react";
@@ -105,19 +105,18 @@ export default function TvSettings() {
   }, [exclusive, store, setDevice, reload]);
 
   // "No output devices found" goes away when a look-again finds one: focus
-  // the first device instead of leaving focus nowhere.
-  useEffect(() => {
+  // the first device instead of leaving focus nowhere. In the same commit,
+  // before a frame-later check (the screen's first focus) can take the
+  // emptied focus elsewhere.
+  useLayoutEffect(() => {
     if (!focusFoundDevice.current || !devices) return;
     focusFoundDevice.current = false;
     if (devices.length === 0) return;
-    const id = requestAnimationFrame(() => {
-      const row = deviceListRef.current?.querySelector<HTMLElement>(
-        "[data-tv-focusable]",
-      );
-      const active = document.activeElement;
-      if (row && (!active || active === document.body)) focusElement(row);
-    });
-    return () => cancelAnimationFrame(id);
+    const row = deviceListRef.current?.querySelector<HTMLElement>(
+      "[data-tv-focusable]",
+    );
+    const active = document.activeElement;
+    if (row && (!active || active === document.body)) focusElement(row);
   }, [devices]);
 
   const gaplessDisabled = !gaplessSupported || exclusive || bitPerfect;
@@ -250,7 +249,7 @@ export default function TvSettings() {
           title="Gapless playback"
           subtitle={
             !gaplessSupported
-              ? "Requires GStreamer 1.24 or newer"
+              ? "Not available with this GStreamer installation"
               : exclusive || bitPerfect
                 ? "Available in normal output mode only"
                 : "Seamless transitions between continuous tracks"

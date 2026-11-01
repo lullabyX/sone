@@ -70,7 +70,10 @@ export default function TvLogin() {
 
   // The on-TV sign-in reports back through these events (as on the desktop).
   useEffect(() => {
+    let disposed = false;
     const unsubs: Array<() => void> = [];
+    // A listener that registers after the screen closed goes straight away.
+    const keep = (u: () => void) => (disposed ? u() : void unsubs.push(u));
     listen<AuthTokens>("pkce-login-success", async (event) => {
       const tokens = event.payload;
       setAuthTokens(tokens);
@@ -78,19 +81,22 @@ export default function TvLogin() {
       if (tokens.user_id) {
         await getUserPlaylists(tokens.user_id).catch(() => {});
       }
-    }).then((u) => unsubs.push(u));
+    }).then(keep);
     listen<string>("pkce-login-error", (event) => {
       setTvError(event.payload || "Signing in failed.");
-    }).then((u) => unsubs.push(u));
+    }).then(keep);
     listen("pkce-login-cancelled", () => {
       setTvError(null);
       if (rootRef.current) focusFirstIn(rootRef.current);
-    }).then((u) => unsubs.push(u));
+    }).then(keep);
     listen("pkce-login-offline", () => {
       setTvError(OFFLINE_TEXT);
       if (rootRef.current) focusFirstIn(rootRef.current);
-    }).then((u) => unsubs.push(u));
-    return () => unsubs.forEach((u) => u());
+    }).then(keep);
+    return () => {
+      disposed = true;
+      unsubs.forEach((u) => u());
+    };
   }, [getUserPlaylists, setAuthTokens, setIsAuthenticated]);
 
   const signInOnTv = useCallback(() => {

@@ -4,6 +4,7 @@ import { createStore } from "jotai";
 import { startPkceLoginWindow } from "../../api/tidal";
 import { tvModeAtom } from "../../atoms/tv";
 import TvLogin from "./TvLogin";
+import { listen } from "@tauri-apps/api/event";
 import { mockInvoke, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
 
 const auth = vi.hoisted(() => ({
@@ -179,3 +180,24 @@ it("a sign-in page that cannot load says the network is down", async () => {
     restore();
   }
 });
+
+it("drops its sign-in listeners when they register only after it closed", async () => {
+  const original = vi.mocked(listen).getMockImplementation()!;
+  const register: Array<(u: () => void) => void> = [];
+  const unlisten = vi.fn();
+  vi.mocked(listen).mockImplementation(
+    (() => new Promise((r) => register.push(r))) as typeof listen,
+  );
+  try {
+    renderTv(<TvLogin />).unmount();
+    const pkce = vi
+      .mocked(listen)
+      .mock.calls.filter(([name]) => String(name).startsWith("pkce-login-"));
+    expect(pkce).toHaveLength(4);
+    await act(async () => register.forEach((r) => r(unlisten)));
+    expect(unlisten).toHaveBeenCalledTimes(register.length);
+  } finally {
+    vi.mocked(listen).mockImplementation(original);
+  }
+});
+
