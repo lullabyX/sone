@@ -697,6 +697,7 @@ describe("rate-limited click", () => {
     const { store, result } = setup();
     store.set(manualQueueAtom, [track({ id: 100 })]);
     await act(() => result.current.playAllFromSource(c, src("artist", c)));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_track");
     await act(() => vi.advanceTimersByTimeAsync(7000));
     expect(store.get(currentTrackAtom)?.id).toBe(10);
     expect(ids(store.get(manualQueueAtom))).toEqual([100]);
@@ -706,6 +707,7 @@ describe("rate-limited click", () => {
     const { store, result } = setup();
     store.set(manualQueueAtom, [track({ id: 100 })]);
     await act(() => result.current.playSingle(track({ id: 7 })));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_track");
     await act(() => vi.advanceTimersByTimeAsync(7000));
     expect(store.get(currentTrackAtom)?.id).toBe(7);
     expect(ids(store.get(manualQueueAtom))).toEqual([100]);
@@ -755,6 +757,54 @@ describe("rate-limited click", () => {
     await act(() => vi.advanceTimersByTimeAsync(7000));
     expect(calls).toBe(3);
     expect(store.get(currentTrackAtom)?.id).toBe(11);
+  });
+
+  it("a retried queue track that turns out dead does not jump ahead of the queue", async () => {
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(rateLimited);
+      if (calls === 2)
+        return Promise.reject({
+          kind: "Api",
+          message: { status: 404, body: "" },
+        });
+      return Promise.resolve({});
+    };
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    store.set(queueAtom, [track({ id: 10 }), track({ id: 11 })]);
+    await act(() => result.current.playFromQueue(0));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(calls).toBe(2);
+    expect(store.get(currentTrackAtom)).toBeNull();
+    expect(ids(store.get(manualQueueAtom))).toEqual([101]);
+    expect(ids(store.get(queueAtom))).toEqual([10, 11]);
+  });
+
+  it("clearing the queue during the cooldown cancels the retry", async () => {
+    const { store, result } = setup();
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    act(() => result.current.clearQueue());
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([cmd]) => cmd === "play_tidal_track"),
+    ).toHaveLength(1);
+    expect(store.get(currentTrackAtom)).toBeNull();
+  });
+
+  it("an automatic advance into a 429 leaves the old track playing", async () => {
+    const { store, result } = setup();
+    store.set(queueAtom, [track({ id: 10 }), track({ id: 11 })]);
+    await act(() => result.current.playNext());
+    const cmds = vi.mocked(invoke).mock.calls.map(([cmd]) => cmd);
+    expect(cmds).toContain("play_tidal_track");
+    expect(cmds.slice(cmds.indexOf("play_tidal_track"))).not.toContain(
+      "stop_track",
+    );
+    expect(ids(store.get(queueAtom))).toEqual([10, 11]);
   });
 });
 

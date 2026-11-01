@@ -79,7 +79,10 @@ import {
 import type { ThemeFile } from "../lib/theme";
 
 // Stable action callbacks (no atom subscriptions)
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import {
+  cancelPendingResume,
+  usePlaybackActions,
+} from "../hooks/usePlaybackActions";
 import {
   useGaplessPrefetch,
   type PendingNext,
@@ -1149,6 +1152,7 @@ export function AppInitializer() {
       if (playing) pauseTrack();
     });
     const unlistenMprisStop = listen("mpris:stop", () => {
+      cancelPendingResume();
       invoke("stop_track").catch(() => {});
       store.set(isPlayingAtom, false);
     });
