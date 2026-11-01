@@ -63,7 +63,7 @@ import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { fetchAllFolders, recordFolderCreated } from "./tvFolders";
 import { actionForMedia, type TvView } from "./tvItems";
 import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
-import { queuePlaylistEdit } from "./tvPlaylistEdits";
+import { playlistSettled, queuePlaylistEdit } from "./tvPlaylistEdits";
 import type { TvPromptRequest } from "./TvPrompt";
 import { TvQrCode } from "./TvQrCode";
 import { useTvPlayback } from "./useTvPlayback";
@@ -159,20 +159,36 @@ const TvMenuHost = forwardRef<
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
 
+  // Per menu on the stack, the index of its entry that opened the next one.
+  const openers = useRef<number[]>([]);
+  const shownDepth = useRef(0);
+
   const close = useCallback(() => setStack([]), []);
   const openMenu = useCallback((spec: TvMenuSpec) => {
     if (stackRef.current.length === 0) {
       const active = document.activeElement;
       returnFocus.current = active instanceof HTMLElement ? active : null;
     }
+    openers.current = [];
     setStack([spec]);
   }, []);
 
-  // Focus the first entry whenever a (sub)menu opens; give focus back to
-  // where it was when the menu closes.
+  // Focus the first entry whenever a (sub)menu opens, and the entry that
+  // opened a submenu when Back leaves it; give focus back to where it was
+  // when the menu closes.
   useLayoutEffect(() => {
+    const left = stack.length < shownDepth.current;
+    shownDepth.current = stack.length;
     if (stack.length > 0) {
-      if (panelRef.current) focusFirstIn(panelRef.current);
+      const panel = panelRef.current;
+      if (!panel) return;
+      const at = left ? openers.current[stack.length - 1] : undefined;
+      const entry =
+        at === undefined
+          ? undefined
+          : panel.querySelectorAll<HTMLElement>("[role='menuitem']")[at];
+      if (entry) focusElement(entry);
+      else focusFirstIn(panel);
     } else if (returnFocus.current) {
       const el = returnFocus.current;
       returnFocus.current = null;
@@ -832,6 +848,8 @@ const TvMenuHost = forwardRef<
                 icon: Trash2,
                 onConfirm: async () => {
                   try {
+                    // Its queued removals and adds would fail once it is gone.
+                    await playlistSettled(item.uuid);
                     await deletePlaylist(item.uuid);
                     setAllPlaylists((prev) =>
                       prev.filter((p) => p.uuid !== item.uuid),
@@ -932,7 +950,7 @@ const TvMenuHost = forwardRef<
     [openMenu, trackMenu, mediaMenu],
   );
 
-  const select = async (item: TvMenuItem) => {
+  const select = async (item: TvMenuItem, index: number) => {
     const from = stackRef.current[stackRef.current.length - 1];
     if (loadingFor === from) return;
     if (item.submenu) {
@@ -941,6 +959,7 @@ const TvMenuHost = forwardRef<
         const next = await item.submenu();
         // Dropped if its menu was closed or replaced meanwhile.
         if (stackRef.current[stackRef.current.length - 1] !== from) return;
+        openers.current[stackRef.current.length - 1] = index;
         setStack((s) => [...s, next]);
       } catch {
         showToast("Couldn't load", "error");
@@ -1015,7 +1034,7 @@ const TvMenuHost = forwardRef<
                 data-tv-focusable
                 role="menuitem"
                 aria-disabled={!actionable || undefined}
-                onClick={() => void select(item)}
+                onClick={() => void select(item, i)}
                 className="tv-track flex items-center gap-[0.9rem] w-full px-[0.9rem] py-[0.7rem] rounded-[0.6rem] text-left text-[0.85rem] font-semibold text-th-text-primary aria-disabled:text-th-text-muted aria-disabled:font-normal"
               >
                 {Icon && (

@@ -90,6 +90,19 @@ describe("focus and late submenus", () => {
     await act(async () => resolve({ title: "Credits list", items: [] }));
     expect(screen.queryByRole("menu")).toBeNull();
   });
+  it("leaving a submenu focuses the entry that opened it", async () => {
+    const sub = { title: "Sub", items: [{ label: "Deep", onSelect() {} }] };
+    act(() => ref.current!.open({
+      title: "M",
+      items: [{ label: "First", onSelect() {} }, { label: "More", submenu: () => sub }],
+    }));
+    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "More" })));
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Deep" }));
+    act(() => ref.current!.back());
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "More" }));
+    act(() => ref.current!.back());
+    expect(document.activeElement).toBe(opener);
+  });
 });
 
 it("wraps multiline entries and widens reading panels", () => {
