@@ -1,11 +1,18 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { deletedPlaylistIdsAtom } from "../../atoms/playlists";
+import { normalizePlaylistFolders } from "../../api/tidal";
+import { albumSortAtom } from "../../atoms/favorites";
+import {
+  deletedPlaylistIdsAtom,
+  renamedFoldersAtom,
+} from "../../atoms/playlists";
 import TvListScreen from "./TvListScreen";
+import type { TvPromptRequest } from "./TvPrompt";
 import { menuForElement } from "./tvMenu";
 import {
   deferred,
   range,
+  rawFolderItem,
   rawPlaylistItem,
   renderTv,
   setupTvTest,
@@ -18,6 +25,7 @@ const api = vi.hoisted(() => ({
   getPlaylistFolders: vi.fn(),
   getFavoriteVideos: vi.fn(),
   getArtistViewAll: vi.fn(),
+  getFlattenedPlaylists: vi.fn(),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()),
@@ -171,4 +179,150 @@ it("an artist grid's cards carry no folder", async () => {
   await screen.findByText("Loud");
   menuForElement(cardOf("Loud"))!();
   expect(vi.mocked(nav.mediaMenu).mock.lastCall![2]).toBeUndefined();
+});
+
+const albumsScreen = (prompt?: (r: TvPromptRequest) => Promise<string | null>) =>
+  renderTv(
+    <TvListScreen title="Albums" source={{ kind: "collection", what: "albums" }} />,
+    { store: signedIn(42), nav: prompt ? { prompt } : undefined },
+  );
+const cardCount = (container: HTMLElement) =>
+  container.querySelectorAll("[data-tv-index]").length;
+
+it("sorts with the shared preference, keeping focus on Sort while it reloads", async () => {
+  api.getFavoriteAlbums.mockResolvedValue({ items: albums(1, 3), totalNumberOfItems: 3 });
+  const { nav, store } = albumsScreen();
+  await screen.findByText("Album 1");
+  const sort = screen.getByRole("button", { name: "Sort: Date added" });
+  act(() => sort.focus());
+  fireEvent.click(sort);
+  const spec = vi.mocked(nav.openMenu).mock.lastCall![0];
+  expect(spec.items.find((i) => i.checked)!.label).toBe("Date added");
+  await act(async () => {
+    await spec.items.find((i) => i.label === "Name")!.onSelect!();
+  });
+  await waitFor(() => expect(api.getFavoriteAlbums).toHaveBeenCalledTimes(2));
+  expect(api.getFavoriteAlbums).toHaveBeenLastCalledWith(42, 0, 50, "NAME", "ASC");
+  expect(store.get(albumSortAtom)).toEqual({ order: "NAME", direction: "ASC" });
+  await screen.findByText("Album 1");
+  expect(document.activeElement).toBe(sort);
+  expect(sort.getAttribute("aria-label")).toBe("Sort: Name");
+});
+
+it("filters after loading everything", async () => {
+  api.getFavoriteAlbums
+    .mockResolvedValueOnce({
+      items: albums(1, 50).map((a) => (a.id === 7 ? { ...a, title: "Rock 7" } : a)),
+      totalNumberOfItems: 60,
+    })
+    .mockResolvedValueOnce({ items: albums(51, 60), totalNumberOfItems: 60 });
+  const prompt = vi.fn<(r: TvPromptRequest) => Promise<string | null>>(async () => "rock");
+  const { container } = albumsScreen(prompt);
+  await screen.findByText("Album 1");
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  expect(prompt.mock.lastCall![0]).toMatchObject({
+    title: "Filter",
+    initial: "",
+    confirm: "Filter",
+    allowEmpty: true,
+  });
+  expect(await screen.findByText(/Filter: “rock”/)).toBeTruthy();
+  await waitFor(() => expect(api.getFavoriteAlbums).toHaveBeenCalledTimes(2));
+  expect(api.getFavoriteAlbums).toHaveBeenLastCalledWith(42, 50, 50, "DATE", "DESC");
+  await waitFor(() => expect(container.querySelector("[data-tv-loading]")).toBeNull());
+  expect(screen.getByText("Rock 7")).toBeTruthy();
+  expect(cardCount(container)).toBe(1);
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+
+  prompt.mockResolvedValueOnce(null);
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  expect(prompt.mock.lastCall![0].initial).toBe("rock");
+  await act(async () => {});
+  expect(screen.getByText(/Filter: “rock”/)).toBeTruthy();
+  expect(cardCount(container)).toBe(1);
+
+  const clear = screen.getByRole("button", { name: "Clear" });
+  act(() => clear.focus());
+  fireEvent.click(clear);
+  expect(screen.getByText("Album 1")).toBeTruthy();
+  expect(cardCount(container)).toBe(60);
+  expect(screen.queryByText(/Filter: /)).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Filter" }));
+  expect(api.getFavoriteAlbums).toHaveBeenCalledTimes(2);
+});
+
+it("a filter whose pages fail to load offers Try again, which loads the rest", async () => {
+  api.getFavoriteAlbums
+    .mockResolvedValueOnce({ items: albums(1, 50), totalNumberOfItems: 120 })
+    .mockRejectedValueOnce(new Error("down"))
+    .mockResolvedValueOnce({ items: albums(51, 100), totalNumberOfItems: 120 })
+    .mockResolvedValueOnce({ items: albums(101, 120), totalNumberOfItems: 120 });
+  const { container } = albumsScreen(async () => "album 11");
+  await screen.findByText("Album 1");
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const again = await screen.findByRole("button", { name: "Try again" });
+  expect(cardCount(container)).toBe(1);
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  act(() => again.focus());
+  fireEvent.click(again);
+  expect(await screen.findByText("Album 119")).toBeTruthy();
+  await waitFor(() => expect(container.querySelector("[data-tv-loading]")).toBeNull());
+  expect(api.getFavoriteAlbums).toHaveBeenCalledTimes(4);
+  expect(api.getFavoriteAlbums).toHaveBeenLastCalledWith(42, 100, 50, "DATE", "DESC");
+  expect(cardCount(container)).toBe(11);
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  expect(document.activeElement?.hasAttribute("data-tv-index")).toBe(true);
+});
+
+it("a playlist filter also searches playlists inside folders, fetched once", async () => {
+  const store = signedIn(42);
+  store.set(renamedFoldersAtom, new Map([["f1", "Highway"]]));
+  api.getPlaylistFolders.mockResolvedValue({
+    items: [rawPlaylistItem("p1", "Morning"), rawFolderItem("f1", "Road")],
+    totalNumberOfItems: 2,
+    cursor: null,
+  });
+  api.getFlattenedPlaylists.mockResolvedValue(
+    normalizePlaylistFolders({
+      lastModifiedAt: "",
+      items: [rawPlaylistItem("p1", "Morning"), rawPlaylistItem("p9", "Road trip")],
+      totalNumberOfItems: 2,
+      cursor: null,
+    }).items,
+  );
+  const prompt = vi.fn<(r: TvPromptRequest) => Promise<string | null>>(async () => "road");
+  const { container } = renderTv(
+    <TvListScreen title="Playlists" source={{ kind: "collection", what: "playlists" }} />,
+    { store, nav: { prompt } },
+  );
+  await screen.findByText("Morning");
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  expect(await screen.findByText("Road trip")).toBeTruthy();
+  expect(cardCount(container)).toBe(1);
+  prompt.mockResolvedValueOnce("high");
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  expect(await screen.findByText(/Filter: “high”/)).toBeTruthy();
+  expect(screen.getByText("Highway")).toBeTruthy();
+  expect(cardCount(container)).toBe(1);
+  expect(api.getFlattenedPlaylists).toHaveBeenCalledTimes(1);
+});
+
+it("videos and artist grids have no sort or filter", async () => {
+  api.getFavoriteVideos.mockResolvedValue([]);
+  const r = renderTv(
+    <TvListScreen title="Videos" source={{ kind: "collection", what: "videos" }} />,
+    { store: signedIn(42) },
+  );
+  await screen.findByText("Nothing here yet.");
+  expect(screen.queryByRole("button", { name: /^Sort/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
+  r.unmount();
+  api.getArtistViewAll.mockResolvedValue({ items: [{ id: 7, title: "Loud", cover: "c" }], hasMore: false });
+  renderTv(
+    <TvListScreen title="X: Albums" source={{ kind: "artist", artistId: 9, apiPath: "v" }} />,
+    { store: signedIn(42) },
+  );
+  await screen.findByText("Loud");
+  expect(screen.queryByRole("button", { name: /^Sort/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
 });

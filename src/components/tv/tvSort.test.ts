@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { nextTrackSort, trackSortMenu } from "./tvSort";
+import { librarySortMenu, nextTrackSort, trackSortMenu } from "./tvSort";
 import { setupTvTest } from "./tvTestUtils";
 
 setupTvTest();
@@ -44,4 +44,21 @@ it("My Tracks has no playlist order and treats newest first as the default", asy
   expect(asc.items.find((i) => i.checked)!.icon).toBe(ArrowUp);
   await asc.items.find((i) => i.label === "Date added")!.onSelect!();
   expect(onPick).toHaveBeenLastCalledWith(null);
+});
+
+it("offers a collection's sort orders and flips the current one", async () => {
+  const onPick = vi.fn();
+  const m = librarySortMenu("albums", { order: "DATE", direction: "DESC" }, onPick);
+  expect(m.items.map((i) => i.label)).toEqual(["Date added", "Name", "Artist", "Release date"]);
+  const checked = m.items.filter((i) => i.checked);
+  expect(checked.map((i) => i.label)).toEqual(["Date added"]);
+  expect(checked[0].icon).toBe(ArrowDown);
+  expect(m.items[1].icon).toBeUndefined();
+  await m.items[1].onSelect!();
+  expect(onPick).toHaveBeenLastCalledWith({ order: "NAME", direction: "ASC" });
+  await m.items[0].onSelect!();
+  expect(onPick).toHaveBeenLastCalledWith({ order: "DATE", direction: "ASC" });
+  const asc = librarySortMenu("playlists", { order: "NAME", direction: "ASC" }, onPick);
+  expect(asc.items.map((i) => i.label)).toEqual(["Date added", "Last updated", "Name"]);
+  expect(asc.items.find((i) => i.checked)!.icon).toBe(ArrowUp);
 });

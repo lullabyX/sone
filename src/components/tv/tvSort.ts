@@ -1,5 +1,7 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { SortOrder } from "../../atoms/favorites";
+import { SORT_OPTIONS } from "../../constants/sortOptions";
+import { nextSortOrder, type LibraryType } from "../../lib/libraryPages";
 import type { TvMenuSpec } from "./tvMenu";
 
 /** The desktop track list's sortable columns, plus its unsorted order. */
@@ -71,6 +73,31 @@ export function trackSortMenu(opts: {
             next.direction === FAVORITES_TRACK_SORT.direction;
           opts.onPick(isDefault ? null : next);
         },
+      };
+    }),
+  };
+}
+
+/** The desktop library sort dropdown: picking the current order flips its
+ *  direction. */
+export function librarySortMenu(
+  type: LibraryType,
+  current: SortOrder,
+  onPick: (s: SortOrder) => void,
+): TvMenuSpec {
+  return {
+    title: "Sort by",
+    items: SORT_OPTIONS[type].map((o) => {
+      const checked = current.order === o.value;
+      return {
+        label: o.label,
+        checked,
+        icon: checked
+          ? current.direction === "ASC"
+            ? ArrowUp
+            : ArrowDown
+          : undefined,
+        onSelect: () => onPick(nextSortOrder(current, o.value)),
       };
     }),
   };
