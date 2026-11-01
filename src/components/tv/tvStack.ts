@@ -8,13 +8,51 @@ export interface TvStackEntry {
   returnTo?: "nowPlaying";
 }
 
-/** Now Playing is a layer above the stack, never an entry on it. */
+/** What makes two views the same page, for the pages that show one item. */
+function pageIdentity(view: TvView): string | null {
+  switch (view.type) {
+    case "album":
+      return `album:${view.id}`;
+    case "playlist":
+      return `playlist:${view.uuid}`;
+    case "mix":
+      return `mix:${view.mixId}`;
+    case "artist":
+      return `artist:${view.id}`;
+    case "artistTracks":
+      return `artistTracks:${view.artistId}`;
+    case "favorites":
+      return "favorites";
+    default:
+      return null;
+  }
+}
+
+/** Where the stack already holds the page `view` opens, or -1. */
+export function tvStackIndexOf(stack: TvStackEntry[], view: TvView): number {
+  const id = pageIdentity(view);
+  return id === null ? -1 : stack.findIndex((e) => pageIdentity(e.view) === id);
+}
+
+/** Now Playing is a layer above the stack, never an entry on it. A page
+ *  already on the stack is never opened twice: the stack goes back to it
+ *  (as if by Back), keeping its own view; opened from Now Playing it is
+ *  marked so Back reopens the layer. */
 export function tvPush(
   stack: TvStackEntry[],
   entry: TvStackEntry,
   nowPlayingOpen: boolean,
 ): TvStackEntry[] {
   if (entry.view.type === "nowPlaying") return stack;
+  const at = tvStackIndexOf(stack, entry.view);
+  if (at >= 0) {
+    if (at === stack.length - 1 && !nowPlayingOpen) return stack;
+    const kept = stack[at];
+    return [
+      ...stack.slice(0, at),
+      nowPlayingOpen ? { ...kept, returnTo: "nowPlaying" } : kept,
+    ];
+  }
   return [
     ...stack,
     nowPlayingOpen ? { ...entry, returnTo: "nowPlaying" } : entry,

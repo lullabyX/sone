@@ -62,6 +62,7 @@ import { useTvMediaCommands } from "./useTvMediaCommands";
 import {
   tvBackStep,
   tvPush,
+  tvStackIndexOf,
   type TvBackStep,
   type TvStackEntry,
 } from "./tvStack";
@@ -295,22 +296,49 @@ export default function TvApp() {
     [openNowPlaying],
   );
 
-  /** Put a screen on the stack, remembering where focus was below it. Opened
-   *  from Now Playing, it closes the layer, and Back reopens it. */
-  const stackPush = useCallback((view: TvView) => {
-    const e = entry(view);
-    const active = document.activeElement;
-    if (nowPlayingOpenRef.current) {
-      if (active instanceof HTMLElement) returnFocus.current.set(e.id, active);
-      reopenOpener.current.set(e.id, nowPlayingOpener.current);
-      setNowPlayingOpen(false);
-      setStack((s) => tvPush(s, e, true));
-      return;
-    }
-    const top = stackRef.current[stackRef.current.length - 1];
-    if (active instanceof HTMLElement) savedFocus.current.set(top.id, active);
-    setStack((s) => tvPush(s, e, false));
+  /** Drop what was kept for a screen leaving the stack. */
+  const forget = useCallback((id: number) => {
+    savedFocus.current.delete(id);
+    returnFocus.current.delete(id);
+    reopenOpener.current.delete(id);
   }, []);
+
+  /** Put a screen on the stack, remembering where focus was below it. Opened
+   *  from Now Playing, it closes the layer, and Back reopens it. A page
+   *  already on the stack is gone back to instead (see tvPush), with the
+   *  focus it had. */
+  const stackPush = useCallback(
+    (view: TvView) => {
+      const s = stackRef.current;
+      const at = tvStackIndexOf(s, view);
+      const onTop = at === s.length - 1;
+      const e = at >= 0 ? s[at] : entry(view);
+      if (at >= 0) for (const above of s.slice(at + 1)) forget(above.id);
+      const active = document.activeElement;
+      if (nowPlayingOpenRef.current) {
+        if (active instanceof HTMLElement) {
+          returnFocus.current.set(e.id, active);
+        }
+        reopenOpener.current.set(e.id, nowPlayingOpener.current);
+        if (at >= 0 && onTop) {
+          layerFocus.current = nowPlayingOpener.current ?? "screen";
+        } else if (at >= 0) {
+          pendingRestore.current = e.id;
+        }
+        setNowPlayingOpen(false);
+        setStack((st) => tvPush(st, e, true));
+        return;
+      }
+      if (at >= 0) {
+        if (onTop) return;
+        pendingRestore.current = e.id;
+      } else if (active instanceof HTMLElement) {
+        savedFocus.current.set(s[s.length - 1].id, active);
+      }
+      setStack((st) => tvPush(st, e, false));
+    },
+    [forget],
+  );
 
   const push = useCallback(
     (view: TvView) => {
@@ -335,49 +363,62 @@ export default function TvApp() {
     else focusFirstIn(rail);
   }, []);
 
-  const back = useCallback(() => {
-    const step: TvBackStep = tvBackStep(
-      stackRef.current,
-      nowPlayingOpenRef.current,
-    );
-    switch (step.kind) {
-      case "closeNowPlaying":
-        closeNowPlaying();
-        return;
-      case "pop": {
-        const { popped } = step;
-        savedFocus.current.delete(popped.id);
-        const opener = reopenOpener.current.get(popped.id);
-        reopenOpener.current.delete(popped.id);
-        if (step.reopenNowPlaying) {
-          // The opener the layer had when this page left it.
-          nowPlayingOpener.current = opener ?? null;
-          layerFocus.current = returnFocus.current.get(popped.id) ?? "screen";
-          returnFocus.current.delete(popped.id);
-          setNowPlayingOpen(true);
-        } else {
-          pendingRestore.current = step.stack[step.stack.length - 1].id;
-        }
-        setStack(step.stack);
-        return;
-      }
-      case "root":
-        if (!railRef.current?.contains(document.activeElement)) {
-          focusRail();
+  /** Back from `stack` (the stack as it is, or one with entries dropped). */
+  const backFrom = useCallback(
+    (stack: TvStackEntry[]) => {
+      const step: TvBackStep = tvBackStep(stack, nowPlayingOpenRef.current);
+      switch (step.kind) {
+        case "closeNowPlaying":
+          closeNowPlaying();
+          return;
+        case "pop": {
+          const { popped } = step;
+          savedFocus.current.delete(popped.id);
+          const opener = reopenOpener.current.get(popped.id);
+          reopenOpener.current.delete(popped.id);
+          if (step.reopenNowPlaying) {
+            // The opener the layer had when this page left it.
+            nowPlayingOpener.current = opener ?? null;
+            layerFocus.current = returnFocus.current.get(popped.id) ?? "screen";
+            returnFocus.current.delete(popped.id);
+            setNowPlayingOpen(true);
+          } else {
+            pendingRestore.current = step.stack[step.stack.length - 1].id;
+          }
+          setStack(step.stack);
           return;
         }
-        if (stackRef.current[0].view.type !== "home") goTo("home");
-        return;
-    }
-  }, [closeNowPlaying, focusRail, goTo]);
+        case "root":
+          if (!railRef.current?.contains(document.activeElement)) {
+            focusRail();
+            return;
+          }
+          if (stack[0].view.type !== "home") goTo("home");
+          return;
+      }
+    },
+    [closeNowPlaying, focusRail, goTo],
+  );
 
-  // A deleted playlist's page closes if it is the one on top.
+  const back = useCallback(() => backFrom(stackRef.current), [backFrom]);
+
+  // A deleted playlist's pages close: the one on top as by Back, the ones
+  // below it at once, so Back never shows the deleted playlist.
   const leavePlaylist = useCallback(
     (uuid: string) => {
-      const top = stackRef.current[stackRef.current.length - 1]?.view;
-      if (top?.type === "playlist" && top.uuid === uuid) back();
+      const s = stackRef.current;
+      const gone = (e: TvStackEntry) =>
+        e.view.type === "playlist" && e.view.uuid === uuid;
+      if (!s.some(gone)) return;
+      const top = s[s.length - 1];
+      const popTop = gone(top) && !nowPlayingOpenRef.current;
+      const kept = (e: TvStackEntry) => !gone(e) || (popTop && e === top);
+      for (const e of s) if (!kept(e)) forget(e.id);
+      const rest = s.filter(kept);
+      if (popTop) backFrom(rest);
+      else setStack(rest);
     },
-    [back],
+    [backFrom, forget],
   );
 
   useLayoutEffect(() => {
