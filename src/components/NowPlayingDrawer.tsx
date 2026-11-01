@@ -393,7 +393,7 @@ const QueueTab = memo(function QueueTab({
                 isActive={false}
                 isPlaying={false}
                 dimmed
-                onClick={() => playTrack(track)}
+                onClick={() => playTrack(track, { retryOnRateLimit: true })}
                 {...trackRowNav(track)}
               />
             ))}
@@ -789,6 +789,11 @@ const SuggestedTab = memo(function SuggestedTab() {
   const { tracks, loading, error } = useSuggestedTracks(currentTrack);
 
   // Stable callbacks passed to every row — hooks called once here, not per row
+  const handlePlay = useCallback(
+    (track: Track) => playTrack(track, { retryOnRateLimit: true }),
+    [playTrack],
+  );
+
   const handleAddToQueue = useCallback(
     (track: Track) => {
       const trackSource = track.album
@@ -896,7 +901,7 @@ const SuggestedTab = memo(function SuggestedTab() {
           isActive={currentTrack?.id === track.id}
           index={i}
           isFav={favoriteTrackIds.has(track.id)}
-          onPlay={playTrack}
+          onPlay={handlePlay}
           onAddToQueue={handleAddToQueue}
           onToggleFavorite={handleToggleFavorite}
           onArtistClick={handleArtistClick}

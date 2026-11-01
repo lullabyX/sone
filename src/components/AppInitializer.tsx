@@ -79,7 +79,10 @@ import {
 import type { ThemeFile } from "../lib/theme";
 
 // Stable action callbacks (no atom subscriptions)
-import { usePlaybackActions } from "../hooks/usePlaybackActions";
+import {
+  cancelPendingResume,
+  usePlaybackActions,
+} from "../hooks/usePlaybackActions";
 import {
   useGaplessPrefetch,
   type PendingNext,
@@ -202,7 +205,7 @@ export function AppInitializer() {
 
   // ---- Stable playback actions (no subscriptions) ----
   const {
-    playTrack,
+    playSingle,
     playNext,
     playPrevious,
     pauseTrack,
@@ -555,7 +558,7 @@ export function AppInitializer() {
     } else {
       // playTrack: fetch track metadata, then play
       getTrack(action.trackId)
-        .then((track) => playTrack(track))
+        .then((track) => playSingle(track))
         .catch((err) => console.error("Deep link play failed:", err));
     }
   }
@@ -1151,6 +1154,7 @@ export function AppInitializer() {
       if (playing) pauseTrack();
     });
     const unlistenMprisStop = listen("mpris:stop", () => {
+      cancelPendingResume();
       invoke("stop_track").catch(() => {});
       store.set(isPlayingAtom, false);
     });

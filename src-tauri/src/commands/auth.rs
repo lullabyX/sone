@@ -639,9 +639,13 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
         .authorize_url
         .parse()
         .map_err(|e| SoneError::Parse(format!("invalid authorize URL: {}", e)))?;
+    // Start blank so the webview is configured before the login page loads.
+    let blank: tauri::Url = "about:blank"
+        .parse()
+        .map_err(|e| SoneError::Parse(format!("invalid blank URL: {}", e)))?;
 
     let app_for_handler = app.clone();
-    let mut builder = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(url))
+    let mut builder = WebviewWindowBuilder::new(&app, "pkce-login", WebviewUrl::External(blank))
         .title("Sign in to TIDAL")
         .inner_size(1024.0, 768.0)
         .center()
@@ -713,15 +717,20 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
         let _ = window.set_zoom(z.clamp(1.0, 4.0));
     }
 
-    // Deny all WebKit permission prompts (camera/mic/geolocation/notifications).
-    // Tidal's Turnstile human-check can request the camera; login works fine without it.
+    // The login page's DataDome bot check enumerates media devices; inside
+    // Flatpak that makes WebKit request camera access via the portal. Login
+    // needs no media, so disable it and deny any other permission request.
     #[cfg(target_os = "linux")]
     {
-        use webkit2gtk::{PermissionRequestExt, WebViewExt};
+        use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
+        let authorize_url = url.to_string();
         let tv = zoom.is_some();
         let app_for_failure = app.clone();
-        let _ = window.with_webview(move |webview| {
+        if let Err(e) = window.with_webview(move |webview| {
             let wv: webkit2gtk::WebView = webview.inner();
+            if let Some(settings) = WebViewExt::settings(&wv) {
+                settings.set_enable_media_stream(false);
+            }
             wv.connect_permission_request(|_wv, request| {
                 request.deny();
                 true
@@ -745,7 +754,14 @@ pub async fn start_pkce_login_window(app: AppHandle, zoom: Option<f64>) -> Resul
                     false
                 });
             }
-        });
+            wv.load_uri(&authorize_url);
+        }) {
+            let _ = window.close();
+            return Err(SoneError::NotConfigured(format!(
+                "Failed to set up login window: {}",
+                e
+            )));
+        }
     }
 
     Ok(())

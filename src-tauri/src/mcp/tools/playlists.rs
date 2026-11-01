@@ -13,7 +13,7 @@ use crate::mcp::events::{
 };
 use crate::mcp::sanitizer::{SanitizedPlaylist, backfill_and_sanitize_tracks};
 use crate::mcp::server::SoneMcpServer;
-use crate::tidal_api::TidalClient;
+use crate::tidal_api::{OnDupes, TidalClient};
 
 use super::util::{require_user_id, NoArgs};
 
@@ -188,10 +188,10 @@ impl SoneMcpServer {
         let uuid = playlist.uuid.clone();
         let track_count = if let Some(ids) = args.track_ids.filter(|v| !v.is_empty()) {
             client
-                .add_tracks_to_playlist(&uuid, &ids)
+                .add_tracks_to_playlist(&uuid, &ids, OnDupes::Skip)
                 .await
-                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-            ids.len() as u32
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                .len() as u32
         } else {
             0
         };
@@ -322,7 +322,7 @@ impl SoneMcpServer {
 
     #[rmcp::tool(
         name = "add_to_playlist",
-        description = "Add tracks to an existing playlist (by uuid or name)."
+        description = "Add tracks to an existing playlist (by uuid or name). Tracks already in the playlist are skipped."
     )]
     async fn add_to_playlist(
         &self,
@@ -341,11 +341,14 @@ impl SoneMcpServer {
             args.playlist_name.as_deref(),
         )
         .await?;
-        let added = args.track_ids.len();
-        let result = client.add_tracks_to_playlist(&uuid, &args.track_ids).await;
-        after_playlist_write(&state.disk_cache, &uuid, result)
+        let result = client
+            .add_tracks_to_playlist(&uuid, &args.track_ids, OnDupes::Skip)
+            .await;
+        let added = after_playlist_write(&state.disk_cache, &uuid, result)
             .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            .len();
+        let skipped_duplicates = args.track_ids.len().saturating_sub(added);
         self.app_handle
             .emit(
                 EV_PLAYLIST_TRACKS_CHANGED,
@@ -355,7 +358,11 @@ impl SoneMcpServer {
                 },
             )
             .map_err(|e| ErrorData::internal_error(format!("emit failed: {e}"), None))?;
-        let json = serde_json::json!({ "uuid": uuid, "added": added });
+        let json = serde_json::json!({
+            "uuid": uuid,
+            "added": added,
+            "skipped_duplicates": skipped_duplicates,
+        });
         Ok(CallToolResult::success(vec![rmcp::model::ContentBlock::text(
             json.to_string(),
         )]))
