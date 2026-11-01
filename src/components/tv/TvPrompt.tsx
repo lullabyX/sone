@@ -19,10 +19,14 @@ export interface TvPromptRequest {
   secret?: boolean;
   /** Longest text the field and the on-screen keyboard accept. */
   maxLength?: number;
+  /** Text with line breaks (a description): Enter adds a line, it does
+   *  not submit. */
+  multiline?: boolean;
 }
 
 /**
- * Asks for a line of text (a playlist name) with the on-screen keyboard;
+ * Asks for a line of text (a playlist name), or several lines (a
+ * description), with the on-screen keyboard;
  * a physical keyboard types into the field too. Back cancels.
  */
 export default function TvPrompt({
@@ -78,22 +82,39 @@ export default function TvPrompt({
         <h2 className="text-[1.4rem] font-extrabold text-th-text-primary">
           {request.title}
         </h2>
-        <label className="tv-input mt-[1rem] flex h-[2.8rem] items-center rounded-[0.6rem] bg-th-surface px-[1rem]">
-          <input
-            data-tv-focusable
-            type={request.secret ? "password" : "text"}
-            maxLength={maxLength}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter that commits an input method's text is not a submit.
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (e.key === "Enter") submit();
-            }}
-            spellCheck={false}
-            placeholder={request.placeholder ?? "Name"}
-            className="min-w-0 flex-1 bg-transparent text-[0.95rem] text-th-text-primary outline-none placeholder:text-th-text-faint"
-          />
+        <label
+          className={`tv-input mt-[1rem] flex rounded-[0.6rem] bg-th-surface px-[1rem] ${
+            request.multiline ? "py-[0.6rem]" : "h-[2.8rem] items-center"
+          }`}
+        >
+          {request.multiline ? (
+            <textarea
+              data-tv-focusable
+              rows={4}
+              maxLength={maxLength}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              spellCheck={false}
+              placeholder={request.placeholder ?? "Name"}
+              className="min-w-0 flex-1 resize-none bg-transparent text-[0.95rem] text-th-text-primary outline-none placeholder:text-th-text-faint"
+            />
+          ) : (
+            <input
+              data-tv-focusable
+              type={request.secret ? "password" : "text"}
+              maxLength={maxLength}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter that commits an input method's text is not a submit.
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (e.key === "Enter") submit();
+              }}
+              spellCheck={false}
+              placeholder={request.placeholder ?? "Name"}
+              className="min-w-0 flex-1 bg-transparent text-[0.95rem] text-th-text-primary outline-none placeholder:text-th-text-faint"
+            />
+          )}
         </label>
         <div className="mt-[1rem]">
           <TvKeyboard autoFocus onChange={edit} empty={text === ""} />

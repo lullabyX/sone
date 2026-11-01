@@ -333,7 +333,7 @@ describe("new playlists and playlist details", () => {
 
     onPrompt.mockResolvedValueOnce("For the car");
     await act(async () => { await sub.items[1].onSelect!(); });
-    expect(onPrompt.mock.lastCall![0]).toEqual({ title: "Description", initial: "d0", confirm: "Save", placeholder: "Description", allowEmpty: true });
+    expect(onPrompt.mock.lastCall![0]).toEqual({ title: "Description", initial: "d0", confirm: "Save", placeholder: "Description", allowEmpty: true, trim: false, multiline: true });
     expect(invoke).toHaveBeenLastCalledWith("update_playlist", { playlistId: "p", title: "Old", description: "For the car", accessType: "PUBLIC" });
     expect(store.get(allPlaylistsAtom)[0]).toMatchObject({ title: "New name", description: "For the car" });
     expect(await screen.findByText("Description saved")).toBeTruthy();
@@ -362,6 +362,30 @@ describe("new playlists and playlist details", () => {
     await act(async () => { await sub.items[1].onSelect!(); });
     expect(onPrompt).not.toHaveBeenCalled();
     expect(await screen.findByText("Couldn't load the playlist")).toBeTruthy();
+  });
+  it("a description with line breaks or edge spaces is left alone when untouched and kept when edited", async () => {
+    const { ref, onPrompt } = renderMenuHost({ store: ownStore() });
+    const text = " Line one\n\nLine two ";
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "Old", description: text, accessType: "UNLISTED" } as Playlist);
+    const sub = await editDetails(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }));
+    onPrompt.mockImplementationOnce(async (r) => r.initial!);
+    await act(async () => { await sub.items[1].onSelect!(); });
+    expect(updated()).toEqual([]);
+    onPrompt.mockImplementationOnce(async (r) => `${r.initial!}\nLine three`);
+    await act(async () => { await sub.items[1].onSelect!(); });
+    expect(updated()).toEqual([["update_playlist", { playlistId: "p", title: "Old", description: `${text}\nLine three`, accessType: "UNLISTED" }]]);
+  });
+  it("a card built before a rename edits the playlist's current name", async () => {
+    const store = ownStore();
+    const { ref, onPrompt } = renderMenuHost({ store });
+    act(() => store.set(allPlaylistsAtom, [{ uuid: "p", title: "Fresh", creator: { id: 42 } } as Playlist]));
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "Fresh", description: "d0", accessType: "PUBLIC" } as Playlist);
+    const sub = await editDetails(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Stale" }));
+    expect(sub.subtitle).toBe("Fresh");
+    onPrompt.mockResolvedValueOnce("Fresh");
+    await act(async () => { await sub.items[0].onSelect!(); });
+    expect(onPrompt.mock.lastCall![0]).toMatchObject({ initial: "Fresh" });
+    expect(updated()).toEqual([]);
   });
   it("someone else's playlist has no Edit details", () => {
     const store = signedIn(42);

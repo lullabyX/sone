@@ -302,6 +302,24 @@ async function loadList(
   }
 }
 
+/** `list` with the stored entry for `uuid` (if any) taking the name and
+ *  description of its freshly loaded details. */
+function refreshListed(
+  list: Playlist[],
+  uuid: string,
+  fresh: Playlist,
+): Playlist[] {
+  const at = list.findIndex((p) => p.uuid === uuid);
+  if (at < 0) return list;
+  const p = list[at];
+  const title = fresh.title || p.title;
+  const description = fresh.description ?? "";
+  if (title === p.title && description === p.description) return list;
+  const next = list.slice();
+  next[at] = { ...p, title, description };
+  return next;
+}
+
 export default function TvTrackListScreen({ view }: { view: ListView }) {
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const favoriteTrackIds = useAtomValue(favoriteTrackIdsAtom);
@@ -316,10 +334,18 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
       sortOrder && sortDir ? { order: sortOrder, direction: sortDir } : null,
     [sortOrder, sortDir],
   );
-  const load = useCallback(
-    () => loadList(view, userId, sort),
-    [view, userId, sort],
-  );
+  const setAllPlaylists = useSetAtom(allPlaylistsAtom);
+  const load = useCallback(async () => {
+    const list = await loadList(view, userId, sort);
+    // The stored playlists were loaded once; these details are newer (an
+    // edit made on another device), so their name and description replace
+    // the stored ones before the page shows.
+    const fresh = list.playlist;
+    if (view.type === "playlist" && fresh) {
+      setAllPlaylists((prev) => refreshListed(prev, view.uuid, fresh));
+    }
+    return list;
+  }, [view, userId, sort, setAllPlaylists]);
   const { data, error, retry, update } = useTvLoader(
     load,
     "Couldn't load tracks",

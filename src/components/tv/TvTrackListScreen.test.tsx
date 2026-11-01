@@ -260,6 +260,37 @@ it("shows an edited name and description at once", async () => {
   expect(screen.queryByText("d0")).toBeNull();
 });
 
+it("freshly loaded details replace the stored name and description", async () => {
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 42 }, description: "Line one\nLine two" });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: [t1], totalNumberOfItems: 1 });
+  mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  const store = signedIn(42);
+  const other = { uuid: "q", title: "Q", description: "q0", creator: { id: 42 } } as Playlist;
+  store.set(allPlaylistsAtom, [{ uuid: "p", title: "Old", description: "old", creator: { id: 42 }, numberOfTracks: 1 } as Playlist, other]);
+  renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+  await screen.findByText("T1");
+  expect(screen.getByRole("heading", { name: "P" })).toBeTruthy();
+  expect(screen.getByText(/Line one/)).toBeTruthy();
+  expect(screen.queryByText("Old")).toBeNull();
+  expect(store.get(allPlaylistsAtom)).toEqual([
+    { uuid: "p", title: "P", description: "Line one\nLine two", creator: { id: 42 }, numberOfTracks: 1 },
+    other,
+  ]);
+  expect(store.get(allPlaylistsAtom)[1]).toBe(other);
+});
+
+it("a playlist missing from the stored list adds no entry", async () => {
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 7 } });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: [t1], totalNumberOfItems: 1 });
+  mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  const store = signedIn(42);
+  const list = [{ uuid: "q", title: "Q", creator: { id: 42 } } as Playlist];
+  store.set(allPlaylistsAtom, list);
+  renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store });
+  await screen.findByText("T1");
+  expect(store.get(allPlaylistsAtom)).toBe(list);
+});
+
 describe("playlist removals", () => {
   const [a, b, c] = [mkTrack(1), mkTrack(2), mkTrack(3)];
   let pending: Deferred<void>[];

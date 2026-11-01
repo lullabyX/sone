@@ -1,5 +1,5 @@
 import { fireEvent, getDefaultNormalizer, screen } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import { renderTv, setupTvTest } from "./tvTestUtils";
 
@@ -46,4 +46,27 @@ it("caps keyboard edits at maxLength", () => {
   renderPrompt({ title: "Hex", initial: "#123456", confirm: "Done", maxLength: 7 });
   fireEvent.click(screen.getByText("a"));
   expect(screen.getByDisplayValue("#123456")).toBeTruthy();
+});
+
+describe("multi-line text", () => {
+  const lines = "Line one\n\nLine two";
+  const request: TvPromptRequest = { title: "Description", initial: lines, confirm: "Save", allowEmpty: true, trim: false, multiline: true };
+  const field = () => screen.getByRole("textbox") as HTMLTextAreaElement;
+
+  it("shows and returns line breaks unchanged", () => {
+    const onDone = renderPrompt(request);
+    expect(field().tagName).toBe("TEXTAREA");
+    expect(field().value).toBe(lines);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onDone).toHaveBeenLastCalledWith(lines);
+  });
+  it("keeps line breaks through typing and on-screen keys; Enter is a new line, not a submit", () => {
+    const onDone = renderPrompt(request);
+    fireEvent.change(field(), { target: { value: `${field().value}!\nThree` } });
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(onDone).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("a"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onDone).toHaveBeenLastCalledWith(`${lines}!\nThreea`);
+  });
 });

@@ -655,30 +655,32 @@ const TvMenuHost = forwardRef<
       });
       // The user's own playlists can be edited and deleted (same ownership
       // rule as the desktop: they are its creator).
-      if (
-        item.type === "playlist" &&
-        userId != null &&
-        store
-          .get(allPlaylistsAtom)
-          .some((p) => p.uuid === item.uuid && p.creator?.id === userId)
-      ) {
+      const own =
+        item.type === "playlist" && userId != null
+          ? store
+              .get(allPlaylistsAtom)
+              .find((p) => p.uuid === item.uuid && p.creator?.id === userId)
+          : undefined;
+      if (item.type === "playlist" && own) {
+        // Its name as last edited, which a card built earlier may not show.
+        const current = own.title || item.title;
         items.push(
           {
             label: "Edit details",
             icon: Pencil,
             submenu: () => ({
               title: "Edit details",
-              subtitle: label(name),
+              subtitle: label(current),
               items: [
                 {
                   label: "Name…",
                   onSelect: async () => {
                     const title = await onPrompt({
                       title: "Name",
-                      initial: item.title,
+                      initial: current,
                       confirm: "Save",
                     });
-                    if (!title || title === item.title) return;
+                    if (!title || title === current) return;
                     try {
                       // Keep its description and visibility as they are.
                       const details = await getPlaylistDetails(item.uuid);
@@ -709,22 +711,26 @@ const TvMenuHost = forwardRef<
                       showToast("Couldn't load the playlist", "error");
                       return;
                     }
-                    const current = details.description ?? "";
+                    const before = details.description ?? "";
+                    // Multi-line and untrimmed, so its line breaks and an
+                    // untouched text come back exactly as they were.
                     const description = await onPrompt({
                       title: "Description",
-                      initial: current,
+                      initial: before,
                       confirm: "Save",
                       placeholder: "Description",
                       allowEmpty: true,
+                      trim: false,
+                      multiline: true,
                     });
-                    if (description === null || description === current) {
+                    if (description === null || description === before) {
                       return;
                     }
                     try {
                       // Keep its name and visibility as they are.
                       await updatePlaylist(
                         item.uuid,
-                        details.title ?? item.title,
+                        details.title || current,
                         description,
                         accessOf(details),
                       );
