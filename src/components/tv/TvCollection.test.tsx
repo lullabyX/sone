@@ -1,13 +1,18 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import {
   albumSortAtom,
   artistSortAtom,
   mixSortAtom,
   playlistSortAtom,
 } from "../../atoms/favorites";
-import { deletedPlaylistIdsAtom, renamedFoldersAtom } from "../../atoms/playlists";
+import {
+  deletedPlaylistIdsAtom,
+  movedPlaylistsAtom,
+  renamedFoldersAtom,
+} from "../../atoms/playlists";
 import TvCollection from "./TvCollection";
+import { menuForElement } from "./tvMenu";
 import {
   rawFolderItem,
   rawPlaylistItem,
@@ -90,4 +95,16 @@ it("offers View all when the playlists page has a cursor", async () => {
   await screen.findByText("One");
   fireEvent.click(within(playlistsRow()).getByText("View all").closest("button")!);
   expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "list", title: "Playlists", source: { kind: "collection", what: "playlists" } } });
+});
+
+it("a playlist card's menu is opened from the top level, and a move hides it at once", async () => {
+  api.getPlaylistFolders.mockResolvedValue({ items: [rawPlaylistItem("p1", "Moving"), rawPlaylistItem("p2", "Kept")], totalNumberOfItems: 2, cursor: null });
+  const { nav, store } = renderTv(<TvCollection />, { store: signedIn(42) });
+  menuForElement((await screen.findByText("Moving")).closest("button")!)!();
+  expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([expect.objectContaining({ uuid: "p1" }), false, { folderId: "root" }]);
+  const calls = api.getPlaylistFolders.mock.calls.length;
+  act(() => store.set(movedPlaylistsAtom, new Map([["p1", "root"]])));
+  expect(screen.queryByText("Moving")).toBeNull();
+  expect(screen.getByText("Kept")).toBeTruthy();
+  expect(api.getPlaylistFolders.mock.calls.length).toBe(calls);
 });

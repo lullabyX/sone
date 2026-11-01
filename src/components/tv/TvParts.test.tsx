@@ -75,3 +75,9 @@ it("a grid card's menu carries the grid's menu context", () => {
   menuForElement(screen.getByText("A").closest("button")!)!();
   expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([expect.objectContaining({ id: 5 }), false, { folderId: "f1" }]);
 });
+it("a row card's menu carries the row's menu context", () => {
+  const { nav } = renderTv(<TvRow title="R" menuContext={{ folderId: "root" }}
+    entries={sectionEntries([{ id: 5, title: "A", cover: "c" }], "ALBUM_LIST").entries} />);
+  menuForElement(screen.getByText("A").closest("button")!)!();
+  expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([expect.objectContaining({ id: 5 }), false, { folderId: "root" }]);
+});

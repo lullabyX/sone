@@ -256,6 +256,7 @@ export function TvRow({
   queueId,
   viewAll,
   showExplicit,
+  menuContext,
 }: {
   title: string;
   entries: TvEntry[];
@@ -264,6 +265,8 @@ export function TvRow({
   /** Where a "View all" card at the end of the row leads. */
   viewAll?: TvView;
   showExplicit?: boolean;
+  /** Where the cards are listed (the playlist folder), for their menus. */
+  menuContext?: { folderId?: string };
 }) {
   const nav = useTvNav();
   if (entries.length === 0) return null;
@@ -295,7 +298,7 @@ export function TvRow({
             key={entry.key}
             entry={entry}
             wide={wide}
-            menu={cardMenu(nav, entry)}
+            menu={cardMenu(nav, entry, menuContext)}
             showExplicit={showExplicit}
             onSelect={() =>
               nav.run(entry.action, {

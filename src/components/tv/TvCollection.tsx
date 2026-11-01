@@ -58,6 +58,9 @@ const MY_TRACKS: TvEntry = {
   action: { kind: "open", view: { type: "favorites" } },
 };
 
+/** The Playlists row lists the top level, as the desktop Sidebar does. */
+const ROOT_FOLDER = { folderId: "root" };
+
 function viewAll(
   title: string,
   what: What,
@@ -195,6 +198,7 @@ export default function TvCollection() {
         title="Playlists"
         entries={[MY_TRACKS, ...playlists]}
         viewAll={viewAll("Playlists", "playlists", rows.playlists)}
+        menuContext={ROOT_FOLDER}
       />
       <TvRow
         title="Albums"

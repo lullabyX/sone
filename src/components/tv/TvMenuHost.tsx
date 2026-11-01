@@ -166,7 +166,8 @@ const TvMenuHost = forwardRef<
             },
           });
           showToast(done);
-        } catch {
+        } catch (err) {
+          console.error("[TvMenuHost] failed to move playlist:", err);
           showToast("Failed to move playlist", "error");
         }
       };
@@ -210,7 +211,8 @@ const TvMenuHost = forwardRef<
               sourceFolderId,
             });
             showToast(`Moved "${playlistLabel}" to "${shortName(name)}"`);
-          } catch {
+          } catch (err) {
+            console.error("[TvMenuHost] failed to create folder:", err);
             showToast("Failed to create folder", "error");
           }
         },

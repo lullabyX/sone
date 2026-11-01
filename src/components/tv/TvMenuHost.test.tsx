@@ -147,6 +147,7 @@ describe("Move to folder", () => {
     expect(await screen.findByText('Moved "P" to Playlists')).toBeTruthy();
   });
   it("a failed move is undone and reported", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     mockInvoke({ move_playlist_to_folder: () => { throw new Error("no"); } });
     api.getPlaylistFolders.mockResolvedValue(folders(["f1", "Rock"]));
     const { ref, store } = renderMenuHost();
@@ -155,6 +156,22 @@ describe("Move to folder", () => {
     expect(store.get(movedPlaylistsAtom).has("p1")).toBe(false);
     expect(store.get(addedToFolderAtom).get("f1")).toBeUndefined();
     expect(await screen.findByText("Failed to move playlist")).toBeTruthy();
+    expect(error.mock.lastCall![0]).toBe("[TvMenuHost] failed to move playlist:");
+    error.mockRestore();
+  });
+  it("a failed folder creation is reported and changes nothing", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockInvoke({ create_playlist_folder: () => { throw new Error("no"); } });
+    api.getPlaylistFolders.mockResolvedValue(folders(["f1", "Rock"]));
+    const { ref, store, onPrompt } = renderMenuHost();
+    onPrompt.mockResolvedValueOnce("Car");
+    const sub = await moveMenu(ref.current!.mediaMenu(playlist, false, { folderId: "f0" }));
+    await act(async () => { await sub.items.find((i) => i.label === "New folder…")!.onSelect!(); });
+    expect(store.get(addedToFolderAtom).get("root")).toBeUndefined();
+    expect(store.get(movedPlaylistsAtom).has("p1")).toBe(false);
+    expect(await screen.findByText("Failed to create folder")).toBeTruthy();
+    expect(error.mock.lastCall![0]).toBe("[TvMenuHost] failed to create folder:");
+    error.mockRestore();
   });
   it("a new folder is created with the playlist and shown at once", async () => {
     api.getPlaylistFolders.mockResolvedValue(folders(["f1", "Rock"]));
