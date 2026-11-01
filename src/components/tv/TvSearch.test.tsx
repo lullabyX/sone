@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import type { SearchResults } from "../../types";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import type { SearchResults, TidalVideo } from "../../types";
 import TvSearch from "./TvSearch";
 import { menuForElement } from "./tvMenu";
 import { deferred, mkTrack, pressKey, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
@@ -12,6 +12,9 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()), searchTidal }));
 beforeEach(() => { searchTidal.mockReset(); });
 const stored = () => JSON.parse(localStorage.getItem("sone.search-history") ?? "[]");
+const vid = (i: number) => ({ id: i, title: `Video ${i}`, imageId: "v", duration: 60 }) as TidalVideo;
+const cardIn = (row: string, title: string) =>
+  within(screen.getByRole("heading", { name: row }).closest("section")!).getByText(title).closest("button")!;
 const oneTrack = () => ({ tracks: [mkTrack(1)], artists: [], albums: [], playlists: [], videos: [] }) as unknown as SearchResults;
 it("does not pull typing out of an open prompt", () => {
   renderTv(<><TvSearch /><div data-tv-modal><button>ok</button></div></>);
@@ -161,4 +164,28 @@ it("picking a recent search moves it to the top and focus to the Search key", as
   fireEvent.click(recent);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search" }));
   expect(stored()).toEqual(["miles davis", "jazz"]);
+});
+it("shows top hits and queues the other videos", async () => {
+  vi.mocked(searchTidal).mockResolvedValueOnce({ tracks: [], artists: [], albums: [], playlists: [], videos: [vid(1), vid(2)],
+    topHits: [{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }] } as SearchResults);
+  const { nav } = renderTv(<TvSearch />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+  await screen.findByText("Top hits");
+  fireEvent.click(cardIn("Videos", "Video 2"));
+  const [action, queue] = vi.mocked(nav.run).mock.lastCall!;
+  expect(action).toMatchObject({ kind: "playTrack", track: { id: 2, itemType: "video" } });
+  expect(queue).toMatchObject({ type: "search", name: "Search: x" }); expect(queue!.tracks.map((t) => t.id)).toEqual([1, 2]);
+});
+it("plays a top hit on its own and badges explicit results", async () => {
+  vi.mocked(searchTidal).mockResolvedValueOnce({ tracks: [mkTrack(2)], artists: [], playlists: [], videos: [],
+    albums: [{ id: 4, title: "LP", cover: "c", explicit: true }],
+    topHits: [{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }] } as unknown as SearchResults);
+  const { nav } = renderTv(<TvSearch />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+  await screen.findByText("Top hits");
+  fireEvent.click(cardIn("Top hits", "T1"));
+  const [action, queue] = vi.mocked(nav.run).mock.lastCall!;
+  expect(action).toMatchObject({ kind: "playTrack", track: { id: 1 } });
+  expect(queue!.tracks).toEqual([]);
+  expect(within(cardIn("Albums", "LP")).getByText("E")).toBeTruthy();
 });

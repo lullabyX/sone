@@ -1,8 +1,10 @@
 import type {
+  DirectHitItem,
   FeedItem,
   MediaItemType,
   PlaybackSource,
   PlaylistOrFolder,
+  TidalVideo,
   Track,
 } from "../../types";
 import { getTidalImageUrl, getTidalPromoImageUrl } from "../../types";
@@ -11,15 +13,20 @@ import { type ContentPrefs, isContentBlocked } from "../../lib/contentFilter";
 import { isTrackUnavailable } from "../../lib/trackAvailability";
 import {
   buildMediaItem,
+  buildTrackFromHit,
+  buildVideoTrackFromHit,
   folderSubtitle,
+  getArtistImage,
   getItemImage,
   getItemSubtitle,
   getItemTitle,
   getItemType,
   getMagazineData,
+  getTrackArtistDisplay,
   isMagazineItem,
   isMyTracksItem,
   isTrackItem,
+  videoToTrack,
 } from "../../utils/itemHelpers";
 
 /** A screen of the TV interface. The rail's roots come first. */
@@ -349,6 +356,133 @@ export function sectionEntries(
     seen.add(entry.key);
     entries.push(entry);
     if (entry.action.kind === "playTrack") tracks.push(entry.action.track);
+  }
+  return { entries, tracks };
+}
+
+/** Search's top hits in relevance order, routed as SearchView's Top Hits tab
+ *  does: tracks and videos play on their own; albums, artists and playlists
+ *  open. Other kinds, and hits without an id, are left out. */
+export function topHitEntries(hits: DirectHitItem[]): TvEntry[] {
+  const entries: TvEntry[] = [];
+  const seen = new Set<string>();
+  for (const hit of hits) {
+    const entry = topHitEntry(hit);
+    if (!entry || seen.has(entry.key)) continue;
+    seen.add(entry.key);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function topHitEntry(hit: DirectHitItem): TvEntry | null {
+  switch (hit.hitType) {
+    case "TRACKS": {
+      const track = buildTrackFromHit(hit);
+      return {
+        key: `track:${track.id}`,
+        title: track.title,
+        subtitle: `Track · ${getTrackArtistDisplay(track)}`,
+        image: getTidalImageUrl(track.album?.cover ?? hit.albumCover, 640),
+        explicit: track.explicit,
+        ai: track.ai,
+        action: { kind: "playTrack", track },
+      };
+    }
+    case "VIDEOS": {
+      const track = buildVideoTrackFromHit(hit);
+      return {
+        key: `video:${track.id}`,
+        title: track.title,
+        subtitle: `Video · ${getTrackArtistDisplay(track)}`,
+        image: getTidalImageUrl(track.imageId, 640),
+        media: {
+          type: "video",
+          id: track.id,
+          title: track.title,
+          imageId: track.imageId,
+          artist: hit.artistName,
+          duration: hit.duration,
+        },
+        explicit: track.explicit,
+        action: { kind: "playTrack", track },
+      };
+    }
+    case "ALBUMS": {
+      if (!hit.id) return null;
+      const media: MediaItemType = {
+        type: "album",
+        id: hit.id,
+        title: hit.title || "",
+        cover: hit.cover,
+        artistName: hit.artistName,
+      };
+      return {
+        key: `album:${hit.id}`,
+        title: media.title,
+        subtitle: `Album · ${hit.artistName || "Unknown"}`,
+        image: getTidalImageUrl(hit.cover, 640),
+        media,
+        ai: hit.ai,
+        action: actionForMedia(media),
+      };
+    }
+    case "ARTISTS": {
+      if (!hit.id) return null;
+      const media: MediaItemType = {
+        type: "artist",
+        id: hit.id,
+        name: hit.name || "",
+        picture: hit.picture,
+      };
+      return {
+        key: `artist:${hit.id}`,
+        title: media.name,
+        subtitle: "Artist",
+        image: getArtistImage(hit, 480),
+        round: true,
+        media,
+        action: actionForMedia(media),
+      };
+    }
+    case "PLAYLISTS": {
+      if (!hit.uuid) return null;
+      const media: MediaItemType = {
+        type: "playlist",
+        uuid: hit.uuid,
+        title: hit.title || "",
+        image: hit.image,
+      };
+      return {
+        key: `playlist:${hit.uuid}`,
+        title: media.title,
+        subtitle: "Playlist",
+        image: getTidalImageUrl(hit.image, 640),
+        media,
+        action: actionForMedia(media),
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Videos as cards that play through the queue like tracks (SearchView's
+ *  rule), plus every video as a track for that queue. */
+export function videoEntries(videos: TidalVideo[]): {
+  entries: TvEntry[];
+  tracks: Track[];
+} {
+  const entries: TvEntry[] = [];
+  const tracks: Track[] = [];
+  const seen = new Set<string>();
+  for (const video of videos) {
+    const entry = toTvEntry(video, "VIDEO_LIST");
+    if (!entry || seen.has(entry.key)) continue;
+    seen.add(entry.key);
+    const track = videoToTrack(video);
+    entries.push({ ...entry, action: { kind: "playTrack", track } });
+    tracks.push(track);
   }
   return { entries, tracks };
 }

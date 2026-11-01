@@ -5,10 +5,11 @@ import {
   groupByVolume,
   libraryEntries,
   sectionEntries,
+  topHitEntries,
   viewForSource,
 } from "./tvItems";
 import { mkTrack } from "./tvTestUtils";
-import type { PlaylistOrFolder } from "../../types";
+import type { DirectHitItem, PlaylistOrFolder } from "../../types";
 
 const track = (id: number) => ({
   id,
@@ -270,5 +271,13 @@ describe("libraryEntries", () => {
       },
     });
     expect(entries[2].action).toMatchObject({ kind: "open", view: { type: "playlist", uuid: "p1" } });
+  });
+});
+
+describe("topHitEntries", () => {
+  it("top hits route by kind", () => {
+    const [t, a] = topHitEntries([{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }, { hitType: "ALBUMS", id: 4, title: "LP" }] as DirectHitItem[]);
+    expect(t.action).toEqual({ kind: "playTrack", track: mkTrack(1) });
+    expect(a.action).toMatchObject({ kind: "open", view: { type: "album", id: 4 } });
   });
 });

@@ -202,6 +202,7 @@ export function TvGrid({
   entries,
   queueTracks,
   queueId,
+  queueType,
   name,
   showExplicit,
   menuContext,
@@ -211,6 +212,8 @@ export function TvGrid({
   entries: TvEntry[];
   queueTracks?: Track[];
   queueId: string;
+  /** The playback source type of the queue a track card starts. */
+  queueType?: string;
   name: string;
   showExplicit?: boolean;
   /** Where the cards are listed, passed to their media menus. */
@@ -243,6 +246,7 @@ export function TvGrid({
               tracks: queueTracks ?? [],
               name,
               id: queueId,
+              type: queueType,
             });
           }}
         />
@@ -258,6 +262,8 @@ export function TvRow({
   entries,
   queueTracks,
   queueId,
+  queueType,
+  queueName,
   viewAll,
   showExplicit,
   menuContext,
@@ -267,6 +273,10 @@ export function TvRow({
   entries: TvEntry[];
   queueTracks?: Track[];
   queueId?: string;
+  /** The playback source of the queue a track card starts; its name
+   *  defaults to the row's title. */
+  queueType?: string;
+  queueName?: string;
   /** Where a "View all" card at the end of the row leads. */
   viewAll?: TvView;
   showExplicit?: boolean;
@@ -311,8 +321,9 @@ export function TvRow({
               onActivate?.();
               nav.run(entry.action, {
                 tracks: queueTracks ?? [],
-                name: title,
+                name: queueName ?? title,
                 id: queueId ?? title,
+                type: queueType,
               });
             }}
           />

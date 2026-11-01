@@ -12,11 +12,16 @@ import {
   removeFromSearchHistory,
 } from "../../lib/searchHistory";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
-import type { SearchResults } from "../../types";
+import type { SearchResults, Track } from "../../types";
 import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import TvKeyboard from "./TvKeyboard";
 import { TvButton, TvRow, TvSpinner } from "./TvParts";
-import { sectionEntries } from "./tvItems";
+import {
+  sectionEntries,
+  topHitEntries,
+  type TvEntry,
+  videoEntries,
+} from "./tvItems";
 import { confirmMenu, tvMenuRef } from "./tvMenu";
 
 const DEBOUNCE_MS = 450;
@@ -125,30 +130,34 @@ export default function TvSearch() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [active, store]);
 
-  const sections = results
-    ? [
-        {
-          title: "Tracks",
-          ...sectionEntries(results.tracks, "TRACK_LIST"),
-        },
-        {
-          title: "Artists",
-          ...sectionEntries(results.artists, "ARTIST_LIST"),
-        },
-        {
-          title: "Albums",
-          ...sectionEntries(results.albums, "ALBUM_LIST"),
-        },
-        {
-          title: "Playlists",
-          ...sectionEntries(results.playlists, "PLAYLIST_LIST"),
-        },
-        {
-          title: "Videos",
-          ...sectionEntries(results.videos, "VIDEO_LIST"),
-        },
-      ]
-    : [];
+  // The query that found the results on screen, which newer typing may not
+  // have replaced yet.
+  const foundBy = shown?.q ?? q;
+  // Top hits play on their own (no `tracks`); a track or video plays with
+  // the rest of its row queued, as on the desktop.
+  const sections: { title: string; entries: TvEntry[]; tracks?: Track[] }[] =
+    results
+      ? [
+          { title: "Top hits", entries: topHitEntries(results.topHits ?? []) },
+          {
+            title: "Tracks",
+            ...sectionEntries(results.tracks, "TRACK_LIST"),
+          },
+          {
+            title: "Artists",
+            ...sectionEntries(results.artists, "ARTIST_LIST"),
+          },
+          {
+            title: "Albums",
+            ...sectionEntries(results.albums, "ALBUM_LIST"),
+          },
+          {
+            title: "Playlists",
+            ...sectionEntries(results.playlists, "PLAYLIST_LIST"),
+          },
+          { title: "Videos", ...videoEntries(results.videos) },
+        ]
+      : [];
   const empty =
     results !== null && sections.every((s) => s.entries.length === 0);
 
@@ -242,9 +251,12 @@ export default function TvSearch() {
               key={s.title}
               title={s.title}
               entries={s.entries}
+              showExplicit
               queueTracks={s.tracks}
-              queueId={`search:${q}`}
-              onActivate={() => record(shown?.q ?? q)}
+              queueId={s.tracks && foundBy}
+              queueType={s.tracks && "search"}
+              queueName={s.tracks && `Search: ${foundBy}`}
+              onActivate={() => record(foundBy)}
             />
           ))
         ) : !q && history.length > 0 ? (
