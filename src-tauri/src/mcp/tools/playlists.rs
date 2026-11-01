@@ -6,6 +6,7 @@ use serde::Deserialize;
 use tauri::{Emitter, Manager};
 
 use crate::AppState;
+use crate::commands::library::after_playlist_write;
 use crate::mcp::events::{
     EV_PLAYLIST_CREATED, EV_PLAYLIST_DELETED, EV_PLAYLIST_TRACKS_CHANGED, EV_PLAYLIST_UPDATED,
     PlaylistDeletedPayload, PlaylistTracksChangedPayload, PlaylistUpdatedPayload,
@@ -341,14 +342,10 @@ impl SoneMcpServer {
         )
         .await?;
         let added = args.track_ids.len();
-        client
-            .add_tracks_to_playlist(&uuid, &args.track_ids)
+        let result = client.add_tracks_to_playlist(&uuid, &args.track_ids).await;
+        after_playlist_write(&state.disk_cache, &uuid, result)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-        state
-            .disk_cache
-            .invalidate_tag(&format!("playlist:{}", uuid))
-            .await;
         self.app_handle
             .emit(
                 EV_PLAYLIST_TRACKS_CHANGED,
@@ -374,14 +371,12 @@ impl SoneMcpServer {
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.app_handle.state::<AppState>();
         let client = state.tidal_client.lock().await;
-        client
+        let result = client
             .remove_track_from_playlist(&args.playlist_uuid, args.index)
+            .await;
+        after_playlist_write(&state.disk_cache, &args.playlist_uuid, result)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-        state
-            .disk_cache
-            .invalidate_tag(&format!("playlist:{}", args.playlist_uuid))
-            .await;
         self.app_handle
             .emit(
                 EV_PLAYLIST_TRACKS_CHANGED,

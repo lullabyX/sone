@@ -29,6 +29,13 @@ impl Crypto {
         Ok(Self { cipher })
     }
 
+    #[cfg(test)]
+    pub fn for_tests() -> Self {
+        Self {
+            cipher: Aes256Gcm::new(&Aes256Gcm::generate_key(OsRng)),
+        }
+    }
+
     /// Encrypt plaintext. Returns `[magic][version][nonce][ciphertext+tag]`.
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, SoneError> {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
