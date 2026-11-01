@@ -283,7 +283,7 @@ function Progress({
 }
 
 /** Back up to the player (Play/Pause) once the row just played has left
- *  the list or moved, instead of losing focus. */
+ *  the list or moved, instead of losing focus. A refused row keeps focus. */
 function focusPlayerSoon(element: () => HTMLElement | null) {
   requestAnimationFrame(() => {
     const el = element();
@@ -315,7 +315,7 @@ function QueuePanel() {
   const source = contextSource ?? playbackSource;
   const { removeFromQueue, clearQueue, setQueueTracks } = usePlaybackActions();
   const nav = useTvNav();
-  const { playQueued } = useTvPlayback(nav.openNowPlaying);
+  const { playQueued, refuses } = useTvPlayback(nav.openNowPlaying);
   const { showToast } = useToast();
   const screen = useContext(TvScreenContext);
   const listRef = useRef<HTMLDivElement>(null);
@@ -408,7 +408,7 @@ function QueuePanel() {
         const at = queueIndexOf(manual, context, t);
         if (at < 0) return;
         void playQueued(at);
-        focusPlayerSoon(screen.element);
+        if (!refuses(t)) focusPlayerSoon(screen.element);
       }}
     />
   );
@@ -445,7 +445,7 @@ function QueueHeading({ text }: { text: string }) {
 function HistoryPanel() {
   const history = useAtomValue(historyAtom);
   const nav = useTvNav();
-  const { playOne } = useTvPlayback(nav.openNowPlaying);
+  const { playOne, refuses } = useTvPlayback(nav.openNowPlaying);
   const screen = useContext(TvScreenContext);
   const recent = history.slice(-10).reverse();
 
@@ -460,7 +460,7 @@ function HistoryPanel() {
           showCover
           onSelect={() => {
             void playOne(t);
-            focusPlayerSoon(screen.element);
+            if (!refuses(t)) focusPlayerSoon(screen.element);
           }}
         />
       ))}
@@ -474,7 +474,7 @@ function SuggestedPanel() {
   const track = useAtomValue(currentTrackAtom);
   const { tracks, loading, error } = useSuggestedTracks(track);
   const nav = useTvNav();
-  const { playOne } = useTvPlayback(nav.openNowPlaying);
+  const { playOne, refuses } = useTvPlayback(nav.openNowPlaying);
   const screen = useContext(TvScreenContext);
 
   if (loading) return <TvSpinner />;
@@ -490,7 +490,7 @@ function SuggestedPanel() {
           showCover
           onSelect={() => {
             void playOne(t);
-            focusPlayerSoon(screen.element);
+            if (!refuses(t)) focusPlayerSoon(screen.element);
           }}
         />
       ))}

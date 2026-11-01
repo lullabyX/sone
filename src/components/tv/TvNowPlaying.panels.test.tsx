@@ -43,6 +43,7 @@ import {
   range,
   renderTv,
   setupTvTest,
+  stubLayout,
   withQueue,
 } from "./tvTestUtils";
 
@@ -450,5 +451,84 @@ describe("TvNowPlaying queue", () => {
         rowFor("T40").querySelector("[data-tv-focusable]"),
       ),
     );
+  });
+});
+
+describe("TvNowPlaying refused rows", () => {
+  const nextFrames = () =>
+    act(
+      () =>
+        new Promise<void>((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => r())),
+        ),
+    );
+  const pressKeepsFocus = async (title: string) => {
+    const button = within(rowFor(title)).getAllByRole("button")[0];
+    button.focus();
+    fireEvent.click(button);
+    expect(await screen.findByText("This track isn't available")).toBeTruthy();
+    await nextFrames();
+    expect(document.activeElement).toBe(button);
+  };
+
+  it("an unavailable Up next row keeps focus", async () => {
+    const restore = stubLayout();
+    try {
+      renderTv(<TvNowPlaying />, {
+        store: playing(mkTrack(100), [mkTrack(8, { streamReady: false })]),
+      });
+      await pressKeepsFocus("T8");
+    } finally {
+      restore();
+    }
+  });
+
+  it("an unavailable History row keeps focus", async () => {
+    const restore = stubLayout();
+    try {
+      const store = playing(mkTrack(100));
+      store.set(historyAtom, [mkTrack(11, { streamReady: false })]);
+      renderTv(<TvNowPlaying />, { store });
+      focusTab("History");
+      await pressKeepsFocus("T11");
+    } finally {
+      restore();
+    }
+  });
+
+  it("an unavailable Suggested row keeps focus", async () => {
+    const restore = stubLayout();
+    try {
+      api.getMixItems.mockResolvedValue({
+        tracks: [mkTrack(21, { streamReady: false })],
+      } as MixPageResult);
+      renderTv(<TvNowPlaying />, {
+        store: playing(mkTrack(1, { mixes: { TRACK_MIX: "m1" } })),
+      });
+      focusTab("Suggested");
+      await screen.findByText("T21");
+      await pressKeepsFocus("T21");
+    } finally {
+      restore();
+    }
+  });
+
+  it("an available row still hands focus to the player", async () => {
+    const restore = stubLayout();
+    try {
+      const store = playing(mkTrack(100));
+      store.set(historyAtom, [mkTrack(11)]);
+      renderTv(<TvNowPlaying />, { store });
+      focusTab("History");
+      const button = within(rowFor("T11")).getAllByRole("button")[0];
+      button.focus();
+      fireEvent.click(button);
+      await nextFrames();
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: /^(Play|Pause)$/ }),
+      );
+    } finally {
+      restore();
+    }
   });
 });
