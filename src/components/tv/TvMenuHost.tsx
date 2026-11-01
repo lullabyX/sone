@@ -12,6 +12,8 @@ import {
   Album,
   Check,
   ChevronRight,
+  FolderInput,
+  FolderOpen,
   Heart,
   ListEnd,
   ListPlus,
@@ -41,15 +43,21 @@ import {
   favoriteTrackIdsAtom,
   followedArtistIdsAtom,
 } from "../../atoms/favorites";
-import { allPlaylistsAtom } from "../../atoms/playlists";
+import {
+  allFoldersAtom,
+  allFoldersFetchedAtom,
+  allPlaylistsAtom,
+} from "../../atoms/playlists";
 import { useToast } from "../../contexts/ToastContext";
 import { useFavorites } from "../../hooks/useFavorites";
+import { getRecentFolderIds, useFolders } from "../../hooks/useFolders";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
-import type { MediaItemType, Playlist, Track } from "../../types";
+import type { Folder, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
 import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
+import { fetchAllFolders, recordFolderCreated } from "./tvFolders";
 import { actionForMedia, type TvView } from "./tvItems";
 import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
 import type { TvPromptRequest } from "./TvPrompt";
@@ -68,6 +76,10 @@ export interface TvMenuHostHandle {
     context?: { folderId?: string },
   ) => TvMenuSpec;
 }
+
+/** Names in folder toasts, cut at 25 characters as the desktop does. */
+const shortName = (text: string) =>
+  text.length > 25 ? `${text.slice(0, 23)}…` : text;
 
 /**
  * Owns the action menu (the TV stand-in for the desktop right-click menu):
@@ -95,6 +107,7 @@ const TvMenuHost = forwardRef<
   const fav = useFavorites();
   const { addTrackToPlaylist, createPlaylist, updatePlaylist, deletePlaylist } =
     usePlaylists();
+  const { createFolder, movePlaylistTo } = useFolders();
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const setAllPlaylists = useSetAtom(allPlaylistsAtom);
 
@@ -123,6 +136,89 @@ const TvMenuHost = forwardRef<
 
   const label = (text: string) =>
     text.length > 32 ? `${text.slice(0, 30)}…` : text;
+
+  const folderMenu = useCallback(
+    async (
+      item: Extract<MediaItemType, { type: "playlist" }>,
+      sourceFolderId?: string,
+    ): Promise<TvMenuSpec> => {
+      let folders = store.get(allFoldersAtom);
+      if (!store.get(allFoldersFetchedAtom)) {
+        folders = await fetchAllFolders();
+        store.set(allFoldersAtom, folders);
+        store.set(allFoldersFetchedAtom, true);
+      }
+      const recent = getRecentFolderIds()
+        .map((id) => folders.find((f) => f.id === id))
+        .filter((f): f is Folder => !!f);
+      const rest = folders.filter((f) => !recent.includes(f));
+      const playlistLabel = shortName(item.title);
+      const moveTo = (targetFolderId: string, done: string) => async () => {
+        try {
+          await movePlaylistTo({
+            playlistUuid: item.uuid,
+            targetFolderId,
+            sourceFolderId,
+            playlistSnapshot: {
+              title: item.title,
+              image: item.image,
+              creatorName: item.creatorName,
+            },
+          });
+          showToast(done);
+        } catch {
+          showToast("Failed to move playlist", "error");
+        }
+      };
+      const items: TvMenuItem[] = [];
+      if (sourceFolderId && sourceFolderId !== "root") {
+        items.push({
+          label: "Playlists (top level)",
+          icon: FolderInput,
+          onSelect: moveTo("root", `Moved "${playlistLabel}" to Playlists`),
+        });
+      }
+      for (const folder of [...recent, ...rest]) {
+        items.push({
+          label: folder.name,
+          icon: FolderOpen,
+          onSelect: moveTo(
+            folder.id,
+            `Moved "${playlistLabel}" to "${shortName(folder.name)}"`,
+          ),
+        });
+      }
+      items.push({
+        label: "New folder…",
+        icon: Plus,
+        onSelect: async () => {
+          const name = await onPrompt({
+            title: "New folder",
+            confirm: "Create and move",
+          });
+          if (!name) return;
+          try {
+            const result = await createFolder(
+              name,
+              "root",
+              `trn:playlist:${item.uuid}`,
+            );
+            recordFolderCreated(store, {
+              folderId: result?.id ?? `optimistic-${Date.now()}`,
+              name,
+              playlistUuid: item.uuid,
+              sourceFolderId,
+            });
+            showToast(`Moved "${playlistLabel}" to "${shortName(name)}"`);
+          } catch {
+            showToast("Failed to create folder", "error");
+          }
+        },
+      });
+      return { title: "Move to folder", subtitle: item.title, items };
+    },
+    [store, movePlaylistTo, createFolder, onPrompt, showToast],
+  );
 
   const playlistMenu = useCallback(
     async (track: Track): Promise<TvMenuSpec> => {
@@ -337,7 +433,11 @@ const TvMenuHost = forwardRef<
   );
 
   const mediaMenu = useCallback(
-    (item: MediaItemType, onItsPage = false): TvMenuSpec => {
+    (
+      item: MediaItemType,
+      onItsPage = false,
+      context?: { folderId?: string },
+    ): TvMenuSpec => {
       const name = item.type === "artist" ? item.name : item.title;
       const open = actionForMedia(item);
       const withTracks = async (fn: (tracks: Track[]) => void, msg: string) => {
@@ -383,6 +483,14 @@ const TvMenuHost = forwardRef<
               ),
           },
         );
+      }
+
+      if (item.type === "playlist") {
+        items.push({
+          label: "Move to folder",
+          icon: FolderInput,
+          submenu: () => folderMenu(item, context?.folderId),
+        });
       }
 
       const toggle = (() => {
@@ -582,6 +690,7 @@ const TvMenuHost = forwardRef<
       addToQueue,
       playNextInQueue,
       playMedia,
+      folderMenu,
       showToast,
       onNavigate,
       userId,
