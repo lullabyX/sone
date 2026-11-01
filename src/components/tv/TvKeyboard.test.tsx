@@ -43,6 +43,17 @@ it("stands down while a video is full screen", () => {
   key.focus();
   expect(pressKey(key, { key: "Backspace" }).defaultPrevented).toBe(false);
 });
+it("types in a prompt shown over a full-screen video", () => {
+  const store = createStore();
+  store.set(currentVideoAtom, { id: 1 } as never);
+  store.set(videoExpandedAtom, true);
+  const onChange = vi.fn();
+  renderTv(<div data-tv-modal data-tv-prompt><TvKeyboard onChange={onChange} /></div>, { store });
+  const key = screen.getByText("a");
+  key.focus();
+  expect(pressKey(key, { key: "x" }).defaultPrevented).toBe(true);
+  expect(onChange).toHaveBeenCalledTimes(1);
+});
 it("types capitals and symbols", () => {
   const onChange = vi.fn();
   renderTv(<TvKeyboard onChange={onChange} />);

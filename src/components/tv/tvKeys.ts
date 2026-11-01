@@ -65,6 +65,8 @@ export interface TvKeyFacts {
   focus: "rail" | "content" | "lost";
   /** Only computed when focus is "lost"; true otherwise. */
   screenHasFocusable: boolean;
+  /** Focus is lost while the screen loads its next page; false otherwise. */
+  screenLoading: boolean;
   /** Enter only: the focused element has an action menu. */
   hasMenu: boolean;
   /** An Enter long press is in progress. */
@@ -254,6 +256,8 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
     // pick up in the current screen, not in the hidden rail. On a screen
     // with nothing to focus yet (still loading), only Left goes anywhere.
     if (f.focus === "lost") {
+      // The screen places focus itself once the page lands.
+      if (f.screenLoading) return { type: "swallow" };
       if (f.screenHasFocusable) return { type: "focusContent" };
       return dir === "left" ? { type: "focusRail" } : { type: "swallow" };
     }

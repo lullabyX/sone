@@ -3,7 +3,6 @@ import { useAtom, useStore } from "jotai";
 import { History, Search, Trash2, X } from "lucide-react";
 import { searchTidal } from "../../api/tidal";
 import { tvSearchQueryAtom } from "../../atoms/tv";
-import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { safeErrorMessage } from "../../lib/errorUtils";
 import {
   addToSearchHistory,
@@ -25,6 +24,7 @@ import {
   type TvView,
 } from "./tvItems";
 import { confirmMenu, tvMenuRef } from "./tvMenu";
+import { videoHasKeys } from "./useTvKeyRouter";
 
 const DEBOUNCE_MS = 450;
 /** Cards per row; the rest of a kind is behind "View all". */
@@ -134,7 +134,7 @@ export default function TvSearch() {
       if (el === inputRef.current) return;
       if (document.querySelector("[data-tv-modal]")) return;
       if (el?.closest("[data-tv-keyboard]")) return;
-      if (store.get(currentVideoAtom) && store.get(videoExpandedAtom)) return;
+      if (videoHasKeys(store)) return;
       inputRef.current?.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", onKey, true);

@@ -6,7 +6,7 @@ setupTvTest();
 const facts = (o: Partial<TvKeyFacts> = {}): TvKeyFacts => ({
   key: "", code: "", repeat: false, composing: false, modified: false, video: null, layer: "none",
   field: null, fieldEmpty: false, caretLeaves: { left: true, right: true }, focus: "content",
-  screenHasFocusable: true, hasMenu: false, holding: false, nativeEditable: false, ...o,
+  screenHasFocusable: true, screenLoading: false, hasMenu: false, holding: false, nativeEditable: false, ...o,
 });
 const r = (o: Partial<TvKeyFacts>) => routeTvKey(facts(o));
 const v = { inControls: false, inQualityList: false, onVolume: false };
@@ -126,4 +126,17 @@ it("Left/Right on the video's volume slider change the volume", () => {
   expect(r({ key: "ArrowLeft", video: onVol, repeat: true })).toEqual({ type: "media", command: { kind: "volume", by: -0.05 } });
   expect(r({ key: "ArrowUp", video: onVol })).toEqual({ type: "videoMove", dir: "up" });
   expect(r({ key: "ArrowRight", video: { ...v, inControls: true } })).toEqual({ type: "videoMove", dir: "right" }); // guard
+});
+it("holds the arrows while focus is lost on a screen loading its next page", () => {
+  expect(r({ key: "ArrowDown", focus: "lost", screenLoading: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "ArrowUp", focus: "lost", screenLoading: true })).toEqual({ type: "swallow" });
+  expect(r({ key: "ArrowLeft", focus: "lost", screenLoading: true, screenHasFocusable: false })).toEqual({ type: "swallow" });
+  expect(r({ key: "ArrowDown", screenLoading: true })).toEqual({ type: "move", dir: "down", enterSide: true });
+  expect(r({ key: "Escape", focus: "lost", screenLoading: true })).toEqual({ type: "back" });
+});
+it("a layer shown over the video gets the keys, as without the video", () => {
+  expect(r({ key: "ArrowDown", layer: "menu" })).toEqual({ type: "move", dir: "down", enterSide: true });
+  expect(r({ key: "BrowserBack", layer: "menu" })).toEqual({ type: "back" });
+  expect(takesAtCapture(facts({ key: "Escape", layer: "menu" }))).toBe(true);
+  expect(r({ key: "BrowserBack", layer: "native" })).toEqual({ type: "nativeEscape" });
 });

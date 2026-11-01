@@ -126,3 +126,37 @@ it("Escape in a prompt over the settings sheet closes only the prompt", () => {
   expect(onClose).not.toHaveBeenCalled();
   expect(execute).toHaveBeenCalledWith({ type: "back" }, expect.any(KeyboardEvent));
 });
+const MENU = `<div data-tv-modal role="menu"><button id="m1" data-tv-focusable>one</button><button data-tv-focusable>two</button></div>`;
+it("gives the keys to a layer shown over a full-screen video", () => {
+  const onClose = vi.fn();
+  off = registerDismissable(DISMISS_PRIORITY.overlay, onClose);
+  const wakeVideo = vi.fn();
+  const { execute, $ } = mount(`${SCREEN}${VIDEO}${MENU}`, { store: videoShowing(), wakeVideo });
+  $("m1").focus();
+  pressKey($("m1"), { key: "ArrowDown" });
+  pressKey($("m1"), { key: "Escape" });
+  pressKey($("m1"), { key: "BrowserBack" });
+  expect(execute.mock.calls.map((c) => c[0])).toEqual([
+    { type: "move", dir: "down", enterSide: true },
+    { type: "back" },
+    { type: "back" },
+  ]);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(wakeVideo).not.toHaveBeenCalled();
+});
+it("leaves the keys to the video over a layer inside a hidden screen", () => {
+  const { execute } = mount(`<div class="hidden">${MENU}</div>${VIDEO}`, { store: videoShowing() });
+  pressKey(document.body, { key: "Escape" });
+  pressKey(document.body, { key: "ArrowLeft" });
+  expect(execute.mock.calls.map((c) => c[0])).toEqual([
+    { type: "videoBack" },
+    { type: "videoSeek", by: -10 },
+  ]);
+});
+it("holds the arrows while focus is lost on a screen loading its next page", () => {
+  const { execute } = mount(`<div id="root"><nav id="rail"><button>Home</button></nav><main>
+    <div class="tv-screen"><div data-tv-loading><button data-tv-focusable>row</button></div></div></main></div>`);
+  pressKey(document.body, { key: "ArrowDown" });
+  pressKey(document.body, { key: "ArrowLeft" });
+  expect(execute.mock.calls.map((c) => c[0])).toEqual([{ type: "swallow" }, { type: "swallow" }]);
+});

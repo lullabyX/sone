@@ -1,8 +1,8 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useStore } from "jotai";
 import { Delete, Search, X } from "lucide-react";
-import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { TvScreenContext } from "./TvNavContext";
+import { videoHasKeys } from "./useTvKeyRouter";
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const SYMBOLS = `. - _ @ : / # { } ( ) ! ? , ' & + = % ~ * $ ; " < >`.split(
@@ -51,7 +51,7 @@ export default function TvKeyboard({
       const root = rootRef.current;
       if (!root || e.defaultPrevented) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
-      if (store.get(currentVideoAtom) && store.get(videoExpandedAtom)) return;
+      if (videoHasKeys(store)) return;
       // A text field types natively.
       const el = document.activeElement;
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {

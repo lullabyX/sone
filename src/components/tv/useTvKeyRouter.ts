@@ -45,10 +45,18 @@ export function tvLayer(): TvLayer {
   return layerOf(topTvModal());
 }
 
-function readVideoFacts(store: Store): TvKeyFacts["video"] {
+/** The full-screen video has the keys, unless a TV layer is shown above
+ *  it (one in a hidden screen, like Now Playing's signal path, is not). */
+export function videoHasKeys(store: Store): boolean {
   if (!store.get(currentVideoAtom) || !store.get(videoExpandedAtom)) {
-    return null;
+    return false;
   }
+  const modal = topTvModal();
+  return !modal || !!modal.closest(".hidden");
+}
+
+function readVideoFacts(store: Store): TvKeyFacts["video"] {
+  if (!videoHasKeys(store)) return null;
   const dialog =
     document
       .querySelector("[role='dialog'] video")
@@ -76,6 +84,16 @@ function screenHasFocusable(root: HTMLElement | null): boolean {
   return Array.from(
     screen.querySelectorAll<HTMLElement>("[data-tv-focusable]"),
   ).some(isShown);
+}
+
+/** Whether the current screen is loading its next page. */
+function screenLoading(root: HTMLElement | null): boolean {
+  const screen = root?.querySelector(".tv-screen:not(.hidden)");
+  return (
+    !!screen &&
+    (screen.matches("[data-tv-loading]") ||
+      !!screen.querySelector("[data-tv-loading]"))
+  );
 }
 
 function readTvKeyFacts(
@@ -118,6 +136,7 @@ function readTvKeyFacts(
         : { left: true, right: true },
     focus,
     screenHasFocusable: focus !== "lost" || screenHasFocusable(root),
+    screenLoading: focus === "lost" && screenLoading(root),
     hasMenu: e.key === "Enter" && menuForElement(active) !== null,
     holding: opts.holding(),
     nativeEditable:
