@@ -153,18 +153,20 @@ export default function TvSearch() {
     results !== null && sections.every((s) => s.entries.length === 0);
 
   // A query is recorded only once the user commits to it.
-  const record = () => setHistory(addToSearchHistory(history, query));
+  const record = (text: string) =>
+    setHistory(addToSearchHistory(history, text));
 
   // The Search key, or Enter in the box: record the query and go to the
   // first result (as soon as there is one).
   const submit = () => {
     if (!q) return;
-    record();
+    record(q);
     if (loading) pendingFocus.current = { q, from: document.activeElement };
     else if (resultsRef.current) focusFirstIn(resultsRef.current);
   };
 
   const pickRecent = (h: string) => {
+    record(h);
     setQuery(h);
     const key =
       keysRef.current?.querySelector<HTMLElement>('[aria-label="Search"]') ??
@@ -204,6 +206,8 @@ export default function TvSearch() {
             onKeyDown={(e) => {
               if (e.key !== "Enter") return;
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              // Focus may move to a result: its keypress must not open it.
+              e.preventDefault();
               submit();
             }}
             placeholder="Search TIDAL"
@@ -240,7 +244,7 @@ export default function TvSearch() {
               entries={s.entries}
               queueTracks={s.tracks}
               queueId={`search:${q}`}
-              onActivate={record}
+              onActivate={() => record(shown?.q ?? q)}
             />
           ))
         ) : !q && history.length > 0 ? (

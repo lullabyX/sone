@@ -108,7 +108,10 @@ export default function TvPrompt({
               onKeyDown={(e) => {
                 // Enter that commits an input method's text is not a submit.
                 if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                if (e.key === "Enter") submit();
+                if (e.key !== "Enter") return;
+                // Focus returns to the opener: its keypress must not reopen it.
+                e.preventDefault();
+                submit();
               }}
               spellCheck={false}
               placeholder={request.placeholder ?? "Name"}

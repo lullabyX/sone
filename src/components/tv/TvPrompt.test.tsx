@@ -12,7 +12,8 @@ it("never submits while composing, and sits above the settings sheet", () => {
   fireEvent.keyDown(input, { key: "Enter", isComposing: true });
   fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
   expect(onDone).not.toHaveBeenCalled();
-  fireEvent.keyDown(input, { key: "Enter" });
+  // Prevented, so the keypress cannot activate the opener focus returns to.
+  expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
   expect(onDone).toHaveBeenCalledWith("Mix");
   const overlay = screen.getByRole("dialog").parentElement!;
   expect(Number(/z-\[(\d+)\]/.exec(overlay.className)![1])).toBeGreaterThan(9999); // guard: true since Task 3
@@ -63,7 +64,7 @@ describe("multi-line text", () => {
   it("keeps line breaks through typing and on-screen keys; Enter is a new line, not a submit", () => {
     const onDone = renderPrompt(request);
     fireEvent.change(field(), { target: { value: `${field().value}!\nThree` } });
-    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(fireEvent.keyDown(field(), { key: "Enter" })).toBe(true);
     expect(onDone).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("a"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

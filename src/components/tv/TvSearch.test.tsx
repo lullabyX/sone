@@ -70,6 +70,16 @@ it("records a search only when it is committed", async () => {
   expect(stored()).toEqual(["abc"]);
   expect(nav.run).toHaveBeenCalled();
 });
+it("opening a result records the query that found it, not newer typing", async () => {
+  vi.mocked(searchTidal).mockResolvedValueOnce(oneTrack());
+  renderTv(<TvSearch />);
+  const box = screen.getByRole("textbox");
+  fireEvent.change(box, { target: { value: "abc" } });
+  const card = (await screen.findByText("T1")).closest("button")!;
+  fireEvent.change(box, { target: { value: "abcd" } });
+  fireEvent.click(card);
+  expect(stored()).toEqual(["abc"]);
+});
 it("the keyboard's Search key records the query", () => {
   renderTv(<TvSearch />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "xyz" } });
@@ -80,9 +90,10 @@ it("Enter in the search box records the query, but not while composing", () => {
   renderTv(<TvSearch />);
   const box = screen.getByRole("textbox");
   fireEvent.change(box, { target: { value: "jazz" } });
-  fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+  expect(fireEvent.keyDown(box, { key: "Enter", isComposing: true })).toBe(true);
   expect(stored()).toEqual([]);
-  fireEvent.keyDown(box, { key: "Enter" });
+  // Prevented, so the keypress cannot activate the result focus moves to.
+  expect(fireEvent.keyDown(box, { key: "Enter" })).toBe(false);
   fireEvent.keyDown(box, { key: "Enter", repeat: true });
   expect(stored()).toEqual(["jazz"]);
 });
@@ -142,12 +153,12 @@ it("a late result leaves focus alone once the user has moved on", async () => {
     restore();
   }
 });
-it("picking a recent search moves focus to the Search key, recording nothing yet", async () => {
+it("picking a recent search moves it to the top and focus to the Search key", async () => {
   localStorage.setItem("sone.search-history", JSON.stringify(["jazz", "miles davis"]));
   renderTv(<TvSearch />);
   const recent = await screen.findByRole("button", { name: "miles davis" });
   recent.focus();
   fireEvent.click(recent);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search" }));
-  expect(stored()).toEqual(["jazz", "miles davis"]);
+  expect(stored()).toEqual(["miles davis", "jazz"]);
 });

@@ -81,3 +81,14 @@ it("a row card's menu carries the row's menu context", () => {
   menuForElement(screen.getByText("A").closest("button")!)!();
   expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([expect.objectContaining({ id: 5 }), false, { folderId: "root" }]);
 });
+it("calls onActivate before opening a row's card or its View all card", () => {
+  const onActivate = vi.fn();
+  const { nav } = renderTv(<TvRow title="R" onActivate={onActivate} viewAll={{ type: "feed" }}
+    entries={sectionEntries([{ id: 5, title: "A", cover: "c" }], "ALBUM_LIST").entries} />);
+  act(() => screen.getByText("View all").closest("button")!.click());
+  expect(onActivate).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "feed" } });
+  expect(onActivate.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(nav.run).mock.invocationCallOrder[0]);
+  act(() => screen.getByText("A").closest("button")!.click());
+  expect(onActivate).toHaveBeenCalledTimes(2);
+});
