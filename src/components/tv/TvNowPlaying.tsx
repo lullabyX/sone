@@ -93,6 +93,7 @@ import { TV_SEEK_STEP_S, TV_VOLUME_STEP } from "./tvKeys";
 import { useTvMediaCommands } from "./useTvMediaCommands";
 import { useTvProgressive } from "./useTvProgressive";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
+import { useTvKeepFocus } from "./useTvKeepFocus";
 
 /** The playing video's element (the video player's, wherever it is shown). */
 function videoElement(): HTMLVideoElement | null {
@@ -328,13 +329,13 @@ function QueuePanel() {
     context: store.get(queueAtom),
   });
   // After a row leaves the list, focus the row that took its place (or the
-  // player, when there is none).
+  // Up next tab, when the list is empty).
   const refocusUpNext = (qid: string | undefined) =>
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         if (focusQueueRow(listRef.current, qid)) return;
-        const el = screen.element();
-        if (el) focusFirstIn(el);
+        const tab = screen.element()?.querySelector<HTMLElement>(SELECTED_TAB);
+        if (tab) focusElement(tab);
       }),
     );
   const move = (t: Track, to: "up" | "down" | "top") => {
@@ -477,7 +478,8 @@ function SuggestedPanel() {
   const { playOne, refuses } = useTvPlayback(nav.openNowPlaying);
   const screen = useContext(TvScreenContext);
 
-  if (loading) return <TvSpinner />;
+  // On a track change the last suggestions stay until the new ones arrive.
+  if (loading && tracks.length === 0) return <TvSpinner />;
   if (error || tracks.length === 0)
     return <PanelEmpty text="No suggested tracks available for this track" />;
   return (
@@ -505,10 +507,14 @@ function SuggestedPanel() {
 function CreditsPanel() {
   const nav = useTvNav();
   const track = useAtomValue(currentTrackAtom);
-  const { credits, loading, error } = useTrackCredits(track?.id);
+  const loaded = useTrackCredits(track?.id);
+  // On a track change the last credits stay until the new ones arrive.
+  const [last, setLast] = useState(loaded.credits);
+  if (!loaded.loading && last !== loaded.credits) setLast(loaded.credits);
+  const credits = loaded.loading ? last : loaded.credits;
 
-  if (loading) return <TvSpinner />;
-  if (!track || error || credits.length === 0)
+  if (loaded.loading && credits.length === 0) return <TvSpinner />;
+  if (!track || (!loaded.loading && loaded.error) || credits.length === 0)
     return <PanelEmpty text="No credits available for this track" />;
 
   const releaseDate = track.album?.releaseDate
@@ -608,6 +614,8 @@ function PanelEmpty({ text }: { text: string }) {
   );
 }
 
+const SELECTED_TAB = '[role="tab"][aria-selected="true"]';
+
 /** Tabs about the track itself, not offered while a video plays. */
 const TRACK_ONLY_TABS: TvNowPlayingTab[] = ["suggested", "credits"];
 
@@ -637,10 +645,11 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
         role="tablist"
         aria-label="Now playing lists"
         data-tv-remember
-        // Focusing a tab brings the strip to the top of the screen, so the
-        // panel below it is in view.
+        // Focusing a tab brings the strip to the top of the screen (with a
+        // little room above it), so the panel below it is in view.
         data-tv-scroll-top
-        className="flex items-center gap-[0.6rem] px-[1rem] pb-[0.8rem]"
+        data-tv-keep-fallback={SELECTED_TAB}
+        className="flex items-center gap-[0.6rem] px-[1rem] pb-[0.8rem] scroll-mt-[1.5rem]"
       >
         {tabs.map(({ id, label }) => {
           const on = id === selected;
@@ -667,6 +676,8 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
         role="tabpanel"
         id={panelId(selected)}
         aria-labelledby={tabId(selected)}
+        data-tv-keep-list
+        data-tv-keep-fallback={SELECTED_TAB}
       >
         {selected === "history" ? (
           <HistoryPanel />
@@ -718,6 +729,10 @@ export default function TvNowPlaying() {
 
   useTvInitialFocus(true);
   const screen = useContext(TvScreenContext);
+  // A new track (or a video) changes what the player shows under the
+  // remote: focus then lands on what took the place of the focused item.
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  useTvKeepFocus(root, screen.active);
   const videoSlotRef = useRef<HTMLDivElement>(null);
   const showVideoInSlot =
     track?.itemType === "video" &&
@@ -768,7 +783,7 @@ export default function TvNowPlaying() {
   return (
     // The player fills the first screen; the Up next / History tabs start
     // below the fold and scroll into view only when focus moves down to them.
-    <div className="relative h-full">
+    <div ref={setRoot} className="relative h-full">
       {/* Blurred cover backdrop */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {backdrop && (
@@ -786,7 +801,11 @@ export default function TvNowPlaying() {
         className="relative h-full flex items-center gap-[3.5rem] px-[4rem] py-[2.5rem]"
       >
         {showLyrics ? (
-          <div className="shrink-0 h-[min(72vh,40rem)] w-[min(46vw,48rem)]">
+          <div
+            data-tv-keep-list
+            data-tv-keep-fallback='[aria-label="Show cover"]'
+            className="shrink-0 h-[min(72vh,40rem)] w-[min(46vw,48rem)]"
+          >
             <TvLyricsPanel lyrics={lyrics} duration={track.duration ?? 0} />
           </div>
         ) : (

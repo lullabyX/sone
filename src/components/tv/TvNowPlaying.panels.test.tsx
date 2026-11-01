@@ -28,6 +28,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { MixPageResult } from "../../api/tidal";
 import {
   allowExplicitAtom,
+  currentTrackAtom,
   historyAtom,
   manualQueueAtom,
   playbackSourceAtom,
@@ -38,6 +39,7 @@ import type { Credit, Lyrics, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
 import type { TvNav } from "./TvNavContext";
 import {
+  deferred,
   mkTrack,
   mockInvoke,
   range,
@@ -527,6 +529,139 @@ describe("TvNowPlaying refused rows", () => {
       expect(document.activeElement).toBe(
         screen.getByRole("button", { name: /^(Play|Pause)$/ }),
       );
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("TvNowPlaying panels on a track change", () => {
+  const inPanel = () =>
+    document.activeElement !== document.body &&
+    panel().contains(document.activeElement);
+  const withLayout = async (run: () => Promise<void>) => {
+    const restore = stubLayout();
+    try {
+      await run();
+    } finally {
+      restore();
+    }
+  };
+
+  it("Credits keeps the last credits and focus until the next ones arrive", () =>
+    withLayout(async () => {
+      api.getTrackCredits.mockResolvedValueOnce([
+        { creditType: "Producer", contributors: [{ name: "P" }] },
+        { creditType: "Mixer", contributors: [{ name: "M" }] },
+      ]);
+      const { store } = renderTv(<TvNowPlaying />, { store: playing() });
+      focusTab("Credits");
+      const mixer = (await screen.findByText("Mixer")).closest<HTMLElement>(
+        "[data-tv-focusable]",
+      )!;
+      act(() => mixer.focus());
+      const next = deferred<Credit[]>();
+      api.getTrackCredits.mockReturnValueOnce(next.promise);
+      act(() => store.set(currentTrackAtom, mkTrack(2)));
+      await act(async () => {});
+      expect(document.activeElement).toBe(mixer);
+      await act(async () =>
+        next.resolve([
+          { creditType: "Composer", contributors: [{ name: "C" }] },
+        ]),
+      );
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByText("Composer").closest("[data-tv-focusable]"),
+        ),
+      );
+    }));
+
+  it("Suggested keeps the last tracks and focus until the next ones arrive", () =>
+    withLayout(async () => {
+      api.getMixItems.mockResolvedValueOnce({
+        tracks: [mkTrack(21), mkTrack(22)],
+      } as MixPageResult);
+      const { store } = renderTv(<TvNowPlaying />, {
+        store: playing(mkTrack(1, { mixes: { TRACK_MIX: "m1" } })),
+      });
+      focusTab("Suggested");
+      await screen.findByText("T22");
+      const t22 = within(rowFor("T22")).getAllByRole("button")[0];
+      act(() => t22.focus());
+      const next = deferred<MixPageResult>();
+      api.getMixItems.mockReturnValueOnce(next.promise);
+      act(() =>
+        store.set(currentTrackAtom, mkTrack(2, { mixes: { TRACK_MIX: "m2" } })),
+      );
+      await act(async () => {});
+      expect(document.activeElement).toBe(t22);
+      await act(async () =>
+        next.resolve({ tracks: [mkTrack(31)] } as MixPageResult),
+      );
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          within(rowFor("T31")).getAllByRole("button")[0],
+        ),
+      );
+      expect(inPanel()).toBe(true);
+    }));
+
+  it("a video taking a track's place moves focus from its tabs to Up next", () =>
+    withLayout(async () => {
+      api.getMixItems.mockResolvedValue({
+        tracks: [] as Track[],
+      } as MixPageResult);
+      const { store } = renderTv(<TvNowPlaying />, { store: playing() });
+      const suggested = screen.getByRole("tab", { name: "Suggested" });
+      act(() => suggested.focus());
+      act(() => store.set(currentTrackAtom, mkTrack(9, { itemType: "video" })));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("tab", { name: "Up next" }),
+        ),
+      );
+    }));
+});
+
+describe("TvNowPlaying emptied queue", () => {
+  const upNextTab = () => screen.getByRole("tab", { name: /^Up next/ });
+  const nextFrames = () =>
+    act(
+      () =>
+        new Promise<void>((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => r())),
+        ),
+    );
+
+  it("Clear queue leaves focus on the Up next tab", async () => {
+    const restore = stubLayout();
+    try {
+      const store = playing(mkTrack(100), [mkTrack(1), mkTrack(2)]);
+      const { nav } = renderTv(<TvNowPlaying />, { store });
+      const items = menuOf(nav, "T1");
+      act(() => within(rowFor("T1")).getAllByRole("button")[0].focus());
+      act(() => void items.find((i) => i.label === "Clear queue")!.onSelect!());
+      await nextFrames();
+      expect(document.activeElement).toBe(upNextTab());
+    } finally {
+      restore();
+    }
+  });
+
+  it("removing the last Up next row leaves focus on the Up next tab", async () => {
+    const restore = stubLayout();
+    try {
+      const store = playing(mkTrack(100), [mkTrack(1)]);
+      const { nav } = renderTv(<TvNowPlaying />, { store });
+      const items = menuOf(nav, "T1");
+      act(() => within(rowFor("T1")).getAllByRole("button")[0].focus());
+      act(
+        () =>
+          void items.find((i) => i.label === "Remove from queue")!.onSelect!(),
+      );
+      await nextFrames();
+      expect(document.activeElement).toBe(upNextTab());
     } finally {
       restore();
     }

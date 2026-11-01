@@ -8,16 +8,16 @@ export type TvLyricsData =
 
 /**
  * The current track's lyrics: synced (timed lines) when TIDAL has them, else
- * plain text, else null. `undefined` while loading. Results are keyed by
- * track id, so a track change never shows the previous track's lyrics.
+ * plain text, else null. `undefined` while the first ones load. On a track
+ * change the last lyrics stay until the new ones arrive, so the lyrics panel
+ * (and the remote's focus on it) does not drop out in between; a video has
+ * none and clears them.
  */
 export function useTvLyrics(
   trackId: number | undefined,
 ): TvLyricsData | null | undefined {
-  const [result, setResult] = useState<{
-    id: number;
-    data: TvLyricsData | null;
-  } | null>(null);
+  const [lyrics, setLyrics] = useState<TvLyricsData | null>();
+  if (trackId == null && lyrics !== undefined) setLyrics(undefined);
 
   useEffect(() => {
     if (trackId == null) return;
@@ -33,16 +33,15 @@ export function useTvLyrics(
             : l.lyrics?.trim()
               ? { kind: "plain", text: l.lyrics.trim(), rtl, provider }
               : null;
-        if (!cancelled) setResult({ id: trackId, data });
+        if (!cancelled) setLyrics(data);
       })
       .catch(() => {
-        if (!cancelled) setResult({ id: trackId, data: null });
+        if (!cancelled) setLyrics(null);
       });
     return () => {
       cancelled = true;
     };
   }, [trackId]);
 
-  if (trackId == null) return null;
-  return result?.id === trackId ? result.data : undefined;
+  return trackId == null ? null : lyrics;
 }

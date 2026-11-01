@@ -24,11 +24,13 @@ import {
   playbackSourceAtom,
   volumeAtom,
 } from "../../atoms/playback";
+import { tvLyricsAtom } from "../../atoms/tv";
 import { videoCoversAtom } from "../../atoms/ui";
 import { currentVideoAtom } from "../../atoms/video";
 import type { Lyrics, TidalVideo, Track } from "../../types";
 import TvNowPlaying from "./TvNowPlaying";
 import {
+  deferred,
   mkTrack,
   mockInvoke,
   renderTv,
@@ -215,5 +217,85 @@ describe("TvNowPlaying close video", () => {
   it("no Close video without a current video", () => {
     renderTv(<TvNowPlaying />, { store: playing() });
     expect(screen.queryByRole("button", { name: "Close video" })).toBeNull();
+  });
+});
+
+describe("TvNowPlaying track change", () => {
+  const synced = (...lines: string[]) =>
+    ({
+      subtitles: lines.map((l, i) => `[00:0${i + 1}.00]${l}`).join("\n"),
+      isRightToLeft: false,
+    }) as Lyrics;
+  const plain = { subtitles: "", lyrics: "words", isRightToLeft: false };
+  const none = { subtitles: "", isRightToLeft: false } as Lyrics;
+  const inLyrics = () =>
+    !!(document.activeElement as HTMLElement).closest(".tv-lyrics");
+  const play = () => screen.getByRole("button", { name: /^(Play|Pause)$/ });
+
+  const start = async (lyricsOn: boolean) => {
+    const restore = stubLayout();
+    const store = playing();
+    store.set(tvLyricsAtom, lyricsOn);
+    api.getTrackLyrics.mockResolvedValueOnce(synced("one", "two", "three"));
+    renderTv(<TvNowPlaying />, { store });
+    await waitFor(() => expect(document.activeElement).toBe(play()));
+    return { store, restore };
+  };
+
+  it("keeps the lyrics and focus on them until the next ones arrive", async () => {
+    const { store, restore } = await start(true);
+    try {
+      act(() => screen.getByRole("button", { name: "two" }).focus());
+      expect(inLyrics()).toBe(true);
+      const next = deferred<Lyrics>();
+      api.getTrackLyrics.mockReturnValueOnce(next.promise);
+      act(() => store.set(currentTrackAtom, mkTrack(2)));
+      await act(async () => {});
+      expect(inLyrics()).toBe(true);
+      await act(async () => next.resolve(plain as Lyrics));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Show cover" }),
+        ),
+      );
+      api.getTrackLyrics.mockResolvedValueOnce(none);
+      act(() => store.set(currentTrackAtom, mkTrack(3)));
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Show cover" })).toBeNull(),
+      );
+      await waitFor(() => expect(document.activeElement).toBe(play()));
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the Lyrics button until the next track turns out to have none", async () => {
+    const { store, restore } = await start(false);
+    try {
+      const lyricsButton = await screen.findByRole("button", {
+        name: "Show lyrics",
+      });
+      act(() => lyricsButton.focus());
+      const next = deferred<Lyrics>();
+      api.getTrackLyrics.mockReturnValueOnce(next.promise);
+      act(() => store.set(currentTrackAtom, mkTrack(2)));
+      await act(async () => {});
+      expect(document.activeElement).toBe(lyricsButton);
+      await act(async () => next.resolve(none));
+      await waitFor(() => expect(document.activeElement).toBe(play()));
+    } finally {
+      restore();
+    }
+  });
+
+  it("a video in place of a track keeps focus on a control", async () => {
+    const { store, restore } = await start(false);
+    try {
+      act(() => screen.getByRole("button", { name: "Album" }).focus());
+      act(() => store.set(currentTrackAtom, mkTrack(9, { itemType: "video" })));
+      await waitFor(() => expect(document.activeElement).toBe(play()));
+    } finally {
+      restore();
+    }
   });
 });
