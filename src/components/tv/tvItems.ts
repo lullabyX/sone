@@ -4,6 +4,7 @@ import type {
   MediaItemType,
   PlaybackSource,
   PlaylistOrFolder,
+  SearchResults,
   TidalVideo,
   Track,
 } from "../../types";
@@ -59,7 +60,20 @@ export type TvView =
     }
   | { type: "artist"; id: number; name?: string; image?: string }
   /** Every top track of an artist, behind its page's "View all". */
-  | { type: "artistTracks"; artistId: number; name: string };
+  | { type: "artistTracks"; artistId: number; name: string }
+  /** Every search result of one kind, behind its row's "View all". */
+  | { type: "searchResults"; query: string; what: SearchKind; title: string };
+
+export type SearchKind =
+  | "tracks"
+  | "artists"
+  | "albums"
+  | "playlists"
+  | "videos";
+
+/** Search results per kind, SearchView's limit. Search and its "View all"
+ *  screens make the same (cached) request. */
+export const SEARCH_LIMIT = 50;
 
 export type TvListSource =
   | {
@@ -485,6 +499,26 @@ export function videoEntries(videos: TidalVideo[]): {
     tracks.push(track);
   }
   return { entries, tracks };
+}
+
+/** One kind of search results as cards, plus the tracks (or videos as
+ *  tracks) a card of that kind queues. */
+export function searchEntries(
+  results: SearchResults,
+  what: SearchKind,
+): { entries: TvEntry[]; tracks: Track[] } {
+  switch (what) {
+    case "tracks":
+      return sectionEntries(results.tracks, "TRACK_LIST");
+    case "artists":
+      return sectionEntries(results.artists, "ARTIST_LIST");
+    case "albums":
+      return sectionEntries(results.albums, "ALBUM_LIST");
+    case "playlists":
+      return sectionEntries(results.playlists, "PLAYLIST_LIST");
+    case "videos":
+      return videoEntries(results.videos);
+  }
 }
 
 /** A level of the user's playlist folders as cards: folders (with the

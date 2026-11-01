@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import type { SearchResults, TidalVideo } from "../../types";
 import TvSearch from "./TvSearch";
 import { menuForElement } from "./tvMenu";
-import { deferred, mkTrack, pressKey, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
+import { deferred, mkTrack, pressKey, range, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
 
 setupTvTest();
 const searchTidal = vi.hoisted(() =>
@@ -188,4 +188,16 @@ it("plays a top hit on its own and badges explicit results", async () => {
   expect(action).toMatchObject({ kind: "playTrack", track: { id: 1 } });
   expect(queue!.tracks).toEqual([]);
   expect(within(cardIn("Albums", "LP")).getByText("E")).toBeTruthy();
+});
+it("searches 50 per kind and caps rows with View all", async () => {
+  vi.mocked(searchTidal).mockResolvedValueOnce({ tracks: range(30).map((i) => mkTrack(i + 1)), artists: [], albums: [], playlists: [], videos: [] } as SearchResults);
+  const { nav } = renderTv(<TvSearch />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+  const heading = await screen.findByRole("heading", { name: "Tracks" });
+  expect(searchTidal).toHaveBeenCalledWith("x", 50);
+  const cards = within(heading.closest("section")!).getAllByRole("button");
+  expect(cards).toHaveLength(13);
+  fireEvent.click(cards[12]);
+  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "searchResults", query: "x", what: "tracks", title: "Tracks" } });
+  expect(stored()).toEqual(["x"]);
 });

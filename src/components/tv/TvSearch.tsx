@@ -17,14 +17,25 @@ import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import TvKeyboard from "./TvKeyboard";
 import { TvButton, TvRow, TvSpinner } from "./TvParts";
 import {
-  sectionEntries,
+  SEARCH_LIMIT,
+  type SearchKind,
+  searchEntries,
   topHitEntries,
   type TvEntry,
-  videoEntries,
+  type TvView,
 } from "./tvItems";
 import { confirmMenu, tvMenuRef } from "./tvMenu";
 
 const DEBOUNCE_MS = 450;
+/** Cards per row; the rest of a kind is behind "View all". */
+const ROW_SIZE = 12;
+const KINDS: { what: SearchKind; title: string }[] = [
+  { what: "tracks", title: "Tracks" },
+  { what: "artists", title: "Artists" },
+  { what: "albums", title: "Albums" },
+  { what: "playlists", title: "Playlists" },
+  { what: "videos", title: "Videos" },
+];
 
 export default function TvSearch() {
   const { active } = useContext(TvScreenContext);
@@ -85,7 +96,7 @@ export default function TvSearch() {
     if (!q) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      searchTidal(q, 20).then(
+      searchTidal(q, SEARCH_LIMIT).then(
         (results) => {
           if (!cancelled) setOutcome({ q, results, error: null });
         },
@@ -134,30 +145,34 @@ export default function TvSearch() {
   // have replaced yet.
   const foundBy = shown?.q ?? q;
   // Top hits play on their own (no `tracks`); a track or video plays with
-  // the rest of its row queued, as on the desktop.
-  const sections: { title: string; entries: TvEntry[]; tracks?: Track[] }[] =
-    results
-      ? [
-          { title: "Top hits", entries: topHitEntries(results.topHits ?? []) },
-          {
-            title: "Tracks",
-            ...sectionEntries(results.tracks, "TRACK_LIST"),
-          },
-          {
-            title: "Artists",
-            ...sectionEntries(results.artists, "ARTIST_LIST"),
-          },
-          {
-            title: "Albums",
-            ...sectionEntries(results.albums, "ALBUM_LIST"),
-          },
-          {
-            title: "Playlists",
-            ...sectionEntries(results.playlists, "PLAYLIST_LIST"),
-          },
-          { title: "Videos", ...videoEntries(results.videos) },
-        ]
-      : [];
+  // every result of its kind queued, as on the desktop.
+  const sections: {
+    title: string;
+    entries: TvEntry[];
+    tracks?: Track[];
+    viewAll?: TvView;
+  }[] = results
+    ? [
+        { title: "Top hits", entries: topHitEntries(results.topHits ?? []) },
+        ...KINDS.map(({ what, title }) => {
+          const { entries, tracks } = searchEntries(results, what);
+          return {
+            title,
+            entries: entries.slice(0, ROW_SIZE),
+            tracks,
+            viewAll:
+              entries.length > ROW_SIZE
+                ? {
+                    type: "searchResults" as const,
+                    query: foundBy,
+                    what,
+                    title,
+                  }
+                : undefined,
+          };
+        }),
+      ]
+    : [];
   const empty =
     results !== null && sections.every((s) => s.entries.length === 0);
 
@@ -256,6 +271,7 @@ export default function TvSearch() {
               queueId={s.tracks && foundBy}
               queueType={s.tracks && "search"}
               queueName={s.tracks && `Search: ${foundBy}`}
+              viewAll={s.viewAll}
               onActivate={() => record(foundBy)}
             />
           ))

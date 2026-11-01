@@ -45,6 +45,7 @@ import TvPageScreen from "./TvPageScreen";
 import TvFeedScreen from "./TvFeedScreen";
 import TvProfileScreen from "./TvProfileScreen";
 import TvListScreen from "./TvListScreen";
+import TvSearchResultsScreen from "./TvSearchResultsScreen";
 import TvNativeLayer from "./TvNativeLayer";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
@@ -120,6 +121,14 @@ function renderScreen(view: TvView): ReactNode {
           title={view.title}
           apiPath={view.apiPath}
           all={view.all}
+        />
+      );
+    case "searchResults":
+      return (
+        <TvSearchResultsScreen
+          query={view.query}
+          what={view.what}
+          title={view.title}
         />
       );
     case "artist":
