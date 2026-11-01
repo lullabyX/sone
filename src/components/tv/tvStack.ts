@@ -37,7 +37,8 @@ export function tvStackIndexOf(stack: TvStackEntry[], view: TvView): number {
 /** Now Playing is a layer above the stack, never an entry on it. A page
  *  already on the stack is never opened twice: the stack goes back to it
  *  (as if by Back), keeping its own view; opened from Now Playing it is
- *  marked so Back reopens the layer. */
+ *  marked so Back reopens the layer. The page right under Now Playing is
+ *  left as it is: closing the layer shows it. */
 export function tvPush(
   stack: TvStackEntry[],
   entry: TvStackEntry,
@@ -46,7 +47,7 @@ export function tvPush(
   if (entry.view.type === "nowPlaying") return stack;
   const at = tvStackIndexOf(stack, entry.view);
   if (at >= 0) {
-    if (at === stack.length - 1 && !nowPlayingOpen) return stack;
+    if (at === stack.length - 1) return stack;
     const kept = stack[at];
     return [
       ...stack.slice(0, at),

@@ -61,10 +61,12 @@ describe("a page already on the stack", () => {
     });
   });
 
-  it("on top stays as it is, unless opened from Now Playing", () => {
+  it("on top stays as it is, also from Now Playing (closing the layer is all it takes)", () => {
     const s = [e(1, "home"), pl(2, "p")];
     expect(tvPush(s, pl(3, "p"), false)).toBe(s);
-    expect(tvPush(s, pl(3, "p"), true)).toEqual([e(1, "home"), pl(2, "p", "nowPlaying")]);
+    expect(tvPush(s, pl(3, "p"), true)).toBe(s);
+    const fromLayer = [e(1, "home"), pl(2, "p", "nowPlaying")];
+    expect(tvPush(fromLayer, pl(3, "p"), true)).toBe(fromLayer);
   });
 
   it("Back after going back to it keeps the history below it", () => {

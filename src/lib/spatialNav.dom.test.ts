@@ -205,9 +205,46 @@ describe("clipped containers", () => {
     expect(active()).toBe("line2");
   });
 
-  it("leaves the container past its visible items", () => {
+  it("from inside it, moves on to items not scrolled in yet, then leaves it", () => {
     focus("line2");
     expect(moveFocus(root, "down")).toBe(true);
+    expect(active()).toBe("clipped");
+    expect(moveFocus(root, "down")).toBe(true);
     expect(active()).toBe("tab");
+  });
+
+  it("moves from a focused item outside the container's box", () => {
+    focus("clipped");
+    expect(moveFocus(root, "up")).toBe(true);
+    expect(active()).toBe("line2");
+  });
+});
+
+describe("a dialog inside a desktop dialog shown in TV mode", () => {
+  let restore: () => void;
+
+  beforeEach(() => {
+    restore = stubLayout();
+    document.body.innerHTML = `
+  <div data-tv-native>
+    <button data-box="0,100,50,10">sheet</button>
+    <div id="dialog" role="dialog">
+      <button id="no" data-box="0,0,50,10">no</button>
+      <a id="yes" href="#" data-box="60,0,50,10">yes</a>
+    </div>
+  </div>`;
+  });
+
+  afterEach(() => {
+    restore();
+    document.body.innerHTML = "";
+  });
+
+  it("counts its native controls when it is the scope", () => {
+    const dialog = document.getElementById("dialog")!;
+    document.getElementById("no")!.focus();
+    expect(moveFocus(dialog, "down")).toBe(false);
+    expect(moveFocus(dialog, "right")).toBe(true);
+    expect(document.activeElement?.id).toBe("yes");
   });
 });

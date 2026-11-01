@@ -66,8 +66,10 @@ export function useTvNav(): TvNav {
 }
 
 interface TvScreen {
-  /** Whether this screen is the one on top. Screens below it stay mounted
-   *  (so Back restores their focus and scroll) but must not grab focus. */
+  /** Whether this screen is the one shown: the top of the stack while Now
+   *  Playing is closed, or the Now Playing layer while it is open. Screens
+   *  not shown stay mounted (so Back restores their focus and scroll) but
+   *  must not grab focus. */
   active: boolean;
   element: () => HTMLElement | null;
 }

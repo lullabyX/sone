@@ -22,6 +22,11 @@ export interface Box {
 // TV mode) every natively focusable control counts, without markup changes.
 const FOCUSABLE =
   "[data-tv-focusable], [data-tv-native] :is(button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1']))";
+// The same, for a scope already inside a `data-tv-native` container (a
+// confirmation over the settings sheet); jsdom can't match FOCUSABLE's
+// ancestor from there.
+const NATIVE_FOCUSABLE =
+  "[data-tv-focusable], button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])";
 const REMEMBER = "[data-tv-remember]";
 const SIDE = "[data-tv-side]";
 // The mini bar: moveFocus never enters it from outside (only dockFallback
@@ -105,20 +110,30 @@ export function isShown(el: HTMLElement): boolean {
   return r.width > 0 && r.height > 0;
 }
 
+function focusablesIn(scope: ParentNode): NodeListOf<HTMLElement> {
+  const native =
+    scope instanceof Element &&
+    !!scope.parentElement?.closest("[data-tv-native]");
+  return scope.querySelectorAll<HTMLElement>(
+    native ? NATIVE_FOCUSABLE : FOCUSABLE,
+  );
+}
+
 /** Visible focusables in `scope` with their boxes. Reading a box costs real
  *  time on a long track list, so each one is read once per move. Inside a
  *  `data-tv-clip` container (a scroller that hides its overflow) only items
- *  within the container's box count; the focused element always does. */
+ *  within the container's box count, unless focus is in that container
+ *  already (a held arrow can outrun its smooth scroll). */
 function measure(scope: ParentNode): Map<HTMLElement, DOMRect> {
   const boxes = new Map<HTMLElement, DOMRect>();
   const clips = new Map<Element, DOMRect>();
   const current = document.activeElement;
-  for (const el of scope.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+  for (const el of focusablesIn(scope)) {
     if ((el as HTMLButtonElement).disabled) continue;
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
-    const clip = el !== current ? el.closest(CLIP) : null;
-    if (clip) {
+    const clip = el.closest(CLIP);
+    if (clip && !clip.contains(current)) {
       let c = clips.get(clip);
       if (!c) {
         c = clip.getBoundingClientRect();
@@ -137,9 +152,7 @@ function measure(scope: ParentNode): Map<HTMLElement, DOMRect> {
 }
 
 function focusableIn(scope: ParentNode): HTMLElement[] {
-  return Array.from(scope.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    isShown,
-  );
+  return Array.from(focusablesIn(scope)).filter(isShown);
 }
 
 const lastFocused = new WeakMap<Element, HTMLElement>();

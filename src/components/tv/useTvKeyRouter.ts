@@ -32,6 +32,16 @@ export function topTvModal(): HTMLElement | null {
   return modals[modals.length - 1] ?? null;
 }
 
+/** Where the arrows move focus: the top layer, else the TV interface. In a
+ *  desktop dialog shown in TV mode, a confirmation open inside it. */
+export function tvMoveScope(root: HTMLElement | null): HTMLElement | null {
+  const modal = topTvModal();
+  if (!modal) return root;
+  if (!modal.hasAttribute("data-tv-native")) return modal;
+  const dialogs = modal.querySelectorAll<HTMLElement>("[aria-modal='true']");
+  return dialogs[dialogs.length - 1] ?? modal;
+}
+
 function layerOf(el: HTMLElement | null): TvLayer {
   if (!el) return "none";
   if (el.hasAttribute("data-tv-native")) return "native";

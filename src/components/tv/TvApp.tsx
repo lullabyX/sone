@@ -57,7 +57,12 @@ import { useTvMoreSettings } from "./useTvMoreSettings";
 import { useTvPlayback } from "./useTvPlayback";
 import { textEntryKind, type TvKeyAction } from "./tvKeys";
 import { fieldLabel, setNativeInputValue } from "./tvFields";
-import { topTvModal, tvLayer, useTvKeyRouter } from "./useTvKeyRouter";
+import {
+  topTvModal,
+  tvLayer,
+  tvMoveScope,
+  useTvKeyRouter,
+} from "./useTvKeyRouter";
 import { useTvMediaCommands } from "./useTvMediaCommands";
 import {
   tvBackStep,
@@ -277,7 +282,17 @@ export default function TvApp() {
   const goTo = useCallback(
     (type: RootType) => {
       if (type === "nowPlaying") {
-        openNowPlaying();
+        if (!nowPlayingOpenRef.current) {
+          openNowPlaying();
+          return;
+        }
+        // Already open: the rail hands focus to it.
+        const layer = rootRef.current?.querySelector<HTMLElement>(
+          ".tv-screen:not(.hidden)",
+        );
+        if (layer && !layer.contains(document.activeElement)) {
+          focusFirstIn(layer);
+        }
         return;
       }
       // The rail closes, and the new screen takes focus once it has loaded
@@ -306,12 +321,16 @@ export default function TvApp() {
   /** Put a screen on the stack, remembering where focus was below it. Opened
    *  from Now Playing, it closes the layer, and Back reopens it. A page
    *  already on the stack is gone back to instead (see tvPush), with the
-   *  focus it had. */
+   *  focus it had; the one right under Now Playing just closes the layer. */
   const stackPush = useCallback(
     (view: TvView) => {
       const s = stackRef.current;
       const at = tvStackIndexOf(s, view);
       const onTop = at === s.length - 1;
+      if (onTop) {
+        closeNowPlaying();
+        return;
+      }
       const e = at >= 0 ? s[at] : entry(view);
       if (at >= 0) for (const above of s.slice(at + 1)) forget(above.id);
       const active = document.activeElement;
@@ -320,24 +339,19 @@ export default function TvApp() {
           returnFocus.current.set(e.id, active);
         }
         reopenOpener.current.set(e.id, nowPlayingOpener.current);
-        if (at >= 0 && onTop) {
-          layerFocus.current = nowPlayingOpener.current ?? "screen";
-        } else if (at >= 0) {
-          pendingRestore.current = e.id;
-        }
+        if (at >= 0) pendingRestore.current = e.id;
         setNowPlayingOpen(false);
         setStack((st) => tvPush(st, e, true));
         return;
       }
       if (at >= 0) {
-        if (onTop) return;
         pendingRestore.current = e.id;
       } else if (active instanceof HTMLElement) {
         savedFocus.current.set(s[s.length - 1].id, active);
       }
       setStack((st) => tvPush(st, e, false));
     },
-    [forget],
+    [closeNowPlaying, forget],
   );
 
   const push = useCallback(
@@ -503,12 +517,17 @@ export default function TvApp() {
     [push, back, run, openNowPlaying, tvPlay, more.open, askText],
   );
 
-  // The desktop "focus search" shortcut opens the Search screen here.
+  // The desktop "focus search" shortcut opens the Search screen here, but not
+  // from under a layer or a full-screen video.
   useEffect(() => {
-    const onFocusSearch = () => goTo("search");
+    const onFocusSearch = () => {
+      if (topTvModal()) return;
+      if (store.get(currentVideoAtom) && store.get(videoExpandedAtom)) return;
+      goTo("search");
+    };
     window.addEventListener("focus-search", onFocusSearch);
     return () => window.removeEventListener("focus-search", onFocusSearch);
-  }, [goTo]);
+  }, [goTo, store]);
 
   // Long-pressing Enter on an item that has an action menu opens the menu;
   // a short press activates the item as usual.
@@ -577,7 +596,7 @@ export default function TvApp() {
           return;
         }
         case "move": {
-          const scope = topTvModal() ?? rootRef.current;
+          const scope = tvMoveScope(rootRef.current);
           if (!scope) return;
           // A held arrow can repeat faster than a slower machine moves focus
           // down a long list. At most one repeat is handled per drawn frame;
@@ -629,6 +648,7 @@ export default function TvApp() {
             allowEmpty: true,
             trim: false,
             secret: el.type === "password",
+            multiline: el instanceof HTMLTextAreaElement,
             maxLength: el.maxLength > 0 ? el.maxLength : undefined,
           }).then((value) => {
             if (value !== null) setNativeInputValue(el, value);
