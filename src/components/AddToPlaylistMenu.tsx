@@ -2,7 +2,7 @@ import { Plus, Search, X, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useToast } from "../contexts/ToastContext";
-import { usePlaylists, type OnDupes } from "../hooks/usePlaylists";
+import { usePlaylists } from "../hooks/usePlaylists";
 import { allPlaylistsAtom, addedToFolderAtom } from "../atoms/playlists";
 import { authTokensAtom } from "../atoms/auth";
 import { getAllPlaylists } from "../api/tidal";
@@ -29,6 +29,7 @@ interface AddToPlaylistMenuProps {
 const RECENT_PLAYLISTS_KEY = "sone.recent-playlists.v1";
 const MAX_RECENT = 8;
 const DESC_MAX_LEN = 500;
+const DUPLICATE_TOAST_MS = 6000;
 
 function getRecentPlaylistIds(): string[] {
   try {
@@ -38,16 +39,19 @@ function getRecentPlaylistIds(): string[] {
   return [];
 }
 
-function isDuplicateError(err: unknown): boolean {
-  try {
-    const parsed = (typeof err === "string" ? JSON.parse(err) : err) as {
-      kind?: string;
-      message?: { status?: number };
-    } | null;
-    return parsed?.kind === "Api" && parsed?.message?.status === 409;
-  } catch {
+/** ids requested but not added, keeping repeats (one removal per added id). */
+function skippedIds(requested: number[], added: number[]): number[] {
+  const pending = [...added];
+  return requested.filter((id) => {
+    const i = pending.indexOf(id);
+    if (i === -1) return true;
+    pending.splice(i, 1);
     return false;
-  }
+  });
+}
+
+function tracksLabel(n: number): string {
+  return n === 1 ? "1 track" : `${n} tracks`;
 }
 
 function pushRecentPlaylistId(playlistId: string) {
@@ -402,7 +406,6 @@ export default function AddToPlaylistMenu({
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [addedTo, setAddedTo] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [dupePrompt, setDupePrompt] = useState<Playlist | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -466,15 +469,14 @@ export default function AddToPlaylistMenu({
     : allPlaylists;
 
   const handleAddToPlaylist = useCallback(
-    async (playlist: Playlist, onDupes: OnDupes = "FAIL") => {
+    async (playlist: Playlist) => {
       setError(null);
-      setDupePrompt(null);
       setAddingTo(playlist.uuid);
       try {
         const added = await addTracksToPlaylist(
           playlist.uuid,
           trackIds,
-          onDupes,
+          "SKIP",
         );
         pushRecentPlaylistId(playlist.uuid);
         setAddedTo((prev) => new Set([...prev, playlist.uuid]));
@@ -482,29 +484,51 @@ export default function AddToPlaylistMenu({
           playlist.title.length > 25
             ? playlist.title.slice(0, 23) + "…"
             : playlist.title;
-        const skipped = trackIds.length - added.length;
-        showToast(
-          added.length === 0
-            ? `Already in "${label}"`
-            : skipped > 0
-              ? `Added ${added.length} ${added.length === 1 ? "track" : "tracks"} to "${label}" (${skipped} already there)`
-              : trackIds.length > 1
-                ? `Added ${trackIds.length} tracks to "${label}"`
-                : `Added to "${label}"`,
-        );
+        const skipped = skippedIds(trackIds, added);
+
+        if (skipped.length === 0) {
+          showToast(
+            trackIds.length > 1
+              ? `Added ${trackIds.length} tracks to "${label}"`
+              : `Added to "${label}"`,
+          );
+        } else {
+          const addDuplicates = async () => {
+            try {
+              await addTracksToPlaylist(playlist.uuid, skipped, "ADD");
+              showToast(
+                trackIds.length > 1
+                  ? `Added ${tracksLabel(skipped.length)} again to "${label}"`
+                  : `Added to "${label}" again`,
+              );
+            } catch {
+              showToast(
+                skipped.length > 1
+                  ? "Failed to add tracks"
+                  : "Failed to add track",
+                "error",
+              );
+            }
+          };
+          showToast(
+            added.length === 0
+              ? `Already in "${label}"`
+              : `Added ${tracksLabel(added.length)} to "${label}" · ${skipped.length} already there`,
+            "info",
+            DUPLICATE_TOAST_MS,
+            {
+              label: added.length === 0 ? "Add anyway" : "Add them too",
+              onClick: addDuplicates,
+            },
+          );
+        }
         setTimeout(onClose, 500);
         // Reset so next open re-fetches all playlists
         setAllPlaylists([]);
-      } catch (err: unknown) {
-        if (isDuplicateError(err)) {
-          setDupePrompt(playlist);
-        } else {
-          setError(
-            trackIds.length > 1
-              ? "Failed to add tracks"
-              : "Failed to add track",
-          );
-        }
+      } catch {
+        setError(
+          trackIds.length > 1 ? "Failed to add tracks" : "Failed to add track",
+        );
       } finally {
         setAddingTo(null);
       }
@@ -720,40 +744,6 @@ export default function AddToPlaylistMenu({
               </div>
             ) : null}
           </>
-        )}
-
-        {/* Duplicate prompt */}
-        {dupePrompt && (
-          <div className="px-5 py-3 border-t border-th-border-popover bg-th-inset">
-            <p className="text-[12px] text-th-text-secondary leading-snug">
-              {trackIds.length > 1
-                ? "Some of these tracks are already in "
-                : "This track is already in "}
-              <span className="text-th-text-primary font-medium">
-                {dupePrompt.title}
-              </span>
-            </p>
-            <div className="flex justify-end items-center gap-2 mt-2.5">
-              <button
-                className="px-3 py-1.5 text-[12px] font-medium text-th-text-muted hover:text-th-text-primary rounded-full transition-colors disabled:opacity-40"
-                disabled={addingTo !== null}
-                onClick={() =>
-                  trackIds.length > 1
-                    ? handleAddToPlaylist(dupePrompt, "SKIP")
-                    : setDupePrompt(null)
-                }
-              >
-                {trackIds.length > 1 ? "Skip duplicates" : "Cancel"}
-              </button>
-              <button
-                className="px-3.5 py-1.5 text-[12px] font-semibold bg-th-accent text-th-on-accent hover:bg-th-accent-hover rounded-full transition-colors disabled:opacity-40"
-                disabled={addingTo !== null}
-                onClick={() => handleAddToPlaylist(dupePrompt, "ADD")}
-              >
-                Add anyway
-              </button>
-            </div>
-          </div>
         )}
 
         {/* Error bar */}

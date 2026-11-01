@@ -221,12 +221,12 @@ export function usePlaylists() {
     [authTokens?.user_id, setUserPlaylists, setDeletedPlaylistIds],
   );
 
-  /** Resolves with the ids actually added; rejects with a 409 SoneError on a duplicate under "FAIL". */
+  /** Resolves with the ids actually added (under "SKIP", duplicates are left out). */
   const addTracksToPlaylist = useCallback(
     async (
       playlistId: string,
       trackIds: number[],
-      onDupes: OnDupes = "FAIL",
+      onDupes: OnDupes = "SKIP",
     ): Promise<number[]> => {
       try {
         const added = await invoke<number[]>("add_tracks_to_playlist", {
