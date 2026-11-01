@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { atom, useAtomValue } from "jotai";
 import { getArtistViewAll, getFavoriteVideos } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
@@ -21,6 +21,7 @@ import {
   applyLocalPlaylistEdits,
   fetchLibraryPage,
 } from "../../lib/libraryPages";
+import { focusElement } from "../../lib/spatialNav";
 import { useTvInitialFocus } from "./TvNavContext";
 import { TvButton, TvError, TvGrid, TvSpinner } from "./TvParts";
 import { libraryEntries, sectionEntries, type TvListSource } from "./tvItems";
@@ -140,6 +141,28 @@ export default function TvListScreen({
 
   const gridRef = useRef<HTMLDivElement>(null);
   useTvGrowOnFocus(gridRef, entries.length, paged.loadMore);
+
+  // After Load more / Try again, focus goes to the first new card (or back
+  // to the button when the page added none) once the page is in.
+  const focusFrom = useRef<number | null>(null);
+  const loadMoreFromButton = (retry: boolean) => {
+    focusFrom.current = entries.length;
+    if (retry) paged.retry();
+    else void paged.loadMore();
+  };
+  useLayoutEffect(() => {
+    const from = focusFrom.current;
+    const root = gridRef.current;
+    if (from === null || paged.loadingMore || !root) return;
+    focusFrom.current = null;
+    const current = document.activeElement;
+    if (current && current !== document.body && current.isConnected) return;
+    const next =
+      root.querySelector<HTMLElement>(`[data-tv-index="${from}"]`) ??
+      root.querySelector<HTMLElement>("[data-tv-more] [data-tv-focusable]");
+    if (next) focusElement(next);
+  }, [paged.loadingMore, entries]);
+
   useTvInitialFocus(!paged.loading);
 
   return (
@@ -167,12 +190,33 @@ export default function TvListScreen({
               showExplicit={source.kind === "artist"}
             />
           )}
+          {paged.loadingMore && (
+            <div role="status" aria-label="Loading more">
+              <TvSpinner />
+            </div>
+          )}
           {paged.moreError && (
-            <div className="flex items-center gap-[1rem] px-[3rem] py-[1rem]">
+            <div
+              data-tv-more
+              className="flex items-center gap-[1rem] px-[3rem] py-[1rem]"
+            >
               <p className="text-[0.85rem] text-th-text-secondary">
                 Couldn't load more
               </p>
-              <TvButton label="Try again" onClick={paged.retry} />
+              <TvButton
+                label="Try again"
+                onClick={() => loadMoreFromButton(true)}
+              />
+            </div>
+          )}
+          {/* Reachable when a page adds no cards, so focus never nears the
+              end again. */}
+          {paged.hasMore && !paged.loadingMore && !paged.moreError && (
+            <div data-tv-more className="px-[3rem] py-[1rem]">
+              <TvButton
+                label="Load more"
+                onClick={() => loadMoreFromButton(false)}
+              />
             </div>
           )}
         </div>

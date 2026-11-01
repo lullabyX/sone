@@ -445,6 +445,7 @@ export default function TvApp() {
       openNowPlaying,
       playTrack: tvPlay.playTrack,
       playSource: tvPlay.playSource,
+      // eslint-disable-next-line react-hooks/refs -- host() is only called from the returned callbacks
       ...navMenus(() => menuRef.current),
       openMoreSettings: more.open,
       prompt: askText,
