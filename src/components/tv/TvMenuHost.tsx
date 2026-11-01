@@ -14,11 +14,13 @@ import {
   ChevronRight,
   FolderInput,
   FolderOpen,
+  Globe,
   Heart,
   ListEnd,
   ListPlus,
   ListStart,
   Loader2,
+  Lock,
   Play,
   Radio,
   User,
@@ -78,6 +80,10 @@ export interface TvMenuHostHandle {
   ) => TvMenuSpec;
 }
 
+/** A playlist's visibility, to send back unchanged with an edit. */
+const accessOf = (p: Playlist) =>
+  p.accessType ?? (p.sharingLevel === "PUBLIC" ? "PUBLIC" : "UNLISTED");
+
 /** Names in folder toasts, cut at 25 characters as the desktop does. */
 const shortName = (text: string) =>
   text.length > 25 ? `${text.slice(0, 23)}…` : text;
@@ -122,6 +128,13 @@ const TvMenuHost = forwardRef<
   const returnFocus = useRef<HTMLElement | null>(null);
 
   const close = useCallback(() => setStack([]), []);
+  const openMenu = useCallback((spec: TvMenuSpec) => {
+    if (stackRef.current.length === 0) {
+      const active = document.activeElement;
+      returnFocus.current = active instanceof HTMLElement ? active : null;
+    }
+    setStack([spec]);
+  }, []);
 
   // Focus the first entry whenever a (sub)menu opens; give focus back to
   // where it was when the menu closes.
@@ -240,17 +253,36 @@ const TvMenuHost = forwardRef<
         onSelect: async () => {
           const title = await onPrompt({
             title: "New playlist",
-            confirm: "Create and add",
+            confirm: "Next",
           });
           if (!title) return;
-          try {
-            const created = await createPlaylist(title);
-            setAllPlaylists((prev) => [created, ...prev]);
-            await addTrackToPlaylist(created.uuid, track.id);
-            showToast(`Added to new playlist "${label(title)}"`);
-          } catch {
-            showToast("Couldn't create the playlist", "error");
-          }
+          const create = async (accessType: string) => {
+            try {
+              const created = await createPlaylist(title, "", accessType);
+              setAllPlaylists((prev) => [created, ...prev]);
+              await addTrackToPlaylist(created.uuid, track.id);
+              showToast(`Added to new playlist "${label(title)}"`);
+            } catch {
+              showToast("Couldn't create the playlist", "error");
+            }
+          };
+          // Back here cancels: nothing is created.
+          openMenu({
+            title: "New playlist",
+            subtitle: label(title),
+            items: [
+              {
+                label: "Private playlist",
+                icon: Lock,
+                onSelect: () => create("UNLISTED"),
+              },
+              {
+                label: "Public playlist",
+                icon: Globe,
+                onSelect: () => create("PUBLIC"),
+              },
+            ],
+          });
         },
       };
       return {
@@ -282,6 +314,7 @@ const TvMenuHost = forwardRef<
       addTrackToPlaylist,
       createPlaylist,
       onPrompt,
+      openMenu,
       showToast,
     ],
   );
@@ -620,7 +653,7 @@ const TvMenuHost = forwardRef<
           }
         },
       });
-      // The user's own playlists can be renamed and deleted (same ownership
+      // The user's own playlists can be edited and deleted (same ownership
       // rule as the desktop: they are its creator).
       if (
         item.type === "playlist" &&
@@ -631,33 +664,83 @@ const TvMenuHost = forwardRef<
       ) {
         items.push(
           {
-            label: "Rename playlist",
+            label: "Edit details",
             icon: Pencil,
-            onSelect: async () => {
-              const title = await onPrompt({
-                title: "Rename playlist",
-                initial: item.title,
-                confirm: "Rename",
-              });
-              if (!title || title === item.title) return;
-              try {
-                // Keep its description and visibility as they are.
-                const details = await getPlaylistDetails(item.uuid);
-                await updatePlaylist(
-                  item.uuid,
-                  title,
-                  details.description ?? "",
-                  details.accessType ??
-                    (details.sharingLevel === "PUBLIC" ? "PUBLIC" : "UNLISTED"),
-                );
-                setAllPlaylists((prev) =>
-                  prev.map((p) => (p.uuid === item.uuid ? { ...p, title } : p)),
-                );
-                showToast(`Renamed to "${label(title)}"`);
-              } catch {
-                showToast("Couldn't rename the playlist", "error");
-              }
-            },
+            submenu: () => ({
+              title: "Edit details",
+              subtitle: label(name),
+              items: [
+                {
+                  label: "Name…",
+                  onSelect: async () => {
+                    const title = await onPrompt({
+                      title: "Name",
+                      initial: item.title,
+                      confirm: "Save",
+                    });
+                    if (!title || title === item.title) return;
+                    try {
+                      // Keep its description and visibility as they are.
+                      const details = await getPlaylistDetails(item.uuid);
+                      await updatePlaylist(
+                        item.uuid,
+                        title,
+                        details.description ?? "",
+                        accessOf(details),
+                      );
+                      setAllPlaylists((prev) =>
+                        prev.map((p) =>
+                          p.uuid === item.uuid ? { ...p, title } : p,
+                        ),
+                      );
+                      showToast(`Renamed to "${label(title)}"`);
+                    } catch {
+                      showToast("Couldn't rename the playlist", "error");
+                    }
+                  },
+                },
+                {
+                  label: "Description…",
+                  onSelect: async () => {
+                    let details: Playlist;
+                    try {
+                      details = await getPlaylistDetails(item.uuid);
+                    } catch {
+                      showToast("Couldn't load the playlist", "error");
+                      return;
+                    }
+                    const current = details.description ?? "";
+                    const description = await onPrompt({
+                      title: "Description",
+                      initial: current,
+                      confirm: "Save",
+                      placeholder: "Description",
+                      allowEmpty: true,
+                    });
+                    if (description === null || description === current) {
+                      return;
+                    }
+                    try {
+                      // Keep its name and visibility as they are.
+                      await updatePlaylist(
+                        item.uuid,
+                        details.title ?? item.title,
+                        description,
+                        accessOf(details),
+                      );
+                      setAllPlaylists((prev) =>
+                        prev.map((p) =>
+                          p.uuid === item.uuid ? { ...p, description } : p,
+                        ),
+                      );
+                      showToast("Description saved");
+                    } catch {
+                      showToast("Couldn't save the description", "error");
+                    }
+                  },
+                },
+              ],
+            }),
           },
           {
             label: "Delete playlist",
@@ -747,7 +830,7 @@ const TvMenuHost = forwardRef<
   );
 
   // Owning a playlist is looked up in the user's playlists; load them once
-  // so Rename / Delete show up without visiting "Add to playlist" first.
+  // so Edit details / Delete show up without visiting "Add to playlist" first.
   useEffect(() => {
     if (userId == null || store.get(allPlaylistsAtom).length > 0) return;
     getAllPlaylists(userId, 0, 500)
@@ -758,19 +841,13 @@ const TvMenuHost = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      open: (spec) => {
-        if (stackRef.current.length === 0) {
-          const active = document.activeElement;
-          returnFocus.current = active instanceof HTMLElement ? active : null;
-        }
-        setStack([spec]);
-      },
+      open: openMenu,
       isOpen: () => stackRef.current.length > 0,
       back: () => setStack((s) => s.slice(0, -1)),
       trackMenu,
       mediaMenu,
     }),
-    [trackMenu, mediaMenu],
+    [openMenu, trackMenu, mediaMenu],
   );
 
   const select = async (item: TvMenuItem) => {

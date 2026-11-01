@@ -3,7 +3,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { createStore } from "jotai";
 import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../../atoms/favorites";
 import { allowExplicitAtom } from "../../atoms/playback";
-import type { Track } from "../../types";
+import { allPlaylistsAtom } from "../../atoms/playlists";
+import type { Playlist, Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
 import { deferred, type Deferred, makeTvNav, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn } from "./tvTestUtils";
 import { invoke } from "@tauri-apps/api/core";
@@ -239,6 +240,24 @@ it("shows recommendations once the playlist is fully loaded and adds one", async
   expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", { playlistId: "p", trackId: 2 });
   expect(screen.queryByText("T2")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
+});
+
+it("shows an edited name and description at once", async () => {
+  api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "P", numberOfTracks: 1, creator: { id: 42 }, description: "d0" });
+  api.getPlaylistTracksPage.mockResolvedValue({ items: [t1], totalNumberOfItems: 1 });
+  mockInvoke({ get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }) });
+  const { store, nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+  await screen.findByText("T1");
+  expect(screen.getByText("d0")).toBeTruthy();
+  act(() => store.set(allPlaylistsAtom, [{ uuid: "p", title: "Renamed", description: "Road trip", creator: { id: 42 } } as Playlist]));
+  expect(screen.getByText("Renamed")).toBeTruthy();
+  expect(screen.getByText("Road trip")).toBeTruthy();
+  // The page's own More options comes first, before the rows'.
+  fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
+  expect(vi.mocked(nav.mediaMenu).mock.lastCall![0]).toMatchObject({ type: "playlist", uuid: "p", title: "Renamed" });
+  act(() => store.set(allPlaylistsAtom, [{ uuid: "p", title: "Renamed", description: "", creator: { id: 42 } } as Playlist]));
+  expect(screen.queryByText("Road trip")).toBeNull();
+  expect(screen.queryByText("d0")).toBeNull();
 });
 
 describe("playlist removals", () => {

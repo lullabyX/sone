@@ -33,6 +33,7 @@ import {
   invalidateCache,
 } from "../../api/tidal";
 import { authTokensAtom } from "../../atoms/auth";
+import { allPlaylistsAtom } from "../../atoms/playlists";
 import {
   favoriteTrackIdsAtom,
   trackSortPrefsAtom,
@@ -477,21 +478,26 @@ function TrackListPage({
           dedupe: spec.dedupe,
         }
       : { meta: spec.meta, loaded: paged.items, albumMode: spec.albumMode };
+  // A name or description edited from "Edit details" shows here at once.
+  const listedPlaylist = useAtomValue(allPlaylistsAtom).find(
+    (p) => view.type === "playlist" && p.uuid === view.uuid,
+  );
+  const title = listedPlaylist?.title || spec.title;
   const media: MediaItemType | null =
     view.type === "album"
-      ? { type: "album", id: view.id, title: spec.title, cover: spec.image }
+      ? { type: "album", id: view.id, title, cover: spec.image }
       : view.type === "playlist"
         ? {
             type: "playlist",
             uuid: view.uuid,
-            title: spec.title,
+            title,
             image: spec.image,
           }
         : view.type === "mix"
           ? {
               type: "mix",
               mixId: view.mixId,
-              title: spec.title,
+              title,
               image: spec.image,
             }
           : null;
@@ -518,7 +524,7 @@ function TrackListPage({
               ? fav.removeFavoriteMix(view.mixId)
               : fav.addFavoriteMix(view.mixId, {
                   id: view.mixId,
-                  title: spec.title,
+                  title,
                   subTitle: spec.subtitle ?? "",
                   images: spec.image
                     ? {
@@ -731,12 +737,15 @@ function TrackListPage({
   ]
     .filter(Boolean)
     .join(" · ");
-  const description = spec.description;
+  const description =
+    listedPlaylist?.description != null
+      ? listedPlaylist.description.trim() || undefined
+      : spec.description;
   const coverSize = description ? COVER_SIZE_DESCRIBED : COVER_SIZE;
   const openAbout = () =>
     nav.openMenu({
       title: "About",
-      subtitle: spec.title,
+      subtitle: title,
       wide: true,
       items: descriptionParagraphs(description ?? "").map((p) => ({
         label: p,
@@ -771,7 +780,7 @@ function TrackListPage({
           ) : (
             <TidalImage
               src={spec.image || undefined}
-              alt={spec.title}
+              alt={title}
               type="album"
               className="w-full h-full"
             />
@@ -783,7 +792,7 @@ function TrackListPage({
           </p>
         )}
         <h1 className="text-[1.8rem] font-extrabold leading-tight text-th-text-primary line-clamp-2">
-          {spec.title}
+          {title}
         </h1>
         {subtitle && (
           <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary line-clamp-2">
@@ -973,7 +982,7 @@ function TrackListPage({
                         meta: {
                           type: "playlist-recs",
                           id: view.uuid,
-                          name: `${spec.title}: Recommended`,
+                          name: `${title}: Recommended`,
                         },
                         loaded: recs.visible,
                       },

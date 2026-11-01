@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TvMenuHostHandle } from "./TvMenuHost";
@@ -6,9 +6,11 @@ import { favoriteVideoIdsAtom } from "../../atoms/favorites";
 import {
   addedToFolderAtom,
   allFoldersAtom,
+  allPlaylistsAtom,
   allFoldersFetchedAtom,
   movedPlaylistsAtom,
 } from "../../atoms/playlists";
+import type { Playlist } from "../../types";
 import { linkMenu, navMenus, type TvMenuSpec } from "./tvMenu";
 import {
   mkTrack,
@@ -16,6 +18,7 @@ import {
   rawFolderItem,
   renderMenuHost,
   setupTvTest,
+  signedIn,
   stubLayout,
 } from "./tvTestUtils";
 
@@ -26,6 +29,7 @@ const api = vi.hoisted(() => ({
   getAllPlaylists: vi.fn(async () => ({ items: [] })),
   getTrackCredits: vi.fn(),
   getPlaylistFolders: vi.fn(),
+  getPlaylistDetails: vi.fn(),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/tidal")>()), ...api }));
@@ -243,5 +247,126 @@ describe("Move to folder", () => {
     const sub = await moveMenu(ref.current!.mediaMenu(playlist));
     expect(sub.items.map((i) => i.label)).toEqual(["C", "B", "A", "New folder…"]);
     expect(api.getPlaylistFolders).not.toHaveBeenCalled();
+  });
+});
+
+describe("new playlists and playlist details", () => {
+  beforeEach(() => {
+    mockInvoke({
+      create_playlist: () => ({ uuid: "new", title: "Mix" }),
+      add_track_to_playlist: () => undefined,
+      update_playlist: () => ({}),
+      get_playlist_folders: () => ({ items: [], totalNumberOfItems: 0, cursor: null }),
+    });
+    // addTrackToPlaylist refreshes the user's playlists afterwards.
+    api.getPlaylistFolders.mockResolvedValue({ items: [], totalNumberOfItems: 0, cursor: null });
+  });
+  const created = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === "create_playlist");
+  const updated = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === "update_playlist");
+  const newPlaylist = async (ref: RefObject<TvMenuHostHandle | null>) => {
+    const sub = await ref.current!.trackMenu(mkTrack(1)).items.find((i) => i.label === "Add to playlist")!.submenu!();
+    await act(async () => { await sub.items.find((i) => i.label === "New playlist…")!.onSelect!(); });
+  };
+  const editDetails = async (menu: TvMenuSpec) =>
+    (await menu.items.find((i) => i.label === "Edit details")!.submenu!()) as TvMenuSpec;
+  const ownStore = () => {
+    const store = signedIn(42);
+    // Set before mount, so the host's own playlist load skips.
+    store.set(allPlaylistsAtom, [{ uuid: "p", title: "Old", creator: { id: 42 } } as Playlist]);
+    return store;
+  };
+
+  it("names a new playlist, then asks private or public", async () => {
+    const restore = stubLayout();
+    try {
+      const { ref, onPrompt } = renderMenuHost();
+      onPrompt.mockResolvedValueOnce("Mix");
+      await newPlaylist(ref);
+      expect(onPrompt.mock.lastCall![0]).toEqual({ title: "New playlist", confirm: "Next" });
+      expect(screen.getByRole("menu", { name: "New playlist" })).toBeTruthy();
+      const items = screen.getAllByRole("menuitem");
+      expect(items.map((i) => i.textContent)).toEqual(["Private playlist", "Public playlist"]);
+      await waitFor(() => expect(document.activeElement).toBe(items[0]));
+      expect(onPrompt).toHaveBeenCalledTimes(1);
+      await act(async () => { fireEvent.click(items[1]); });
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_playlist", { title: "Mix", description: "", accessType: "PUBLIC" }));
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", { playlistId: "new", trackId: 1 }));
+      expect(await screen.findByText('Added to new playlist "Mix"')).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+  it("Private is UNLISTED; a cancelled name or Back creates nothing", async () => {
+    const { ref, onPrompt } = renderMenuHost();
+    onPrompt.mockResolvedValueOnce("Mix");
+    await newPlaylist(ref);
+    await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: "Private playlist" })); });
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_playlist", { title: "Mix", description: "", accessType: "UNLISTED" }));
+    vi.mocked(invoke).mockClear();
+
+    onPrompt.mockResolvedValueOnce(null);
+    await newPlaylist(ref);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    onPrompt.mockResolvedValueOnce("Mix");
+    await newPlaylist(ref);
+    expect(screen.getByRole("menu", { name: "New playlist" })).toBeTruthy();
+    act(() => ref.current!.back());
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(created()).toEqual([]);
+  });
+  it("own playlists edit their name and description from Edit details", async () => {
+    const store = ownStore();
+    const { ref, onPrompt } = renderMenuHost({ store });
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "Old", description: "d0", accessType: "PUBLIC" } as Playlist);
+    const menu = ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }, true);
+    expect(menu.items.some((i) => i.label === "Rename playlist")).toBe(false);
+    const sub = await editDetails(menu);
+    expect(sub).toMatchObject({ title: "Edit details", subtitle: "Old" });
+    expect(sub.items.map((i) => i.label)).toEqual(["Name…", "Description…"]);
+
+    onPrompt.mockResolvedValueOnce("New name");
+    await act(async () => { await sub.items[0].onSelect!(); });
+    expect(onPrompt.mock.lastCall![0]).toEqual({ title: "Name", initial: "Old", confirm: "Save" });
+    expect(invoke).toHaveBeenCalledWith("update_playlist", { playlistId: "p", title: "New name", description: "d0", accessType: "PUBLIC" });
+    expect(await screen.findByText('Renamed to "New name"')).toBeTruthy();
+
+    onPrompt.mockResolvedValueOnce("For the car");
+    await act(async () => { await sub.items[1].onSelect!(); });
+    expect(onPrompt.mock.lastCall![0]).toEqual({ title: "Description", initial: "d0", confirm: "Save", placeholder: "Description", allowEmpty: true });
+    expect(invoke).toHaveBeenLastCalledWith("update_playlist", { playlistId: "p", title: "Old", description: "For the car", accessType: "PUBLIC" });
+    expect(store.get(allPlaylistsAtom)[0]).toMatchObject({ title: "New name", description: "For the car" });
+    expect(await screen.findByText("Description saved")).toBeTruthy();
+  });
+  it("an unchanged or cancelled edit changes nothing; an emptied description is saved", async () => {
+    const { ref, onPrompt } = renderMenuHost({ store: ownStore() });
+    api.getPlaylistDetails.mockResolvedValue({ uuid: "p", title: "Old", description: "d0", sharingLevel: "PUBLIC" } as Playlist);
+    const sub = await editDetails(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }));
+    for (const answer of ["Old", "", null]) {
+      onPrompt.mockResolvedValueOnce(answer);
+      await act(async () => { await sub.items[0].onSelect!(); });
+    }
+    for (const answer of ["d0", null]) {
+      onPrompt.mockResolvedValueOnce(answer);
+      await act(async () => { await sub.items[1].onSelect!(); });
+    }
+    expect(updated()).toEqual([]);
+    onPrompt.mockResolvedValueOnce("");
+    await act(async () => { await sub.items[1].onSelect!(); });
+    expect(updated()).toEqual([["update_playlist", { playlistId: "p", title: "Old", description: "", accessType: "PUBLIC" }]]);
+  });
+  it("a description that can't be loaded asks for nothing", async () => {
+    const { ref, onPrompt } = renderMenuHost({ store: ownStore() });
+    api.getPlaylistDetails.mockRejectedValue(new Error("offline"));
+    const sub = await editDetails(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }));
+    await act(async () => { await sub.items[1].onSelect!(); });
+    expect(onPrompt).not.toHaveBeenCalled();
+    expect(await screen.findByText("Couldn't load the playlist")).toBeTruthy();
+  });
+  it("someone else's playlist has no Edit details", () => {
+    const store = signedIn(42);
+    store.set(allPlaylistsAtom, [{ uuid: "p", title: "Theirs", creator: { id: 7 } } as Playlist]);
+    const { ref } = renderMenuHost({ store });
+    expect(ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Theirs" }).items.some((i) => i.label === "Edit details")).toBe(false);
   });
 });
