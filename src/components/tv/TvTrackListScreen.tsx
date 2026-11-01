@@ -248,18 +248,21 @@ async function loadList(
     }
     case "mix": {
       const mix = await getMixItems(view.mixId);
-      // As the desktop MixPage: a track radio plays as "radio".
+      // As the desktop MixPage: what the opened card showed comes first, and
+      // a track radio plays as "radio".
       const mixType = view.mixType ?? mix.mixType ?? undefined;
       const isTrackRadio = mixType === "TRACK_MIX";
-      const title = mix.title ?? view.title ?? "Mix";
-      const image = mix.image ?? view.image;
+      const title =
+        view.title || mix.title || (isTrackRadio ? "Track Radio" : "Mix");
+      const image = view.image || mix.image || undefined;
+      const subtitle = mix.subtitle || undefined;
       const seed = isTrackRadio
         ? (view.artist ?? mix.tracks[0]?.artists?.[0] ?? mix.tracks[0]?.artist)
         : undefined;
       return {
         kicker: isTrackRadio ? "Track Radio" : "Mix",
         title,
-        subtitle: mix.subtitle ?? undefined,
+        subtitle,
         image,
         first: mix.tracks,
         total: mix.tracks.length,
@@ -269,6 +272,7 @@ async function loadList(
           id: view.mixId,
           name: title,
           image,
+          subtitle,
           mixType,
         },
       };
@@ -582,6 +586,7 @@ function TrackListPage({
                   id: view.mixId,
                   title,
                   subTitle: spec.subtitle ?? "",
+                  mixType: spec.meta?.mixType,
                   images: spec.image
                     ? {
                         SMALL: { url: spec.image },

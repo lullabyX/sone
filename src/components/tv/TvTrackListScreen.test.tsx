@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { createStore } from "jotai";
-import { favoriteTrackIdsAtom, trackSortPrefsAtom } from "../../atoms/favorites";
+import { favoriteTrackIdsAtom, optimisticFavoriteMixesAtom, trackSortPrefsAtom } from "../../atoms/favorites";
 import { allowExplicitAtom } from "../../atoms/playback";
 import { allPlaylistsAtom } from "../../atoms/playlists";
 import type { Playlist, Track } from "../../types";
@@ -95,6 +95,27 @@ it("a track radio without a seed artist links its first track's artist; a mix li
   expect(screen.queryByRole("button", { name: "Go to A1" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "mix", mixType: "ARTIST_MIX" });
+});
+
+it("mix meta follows the desktop: the opened card's title and image first, with the subtitle", async () => {
+  api.getMixItems.mockResolvedValue({ mixId: "m", mixType: "DISCOVERY_MIX", title: "Fetched", subtitle: "Sub", image: "f.jpg", tracks: [mkTrack(1)] });
+  const { nav, unmount } = renderTv(<TvTrackListScreen view={{ type: "mix", mixId: "m", title: "Card", image: "c.jpg" }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Play" }));
+  expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "mix", name: "Card", image: "c.jpg", subtitle: "Sub" });
+  unmount();
+  api.getMixItems.mockResolvedValue({ mixId: "r", mixType: "TRACK_MIX", title: null, subtitle: null, image: null, tracks: [mkTrack(1)] });
+  const second = renderTv(<TvTrackListScreen view={{ type: "mix", mixId: "r" }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Play" }));
+  expect(vi.mocked(second.nav.playSource).mock.lastCall![0].meta).toMatchObject({ type: "radio", name: "Track Radio" });
+});
+
+it("saving a mix keeps its type", async () => {
+  mockInvoke({ add_favorite_mix: () => undefined });
+  api.getMixItems.mockResolvedValue({ mixId: "m", mixType: "TRACK_MIX", title: "T Radio", subtitle: null, image: null, tracks: [mkTrack(1)] });
+  const store = signedIn(1);
+  renderTv(<TvTrackListScreen view={{ type: "mix", mixId: "m" }} />, { store });
+  fireEvent.click(await screen.findByRole("button", { name: "Add to collection" }));
+  expect(store.get(optimisticFavoriteMixesAtom)[0]).toMatchObject({ id: "m", mixType: "TRACK_MIX" });
 });
 
 it("the top-tracks screen pages and plays as the artist", async () => {
