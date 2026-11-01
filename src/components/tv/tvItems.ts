@@ -2,6 +2,7 @@ import type {
   FeedItem,
   MediaItemType,
   PlaybackSource,
+  PlaylistOrFolder,
   Track,
 } from "../../types";
 import { getTidalImageUrl, getTidalPromoImageUrl } from "../../types";
@@ -10,6 +11,7 @@ import { type ContentPrefs, isContentBlocked } from "../../lib/contentFilter";
 import { isTrackUnavailable } from "../../lib/trackAvailability";
 import {
   buildMediaItem,
+  folderSubtitle,
   getItemImage,
   getItemSubtitle,
   getItemTitle,
@@ -56,6 +58,7 @@ export type TvListSource =
   | {
       kind: "collection";
       what: "playlists" | "albums" | "artists" | "mixes" | "videos";
+      folderId?: string;
     }
   | { kind: "artist"; artistId: number; apiPath: string };
 
@@ -73,8 +76,9 @@ export interface TvEntry {
   image: string;
   round?: boolean;
   /** Drawn in place of artwork when the entry has none: the heart for My
-   *  Tracks, a labelled tile for page links (genres, moods, "View all"). */
-  icon?: "heart" | "link" | "more";
+   *  Tracks, a labelled tile for page links (genres, moods, "View all"), a
+   *  folder glyph for playlist folders. */
+  icon?: "heart" | "link" | "more" | "folder";
   /** What the action menu acts on, for cards that have one. */
   media?: MediaItemType;
   explicit?: boolean;
@@ -347,6 +351,47 @@ export function sectionEntries(
     if (entry.action.kind === "playTrack") tracks.push(entry.action.track);
   }
   return { entries, tracks };
+}
+
+/** A level of the user's playlist folders as cards: folders (with the
+ *  desktop's local renames and count adjustments) open their playlists. */
+export function libraryEntries(
+  items: PlaylistOrFolder[],
+  names: Map<string, string>,
+  counts: Map<string, number>,
+): TvEntry[] {
+  const entries: TvEntry[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    let entry: TvEntry | null;
+    if (item.kind === "folder") {
+      const { id, name, totalNumberOfItems } = item.data;
+      const title = names.get(id) ?? name;
+      entry = {
+        key: `folder:${id}`,
+        title,
+        subtitle: folderSubtitle(
+          (totalNumberOfItems ?? 0) + (counts.get(id) ?? 0),
+        ),
+        image: "",
+        icon: "folder",
+        action: {
+          kind: "open",
+          view: {
+            type: "list",
+            title,
+            source: { kind: "collection", what: "playlists", folderId: id },
+          },
+        },
+      };
+    } else {
+      entry = toTvEntry(item.data, "PLAYLIST_LIST");
+    }
+    if (!entry || seen.has(entry.key)) continue;
+    seen.add(entry.key);
+    entries.push(entry);
+  }
+  return entries;
 }
 
 /** Feed entries (new releases from followed artists, history mixes) as

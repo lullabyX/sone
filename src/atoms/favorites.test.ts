@@ -24,3 +24,22 @@ it("trackSortPrefsAtom is empty when nothing is stored", async () => {
   const { trackSortPrefsAtom } = await import("./favorites");
   expect(createStore().get(trackSortPrefsAtom)).toEqual({});
 });
+
+it("library sort atoms hold the stored sort before anything mounts them", async () => {
+  const stored = { order: "NAME", direction: "ASC" };
+  for (const key of [
+    "sone.albumSort.v1",
+    "sone.artistSort.v1",
+    "sone.mixSort.v1",
+    "sone.playlistSort.v1",
+  ]) {
+    localStorage.setItem(key, JSON.stringify(stored));
+  }
+  vi.resetModules();
+  const m = await import("./favorites");
+  const store = createStore();
+  expect(store.get(m.albumSortAtom)).toEqual(stored);
+  expect(store.get(m.artistSortAtom)).toEqual(stored);
+  expect(store.get(m.mixSortAtom)).toEqual(stored);
+  expect(store.get(m.playlistSortAtom)).toEqual(stored);
+});

@@ -3,10 +3,12 @@ import {
   entryState,
   feedEntries,
   groupByVolume,
+  libraryEntries,
   sectionEntries,
   viewForSource,
 } from "./tvItems";
 import { mkTrack } from "./tvTestUtils";
+import type { PlaylistOrFolder } from "../../types";
 
 const track = (id: number) => ({
   id,
@@ -235,5 +237,38 @@ describe("groupByVolume", () => {
       [...groupByVolume([v(1, 1), v(2, 1), v(3, 2)]).entries()].map(([k, ts]) => [k, ts.map((t) => t.id)]),
     ).toEqual([[1, [1, 2]], [2, [3]]]);
     expect([...groupByVolume([v(1)]).keys()]).toEqual([1]);
+  });
+});
+
+describe("libraryEntries", () => {
+  const folder = (id: string, name: string, count?: number): PlaylistOrFolder => ({
+    kind: "folder",
+    data: { id, name, parent: null, addedAt: "", lastModifiedAt: "", totalNumberOfItems: count },
+  });
+  const playlist = (uuid: string, title: string): PlaylistOrFolder => ({
+    kind: "playlist",
+    data: { uuid, title, image: "img", creator: { id: 5, name: "Someone" } },
+  });
+
+  it("names, counts and routes folders", () => {
+    const entries = libraryEntries(
+      [folder("f1", "Road", 3), folder("f2", "Gym"), playlist("p1", "Mine"), playlist("p1", "Mine")],
+      new Map([["f1", "Road trips"]]),
+      new Map([["f1", 1], ["f2", -2]]),
+    );
+    expect(entries.map((e) => [e.key, e.title, e.subtitle])).toEqual([
+      ["folder:f1", "Road trips", "4 playlists"],
+      ["folder:f2", "Gym", "0 playlists"],
+      ["playlist:p1", "Mine", "By Someone"],
+    ]);
+    expect(entries[0]).toMatchObject({
+      image: "",
+      icon: "folder",
+      action: {
+        kind: "open",
+        view: { type: "list", title: "Road trips", source: { kind: "collection", what: "playlists", folderId: "f1" } },
+      },
+    });
+    expect(entries[2].action).toMatchObject({ kind: "open", view: { type: "playlist", uuid: "p1" } });
   });
 });

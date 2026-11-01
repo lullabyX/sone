@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 import { useAtomValue } from "jotai";
-import { ChevronRight, Compass, Heart, MoreHorizontal } from "lucide-react";
+import {
+  ChevronRight,
+  Compass,
+  FolderOpen,
+  Heart,
+  MoreHorizontal,
+} from "lucide-react";
 import TidalImage from "../TidalImage";
 import { currentTrackAtom, isPlayingAtom } from "../../atoms/playback";
 import { formatTime } from "../../lib/format";
@@ -69,6 +75,10 @@ function TvCard({
             <span className="text-[0.95rem] font-extrabold leading-tight text-white line-clamp-3">
               {entry.title}
             </span>
+          </div>
+        ) : !entry.image && entry.icon === "folder" ? (
+          <div className="w-full h-full flex items-center justify-center bg-th-surface-hover">
+            <FolderOpen className="w-[34%] h-[34%] text-th-text-faint" />
           </div>
         ) : entry.icon === "more" ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-[0.5rem] bg-th-surface text-th-text-secondary">
