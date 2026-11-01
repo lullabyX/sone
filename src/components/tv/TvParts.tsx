@@ -59,7 +59,7 @@ function TvCard({
       data-tv-autofocus={autoFocus || undefined}
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
-      className={`tv-cardshrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
+      className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
         dimmed ? " opacity-50" : ""
       }`}
     >

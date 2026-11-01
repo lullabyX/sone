@@ -52,6 +52,13 @@ it("indexes grid cards", () => {
   expect(screen.getByText("B").closest("button")!.getAttribute("data-tv-index")).toBe("1");
 });
 
+it("a card keeps its focus style and does not shrink in a row", () => {
+  renderTv(<TvRow title="R" entries={sectionEntries([{ id: 5, title: "A", cover: "c" }], "ALBUM_LIST").entries} />);
+  const card = screen.getByText("A").closest("button")!;
+  expect(card.classList.contains("tv-card")).toBe(true);
+  expect(card.classList.contains("shrink-0")).toBe(true);
+});
+
 it("marks the first grid card for initial focus only when asked", () => {
   const entries = sectionEntries([{ id: 5, title: "A", cover: "c" }, { id: 6, title: "B", cover: "c" }], "ALBUM_LIST").entries;
   const card = (t: string) => screen.getByText(t).closest("button")!;
