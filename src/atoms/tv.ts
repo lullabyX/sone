@@ -52,6 +52,10 @@ export function nextTvOverscan(v: TvOverscan): TvOverscan {
  *  volume indicator can say why nothing changed. */
 export const tvVolumeLockedPingAtom = atom(0);
 
+/** Bumped when a volume command is already at 0% or 100%, so the TV volume
+ *  indicator still shows the level (setting the same level notifies no one). */
+export const tvVolumeLimitPingAtom = atom(0);
+
 export type TvNowPlayingTab = "queue" | "suggested" | "history" | "credits";
 
 /** The last Now Playing tab used, kept for the session only. */

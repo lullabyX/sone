@@ -1,10 +1,14 @@
 import { act, screen } from "@testing-library/react";
 import { createStore } from "jotai";
 import { expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
 import { volumeAtom } from "../../atoms/playback";
 import { tvVolumeLockedPingAtom } from "../../atoms/tv";
 import TvVolumeHud from "./TvVolumeHud";
-import { renderTv, setupTvTest } from "./tvTestUtils";
+import { mockInvoke, renderTv, renderTvHook, setupTvTest } from "./tvTestUtils";
+import { useTvMediaCommands } from "./useTvMediaCommands";
 
 setupTvTest();
 
@@ -47,4 +51,21 @@ it("never takes focus", () => {
   ).toBeNull();
   expect(status.closest("[data-tv-modal]")).toBeNull();
   expect(status.parentElement!.className).toContain("pointer-events-none");
+});
+
+it("shows the level when a volume command is already at the limit", () => {
+  vi.useFakeTimers();
+  mockInvoke({ set_volume: () => undefined });
+  const store = createStore();
+  store.set(volumeAtom, 1);
+  renderTv(<TvVolumeHud />, { store });
+  const media = renderTvHook(() => useTvMediaCommands(), { store }).result
+    .current;
+  act(() => media({ kind: "volume", by: 0.05 }));
+  expect(screen.getByRole("status").textContent).toContain("100%");
+  act(() => store.set(volumeAtom, 0));
+  act(() => vi.advanceTimersByTime(2100));
+  expect(screen.queryByRole("status")).toBeNull();
+  act(() => media({ kind: "volume", by: -0.05 }));
+  expect(screen.getByRole("status").hasAttribute("data-muted")).toBe(true);
 });

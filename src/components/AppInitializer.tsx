@@ -45,7 +45,7 @@ import {
   queueAtom,
   historyAtom,
   volumeAtom,
-  preMuteVolumeAtom,
+  toggleMute,
   exclusiveModeAtom,
   bitPerfectAtom,
   gaplessAtom,
@@ -1337,15 +1337,7 @@ export function AppInitializer() {
     prevTrack: () => playPrevious(),
     volumeUp: () => setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1)),
     volumeDown: () => setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1)),
-    muteToggle: () => {
-      const vol = store.get(volumeAtom);
-      if (vol > 0) {
-        store.set(preMuteVolumeAtom, vol);
-        setVolume(0);
-      } else {
-        setVolume(store.get(preMuteVolumeAtom) || 0.5);
-      }
-    },
+    muteToggle: () => toggleMute(store, setVolume),
     likeToggle: () => {
       const track = store.get(currentTrackAtom);
       if (!track) return;

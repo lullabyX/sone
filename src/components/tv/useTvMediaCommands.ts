@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 import { useStore } from "jotai";
 import {
-  bitPerfectAtom,
   currentTrackAtom,
-  preMuteVolumeAtom,
+  isVolumeLocked,
+  toggleMute,
   volumeAtom,
 } from "../../atoms/playback";
-import { tvVolumeLockedPingAtom } from "../../atoms/tv";
+import { tvVolumeLimitPingAtom, tvVolumeLockedPingAtom } from "../../atoms/tv";
 import { currentVideoAtom } from "../../atoms/video";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
@@ -34,8 +34,7 @@ export function useTvMediaCommands(): (cmd: TvMediaCommand) => void {
     (cmd: TvMediaCommand) => {
       if (
         (cmd.kind === "volume" || cmd.kind === "mute") &&
-        store.get(bitPerfectAtom) &&
-        !store.get(currentVideoAtom)
+        isVolumeLocked(store)
       ) {
         store.set(tvVolumeLockedPingAtom, (n) => n + 1);
         return;
@@ -75,20 +74,15 @@ export function useTvMediaCommands(): (cmd: TvMediaCommand) => void {
           return;
         }
         case "volume": {
-          const next = Math.round((store.get(volumeAtom) + cmd.by) * 100) / 100;
-          void setVolume(clamp(next, 0, 1));
-          return;
-        }
-        case "mute": {
           const volume = store.get(volumeAtom);
-          if (volume > 0) {
-            store.set(preMuteVolumeAtom, volume);
-            void setVolume(0);
-          } else {
-            void setVolume(store.get(preMuteVolumeAtom) || 0.5);
-          }
+          const next = clamp(Math.round((volume + cmd.by) * 100) / 100, 0, 1);
+          if (next === volume) store.set(tvVolumeLimitPingAtom, (n) => n + 1);
+          else void setVolume(next);
           return;
         }
+        case "mute":
+          toggleMute(store, setVolume);
+          return;
       }
     },
     [

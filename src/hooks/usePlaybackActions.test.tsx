@@ -532,8 +532,19 @@ describe("a locked volume says so", () => {
         duration: 100,
       } as TidalVideo);
     });
+    vi.mocked(invoke).mockClear();
     await act(() => result.current.setVolume(0.3));
     expect(store.get(volumeAtom)).toBe(0.3);
+    expect(store.get(tvVolumeLockedPingAtom)).toBe(0);
+    // The audio pipeline stays at unity for bit-perfect.
+    expect(invoke).not.toHaveBeenCalledWith("set_volume", expect.anything());
+  });
+  it("an unlocked volume reaches the audio pipeline", async () => {
+    const { store, result } = setup();
+    vi.mocked(invoke).mockClear();
+    await act(() => result.current.setVolume(0.3));
+    expect(store.get(volumeAtom)).toBe(0.3);
+    expect(invoke).toHaveBeenCalledWith("set_volume", { level: 0.3 });
     expect(store.get(tvVolumeLockedPingAtom)).toBe(0);
   });
 });

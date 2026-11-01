@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAtomValue, useStore } from "jotai";
 import { Lock, Volume1, Volume2, VolumeX } from "lucide-react";
 import { volumeAtom } from "../../atoms/playback";
-import { tvVolumeLockedPingAtom } from "../../atoms/tv";
+import { tvVolumeLimitPingAtom, tvVolumeLockedPingAtom } from "../../atoms/tv";
 
 const HUD_MS = 2000;
 
@@ -21,9 +21,11 @@ export default function TvVolumeHud() {
       timer = window.setTimeout(() => setMode(null), HUD_MS);
     };
     const offVolume = store.sub(volumeAtom, () => show("level"));
+    const offLimit = store.sub(tvVolumeLimitPingAtom, () => show("level"));
     const offLocked = store.sub(tvVolumeLockedPingAtom, () => show("locked"));
     return () => {
       offVolume();
+      offLimit();
       offLocked();
       window.clearTimeout(timer);
     };

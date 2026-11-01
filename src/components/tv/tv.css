@@ -205,17 +205,18 @@ html.tv-mode {
 
 /* The volume slider is the last control, so Left/Right on it (which change
    the volume) never cut the remote off from another button. Its range input
-   is transparent: the group shows the focus ring and the thumb. */
+   is transparent: the group shows the focus ring and the thumb while the
+   slider has focus (the speaker button keeps its own ring). */
 .tv-mode [data-tv-video] .group\/vol {
   order: 1;
 }
-.tv-mode [data-tv-video] .group\/vol:focus-within {
+.tv-mode [data-tv-video] .group\/vol:has(input:focus) {
   outline: 3px solid var(--th-text-primary);
   outline-offset: 3px;
   box-shadow: 0 0 0 7px color-mix(in srgb, var(--th-accent) 45%, transparent);
   border-radius: 8px;
 }
-.tv-mode [data-tv-video] .group\/vol:focus-within .shadow-sm {
+.tv-mode [data-tv-video] .group\/vol:has(input:focus) .shadow-sm {
   opacity: 1;
 }
 

@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from "react";
 import { useAtomValue, useStore } from "jotai";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
-import { preMuteVolumeAtom, volumeAtom } from "../atoms/playback";
+import { toggleMute, volumeAtom } from "../atoms/playback";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useVolumeLocked } from "../hooks/useVolumeLocked";
 
@@ -65,13 +65,7 @@ const VolumeSlider = memo(function VolumeSlider({
     >
       <button
         onClick={() => {
-          if (locked) return;
-          if (volume > 0) {
-            store.set(preMuteVolumeAtom, volume);
-            setVolume(0);
-          } else {
-            setVolume(store.get(preMuteVolumeAtom) || 0.5);
-          }
+          if (!locked) toggleMute(store, setVolume);
         }}
         className={`flex-shrink-0 transition-colors duration-150 ${
           locked

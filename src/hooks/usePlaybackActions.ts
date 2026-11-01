@@ -32,6 +32,7 @@ import {
   consecutiveFailCountAtom,
   userPausedAtom,
   queueEpochAtom,
+  isVolumeLocked,
 } from "../atoms/playback";
 import {
   currentVideoAtom,
@@ -582,18 +583,14 @@ export function usePlaybackActions() {
 
   const setVolume = useCallback(
     async (level: number) => {
-      const bitPerfect = store.get(bitPerfectAtom);
-      const isVideo = !!store.get(currentVideoAtom);
-      // Bit-perfect audio stays locked at unity; video audio is lossy, so the
-      // slider must still work for it.
-      if (bitPerfect && !isVideo) {
+      if (isVolumeLocked(store)) {
         store.set(tvVolumeLockedPingAtom, (n) => n + 1);
         return;
       }
       store.set(volumeAtom, level); // the <video> element reads this atom
       // Never push a non-unity level to the GStreamer pipeline while bit-perfect
       // is on — that would attenuate (and un-bit-perfect) audio playback.
-      if (bitPerfect) return;
+      if (store.get(bitPerfectAtom)) return;
       try {
         await invoke("set_volume", { level });
       } catch (error) {

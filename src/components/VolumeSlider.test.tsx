@@ -125,4 +125,24 @@ describe("VolumeSlider mute button", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
     expect(store.get(volumeAtom)).toBe(0.5);
   });
+
+  it("does nothing while bit-perfect locks the volume", () => {
+    const { store } = setup({ volume: 0.6, bitPerfect: true });
+    const button = screen.getByRole("button", { name: "Mute" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    expect(store.get(volumeAtom)).toBe(0.6);
+    expect(store.get(preMuteVolumeAtom)).toBe(0);
+  });
+
+  it("mutes a video while bit-perfect is on", () => {
+    const { store } = setup({
+      volume: 0.6,
+      bitPerfect: true,
+      currentVideo: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
+    expect(store.get(volumeAtom)).toBe(0);
+    expect(store.get(preMuteVolumeAtom)).toBe(0.6);
+  });
 });

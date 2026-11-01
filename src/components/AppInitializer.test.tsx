@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
@@ -39,6 +39,12 @@ import { AppInitializer } from "./AppInitializer";
 import { ToastProvider } from "../contexts/ToastContext";
 import { maximizedPlayerAtom } from "../atoms/ui";
 import { updateInfoAtom } from "../atoms/updates";
+import {
+  bitPerfectAtom,
+  preMuteVolumeAtom,
+  volumeAtom,
+} from "../atoms/playback";
+import { tvVolumeLockedPingAtom } from "../atoms/tv";
 
 afterEach(() => {
   cleanup();
@@ -82,4 +88,52 @@ it("keeps the update check's answer for TV Settings", async () => {
   );
   await act(async () => {});
   expect(store.get(updateInfoAtom)).toEqual(info);
+});
+
+describe("M mutes and unmutes", () => {
+  const start = async (volume: number, bitPerfect = false) => {
+    const store = createStore();
+    store.set(volumeAtom, volume);
+    store.set(bitPerfectAtom, bitPerfect);
+    render(
+      <Provider store={store}>
+        <ToastProvider>
+          <AppInitializer />
+        </ToastProvider>
+      </Provider>,
+    );
+    await act(async () => {});
+    vi.mocked(invoke).mockClear();
+    return store;
+  };
+  const pressM = () =>
+    act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "KeyM", key: "m" }),
+      );
+    });
+
+  it("mutes, keeping the level, and unmutes back to it", async () => {
+    const store = await start(0.6);
+    await pressM();
+    expect(store.get(volumeAtom)).toBe(0);
+    expect(store.get(preMuteVolumeAtom)).toBe(0.6);
+    expect(invoke).toHaveBeenLastCalledWith("set_volume", { level: 0 });
+    await pressM();
+    expect(store.get(volumeAtom)).toBe(0.6);
+  });
+
+  it("unmutes to half volume when no level was kept", async () => {
+    const store = await start(0);
+    await pressM();
+    expect(store.get(volumeAtom)).toBe(0.5);
+  });
+
+  it("changes nothing while bit-perfect locks the volume", async () => {
+    const store = await start(0.6, true);
+    await pressM();
+    expect(store.get(volumeAtom)).toBe(0.6);
+    expect(store.get(tvVolumeLockedPingAtom)).toBe(1);
+    expect(invoke).not.toHaveBeenCalledWith("set_volume", expect.anything());
+  });
 });
