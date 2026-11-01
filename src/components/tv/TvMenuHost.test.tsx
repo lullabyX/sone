@@ -2,6 +2,7 @@ import { act, fireEvent, screen } from "@testing-library/react";
 import type { RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TvMenuHostHandle } from "./TvMenuHost";
+import { favoriteVideoIdsAtom } from "../../atoms/favorites";
 import {
   addedToFolderAtom,
   allFoldersAtom,
@@ -104,6 +105,42 @@ it("Track radio opens the mix with its seed artist", async () => {
   const { ref, onNavigate } = renderMenuHost();
   await act(async () => { await ref.current!.trackMenu({ ...mkTrack(1), mixes: { TRACK_MIX: "m" } }).items.find((i) => i.label === "Track radio")!.onSelect!(); });
   expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ type: "mix", mixId: "m", mixType: "TRACK_MIX", artist: { id: 101, name: "A1" } }));
+});
+it("lists every artist of a multi-artist track", () => {
+  const { ref, onNavigate } = renderMenuHost();
+  const go = ref.current!.trackMenu({ ...mkTrack(1), artists: [{ id: 1, name: "A" }, { id: 2, name: "B" }, { id: 1, name: "A" }] }).items.find((i) => i.label === "Go to artist")!;
+  const sub = go.submenu!() as TvMenuSpec;
+  expect(sub.items.map((i) => i.label)).toEqual(["A", "B"]);
+  void sub.items[1].onSelect!();
+  expect(onNavigate).toHaveBeenCalledWith({ type: "artist", id: 2, name: "B" });
+});
+it("goes straight to a single artist", () => {
+  const { ref, onNavigate } = renderMenuHost();
+  const go = ref.current!.trackMenu({ ...mkTrack(1), artists: undefined }).items.find((i) => i.label === "Go to artist")!;
+  expect(go.submenu).toBeUndefined();
+  void go.onSelect!();
+  expect(onNavigate).toHaveBeenCalledWith({ type: "artist", id: 101, name: "A1" });
+});
+it("a video can be added to the collection", async () => {
+  mockInvoke({ add_favorite_video: () => undefined });
+  const { ref, store } = renderMenuHost();
+  const like = ref.current!.trackMenu(mkTrack(1, { itemType: "video" })).items.find((i) => i.label === "Add to collection")!;
+  await act(async () => { await like.onSelect!(); });
+  expect(invoke).toHaveBeenCalledWith("add_favorite_video", { userId: 42, videoId: 1 });
+  expect(store.get(favoriteVideoIdsAtom).has(1)).toBe(true);
+  expect(ref.current!.mediaMenu({ type: "video", id: 3, title: "V" }).items.some((i) => i.label === "Add to collection")).toBe(true);
+  const remove = ref.current!.mediaMenu({ type: "video", id: 1, title: "V" }).items.find((i) => i.label === "Remove from collection")!;
+  expect(remove.checked).toBe(true);
+});
+it("a failed video like is undone and reported", async () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  mockInvoke({ add_favorite_video: () => { throw new Error("no"); } });
+  const { ref, store } = renderMenuHost();
+  const like = ref.current!.mediaMenu({ type: "video", id: 3, title: "V" }).items.find((i) => i.label === "Add to collection")!;
+  await act(async () => { await like.onSelect!(); });
+  expect(store.get(favoriteVideoIdsAtom).has(3)).toBe(false);
+  expect(await screen.findByText("Couldn't update your collection")).toBeTruthy();
+  error.mockRestore();
 });
 it("shows a QR code for a link panel", () => {
   const { ref } = renderMenuHost();

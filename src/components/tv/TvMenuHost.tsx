@@ -41,6 +41,7 @@ import {
   favoriteMixIdsAtom,
   favoritePlaylistUuidsAtom,
   favoriteTrackIdsAtom,
+  favoriteVideoIdsAtom,
   followedArtistIdsAtom,
 } from "../../atoms/favorites";
 import {
@@ -288,9 +289,9 @@ const TvMenuHost = forwardRef<
   const trackMenu = useCallback(
     (track: Track, extra: TvMenuItem[] = []): TvMenuSpec => {
       const isVideo = track.itemType === "video";
-      const liked = isVideo
-        ? false
-        : store.get(favoriteTrackIdsAtom).has(track.id);
+      const liked = store
+        .get(isVideo ? favoriteVideoIdsAtom : favoriteTrackIdsAtom)
+        .has(track.id);
       const source = track.album
         ? {
             type: "album" as const,
@@ -299,7 +300,12 @@ const TvMenuHost = forwardRef<
             image: track.album.cover,
           }
         : undefined;
-      const artist = track.artist ?? track.artists?.[0];
+      const artists = (
+        track.artists?.length ? track.artists : [track.artist]
+      ).filter(
+        (a, i, all): a is NonNullable<Track["artist"]> =>
+          !!a && all.findIndex((b) => b?.id === a.id) === i,
+      );
       const items: TvMenuItem[] = [
         {
           label: "Play next",
@@ -318,7 +324,21 @@ const TvMenuHost = forwardRef<
           },
         },
       ];
-      if (!isVideo) {
+      if (isVideo) {
+        items.push({
+          label: liked ? "Remove from collection" : "Add to collection",
+          icon: Heart,
+          checked: liked,
+          onSelect: async () => {
+            try {
+              if (liked) await fav.removeFavoriteVideo(track.id);
+              else await fav.addFavoriteVideo(track.id);
+            } catch {
+              showToast("Couldn't update your collection", "error");
+            }
+          },
+        });
+      } else {
         items.push(
           {
             label: "Add to playlist",
@@ -404,12 +424,27 @@ const TvMenuHost = forwardRef<
               }),
           });
         }
-        if (artist) {
+        const goTo = (a: { id: number; name: string }) => () =>
+          onNavigate({ type: "artist", id: a.id, name: a.name });
+        if (artists.length === 1) {
           items.push({
             label: "Go to artist",
             icon: User,
-            onSelect: () =>
-              onNavigate({ type: "artist", id: artist.id, name: artist.name }),
+            onSelect: goTo(artists[0]),
+          });
+        } else if (artists.length > 1) {
+          items.push({
+            label: "Go to artist",
+            icon: User,
+            submenu: () => ({
+              title: "Go to artist",
+              subtitle: track.title,
+              items: artists.map((a) => ({
+                label: a.name,
+                icon: User,
+                onSelect: goTo(a),
+              })),
+            }),
           });
         }
       }
@@ -551,6 +586,17 @@ const TvMenuHost = forwardRef<
                     }),
             };
           }
+          case "video": {
+            const on = store.get(favoriteVideoIdsAtom).has(item.id);
+            return {
+              on,
+              label: on ? "Remove from collection" : "Add to collection",
+              run: () =>
+                on
+                  ? fav.removeFavoriteVideo(item.id)
+                  : fav.addFavoriteVideo(item.id),
+            };
+          }
           case "artist": {
             const on = store.get(followedArtistIdsAtom).has(item.id);
             return {
@@ -560,24 +606,20 @@ const TvMenuHost = forwardRef<
                 on ? fav.unfollowArtist(item.id) : fav.followArtist(item.id),
             };
           }
-          default:
-            return null;
         }
       })();
-      if (toggle) {
-        items.push({
-          label: toggle.label,
-          icon: Heart,
-          checked: toggle.on,
-          onSelect: async () => {
-            try {
-              await toggle.run();
-            } catch {
-              showToast("Couldn't update your collection", "error");
-            }
-          },
-        });
-      }
+      items.push({
+        label: toggle.label,
+        icon: Heart,
+        checked: toggle.on,
+        onSelect: async () => {
+          try {
+            await toggle.run();
+          } catch {
+            showToast("Couldn't update your collection", "error");
+          }
+        },
+      });
       // The user's own playlists can be renamed and deleted (same ownership
       // rule as the desktop: they are its creator).
       if (
