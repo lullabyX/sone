@@ -52,6 +52,16 @@ it("indexes grid cards", () => {
   expect(screen.getByText("B").closest("button")!.getAttribute("data-tv-index")).toBe("1");
 });
 
+it("marks the first grid card for initial focus only when asked", () => {
+  const entries = sectionEntries([{ id: 5, title: "A", cover: "c" }, { id: 6, title: "B", cover: "c" }], "ALBUM_LIST").entries;
+  const card = (t: string) => screen.getByText(t).closest("button")!;
+  const r = renderTv(<TvGrid queueId="g" name="G" entries={entries} />);
+  expect(card("A").hasAttribute("data-tv-autofocus")).toBe(false);
+  r.rerender(<TvGrid queueId="g" name="G" entries={entries} autoFocusFirst />);
+  expect(card("A").hasAttribute("data-tv-autofocus")).toBe(true);
+  expect(card("B").hasAttribute("data-tv-autofocus")).toBe(false);
+});
+
 it("a grid card's menu carries the grid's menu context", () => {
   const { nav } = renderTv(<TvGrid queueId="g" name="G" menuContext={{ folderId: "f1" }}
     entries={sectionEntries([{ id: 5, title: "A", cover: "c" }], "ALBUM_LIST").entries} />);

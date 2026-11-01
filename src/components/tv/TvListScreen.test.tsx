@@ -17,6 +17,7 @@ import {
   renderTv,
   setupTvTest,
   signedIn,
+  stubLayout,
 } from "./tvTestUtils";
 
 setupTvTest();
@@ -325,4 +326,26 @@ it("videos and artist grids have no sort or filter", async () => {
   await screen.findByText("Loud");
   expect(screen.queryByRole("button", { name: /^Sort/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
+});
+
+it("a collection list opens on its first card, and a re-sort keeps focus on Sort", async () => {
+  const restore = stubLayout();
+  try {
+    api.getFavoriteAlbums.mockResolvedValue({ items: albums(1, 3), totalNumberOfItems: 3 });
+    const { nav } = albumsScreen();
+    await screen.findByText("Album 1");
+    await waitFor(() => expect(document.activeElement).toBe(cardOf("Album 1")));
+    const sort = screen.getByRole("button", { name: "Sort: Date added" });
+    act(() => sort.focus());
+    fireEvent.click(sort);
+    await act(async () => {
+      await vi.mocked(nav.openMenu).mock.lastCall![0].items[1].onSelect!();
+    });
+    await waitFor(() => expect(api.getFavoriteAlbums).toHaveBeenCalledTimes(2));
+    await screen.findByText("Album 1");
+    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+    expect(document.activeElement).toBe(sort);
+  } finally {
+    restore();
+  }
 });

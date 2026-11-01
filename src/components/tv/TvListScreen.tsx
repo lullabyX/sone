@@ -196,8 +196,8 @@ export default function TvListScreen({
     countAdjustments,
   ]);
 
-  const gridRef = useRef<HTMLDivElement>(null);
-  useTvGrowOnFocus(gridRef, entries.length, filtering ? null : paged.loadMore);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useTvGrowOnFocus(rootRef, entries.length, filtering ? null : paged.loadMore);
 
   // After Load more / Try again, focus goes to the first new card once the
   // page is in; when the page added none, back to the button or else to the
@@ -210,7 +210,7 @@ export default function TvListScreen({
   };
   useLayoutEffect(() => {
     const from = focusFrom.current;
-    const root = gridRef.current;
+    const root = rootRef.current;
     if (from === null || paged.loadingMore || !root) return;
     focusFrom.current = null;
     const current = document.activeElement;
@@ -247,7 +247,7 @@ export default function TvListScreen({
   };
   const clearFilter = () => {
     // The Clear button goes away with the filter.
-    const b = gridRef.current?.querySelector<HTMLElement>(
+    const b = rootRef.current?.querySelector<HTMLElement>(
       '[aria-label="Filter"]',
     );
     if (b) focusElement(b);
@@ -257,7 +257,7 @@ export default function TvListScreen({
   // The header stays while a new sort loads, so focus stays on its button.
   return (
     <div
-      ref={gridRef}
+      ref={rootRef}
       data-tv-loading={paged.loadingMore || loadingAll || undefined}
     >
       <div className="pt-[2.5rem] pb-[3rem]">
@@ -312,6 +312,7 @@ export default function TvListScreen({
                 name={title}
                 menuContext={folderId != null ? { folderId } : undefined}
                 showExplicit={source.kind === "artist"}
+                autoFocusFirst={libraryType !== null}
               />
             )}
             {(paged.loadingMore || loadingAll) && (

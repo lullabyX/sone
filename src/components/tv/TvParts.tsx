@@ -30,6 +30,7 @@ function TvCard({
   menu,
   showExplicit,
   index,
+  autoFocus,
 }: {
   entry: TvEntry;
   onSelect: () => void;
@@ -40,6 +41,7 @@ function TvCard({
   showExplicit?: boolean;
   /** Position in a list that grows as focus nears its end (`data-tv-index`). */
   index?: number;
+  autoFocus?: boolean;
 }) {
   const { dimmed, explicitBadge, aiBadge } = entryState(
     entry,
@@ -54,9 +56,10 @@ function TvCard({
       data-tv-has-menu={menu ? true : undefined}
       data-tv-dimmed={dimmed || undefined}
       data-tv-index={index}
+      data-tv-autofocus={autoFocus || undefined}
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
-      className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
+      className={`tv-cardshrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
         dimmed ? " opacity-50" : ""
       }`}
     >
@@ -202,6 +205,7 @@ export function TvGrid({
   name,
   showExplicit,
   menuContext,
+  autoFocusFirst,
 }: {
   entries: TvEntry[];
   queueTracks?: Track[];
@@ -210,6 +214,9 @@ export function TvGrid({
   showExplicit?: boolean;
   /** Where the cards are listed, passed to their media menus. */
   menuContext?: { folderId?: string };
+  /** The screen's initial focus goes to the first card, not to buttons
+   *  above the grid. */
+  autoFocusFirst?: boolean;
 }) {
   const nav = useTvNav();
   const wide = entries.every((e) => e.key.startsWith("promo:"));
@@ -222,6 +229,7 @@ export function TvGrid({
         <TvCard
           key={entry.key}
           index={i}
+          autoFocus={autoFocusFirst && i === 0}
           entry={entry}
           wide={wide}
           menu={cardMenu(nav, entry, menuContext)}
