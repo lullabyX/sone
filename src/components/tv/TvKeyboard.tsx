@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useStore } from "jotai";
-import { Delete, X } from "lucide-react";
+import { Delete, Search, X } from "lucide-react";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { TvScreenContext } from "./TvNavContext";
 
@@ -22,6 +22,7 @@ export default function TvKeyboard({
   onChange,
   autoFocus,
   empty,
+  onSubmit,
 }: {
   /** Applies an edit to the current text. */
   onChange: (edit: (text: string) => string) => void;
@@ -29,6 +30,8 @@ export default function TvKeyboard({
   autoFocus?: boolean;
   /** The text is empty, so Backspace means Back. */
   empty?: boolean;
+  /** Adds a last, full-width "Search" key that calls it. */
+  onSubmit?: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<"lower" | "upper" | "symbols">("lower");
@@ -145,6 +148,17 @@ export default function TvKeyboard({
       >
         <X className="w-[1.1rem] h-[1.1rem]" />
       </button>
+      {onSubmit && (
+        <button
+          data-tv-focusable
+          aria-label="Search"
+          onClick={onSubmit}
+          className="tv-key col-span-6 h-[2.4rem] rounded-[0.4rem] bg-th-surface flex items-center justify-center gap-[0.5rem] text-[0.8rem] font-semibold text-th-text-primary"
+        >
+          <Search className="w-[1.1rem] h-[1.1rem]" />
+          Search
+        </button>
+      )}
     </div>
   );
 }

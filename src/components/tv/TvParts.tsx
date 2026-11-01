@@ -206,6 +206,7 @@ export function TvGrid({
   showExplicit,
   menuContext,
   autoFocusFirst,
+  onActivate,
 }: {
   entries: TvEntry[];
   queueTracks?: Track[];
@@ -217,6 +218,8 @@ export function TvGrid({
   /** The screen's initial focus goes to the first card, not to buttons
    *  above the grid. */
   autoFocusFirst?: boolean;
+  /** Runs before a card is opened or played. */
+  onActivate?: () => void;
 }) {
   const nav = useTvNav();
   const wide = entries.every((e) => e.key.startsWith("promo:"));
@@ -234,13 +237,14 @@ export function TvGrid({
           wide={wide}
           menu={cardMenu(nav, entry, menuContext)}
           showExplicit={showExplicit}
-          onSelect={() =>
+          onSelect={() => {
+            onActivate?.();
             nav.run(entry.action, {
               tracks: queueTracks ?? [],
               name,
               id: queueId,
-            })
-          }
+            });
+          }}
         />
       ))}
     </div>
@@ -257,6 +261,7 @@ export function TvRow({
   viewAll,
   showExplicit,
   menuContext,
+  onActivate,
 }: {
   title: string;
   entries: TvEntry[];
@@ -267,6 +272,8 @@ export function TvRow({
   showExplicit?: boolean;
   /** Where the cards are listed (the playlist folder), for their menus. */
   menuContext?: { folderId?: string };
+  /** Runs before a card (or "View all") is opened or played. */
+  onActivate?: () => void;
 }) {
   const nav = useTvNav();
   if (entries.length === 0) return null;
@@ -300,13 +307,14 @@ export function TvRow({
             wide={wide}
             menu={cardMenu(nav, entry, menuContext)}
             showExplicit={showExplicit}
-            onSelect={() =>
+            onSelect={() => {
+              onActivate?.();
               nav.run(entry.action, {
                 tracks: queueTracks ?? [],
                 name: title,
                 id: queueId ?? title,
-              })
-            }
+              });
+            }}
           />
         ))}
       </div>

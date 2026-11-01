@@ -68,3 +68,12 @@ it("keeps focus on the toggle key across a case or layer switch", () => {
   expect(document.activeElement).toBe(layer);
   expect(layer.getAttribute("aria-label")).toBe("Letters");
 });
+it("has a Search key only when asked", () => {
+  const onSubmit = vi.fn();
+  const { unmount } = renderTv(<TvKeyboard onChange={vi.fn()} onSubmit={onSubmit} />);
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  unmount();
+  renderTv(<TvKeyboard onChange={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
+});

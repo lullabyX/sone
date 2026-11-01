@@ -56,3 +56,6 @@ export type TvNowPlayingTab = "queue" | "suggested" | "history" | "credits";
 
 /** The last Now Playing tab used, kept for the session only. */
 export const tvNowPlayingTabAtom = atom<TvNowPlayingTab>("queue");
+
+/** The TV search text, kept across visits to Search for the session. */
+export const tvSearchQueryAtom = atom("");
