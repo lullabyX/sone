@@ -41,7 +41,8 @@ export function heldKeys(input: PadInput, prev: Set<string>): Set<string> {
   for (const [i, key] of BUTTON_KEYS) if (input.buttons[i]) next.add(key);
   const stick = (v: number, neg: string, pos: string) => {
     const key = v < 0 ? neg : pos;
-    if (Math.abs(v) >= (prev.has(key) ? STICK_HOLD : STICK_PRESS)) next.add(key);
+    if (Math.abs(v) >= (prev.has(key) ? STICK_HOLD : STICK_PRESS))
+      next.add(key);
   };
   stick(input.axes[0] ?? 0, "ArrowLeft", "ArrowRight");
   stick(input.axes[1] ?? 0, "ArrowUp", "ArrowDown");

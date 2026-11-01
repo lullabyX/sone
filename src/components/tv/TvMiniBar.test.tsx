@@ -5,7 +5,13 @@ import { isPlayingAtom } from "../../atoms/playback";
 import { currentVideoAtom, videoPlayingAtom } from "../../atoms/video";
 import type { TidalVideo } from "../../types";
 import TvMiniBar from "./TvMiniBar";
-import { mkTrack, mockInvoke, renderTv, setupTvTest, withQueue } from "./tvTestUtils";
+import {
+  mkTrack,
+  mockInvoke,
+  renderTv,
+  setupTvTest,
+  withQueue,
+} from "./tvTestUtils";
 
 const media = vi.hoisted(() => vi.fn());
 vi.mock("./useTvMediaCommands", () => ({ useTvMediaCommands: () => media }));
@@ -19,7 +25,11 @@ beforeEach(() => {
 
 it("shows Pause while a video plays", () => {
   const store = withQueue([], mkTrack(9, { itemType: "video" }));
-  store.set(currentVideoAtom, { id: 9, title: "V", duration: 100 } as TidalVideo);
+  store.set(currentVideoAtom, {
+    id: 9,
+    title: "V",
+    duration: 100,
+  } as TidalVideo);
   store.set(videoPlayingAtom, true);
   store.set(isPlayingAtom, false);
   renderTv(<TvMiniBar />, { store });
@@ -39,7 +49,11 @@ it("sends transport commands", () => {
   fireEvent.click(screen.getByRole("button", { name: "Previous" }));
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  expect(media.mock.calls.map((c) => c[0].kind)).toEqual(["previous", "toggle", "next"]);
+  expect(media.mock.calls.map((c) => c[0].kind)).toEqual([
+    "previous",
+    "toggle",
+    "next",
+  ]);
 });
 
 it("renders nothing without a track", () => {

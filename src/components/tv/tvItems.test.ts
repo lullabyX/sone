@@ -214,7 +214,13 @@ describe("viewForSource", () => {
 
   it("opens a mix with its mix type", () => {
     expect(
-      viewForSource({ type: "mix", id: "m", name: "M", mixType: "ARTIST_MIX", tracks: [] }),
+      viewForSource({
+        type: "mix",
+        id: "m",
+        name: "M",
+        mixType: "ARTIST_MIX",
+        tracks: [],
+      }),
     ).toMatchObject({ type: "mix", mixId: "m", mixType: "ARTIST_MIX" });
   });
 
@@ -234,14 +240,35 @@ describe("viewForSource", () => {
 describe("entryState", () => {
   it("dims blocked or unavailable tracks and AI media like the desktop", () => {
     const off = { allowExplicit: false, allowAi: false };
-    const t = sectionEntries([mkTrack(1, { explicit: true })], "TRACK_LIST").entries[0];
-    expect(entryState(t, off)).toEqual({ dimmed: true, explicitBadge: true, aiBadge: false });
-    const album = sectionEntries([{ id: 5, title: "A", cover: "c", ai: true, explicit: true }], "ALBUM_LIST").entries[0];
-    expect(entryState(album, off)).toEqual({ dimmed: true, explicitBadge: false, aiBadge: true });
-    expect(entryState(album, off, { showExplicit: true }).explicitBadge).toBe(true);
-    expect(entryState(album, { allowExplicit: false, allowAi: true }).dimmed).toBe(false);
-    const gone = sectionEntries([mkTrack(2, { streamReady: false })], "TRACK_LIST").entries[0];
-    expect(entryState(gone, { allowExplicit: true, allowAi: true }).dimmed).toBe(true);
+    const t = sectionEntries([mkTrack(1, { explicit: true })], "TRACK_LIST")
+      .entries[0];
+    expect(entryState(t, off)).toEqual({
+      dimmed: true,
+      explicitBadge: true,
+      aiBadge: false,
+    });
+    const album = sectionEntries(
+      [{ id: 5, title: "A", cover: "c", ai: true, explicit: true }],
+      "ALBUM_LIST",
+    ).entries[0];
+    expect(entryState(album, off)).toEqual({
+      dimmed: true,
+      explicitBadge: false,
+      aiBadge: true,
+    });
+    expect(entryState(album, off, { showExplicit: true }).explicitBadge).toBe(
+      true,
+    );
+    expect(
+      entryState(album, { allowExplicit: false, allowAi: true }).dimmed,
+    ).toBe(false);
+    const gone = sectionEntries(
+      [mkTrack(2, { streamReady: false })],
+      "TRACK_LIST",
+    ).entries[0];
+    expect(
+      entryState(gone, { allowExplicit: true, allowAi: true }).dimmed,
+    ).toBe(true);
   });
 });
 
@@ -249,16 +276,32 @@ describe("groupByVolume", () => {
   it("groups by disc in first-appearance order; no disc number is disc 1", () => {
     const v = (id: number, vol?: number) => mkTrack(id, { volumeNumber: vol });
     expect(
-      [...groupByVolume([v(1, 1), v(2, 1), v(3, 2)]).entries()].map(([k, ts]) => [k, ts.map((t) => t.id)]),
-    ).toEqual([[1, [1, 2]], [2, [3]]]);
+      [...groupByVolume([v(1, 1), v(2, 1), v(3, 2)]).entries()].map(
+        ([k, ts]) => [k, ts.map((t) => t.id)],
+      ),
+    ).toEqual([
+      [1, [1, 2]],
+      [2, [3]],
+    ]);
     expect([...groupByVolume([v(1)]).keys()]).toEqual([1]);
   });
 });
 
 describe("libraryEntries", () => {
-  const folder = (id: string, name: string, count?: number): PlaylistOrFolder => ({
+  const folder = (
+    id: string,
+    name: string,
+    count?: number,
+  ): PlaylistOrFolder => ({
     kind: "folder",
-    data: { id, name, parent: null, addedAt: "", lastModifiedAt: "", totalNumberOfItems: count },
+    data: {
+      id,
+      name,
+      parent: null,
+      addedAt: "",
+      lastModifiedAt: "",
+      totalNumberOfItems: count,
+    },
   });
   const playlist = (uuid: string, title: string): PlaylistOrFolder => ({
     kind: "playlist",
@@ -267,9 +310,17 @@ describe("libraryEntries", () => {
 
   it("names, counts and routes folders", () => {
     const entries = libraryEntries(
-      [folder("f1", "Road", 3), folder("f2", "Gym"), playlist("p1", "Mine"), playlist("p1", "Mine")],
+      [
+        folder("f1", "Road", 3),
+        folder("f2", "Gym"),
+        playlist("p1", "Mine"),
+        playlist("p1", "Mine"),
+      ],
       new Map([["f1", "Road trips"]]),
-      new Map([["f1", 1], ["f2", -2]]),
+      new Map([
+        ["f1", 1],
+        ["f2", -2],
+      ]),
     );
     expect(entries.map((e) => [e.key, e.title, e.subtitle])).toEqual([
       ["folder:f1", "Road trips", "4 playlists"],
@@ -281,17 +332,30 @@ describe("libraryEntries", () => {
       icon: "folder",
       action: {
         kind: "open",
-        view: { type: "list", title: "Road trips", source: { kind: "collection", what: "playlists", folderId: "f1" } },
+        view: {
+          type: "list",
+          title: "Road trips",
+          source: { kind: "collection", what: "playlists", folderId: "f1" },
+        },
       },
     });
-    expect(entries[2].action).toMatchObject({ kind: "open", view: { type: "playlist", uuid: "p1" } });
+    expect(entries[2].action).toMatchObject({
+      kind: "open",
+      view: { type: "playlist", uuid: "p1" },
+    });
   });
 });
 
 describe("topHitEntries", () => {
   it("top hits route by kind", () => {
-    const [t, a] = topHitEntries([{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }, { hitType: "ALBUMS", id: 4, title: "LP" }] as DirectHitItem[]);
+    const [t, a] = topHitEntries([
+      { hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) },
+      { hitType: "ALBUMS", id: 4, title: "LP" },
+    ] as DirectHitItem[]);
     expect(t.action).toEqual({ kind: "playTrack", track: mkTrack(1) });
-    expect(a.action).toMatchObject({ kind: "open", view: { type: "album", id: 4 } });
+    expect(a.action).toMatchObject({
+      kind: "open",
+      view: { type: "album", id: 4 },
+    });
   });
 });

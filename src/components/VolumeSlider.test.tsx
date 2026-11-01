@@ -10,7 +10,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import VolumeSlider from "./VolumeSlider";
-import { volumeAtom, bitPerfectAtom, preMuteVolumeAtom } from "../atoms/playback";
+import {
+  volumeAtom,
+  bitPerfectAtom,
+  preMuteVolumeAtom,
+} from "../atoms/playback";
 import { currentVideoAtom } from "../atoms/video";
 import type { TidalVideo } from "../types";
 // usePlaybackActions (used by VolumeSlider) calls useToast(), which throws

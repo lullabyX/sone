@@ -29,10 +29,7 @@ function Root({ onSeen }: { onSeen: (v: string) => void }) {
   return <Child onSeen={onSeen} />;
 }
 
-function renderWithZoom(
-  onSeen: (v: string) => void,
-  store = createStore(),
-) {
+function renderWithZoom(onSeen: (v: string) => void, store = createStore()) {
   render(
     <Provider store={store}>
       <Root onSeen={onSeen} />

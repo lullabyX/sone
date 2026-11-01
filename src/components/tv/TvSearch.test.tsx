@@ -1,47 +1,100 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { SearchResults, TidalVideo } from "../../types";
 import TvSearch from "./TvSearch";
 import { menuForElement } from "./tvMenu";
-import { deferred, mkTrack, pressKey, range, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
+import {
+  deferred,
+  mkTrack,
+  pressKey,
+  range,
+  renderTv,
+  setupTvTest,
+  stubLayout,
+} from "./tvTestUtils";
 
 setupTvTest();
 const searchTidal = vi.hoisted(() =>
-  vi.fn((_query: string, _limit?: number): Promise<SearchResults> => new Promise(() => {})));
+  vi.fn(
+    (_query: string, _limit?: number): Promise<SearchResults> =>
+      new Promise(() => {}),
+  ),
+);
 vi.mock("../../api/tidal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../api/tidal")>()), searchTidal }));
-beforeEach(() => { searchTidal.mockReset(); });
-const stored = () => JSON.parse(localStorage.getItem("sone.search-history") ?? "[]");
-const vid = (i: number) => ({ id: i, title: `Video ${i}`, imageId: "v", duration: 60 }) as TidalVideo;
+  ...(await importOriginal<typeof import("../../api/tidal")>()),
+  searchTidal,
+}));
+beforeEach(() => {
+  searchTidal.mockReset();
+});
+const stored = () =>
+  JSON.parse(localStorage.getItem("sone.search-history") ?? "[]");
+const vid = (i: number) =>
+  ({ id: i, title: `Video ${i}`, imageId: "v", duration: 60 }) as TidalVideo;
 const cardIn = (row: string, title: string) =>
-  within(screen.getByRole("heading", { name: row }).closest("section")!).getByText(title).closest("button")!;
-const oneTrack = () => ({ tracks: [mkTrack(1)], artists: [], albums: [], playlists: [], videos: [] }) as unknown as SearchResults;
+  within(screen.getByRole("heading", { name: row }).closest("section")!)
+    .getByText(title)
+    .closest("button")!;
+const oneTrack = () =>
+  ({
+    tracks: [mkTrack(1)],
+    artists: [],
+    albums: [],
+    playlists: [],
+    videos: [],
+  }) as unknown as SearchResults;
 it("does not pull typing out of an open prompt", () => {
-  renderTv(<><TvSearch /><div data-tv-modal><button>ok</button></div></>);
+  renderTv(
+    <>
+      <TvSearch />
+      <div data-tv-modal>
+        <button>ok</button>
+      </div>
+    </>,
+  );
   const ok = screen.getByText("ok");
   ok.focus();
   pressKey(ok, { key: "a" });
   expect(document.activeElement).toBe(ok);
-  expect((screen.getByPlaceholderText("Search TIDAL") as HTMLInputElement).value).toBe("");
+  expect(
+    (screen.getByPlaceholderText("Search TIDAL") as HTMLInputElement).value,
+  ).toBe("");
 });
 it("shows recent searches and re-runs one", async () => {
   localStorage.setItem("sone.search-history", JSON.stringify(["miles davis"]));
   renderTv(<TvSearch />);
   fireEvent.click(await screen.findByRole("button", { name: "miles davis" }));
-  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("miles davis");
+  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe(
+    "miles davis",
+  );
 });
 it("shows no recent searches when there are none", () => {
   renderTv(<TvSearch />);
   expect(screen.queryByText("Recent searches")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Clear recent searches" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Clear recent searches" }),
+  ).toBeNull();
 });
 // Recent-search queries are words of several letters: the on-screen keyboard is always rendered, and its letter keys
 // are buttons named "a", "b", …, so one-letter queries would match those keys.
 it("removes a recent search from its menu", async () => {
-  localStorage.setItem("sone.search-history", JSON.stringify(["jazz", "blues"]));
+  localStorage.setItem(
+    "sone.search-history",
+    JSON.stringify(["jazz", "blues"]),
+  );
   renderTv(<TvSearch />);
-  const spec = menuForElement(await screen.findByRole("button", { name: "jazz" }))!();
-  const remove = spec.items.find((i) => i.label === "Remove from recent searches")!;
+  const spec = menuForElement(
+    await screen.findByRole("button", { name: "jazz" }),
+  )!();
+  const remove = spec.items.find(
+    (i) => i.label === "Remove from recent searches",
+  )!;
   act(() => void remove.onSelect!());
   expect(screen.queryByRole("button", { name: "jazz" })).toBeNull();
   expect(screen.getByRole("button", { name: "blues" })).toBeTruthy();
@@ -50,15 +103,26 @@ it("removes a recent search from its menu", async () => {
 it("keeps focus in the list after a removal, and on the keys once it is empty", async () => {
   const restore = stubLayout();
   try {
-    localStorage.setItem("sone.search-history", JSON.stringify(["jazz", "blues"]));
+    localStorage.setItem(
+      "sone.search-history",
+      JSON.stringify(["jazz", "blues"]),
+    );
     const { nav } = renderTv(<TvSearch />);
     const jazz = await screen.findByRole("button", { name: "jazz" });
     jazz.focus();
     act(() => void menuForElement(jazz)!().items[0].onSelect!());
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "blues" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clear recent searches" }));
-    act(() => void vi.mocked(nav.openMenu).mock.lastCall![0].items[1].onSelect!());
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "a" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "blues" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Clear recent searches" }),
+    );
+    act(
+      () => void vi.mocked(nav.openMenu).mock.lastCall![0].items[1].onSelect!(),
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "a" }),
+    );
   } finally {
     restore();
   }
@@ -93,7 +157,9 @@ it("Enter in the search box records the query, but not while composing", () => {
   renderTv(<TvSearch />);
   const box = screen.getByRole("textbox");
   fireEvent.change(box, { target: { value: "jazz" } });
-  expect(fireEvent.keyDown(box, { key: "Enter", isComposing: true })).toBe(true);
+  expect(fireEvent.keyDown(box, { key: "Enter", isComposing: true })).toBe(
+    true,
+  );
   expect(stored()).toEqual([]);
   // Prevented, so the keypress cannot activate the result focus moves to.
   expect(fireEvent.keyDown(box, { key: "Enter" })).toBe(false);
@@ -101,9 +167,14 @@ it("Enter in the search box records the query, but not while composing", () => {
   expect(stored()).toEqual(["jazz"]);
 });
 it("clears recent searches after a confirmation that leads with Cancel", async () => {
-  localStorage.setItem("sone.search-history", JSON.stringify(["jazz", "blues"]));
+  localStorage.setItem(
+    "sone.search-history",
+    JSON.stringify(["jazz", "blues"]),
+  );
   const { nav } = renderTv(<TvSearch />);
-  fireEvent.click(await screen.findByRole("button", { name: "Clear recent searches" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Clear recent searches" }),
+  );
   const spec = vi.mocked(nav.openMenu).mock.lastCall![0];
   expect(spec.items.map((i) => i.label)).toEqual(["Cancel", "Clear"]);
   act(() => void spec.items[1].onSelect!());
@@ -130,8 +201,12 @@ it("the Search key moves focus to the first result, now or once it arrives", asy
     fireEvent.click(key);
     expect(document.activeElement).toBe(key);
     await waitFor(() => expect(searchTidal).toHaveBeenCalledTimes(2));
-    await act(async () => later.resolve({ ...oneTrack(), tracks: [mkTrack(2)] }));
-    expect(document.activeElement).toBe(screen.getByText("T2").closest("button"));
+    await act(async () =>
+      later.resolve({ ...oneTrack(), tracks: [mkTrack(2)] }),
+    );
+    expect(document.activeElement).toBe(
+      screen.getByText("T2").closest("button"),
+    );
   } finally {
     restore();
   }
@@ -157,29 +232,49 @@ it("a late result leaves focus alone once the user has moved on", async () => {
   }
 });
 it("picking a recent search moves it to the top and focus to the Search key", async () => {
-  localStorage.setItem("sone.search-history", JSON.stringify(["jazz", "miles davis"]));
+  localStorage.setItem(
+    "sone.search-history",
+    JSON.stringify(["jazz", "miles davis"]),
+  );
   renderTv(<TvSearch />);
   const recent = await screen.findByRole("button", { name: "miles davis" });
   recent.focus();
   fireEvent.click(recent);
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search" }));
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Search" }),
+  );
   expect(stored()).toEqual(["miles davis", "jazz"]);
 });
 it("shows top hits and queues the other videos", async () => {
-  vi.mocked(searchTidal).mockResolvedValueOnce({ tracks: [], artists: [], albums: [], playlists: [], videos: [vid(1), vid(2)],
-    topHits: [{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }] } as SearchResults);
+  vi.mocked(searchTidal).mockResolvedValueOnce({
+    tracks: [],
+    artists: [],
+    albums: [],
+    playlists: [],
+    videos: [vid(1), vid(2)],
+    topHits: [{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }],
+  } as SearchResults);
   const { nav } = renderTv(<TvSearch />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
   await screen.findByText("Top hits");
   fireEvent.click(cardIn("Videos", "Video 2"));
   const [action, queue] = vi.mocked(nav.run).mock.lastCall!;
-  expect(action).toMatchObject({ kind: "playTrack", track: { id: 2, itemType: "video" } });
-  expect(queue).toMatchObject({ type: "search", name: "Search: x" }); expect(queue!.tracks.map((t) => t.id)).toEqual([1, 2]);
+  expect(action).toMatchObject({
+    kind: "playTrack",
+    track: { id: 2, itemType: "video" },
+  });
+  expect(queue).toMatchObject({ type: "search", name: "Search: x" });
+  expect(queue!.tracks.map((t) => t.id)).toEqual([1, 2]);
 });
 it("plays a top hit on its own and badges explicit results", async () => {
-  vi.mocked(searchTidal).mockResolvedValueOnce({ tracks: [mkTrack(2)], artists: [], playlists: [], videos: [],
+  vi.mocked(searchTidal).mockResolvedValueOnce({
+    tracks: [mkTrack(2)],
+    artists: [],
+    playlists: [],
+    videos: [],
     albums: [{ id: 4, title: "LP", cover: "c", explicit: true }],
-    topHits: [{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }] } as unknown as SearchResults);
+    topHits: [{ hitType: "TRACKS", id: 1, title: "Song", track: mkTrack(1) }],
+  } as unknown as SearchResults);
   const { nav } = renderTv(<TvSearch />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
   await screen.findByText("Top hits");
@@ -190,7 +285,13 @@ it("plays a top hit on its own and badges explicit results", async () => {
   expect(within(cardIn("Albums", "LP")).getByText("E")).toBeTruthy();
 });
 it("searches 50 per kind and caps rows with View all", async () => {
-  vi.mocked(searchTidal).mockResolvedValueOnce({ tracks: range(30).map((i) => mkTrack(i + 1)), artists: [], albums: [], playlists: [], videos: [] } as SearchResults);
+  vi.mocked(searchTidal).mockResolvedValueOnce({
+    tracks: range(30).map((i) => mkTrack(i + 1)),
+    artists: [],
+    albums: [],
+    playlists: [],
+    videos: [],
+  } as SearchResults);
   const { nav } = renderTv(<TvSearch />);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
   const heading = await screen.findByRole("heading", { name: "Tracks" });
@@ -198,7 +299,15 @@ it("searches 50 per kind and caps rows with View all", async () => {
   const cards = within(heading.closest("section")!).getAllByRole("button");
   expect(cards).toHaveLength(13);
   fireEvent.click(cards[12]);
-  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "searchResults", query: "x", what: "tracks", title: "Tracks" } });
+  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({
+    kind: "open",
+    view: {
+      type: "searchResults",
+      query: "x",
+      what: "tracks",
+      title: "Tracks",
+    },
+  });
   expect(stored()).toEqual(["x"]);
 });
 it("a failed search offers Try again, which asks again and moves focus to the results", async () => {

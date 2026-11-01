@@ -1,10 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import {
-  act,
-  fireEvent,
-  screen,
-  within,
-} from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { createStore } from "jotai";
 
 const auth = vi.hoisted(() => ({ userName: "Ann", logout: vi.fn() })); // one object: useAuth keeps stable identities

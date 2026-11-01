@@ -123,11 +123,7 @@ export default function TvPrompt({
           <TvKeyboard autoFocus onChange={edit} empty={text === ""} />
         </div>
         <div className="mt-[1.4rem] flex gap-[0.8rem]">
-          <TvButton
-            primary
-            label={request.confirm}
-            onClick={submit}
-          />
+          <TvButton primary label={request.confirm} onClick={submit} />
           <TvButton label="Cancel" onClick={() => onDone(null)} />
         </div>
       </div>

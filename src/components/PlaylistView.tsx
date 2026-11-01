@@ -27,10 +27,7 @@ import { usePlaylists } from "../hooks/usePlaylists";
 import { usePlaylistRecommendations } from "../hooks/usePlaylistRecommendations";
 import { useRestoreLoader } from "../hooks/useRestoreLoader";
 import { useToast } from "../contexts/ToastContext";
-import {
-  getPlaylistTracksPage,
-  getPlaylistDetails,
-} from "../api/tidal";
+import { getPlaylistTracksPage, getPlaylistDetails } from "../api/tidal";
 import { getApiStatus, safeErrorMessage } from "../lib/errorUtils";
 import {
   getShareUrl,

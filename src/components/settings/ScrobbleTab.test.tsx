@@ -186,7 +186,9 @@ describe("ScrobbleTab ListenBrainz token page", () => {
       </Provider>,
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: /listenbrainz\.org\/settings/ }),
+      await screen.findByRole("button", {
+        name: /listenbrainz\.org\/settings/,
+      }),
     );
     expect(openUrl).toHaveBeenCalledWith("https://listenbrainz.org/settings/");
     expect(

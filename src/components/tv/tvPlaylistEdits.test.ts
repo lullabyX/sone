@@ -47,7 +47,9 @@ describe("playlist writes", () => {
     const sent: string[] = [];
     const fail = deferred<void>();
     const a = queuePlaylistEdit("p", () => fail.promise, { positional: true });
-    const b = queuePlaylistEdit("p", async () => void sent.push("b"), { positional: true });
+    const b = queuePlaylistEdit("p", async () => void sent.push("b"), {
+      positional: true,
+    });
     const add = queuePlaylistEdit("p", async () => void sent.push("add"));
     fail.reject(new Error("x"));
     await expect(a).rejects.toThrow("x");
@@ -56,7 +58,9 @@ describe("playlist writes", () => {
     expect(sent).toEqual(["add"]);
     expect(playlistRevision("p")).toBe(4);
     expect(api.invalidateCache).toHaveBeenCalledWith("playlist:p");
-    const c = queuePlaylistEdit("p", async () => void sent.push("c"), { positional: true });
+    const c = queuePlaylistEdit("p", async () => void sent.push("c"), {
+      positional: true,
+    });
     expect(await c).toBe(true);
   });
 

@@ -56,9 +56,7 @@ export default function TvSearch() {
   const recentRef = useRef<HTMLDivElement>(null);
   // Results to move focus to once they arrive, unless focus moved on from
   // where it was when the search was submitted.
-  const pendingFocus = useRef<{ q: string; from: Element | null } | null>(
-    null,
-  );
+  const pendingFocus = useRef<{ q: string; from: Element | null } | null>(null);
   // Bumped to ask again for a search that failed.
   const [attempt, setAttempt] = useState(0);
   // After a recent search is removed: the row to focus in its place.

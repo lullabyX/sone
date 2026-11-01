@@ -1,5 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { __resetHomeFeedForTests } from "../../hooks/useHomeFeed";
 import TvHome from "./TvHome";
 import { deferred, renderTv, setupTvTest, stubLayout } from "./tvTestUtils";
@@ -28,15 +34,27 @@ const s = (title: string) => ({
   items: [{ id: nextId++, title: `${title} album`, cover: "c" }],
   hasMore: false,
 });
-const empty = (title: string) => ({ title, sectionType: "ALBUM_LIST", items: [], hasMore: false });
+const empty = (title: string) => ({
+  title,
+  sectionType: "ALBUM_LIST",
+  items: [],
+  hasMore: false,
+});
 const firstCardOf = (title: string) =>
   within(
     screen.getByRole("heading", { name: title }).closest("section")!,
   ).getAllByRole("button")[0];
 
 it("pages in more rows only when focus nears the end, and keeps them across remounts", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B"), s("C")], cursor: "c1" }, isStale: false });
-  api.getHomePageMore.mockResolvedValue({ tabs: [], sections: [s("D")], cursor: "c2" });
+  api.getHomePage.mockResolvedValue({
+    home: { tabs: [], sections: [s("A"), s("B"), s("C")], cursor: "c1" },
+    isStale: false,
+  });
+  api.getHomePageMore.mockResolvedValue({
+    tabs: [],
+    sections: [s("D")],
+    cursor: "c2",
+  });
   const r = renderTv(<TvHome />);
   await screen.findByText("A");
   expect(api.getHomePageMore).not.toHaveBeenCalled();
@@ -59,7 +77,11 @@ it("refreshes a stale feed and switches tabs", async () => {
       ? { home: { tabs, sections: [s("Beats")], cursor: null }, isStale: false }
       : { home: { tabs, sections: [s("Old")], cursor: null }, isStale: true },
   );
-  api.refreshHomePage.mockResolvedValue({ tabs, sections: [s("Fresh")], cursor: null });
+  api.refreshHomePage.mockResolvedValue({
+    tabs,
+    sections: [s("Fresh")],
+    cursor: null,
+  });
   renderTv(<TvHome />);
   expect(await screen.findByText("Fresh")).toBeTruthy();
   expect(screen.queryByText("Old")).toBeNull();
@@ -69,14 +91,41 @@ it("refreshes a stale feed and switches tabs", async () => {
 });
 
 it("badges explicit cards in Home rows, as the desktop", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [{ title: "New", sectionType: "ALBUM_LIST", items: [{ id: 99, title: "Loud", cover: "c", explicit: true }], hasMore: false }], cursor: null }, isStale: false });
+  api.getHomePage.mockResolvedValue({
+    home: {
+      tabs: [],
+      sections: [
+        {
+          title: "New",
+          sectionType: "ALBUM_LIST",
+          items: [{ id: 99, title: "Loud", cover: "c", explicit: true }],
+          hasMore: false,
+        },
+      ],
+      cursor: null,
+    },
+    isStale: false,
+  });
   renderTv(<TvHome />);
-  expect(within((await screen.findByText("Loud")).closest("button")!).getByText("E")).toBeTruthy();
+  expect(
+    within((await screen.findByText("Loud")).closest("button")!).getByText("E"),
+  ).toBeTruthy();
 });
 
 it("a page whose last rows show no cards still offers Load more", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), empty("X"), empty("Y")], cursor: "c1" }, isStale: false });
-  api.getHomePageMore.mockResolvedValue({ tabs: [], sections: [s("D")], cursor: null });
+  api.getHomePage.mockResolvedValue({
+    home: {
+      tabs: [],
+      sections: [s("A"), empty("X"), empty("Y")],
+      cursor: "c1",
+    },
+    isStale: false,
+  });
+  api.getHomePageMore.mockResolvedValue({
+    tabs: [],
+    sections: [s("D")],
+    cursor: null,
+  });
   renderTv(<TvHome />);
   await screen.findByText("A");
   act(() => firstCardOf("A").focus());
@@ -91,7 +140,10 @@ it("a page whose last rows show no cards still offers Load more", async () => {
 });
 
 it("a failed page offers Try again, which asks for it again", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B"), s("C")], cursor: "c1" }, isStale: false });
+  api.getHomePage.mockResolvedValue({
+    home: { tabs: [], sections: [s("A"), s("B"), s("C")], cursor: "c1" },
+    isStale: false,
+  });
   api.getHomePageMore
     .mockRejectedValueOnce({ kind: "Network", message: "offline" })
     .mockResolvedValueOnce({ tabs: [], sections: [s("D")], cursor: null });
@@ -112,50 +164,70 @@ it("a failed page offers Try again, which asks for it again", async () => {
 
 it("holds a stale refresh back while focus is below the first row", async () => {
   const fresh = deferred<unknown>();
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B")], cursor: null }, isStale: true });
+  api.getHomePage.mockResolvedValue({
+    home: { tabs: [], sections: [s("A"), s("B")], cursor: null },
+    isStale: true,
+  });
   api.refreshHomePage.mockReturnValue(fresh.promise);
   renderTv(<TvHome />);
   await screen.findByText("A");
   act(() => firstCardOf("B").focus());
-  await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
+  await act(async () =>
+    fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }),
+  );
   expect(screen.queryByText("Fresh")).toBeNull();
   expect(document.activeElement).toBe(firstCardOf("B"));
 });
 
 it("applies a stale refresh while focus is on the first row", async () => {
   const fresh = deferred<unknown>();
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B")], cursor: null }, isStale: true });
+  api.getHomePage.mockResolvedValue({
+    home: { tabs: [], sections: [s("A"), s("B")], cursor: null },
+    isStale: true,
+  });
   api.refreshHomePage.mockReturnValue(fresh.promise);
   renderTv(<TvHome />);
   await screen.findByText("A");
   act(() => firstCardOf("A").focus());
-  await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
+  await act(async () =>
+    fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }),
+  );
   expect(await screen.findByText("Fresh")).toBeTruthy();
   expect(screen.queryByText("A")).toBeNull();
 });
 
 it("while covered, holds a stale refresh back when focus was last below the first row", async () => {
   const fresh = deferred<unknown>();
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B")], cursor: null }, isStale: true });
+  api.getHomePage.mockResolvedValue({
+    home: { tabs: [], sections: [s("A"), s("B")], cursor: null },
+    isStale: true,
+  });
   api.refreshHomePage.mockReturnValue(fresh.promise);
   renderTv(<TvHome />, { active: false });
   await screen.findByText("A");
   act(() => firstCardOf("B").focus());
   act(() => (document.activeElement as HTMLElement).blur());
-  await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
+  await act(async () =>
+    fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }),
+  );
   expect(screen.queryByText("Fresh")).toBeNull();
   expect(screen.getByText("B")).toBeTruthy();
 });
 
 it("while covered, applies a stale refresh when focus was last on the first row", async () => {
   const fresh = deferred<unknown>();
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], sections: [s("A"), s("B")], cursor: null }, isStale: true });
+  api.getHomePage.mockResolvedValue({
+    home: { tabs: [], sections: [s("A"), s("B")], cursor: null },
+    isStale: true,
+  });
   api.refreshHomePage.mockReturnValue(fresh.promise);
   renderTv(<TvHome />, { active: false });
   await screen.findByText("A");
   act(() => firstCardOf("A").focus());
   act(() => (document.activeElement as HTMLElement).blur());
-  await act(async () => fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }));
+  await act(async () =>
+    fresh.resolve({ tabs: [], sections: [s("Fresh")], cursor: null }),
+  );
   expect(await screen.findByText("Fresh")).toBeTruthy();
 });
 
@@ -166,8 +238,14 @@ it("a page that failed on one tab shows no error while it loads again after anot
   ];
   api.getHomePage.mockImplementation(async (feedType?: string) =>
     feedType === "MUSIC"
-      ? { home: { tabs, sections: [s("M1"), s("M2"), s("M3")], cursor: "m1" }, isStale: false }
-      : { home: { tabs, sections: [s("A"), s("B")], cursor: "c1" }, isStale: false },
+      ? {
+          home: { tabs, sections: [s("M1"), s("M2"), s("M3")], cursor: "m1" },
+          isStale: false,
+        }
+      : {
+          home: { tabs, sections: [s("A"), s("B")], cursor: "c1" },
+          isStale: false,
+        },
   );
   const again = deferred<unknown>();
   api.getHomePageMore
@@ -197,12 +275,31 @@ const pl1 = { uuid: "u1", title: "Road", squareImage: "i" };
 const alb1 = { id: 3, title: "Blue", cover: "c" };
 
 it("shows shortcuts as a quick-access grid led by My Tracks", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
-    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [myTracks, pl1, alb1] }, s("Row")] }, isStale: false });
+  api.getHomePage.mockResolvedValue({
+    home: {
+      tabs: [],
+      cursor: null,
+      sections: [
+        {
+          title: "Shortcuts",
+          sectionType: "SHORTCUT_LIST",
+          items: [myTracks, pl1, alb1],
+        },
+        s("Row"),
+      ],
+    },
+    isStale: false,
+  });
   renderTv(<TvHome />);
   const grid = await screen.findByTestId("tv-quick-access");
-  expect(within(grid).getAllByRole("button").map((b) => b.textContent)).toEqual(["My Tracks", "Road", "Blue"]);
-  expect(grid.querySelector("[data-tv-autofocus]")!.textContent).toBe("My Tracks");
+  expect(
+    within(grid)
+      .getAllByRole("button")
+      .map((b) => b.textContent),
+  ).toEqual(["My Tracks", "Road", "Blue"]);
+  expect(grid.querySelector("[data-tv-autofocus]")!.textContent).toBe(
+    "My Tracks",
+  );
   expect(screen.queryByRole("heading", { name: "Shortcuts" })).toBeNull();
 });
 
@@ -214,34 +311,85 @@ it("a quick-access track plays with only the shown tracks queued", async () => {
     artist: { id: 1, name: "X" },
     album: { id: 2, title: "Y", cover: "c" },
   }));
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
-    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: tracks }] }, isStale: false });
+  api.getHomePage.mockResolvedValue({
+    home: {
+      tabs: [],
+      cursor: null,
+      sections: [
+        { title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: tracks },
+      ],
+    },
+    isStale: false,
+  });
   const r = renderTv(<TvHome />);
   const grid = await screen.findByTestId("tv-quick-access");
   expect(within(grid).getAllByRole("button")).toHaveLength(8);
   fireEvent.click(within(grid).getByText("Song 2"));
   const [action, context] = vi.mocked(r.nav.run).mock.lastCall!;
   expect(action).toMatchObject({ kind: "playTrack", track: { id: 902 } });
-  expect(context!.tracks!.map((t) => t.id)).toEqual([900, 901, 902, 903, 904, 905, 906]);
+  expect(context!.tracks!.map((t) => t.id)).toEqual([
+    900, 901, 902, 903, 904, 905, 906,
+  ]);
 });
 
 it("opens My Tracks and shortcuts from the quick-access grid", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: null,
-    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [myTracks, pl1] }] }, isStale: false });
+  api.getHomePage.mockResolvedValue({
+    home: {
+      tabs: [],
+      cursor: null,
+      sections: [
+        {
+          title: "Shortcuts",
+          sectionType: "SHORTCUT_LIST",
+          items: [myTracks, pl1],
+        },
+      ],
+    },
+    isStale: false,
+  });
   const r = renderTv(<TvHome />);
   const grid = await screen.findByTestId("tv-quick-access");
   fireEvent.click(within(grid).getByText("My Tracks"));
-  expect(vi.mocked(r.nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "favorites" } });
+  expect(vi.mocked(r.nav.run).mock.lastCall![0]).toEqual({
+    kind: "open",
+    view: { type: "favorites" },
+  });
   fireEvent.click(within(grid).getByText("Road"));
-  expect(vi.mocked(r.nav.run).mock.lastCall![0]).toMatchObject({ kind: "open", view: { type: "playlist", uuid: "u1" } });
-  expect(within(grid).getByText("Road").closest("button")!.hasAttribute("data-tv-has-menu")).toBe(true);
-  expect(within(grid).getByText("My Tracks").closest("button")!.hasAttribute("data-tv-has-menu")).toBe(false);
+  expect(vi.mocked(r.nav.run).mock.lastCall![0]).toMatchObject({
+    kind: "open",
+    view: { type: "playlist", uuid: "u1" },
+  });
+  expect(
+    within(grid)
+      .getByText("Road")
+      .closest("button")!
+      .hasAttribute("data-tv-has-menu"),
+  ).toBe(true);
+  expect(
+    within(grid)
+      .getByText("My Tracks")
+      .closest("button")!
+      .hasAttribute("data-tv-has-menu"),
+  ).toBe(false);
 });
 
 it("hands focus from Load more to the first new row below the quick access", async () => {
-  api.getHomePage.mockResolvedValue({ home: { tabs: [], cursor: "c1",
-    sections: [{ title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [pl1] }, s("A")] }, isStale: false });
-  api.getHomePageMore.mockResolvedValue({ tabs: [], sections: [s("D")], cursor: null });
+  api.getHomePage.mockResolvedValue({
+    home: {
+      tabs: [],
+      cursor: "c1",
+      sections: [
+        { title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [pl1] },
+        s("A"),
+      ],
+    },
+    isStale: false,
+  });
+  api.getHomePageMore.mockResolvedValue({
+    tabs: [],
+    sections: [s("D")],
+    cursor: null,
+  });
   renderTv(<TvHome />);
   const more = await screen.findByRole("button", { name: "Load more" });
   act(() => more.focus());
@@ -257,15 +405,29 @@ it("focuses My Tracks on entry but leaves focus on a tab it switches to", async 
       { tabType: "STATIC", name: "For You" },
       { tabType: "MUSIC", name: "Music" },
     ];
-    const shortcuts = { title: "Shortcuts", sectionType: "SHORTCUT_LIST", items: [pl1] };
+    const shortcuts = {
+      title: "Shortcuts",
+      sectionType: "SHORTCUT_LIST",
+      items: [pl1],
+    };
     api.getHomePage.mockImplementation(async (feedType?: string) =>
       feedType === "MUSIC"
-        ? { home: { tabs, sections: [s("Beats")], cursor: null }, isStale: false }
-        : { home: { tabs, sections: [shortcuts, s("Mine")], cursor: null }, isStale: false },
+        ? {
+            home: { tabs, sections: [s("Beats")], cursor: null },
+            isStale: false,
+          }
+        : {
+            home: { tabs, sections: [shortcuts, s("Mine")], cursor: null },
+            isStale: false,
+          },
     );
     renderTv(<TvHome />);
     const grid = await screen.findByTestId("tv-quick-access");
-    await waitFor(() => expect(document.activeElement).toBe(within(grid).getByText("My Tracks").closest("button")));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(grid).getByText("My Tracks").closest("button"),
+      ),
+    );
     const music = screen.getByRole("button", { name: "Music" });
     act(() => music.focus());
     fireEvent.click(music);
@@ -275,7 +437,9 @@ it("focuses My Tracks on entry but leaves focus on a tab it switches to", async 
     act(() => forYou.focus());
     fireEvent.click(forYou);
     await screen.findByTestId("tv-quick-access");
-    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+    await act(
+      () => new Promise((r) => requestAnimationFrame(() => r(undefined))),
+    );
     expect(document.activeElement).toBe(forYou);
   } finally {
     restore();

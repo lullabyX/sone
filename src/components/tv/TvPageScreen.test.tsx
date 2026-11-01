@@ -22,15 +22,45 @@ beforeEach(() => {
 const loud = { id: 5, title: "Loud", cover: "c", explicit: true };
 
 it("Explore rows badge explicit albums, as the desktop's sub-page rows", async () => {
-  api.getPageSection.mockResolvedValue({ tabs: [], sections: [
-    { title: "New albums", sectionType: "ALBUM_LIST", items: [loud], hasMore: false },
-    { title: "More", sectionType: "ALBUM_LIST", items: [{ id: 6, title: "Quiet", cover: "c" }], hasMore: false }] } as HomePageResponse);
+  api.getPageSection.mockResolvedValue({
+    tabs: [],
+    sections: [
+      {
+        title: "New albums",
+        sectionType: "ALBUM_LIST",
+        items: [loud],
+        hasMore: false,
+      },
+      {
+        title: "More",
+        sectionType: "ALBUM_LIST",
+        items: [{ id: 6, title: "Quiet", cover: "c" }],
+        hasMore: false,
+      },
+    ],
+  } as HomePageResponse);
   renderTv(<TvPageScreen title="Pop" apiPath="pages/pop" />);
-  expect(within((await screen.findByText("Loud")).closest("button")!).getByText("E")).toBeTruthy();
+  expect(
+    within((await screen.findByText("Loud")).closest("button")!).getByText("E"),
+  ).toBeTruthy();
 });
 
 it("a View all grid goes without, as the desktop's", async () => {
-  api.getPageSection.mockResolvedValue({ tabs: [], sections: [{ title: "New albums", sectionType: "ALBUM_LIST", items: [loud], hasMore: false }] } as HomePageResponse);
+  api.getPageSection.mockResolvedValue({
+    tabs: [],
+    sections: [
+      {
+        title: "New albums",
+        sectionType: "ALBUM_LIST",
+        items: [loud],
+        hasMore: false,
+      },
+    ],
+  } as HomePageResponse);
   renderTv(<TvPageScreen title="New albums" apiPath="pages/x" all />);
-  expect(within((await screen.findByText("Loud")).closest("button")!).queryByText("E")).toBeNull();
+  expect(
+    within((await screen.findByText("Loud")).closest("button")!).queryByText(
+      "E",
+    ),
+  ).toBeNull();
 });

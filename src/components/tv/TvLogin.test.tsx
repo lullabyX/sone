@@ -200,4 +200,3 @@ it("drops its sign-in listeners when they register only after it closed", async 
     vi.mocked(listen).mockImplementation(original);
   }
 });
-

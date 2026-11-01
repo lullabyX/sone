@@ -109,9 +109,15 @@ it("View all opens the artist's top tracks", async () => {
   expect(await screen.findByText("Appears on")).toBeTruthy();
   const viewAll = screen.getAllByRole("button", { name: "View all" });
   expect(viewAll).toHaveLength(1);
-  expect(viewAll[0].closest("section")!.textContent).toContain("Popular tracks");
+  expect(viewAll[0].closest("section")!.textContent).toContain(
+    "Popular tracks",
+  );
   fireEvent.click(viewAll[0]);
-  expect(nav.push).toHaveBeenCalledWith({ type: "artistTracks", artistId: 9, name: "X" });
+  expect(nav.push).toHaveBeenCalledWith({
+    type: "artistTracks",
+    artistId: 9,
+    name: "X",
+  });
 });
 
 it("says when the artist has nothing", async () => {
@@ -122,7 +128,9 @@ it("says when the artist has nothing", async () => {
   });
   renderTv(<TvArtistScreen view={{ type: "artist", id: 9 }} />);
   expect(
-    await screen.findByText("This artist doesn't have any tracks or albums yet."),
+    await screen.findByText(
+      "This artist doesn't have any tracks or albums yet.",
+    ),
   ).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Shuffle" })).toBeNull();

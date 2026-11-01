@@ -43,7 +43,9 @@ afterEach(() => {
 });
 
 it("tracks added or removed by the MCP server mark the playlist changed", () => {
-  handlers["mcp:playlist-tracks-changed"]({ payload: { uuid: "p", delta: -1 } });
+  handlers["mcp:playlist-tracks-changed"]({
+    payload: { uuid: "p", delta: -1 },
+  });
   expect(playlistRevision("p")).toBe(1);
   expect(playlistRevision("q")).toBe(0);
 });

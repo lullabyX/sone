@@ -81,9 +81,7 @@ describe("useTvLaunch", () => {
     await act(async () => {});
     act(() => store.set(tvModeAtom, false));
     expect(store.get(tvModeAtom)).toBe(false);
-    expect(JSON.parse(sessionStorage.getItem("sone.tvLaunch.v1")!)).toBe(
-      "off",
-    );
+    expect(JSON.parse(sessionStorage.getItem("sone.tvLaunch.v1")!)).toBe("off");
   });
 
   it("a late flag answer does not undo an exit made before it arrived", async () => {

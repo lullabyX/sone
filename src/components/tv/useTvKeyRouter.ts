@@ -122,7 +122,9 @@ function readTvKeyFacts(
   const root = opts.rootRef.current;
 
   const shown =
-    active instanceof HTMLElement && !!root?.contains(active) && isShown(active);
+    active instanceof HTMLElement &&
+    !!root?.contains(active) &&
+    isShown(active);
   let focus: TvKeyFacts["focus"] = "content";
   if (layer === "none" && !shown) focus = "lost";
   else if (opts.railRef.current?.contains(active)) focus = "rail";

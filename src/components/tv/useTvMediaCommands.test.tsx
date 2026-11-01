@@ -1,5 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { bitPerfectAtom, currentTrackAtom, preMuteVolumeAtom, volumeAtom } from "../../atoms/playback";
+import {
+  bitPerfectAtom,
+  currentTrackAtom,
+  preMuteVolumeAtom,
+  volumeAtom,
+} from "../../atoms/playback";
 import { tvVolumeLockedPingAtom } from "../../atoms/tv";
 import { currentVideoAtom } from "../../atoms/video";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
@@ -8,12 +13,25 @@ import { mkTrack, renderTvHook, setupTvTest } from "./tvTestUtils";
 import { useTvMediaCommands } from "./useTvMediaCommands";
 
 setupTvTest();
-const actions = vi.hoisted(() => ({ togglePlayPause: vi.fn(), resumeTrack: vi.fn(), pauseTrack: vi.fn(),
-  playNext: vi.fn(), playPrevious: vi.fn(), seekTo: vi.fn(), setVolume: vi.fn() }));
-vi.mock("../../hooks/usePlaybackActions", () => ({ usePlaybackActions: () => actions }));
+const actions = vi.hoisted(() => ({
+  togglePlayPause: vi.fn(),
+  resumeTrack: vi.fn(),
+  pauseTrack: vi.fn(),
+  playNext: vi.fn(),
+  playPrevious: vi.fn(),
+  seekTo: vi.fn(),
+  setVolume: vi.fn(),
+}));
+vi.mock("../../hooks/usePlaybackActions", () => ({
+  usePlaybackActions: () => actions,
+}));
 vi.mock("../../lib/playbackPosition", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../lib/playbackPosition")>()), getInterpolatedPosition: vi.fn(() => 5) }));
-afterEach(() => { videoElementRef.current = null; });
+  ...(await importOriginal<typeof import("../../lib/playbackPosition")>()),
+  getInterpolatedPosition: vi.fn(() => 5),
+}));
+afterEach(() => {
+  videoElementRef.current = null;
+});
 it("seeks audio within the track", () => {
   const { result, store } = renderTvHook(() => useTvMediaCommands());
   store.set(currentTrackAtom, mkTrack(1));
@@ -46,14 +64,17 @@ it("seeks a playing video through its element", () => {
 });
 it("maps transport commands", () => {
   const { result } = renderTvHook(() => useTvMediaCommands());
-  result.current({ kind: "next" }); result.current({ kind: "play" }); result.current({ kind: "pause" });
+  result.current({ kind: "next" });
+  result.current({ kind: "play" });
+  result.current({ kind: "pause" });
   expect(actions.playNext).toHaveBeenCalledWith({ explicit: true });
   expect(actions.resumeTrack).toHaveBeenCalledTimes(1);
   expect(actions.pauseTrack).toHaveBeenCalledTimes(1);
 });
 it("a locked volume changes nothing and says so", () => {
   const { result, store } = renderTvHook(() => useTvMediaCommands());
-  store.set(bitPerfectAtom, true); store.set(volumeAtom, 0.4);
+  store.set(bitPerfectAtom, true);
+  store.set(volumeAtom, 0.4);
   result.current({ kind: "volume", by: 0.05 });
   result.current({ kind: "mute" });
   expect(actions.setVolume).not.toHaveBeenCalled();

@@ -38,7 +38,11 @@ vi.mock("../../api/tidal", async (importOriginal) => ({
 beforeEach(() => {
   for (const m of Object.values(api)) m.mockReset();
   const none = { items: [], totalNumberOfItems: 0 };
-  api.getPlaylistFolders.mockResolvedValue({ items: [], totalNumberOfItems: 0, cursor: null });
+  api.getPlaylistFolders.mockResolvedValue({
+    items: [],
+    totalNumberOfItems: 0,
+    cursor: null,
+  });
   api.getAllPlaylists.mockResolvedValue(none);
   api.getFavoriteAlbums.mockResolvedValue(none);
   api.getFavoriteArtists.mockResolvedValue(none);
@@ -50,21 +54,44 @@ const playlistsRow = () =>
   screen.getByRole("heading", { name: "Playlists" }).closest("section")!;
 
 it("lists folders and liked playlists from the collection folders", async () => {
-  api.getPlaylistFolders.mockResolvedValue({ items: [rawFolderItem("f1", "Road"), rawPlaylistItem("p9", "Liked one", 5)], totalNumberOfItems: 2, cursor: null });
+  api.getPlaylistFolders.mockResolvedValue({
+    items: [rawFolderItem("f1", "Road"), rawPlaylistItem("p9", "Liked one", 5)],
+    totalNumberOfItems: 2,
+    cursor: null,
+  });
   const { nav } = renderTv(<TvCollection />, { store: signedIn(42) });
   expect(await screen.findByText("Liked one")).toBeTruthy();
   expect(api.getAllPlaylists).not.toHaveBeenCalled();
-  expect(within(playlistsRow()).getAllByRole("button").map((b) => b.textContent)).toEqual([
+  expect(
+    within(playlistsRow())
+      .getAllByRole("button")
+      .map((b) => b.textContent),
+  ).toEqual([
     "My TracksYour favorite tracks",
     "Road0 playlists",
     expect.stringContaining("Liked one"),
   ]);
   fireEvent.click(screen.getByText("Road").closest("button")!);
-  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "list", title: "Road", source: { kind: "collection", what: "playlists", folderId: "f1" } } });
+  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({
+    kind: "open",
+    view: {
+      type: "list",
+      title: "Road",
+      source: { kind: "collection", what: "playlists", folderId: "f1" },
+    },
+  });
 });
 
 it("applies local playlist edits to the playlists row", async () => {
-  api.getPlaylistFolders.mockResolvedValue({ items: [rawFolderItem("f1", "Road", 2), rawPlaylistItem("p1", "Gone"), rawPlaylistItem("p2", "Kept")], totalNumberOfItems: 3, cursor: null });
+  api.getPlaylistFolders.mockResolvedValue({
+    items: [
+      rawFolderItem("f1", "Road", 2),
+      rawPlaylistItem("p1", "Gone"),
+      rawPlaylistItem("p2", "Kept"),
+    ],
+    totalNumberOfItems: 3,
+    cursor: null,
+  });
   const store = signedIn(42);
   store.set(deletedPlaylistIdsAtom, new Set(["p1"]));
   store.set(renamedFoldersAtom, new Map([["f1", "Road trips"]]));
@@ -82,26 +109,65 @@ it("rows use the saved sorts", async () => {
   store.set(playlistSortAtom, { order: "NAME", direction: "ASC" });
   renderTv(<TvCollection />, { store });
   expect(await screen.findByText("My Tracks")).toBeTruthy();
-  expect(api.getFavoriteAlbums.mock.lastCall).toEqual([42, 0, 50, "NAME", "ASC"]);
-  expect(api.getFavoriteArtists.mock.lastCall).toEqual([42, 0, 50, "NAME", "DESC"]);
+  expect(api.getFavoriteAlbums.mock.lastCall).toEqual([
+    42,
+    0,
+    50,
+    "NAME",
+    "ASC",
+  ]);
+  expect(api.getFavoriteArtists.mock.lastCall).toEqual([
+    42,
+    0,
+    50,
+    "NAME",
+    "DESC",
+  ]);
   expect(api.getFavoriteMixes.mock.lastCall).toEqual([0, 50, "DATE", "ASC"]);
-  expect(api.getPlaylistFolders.mock.lastCall!.slice(0, 5)).toEqual(["root", 0, 50, "NAME", "ASC"]);
+  expect(api.getPlaylistFolders.mock.lastCall!.slice(0, 5)).toEqual([
+    "root",
+    0,
+    50,
+    "NAME",
+    "ASC",
+  ]);
   expect(api.getFavoriteAlbums).toHaveBeenCalledTimes(1);
 });
 
 it("offers View all when the playlists page has a cursor", async () => {
-  api.getPlaylistFolders.mockResolvedValue({ items: [rawPlaylistItem("p1", "One")], totalNumberOfItems: 1, cursor: "next" });
+  api.getPlaylistFolders.mockResolvedValue({
+    items: [rawPlaylistItem("p1", "One")],
+    totalNumberOfItems: 1,
+    cursor: "next",
+  });
   const { nav } = renderTv(<TvCollection />, { store: signedIn(42) });
   await screen.findByText("One");
-  fireEvent.click(within(playlistsRow()).getByText("View all").closest("button")!);
-  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({ kind: "open", view: { type: "list", title: "Playlists", source: { kind: "collection", what: "playlists" } } });
+  fireEvent.click(
+    within(playlistsRow()).getByText("View all").closest("button")!,
+  );
+  expect(vi.mocked(nav.run).mock.lastCall![0]).toEqual({
+    kind: "open",
+    view: {
+      type: "list",
+      title: "Playlists",
+      source: { kind: "collection", what: "playlists" },
+    },
+  });
 });
 
 it("a playlist card's menu is opened from the top level, and a move hides it at once", async () => {
-  api.getPlaylistFolders.mockResolvedValue({ items: [rawPlaylistItem("p1", "Moving"), rawPlaylistItem("p2", "Kept")], totalNumberOfItems: 2, cursor: null });
+  api.getPlaylistFolders.mockResolvedValue({
+    items: [rawPlaylistItem("p1", "Moving"), rawPlaylistItem("p2", "Kept")],
+    totalNumberOfItems: 2,
+    cursor: null,
+  });
   const { nav, store } = renderTv(<TvCollection />, { store: signedIn(42) });
   menuForElement((await screen.findByText("Moving")).closest("button")!)!();
-  expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([expect.objectContaining({ uuid: "p1" }), false, { folderId: "root" }]);
+  expect(vi.mocked(nav.mediaMenu).mock.lastCall).toEqual([
+    expect.objectContaining({ uuid: "p1" }),
+    false,
+    { folderId: "root" },
+  ]);
   const calls = api.getPlaylistFolders.mock.calls.length;
   act(() => store.set(movedPlaylistsAtom, new Map([["p1", "root"]])));
   expect(screen.queryByText("Moving")).toBeNull();

@@ -7,12 +7,29 @@ import TvKeyboard from "./TvKeyboard";
 import { pressKey, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
 
 setupTvTest();
-function Shortcuts(p: { muteToggle: () => void; playPause: () => void }) { useShortcuts(p); return null; }
+function Shortcuts(p: { muteToggle: () => void; playPause: () => void }) {
+  useShortcuts(p);
+  return null;
+}
 function setup(empty?: boolean, store?: TvStore) {
-  const onChange = vi.fn(), muteToggle = vi.fn(), playPause = vi.fn();
-  renderTv(<><Shortcuts muteToggle={muteToggle} playPause={playPause} />
-    <TvKeyboard onChange={onChange} empty={empty} /><button>outside</button></>, { store });
-  return { onChange, muteToggle, playPause, key: screen.getByText("a"), outside: screen.getByText("outside") };
+  const onChange = vi.fn(),
+    muteToggle = vi.fn(),
+    playPause = vi.fn();
+  renderTv(
+    <>
+      <Shortcuts muteToggle={muteToggle} playPause={playPause} />
+      <TvKeyboard onChange={onChange} empty={empty} />
+      <button>outside</button>
+    </>,
+    { store },
+  );
+  return {
+    onChange,
+    muteToggle,
+    playPause,
+    key: screen.getByText("a"),
+    outside: screen.getByText("outside"),
+  };
 }
 it("does not fire desktop shortcuts while typing on it", () => {
   const { key, onChange, muteToggle, playPause } = setup();
@@ -33,7 +50,9 @@ it("passes Backspace on when empty, swallows its auto-repeat", () => {
   const { key } = setup(true);
   key.focus();
   expect(pressKey(key, { key: "Backspace" }).defaultPrevented).toBe(false);
-  expect(pressKey(key, { key: "Backspace", repeat: true }).defaultPrevented).toBe(true);
+  expect(
+    pressKey(key, { key: "Backspace", repeat: true }).defaultPrevented,
+  ).toBe(true);
 });
 it("stands down while a video is full screen", () => {
   const store = createStore();
@@ -48,7 +67,12 @@ it("types in a prompt shown over a full-screen video", () => {
   store.set(currentVideoAtom, { id: 1 } as never);
   store.set(videoExpandedAtom, true);
   const onChange = vi.fn();
-  renderTv(<div data-tv-modal data-tv-prompt><TvKeyboard onChange={onChange} /></div>, { store });
+  renderTv(
+    <div data-tv-modal data-tv-prompt>
+      <TvKeyboard onChange={onChange} />
+    </div>,
+    { store },
+  );
   const key = screen.getByText("a");
   key.focus();
   expect(pressKey(key, { key: "x" }).defaultPrevented).toBe(true);
@@ -81,7 +105,9 @@ it("keeps focus on the toggle key across a case or layer switch", () => {
 });
 it("has a Search key only when asked", () => {
   const onSubmit = vi.fn();
-  const { unmount } = renderTv(<TvKeyboard onChange={vi.fn()} onSubmit={onSubmit} />);
+  const { unmount } = renderTv(
+    <TvKeyboard onChange={vi.fn()} onSubmit={onSubmit} />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
   expect(onSubmit).toHaveBeenCalledTimes(1);
   unmount();

@@ -744,15 +744,7 @@ export default function TvApp() {
           return;
       }
     },
-    [
-      store,
-      back,
-      focusRail,
-      runMedia,
-      askText,
-      finishPrompt,
-      openMenuFor,
-    ],
+    [store, back, focusRail, runMedia, askText, finishPrompt, openMenuFor],
   );
 
   useTvKeyRouter({

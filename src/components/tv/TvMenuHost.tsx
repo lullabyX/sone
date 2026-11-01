@@ -1049,7 +1049,9 @@ const TvMenuHost = forwardRef<
                 )}
                 <span
                   className={`flex-1 min-w-0 ${
-                    item.multiline ? "whitespace-normal break-words" : "truncate"
+                    item.multiline
+                      ? "whitespace-normal break-words"
+                      : "truncate"
                   }`}
                 >
                   {item.label}

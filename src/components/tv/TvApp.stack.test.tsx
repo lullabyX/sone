@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
 import { useContext, useEffect, type ReactNode } from "react";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => undefined),
+}));
 vi.mock("../ProxyNoticeBanner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../ProxyNoticeBanner")>()),
   default: () => null,
@@ -12,22 +14,56 @@ vi.mock("../ProxyNoticeBanner", async (importOriginal) => ({
 // buttons that drive the TV navigation from inside it.
 const { probe, screenOf } = vi.hoisted(() => {
   const probe = { render: null as null | ((name: string) => ReactNode) };
-  const screenOf = (name: (props: Record<string, unknown>) => string) => () => ({
-    default: (props: Record<string, unknown>) => probe.render!(name(props)),
-  });
+  const screenOf =
+    (name: (props: Record<string, unknown>) => string) => () => ({
+      default: (props: Record<string, unknown>) => probe.render!(name(props)),
+    });
   return { probe, screenOf };
 });
-vi.mock("./TvHome", screenOf(() => "home"));
-vi.mock("./TvSearch", screenOf(() => "search"));
-vi.mock("./TvCollection", screenOf(() => "collection"));
-vi.mock("./TvSettings", screenOf(() => "settings"));
-vi.mock("./TvPageScreen", screenOf(() => "page"));
-vi.mock("./TvFeedScreen", screenOf(() => "feed"));
-vi.mock("./TvProfileScreen", screenOf(() => "profile"));
-vi.mock("./TvListScreen", screenOf(() => "list"));
-vi.mock("./TvSearchResultsScreen", screenOf(() => "searchResults"));
-vi.mock("./TvNowPlaying", screenOf(() => "nowPlaying"));
-vi.mock("./TvArtistScreen", screenOf((p) => `artist:${(p.view as { id: number }).id}`));
+vi.mock(
+  "./TvHome",
+  screenOf(() => "home"),
+);
+vi.mock(
+  "./TvSearch",
+  screenOf(() => "search"),
+);
+vi.mock(
+  "./TvCollection",
+  screenOf(() => "collection"),
+);
+vi.mock(
+  "./TvSettings",
+  screenOf(() => "settings"),
+);
+vi.mock(
+  "./TvPageScreen",
+  screenOf(() => "page"),
+);
+vi.mock(
+  "./TvFeedScreen",
+  screenOf(() => "feed"),
+);
+vi.mock(
+  "./TvProfileScreen",
+  screenOf(() => "profile"),
+);
+vi.mock(
+  "./TvListScreen",
+  screenOf(() => "list"),
+);
+vi.mock(
+  "./TvSearchResultsScreen",
+  screenOf(() => "searchResults"),
+);
+vi.mock(
+  "./TvNowPlaying",
+  screenOf(() => "nowPlaying"),
+);
+vi.mock(
+  "./TvArtistScreen",
+  screenOf((p) => `artist:${(p.view as { id: number }).id}`),
+);
 vi.mock(
   "./TvTrackListScreen",
   screenOf((p) => {
@@ -44,7 +80,14 @@ import type { Playlist } from "../../types";
 import TvApp from "./TvApp";
 import { TvScreenContext, useTvNav, type TvNav } from "./TvNavContext";
 import { queuePlaylistEdit } from "./tvPlaylistEdits";
-import { deferred, pressKey, renderTv, setupTvTest, signedIn, stubLayout } from "./tvTestUtils";
+import {
+  deferred,
+  pressKey,
+  renderTv,
+  setupTvTest,
+  signedIn,
+  stubLayout,
+} from "./tvTestUtils";
 
 setupTvTest();
 
@@ -58,10 +101,16 @@ function Probe({ name }: { name: string }) {
   const { active } = useContext(TvScreenContext);
   return (
     <section data-testid={name} data-active={active || undefined}>
-      <button data-tv-focusable onClick={() => nav.push({ type: "playlist", uuid: "p" })}>
+      <button
+        data-tv-focusable
+        onClick={() => nav.push({ type: "playlist", uuid: "p" })}
+      >
         {name}: open P
       </button>
-      <button data-tv-focusable onClick={() => nav.push({ type: "album", id: 9 })}>
+      <button
+        data-tv-focusable
+        onClick={() => nav.push({ type: "album", id: 9 })}
+      >
         {name}: open album
       </button>
       <button data-tv-focusable onClick={() => nav.openNowPlaying()}>
@@ -72,8 +121,10 @@ function Probe({ name }: { name: string }) {
 }
 probe.render = (name) => <Probe name={name} />;
 
-const activeScreen = () => document.querySelector("[data-active]")?.getAttribute("data-testid");
-const press = (label: string) => fireEvent.click(screen.getByRole("button", { name: label }));
+const activeScreen = () =>
+  document.querySelector("[data-active]")?.getAttribute("data-testid");
+const press = (label: string) =>
+  fireEvent.click(screen.getByRole("button", { name: label }));
 const back = () => act(() => fireEvent.keyDown(window, { key: "Escape" }));
 
 describe("opening a page that is already open", () => {
@@ -97,7 +148,9 @@ describe("opening a page that is already open", () => {
   it("from a screen above it, goes back to it with the focus it had, and Back continues below it", () => {
     renderTv(<TvApp />, { store: signedIn(42) });
     press("home: open P");
-    const opener = screen.getByRole("button", { name: "playlist:p: open album" });
+    const opener = screen.getByRole("button", {
+      name: "playlist:p: open album",
+    });
     act(() => opener.focus());
     press("playlist:p: open album");
     press("album:9: open P");
@@ -111,7 +164,9 @@ describe("opening a page that is already open", () => {
   it("right under Now Playing, closes the layer as Back would; Back then leaves the page", () => {
     renderTv(<TvApp />, { store: signedIn(42) });
     press("home: open P");
-    const opener = screen.getByRole("button", { name: "playlist:p: now playing" });
+    const opener = screen.getByRole("button", {
+      name: "playlist:p: now playing",
+    });
     act(() => opener.focus());
     press("playlist:p: now playing");
     press("nowPlaying: open P");
@@ -151,12 +206,19 @@ describe("opening a page that is already open", () => {
 describe("deleting a playlist", () => {
   const own = () => {
     const store = signedIn(42);
-    store.set(allPlaylistsAtom, [{ uuid: "p", title: "P", creator: { id: 42 } } as Playlist]);
+    store.set(allPlaylistsAtom, [
+      { uuid: "p", title: "P", creator: { id: 42 } } as Playlist,
+    ]);
     return store;
   };
   const deleteP = async () => {
-    const menu = seen.nav!.mediaMenu({ type: "playlist", uuid: "p", title: "P" });
-    const confirm = await menu.items.find((i) => i.label === "Delete playlist")!.submenu!();
+    const menu = seen.nav!.mediaMenu({
+      type: "playlist",
+      uuid: "p",
+      title: "P",
+    });
+    const confirm = await menu.items.find((i) => i.label === "Delete playlist")!
+      .submenu!();
     await act(async () => {
       await confirm.items.find((i) => i.label === "Delete")!.onSelect!();
     });
@@ -179,13 +241,21 @@ describe("deleting a playlist", () => {
     void queuePlaylistEdit("p", () => write.promise);
     renderTv(<TvApp />, { store });
     press("home: open P");
-    const menu = seen.nav!.mediaMenu({ type: "playlist", uuid: "p", title: "P" });
-    const confirm = await menu.items.find((i) => i.label === "Delete playlist")!.submenu!();
+    const menu = seen.nav!.mediaMenu({
+      type: "playlist",
+      uuid: "p",
+      title: "P",
+    });
+    const confirm = await menu.items.find((i) => i.label === "Delete playlist")!
+      .submenu!();
     let done: unknown;
     await act(async () => {
       done = confirm.items.find((i) => i.label === "Delete")!.onSelect!();
     });
-    expect(invoke).not.toHaveBeenCalledWith("delete_playlist", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith(
+      "delete_playlist",
+      expect.anything(),
+    );
     await act(async () => {
       write.resolve();
       await done;
@@ -239,7 +309,9 @@ describe("the layers and the rail", () => {
     pressKey(no, { key: "ArrowDown" });
     expect(document.activeElement).toBe(no);
     pressKey(no, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Yes, turn off" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Yes, turn off" }),
+    );
   });
   it("Enter on a multi-line settings field edits it in a multi-line prompt", () => {
     renderTv(<TvApp />, { store: signedIn(42) });
@@ -250,9 +322,18 @@ describe("the layers and the rail", () => {
     const notes = document.querySelector<HTMLElement>("#notes")!;
     act(() => notes.focus());
     pressKey(notes, { key: "Enter" });
-    expect(document.querySelector<HTMLTextAreaElement>("[data-tv-prompt] textarea")?.value).toBe("a\nb");
+    expect(
+      document.querySelector<HTMLTextAreaElement>("[data-tv-prompt] textarea")
+        ?.value,
+    ).toBe("a\nb");
   });
-  const menu = { title: "M", items: [{ label: "One", onSelect: () => {} }, { label: "Two", onSelect: () => {} }] };
+  const menu = {
+    title: "M",
+    items: [
+      { label: "One", onSelect: () => {} },
+      { label: "Two", onSelect: () => {} },
+    ],
+  };
   const fullScreenVideo = (store: ReturnType<typeof signedIn>) => {
     document.body.insertAdjacentHTML(
       "beforeend",
@@ -268,12 +349,16 @@ describe("the layers and the rail", () => {
     const store = signedIn(42);
     renderTv(<TvApp />, { store });
     act(() => seen.nav!.openMenu(menu));
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "One" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "One" }),
+    );
     fullScreenVideo(store);
     const videoClose = vi.fn();
     off = registerDismissable(DISMISS_PRIORITY.overlay, videoClose);
     pressKey(document.activeElement!, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Two" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "Two" }),
+    );
     pressKey(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(store.get(videoExpandedAtom)).toBe(true);
@@ -300,6 +385,8 @@ describe("the layers and the rail", () => {
     act(() => rail.focus());
     fireEvent.click(rail);
     expect(activeScreen()).toBe("nowPlaying");
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "nowPlaying: open P" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "nowPlaying: open P" }),
+    );
   });
 });
