@@ -7,6 +7,7 @@ import { allPlaylistsAtom } from "../../atoms/playlists";
 import type { Playlist, Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
 import { TvScreenContext, type TvNav } from "./TvNavContext";
+import { markPlaylistChanged } from "./tvPlaylistEdits";
 import { deferred, type Deferred, makeTvNav, mkTrack, mockInvoke, range, renderTv, setupTvTest, signedIn, stubLayout } from "./tvTestUtils";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -372,6 +373,22 @@ describe("recommendations", () => {
     fireEvent.click(rowMore("T2"));
     await act(async () => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
     expect(invoke).toHaveBeenCalledWith("remove_track_from_playlist", { playlistId: "p", index: 1 });
+  });
+
+  it("after the MCP server changed the playlist, a removal reloads the list first", async () => {
+    playlist(42, [t1, t2]);
+    const { nav } = renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, { store: signedIn(42) });
+    await screen.findByText("T500");
+    act(() => markPlaylistChanged("p"));
+    playlist(42, [t2]);
+    fireEvent.click(rowMore("T2"));
+    await act(async () => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
+    expect(vi.mocked(invoke).mock.calls.some(([c]) => c === "remove_track_from_playlist")).toBe(false);
+    expect(screen.getByText("This playlist changed — reloading")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("T1")).toBeNull());
+    fireEvent.click(rowMore("T2"));
+    await act(async () => void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!());
+    expect(invoke).toHaveBeenCalledWith("remove_track_from_playlist", { playlistId: "p", index: 0 });
   });
 
   it("a Refresh that leaves none moves focus to the last row", async () => {

@@ -49,6 +49,7 @@ import {
   playlistTracksPager,
   type PlayableSource,
 } from "../lib/trackSources";
+import { markPlaylistChanged } from "../components/tv/tvPlaylistEdits";
 import type { Track, Playlist, PlaylistOrFolder } from "../types";
 
 async function playableForSource(
@@ -456,6 +457,7 @@ export function useMcpBridge() {
           return next;
         });
         invalidateCache("user-playlists");
+        markPlaylistChanged(uuid);
       }),
     );
 
@@ -493,6 +495,8 @@ export function useMcpBridge() {
           invalidateCache(`playlist:${uuid}`);
           invalidateCache(`playlist-page:${uuid}`);
           invalidateCache("user-playlists");
+          // An open TV playlist page reloads before it removes by position.
+          markPlaylistChanged(uuid);
           // Refresh to re-sync exact count + cover art with the server
           setTimeout(refreshSidebarPlaylists, 3000);
         },

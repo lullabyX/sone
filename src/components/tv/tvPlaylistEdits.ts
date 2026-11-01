@@ -38,6 +38,13 @@ export function playlistRevision(uuid: string): number {
   return edits.get(uuid)?.revision ?? 0;
 }
 
+/** A write made outside the app's own queue (the MCP server): pages whose
+ *  rows were loaded before it reload before they remove anything. */
+export function markPlaylistChanged(uuid: string): void {
+  editsOf(uuid).revision++;
+  changed();
+}
+
 /** Whether a write to `uuid` is queued or in flight. */
 export function playlistBusy(uuid: string): boolean {
   return (edits.get(uuid)?.pending ?? 0) > 0;
