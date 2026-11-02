@@ -1,4 +1,6 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -257,6 +259,74 @@ pub fn plan_launch(
     }
 }
 
+pub fn nvidia_from(modules: &str, dev_nvidia0_exists: bool) -> bool {
+    dev_nvidia0_exists
+        || modules.lines().any(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|name| name == "nvidia" || name.starts_with("nvidia_"))
+        })
+}
+
+pub fn nvidia_present() -> bool {
+    let modules = std::fs::read_to_string("/proc/modules").unwrap_or_default();
+    nvidia_from(&modules, Path::new("/dev/nvidia0").exists())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LaunchInfo {
+    pub resolution: Resolution,
+    pub trial: Option<Trial>,
+    pub reverted_from: Option<RenderMode>,
+    pub mode: RenderMode,
+}
+
+static LAUNCH_INFO: OnceLock<LaunchInfo> = OnceLock::new();
+static LAUNCH_ENV: OnceLock<Vec<(OsString, OsString)>> = OnceLock::new();
+
+pub fn remember_launch(info: LaunchInfo) {
+    let _ = LAUNCH_INFO.set(info);
+}
+
+pub fn launch_info() -> Option<LaunchInfo> {
+    LAUNCH_INFO.get().copied()
+}
+
+pub fn remember_launch_env(env: Vec<(OsString, OsString)>) {
+    let _ = LAUNCH_ENV.set(env);
+}
+
+/// The relaunch waits for this process to exit so the single-instance lock is
+/// free, and runs with the launch environment rather than the one `main` edited.
+pub fn restart_with_launch_env(app: &tauri::AppHandle) -> ! {
+    let env: Vec<(OsString, OsString)> = LAUNCH_ENV
+        .get()
+        .cloned()
+        .unwrap_or_else(|| std::env::vars_os().collect());
+    match std::env::current_exe() {
+        Ok(exe) => {
+            let spawned = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(r#"while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; shift; exec "$@""#)
+                .arg("sh")
+                .arg(std::process::id().to_string())
+                .arg(exe)
+                .args(std::env::args_os().skip(1))
+                .env_clear()
+                .envs(env)
+                .spawn();
+            if let Err(e) = spawned {
+                log::warn!("[render] could not spawn relaunch: {e}");
+            }
+        }
+        Err(e) => log::warn!("[render] could not resolve current executable: {e}"),
+    }
+    app.exit(0);
+    loop {
+        std::thread::park();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +498,14 @@ mod tests {
                 .unwrap()
                 .unprompted
         );
+    }
+
+    #[test]
+    fn nvidia_detection_reads_modules_or_device_node() {
+        assert!(nvidia_from("nvidia_drm 1 0 - Live 0x0\n", false));
+        assert!(nvidia_from("nvidia 1 0 - Live 0x0\n", false));
+        assert!(!nvidia_from("nvidiafb 1 0\ni915 1 0\n", false));
+        assert!(nvidia_from("", true));
     }
 
     #[test]

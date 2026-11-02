@@ -4,42 +4,68 @@
 fn main() {
     #[cfg(target_os = "linux")]
     {
+        use tauri_app_lib::render_mode::{self, EnvAction};
+
+        let launch_env: Vec<_> = std::env::vars_os().collect();
+        let preset_has = |name: &str| launch_env.iter().any(|(k, _)| k == name);
+        let preset = render_mode::EnvPreset {
+            dmabuf_disabled: preset_has("WEBKIT_DISABLE_DMABUF_RENDERER"),
+            compositing_disabled: preset_has("WEBKIT_DISABLE_COMPOSITING_MODE"),
+        };
+        render_mode::remember_launch_env(launch_env);
+
+        let nvidia = render_mode::nvidia_present();
+        let render_dir = tauri_app_lib::config_dir_for_env();
+        let before = render_dir
+            .as_deref()
+            .map(render_mode::read_sidecar)
+            .unwrap_or_default();
+        let plan =
+            render_mode::plan_launch(before, |m| render_mode::resolve(m, preset, nvidia).path);
+        let resolution = render_mode::resolve(plan.apply, preset, nvidia);
+
         // WebKitGTK's DMA-BUF renderer is unreliable on the NVIDIA proprietary
-        // driver: GBM buffer allocation fails (blank/corrupt page rendering) and
-        // the GStreamer video path tears and stutters (WebKit Bugzilla #261874
-        // and #260654, tauri-apps/tauri#9394). This affects BOTH X11 and Wayland
-        // — the web process renders surfaceless, so the DMA-BUF renderer is used
-        // regardless of session type. Fall back to shared-memory rendering
-        // whenever an NVIDIA kernel module is loaded. Pre-set
-        // WEBKIT_DISABLE_DMABUF_RENDERER to override.
-        //
-        // TODO: revisit when WebKitGTK resolves the NVIDIA DMA-BUF bug
-        // (upstream #262607 is WONTFIX as of 2026).
-        let already_overridden =
-            std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some();
-
-        if !already_overridden {
-            let nvidia_loaded = std::fs::read_to_string("/proc/modules")
-                .map(|modules| {
-                    modules.lines().any(|line| {
-                        line.split_whitespace()
-                            .next()
-                            .map(|name| name == "nvidia" || name.starts_with("nvidia_"))
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false);
-
-            if nvidia_loaded {
-                eprintln!(
-                    "[sone] NVIDIA detected; setting \
+        // driver (WebKit Bugzilla #261874, #260654, tauri-apps/tauri#9394).
+        if nvidia {
+            match resolution.action {
+                EnvAction::SetDisableDmabuf => eprintln!(
+                    "[sone] NVIDIA detected; render mode {} sets \
                      WEBKIT_DISABLE_DMABUF_RENDERER=1 to avoid WebKitGTK GBM \
-                     allocation failure and video corruption. Pre-set the \
-                     variable to override."
-                );
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+                     allocation failure and video corruption.",
+                    plan.apply.as_str()
+                ),
+                EnvAction::RemoveBoth => eprintln!(
+                    "[sone] NVIDIA detected; render mode gpu keeps the \
+                     WebKitGTK DMA-BUF renderer enabled."
+                ),
+                EnvAction::Leave => eprintln!(
+                    "[sone] NVIDIA detected; leaving the WEBKIT_DISABLE_* \
+                     variables from the launch environment as set."
+                ),
             }
         }
+
+        match resolution.action {
+            EnvAction::Leave => {}
+            EnvAction::SetDisableDmabuf => {
+                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            }
+            EnvAction::RemoveBoth => {
+                std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
+                std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
+            }
+        }
+
+        if let Some(dir) = &render_dir {
+            let _ = std::fs::create_dir_all(dir);
+            render_mode::write_sidecar(dir, &plan.sidecar_after);
+        }
+        render_mode::remember_launch(render_mode::LaunchInfo {
+            resolution,
+            trial: plan.trial,
+            reverted_from: plan.reverted_from,
+            mode: plan.sidecar_after.mode,
+        });
 
         // Read once, used by both the bypass record and the scrub below, so
         // the two reason about the same sidecar structurally rather than
