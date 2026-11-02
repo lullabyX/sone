@@ -659,6 +659,7 @@ pub fn run() {
                     }
                 }),
             )?;
+            crate::render_mode::commit_launch_sidecar();
             // Deep link: register tidal:// scheme handler
             app.handle().plugin(tauri_plugin_deep_link::init())?;
             #[cfg(target_os = "linux")]
@@ -1178,6 +1179,9 @@ pub fn run() {
                     state.scrobble_manager.flush().await;
                     state.tidal_reporter.flush().await;
                 });
+                if crate::render_mode::restart_requested() {
+                    crate::render_mode::exec_relaunch();
+                }
             }
         });
 }

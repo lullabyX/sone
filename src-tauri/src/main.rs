@@ -25,7 +25,9 @@ fn main() {
         let resolution = render_mode::resolve(plan.apply, preset, nvidia);
 
         // WebKitGTK's DMA-BUF renderer is unreliable on the NVIDIA proprietary
-        // driver (WebKit Bugzilla #261874, #260654, tauri-apps/tauri#9394).
+        // driver on both X11 and Wayland (WebKit Bugzilla #261874, #260654,
+        // tauri-apps/tauri#9394).
+        // TODO: revisit when WebKitGTK fixes it (upstream #262607 is WONTFIX).
         if nvidia {
             match resolution.action {
                 EnvAction::SetDisableDmabuf => eprintln!(
@@ -56,9 +58,8 @@ fn main() {
             }
         }
 
-        if let Some(dir) = &render_dir {
-            let _ = std::fs::create_dir_all(dir);
-            render_mode::write_sidecar(dir, &plan.sidecar_after);
+        if let Some(dir) = render_dir {
+            render_mode::remember_launch_sidecar(dir, plan.sidecar_after.clone());
         }
         render_mode::remember_launch(render_mode::LaunchInfo {
             resolution,

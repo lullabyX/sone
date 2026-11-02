@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -296,35 +297,67 @@ pub fn remember_launch_env(env: Vec<(OsString, OsString)>) {
     let _ = LAUNCH_ENV.set(env);
 }
 
-/// The relaunch waits for this process to exit so the single-instance lock is
-/// free, and runs with the launch environment rather than the one `main` edited.
-pub fn restart_with_launch_env(app: &tauri::AppHandle) -> ! {
+static LAUNCH_SIDECAR: OnceLock<(PathBuf, Sidecar)> = OnceLock::new();
+static RESTART_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub fn remember_launch_sidecar(config_dir: PathBuf, after: Sidecar) {
+    let _ = LAUNCH_SIDECAR.set((config_dir, after));
+}
+
+/// Deferred until the single-instance handoff, so a second launch that is about
+/// to exit never consumes or rolls back the running instance's trial.
+pub fn commit_launch_sidecar() {
+    if let Some((dir, after)) = LAUNCH_SIDECAR.get() {
+        write_launch_sidecar(dir, after);
+    }
+}
+
+fn write_launch_sidecar(config_dir: &Path, after: &Sidecar) {
+    let _ = std::fs::create_dir_all(config_dir);
+    write_sidecar(config_dir, after);
+}
+
+pub fn request_restart(app: &tauri::AppHandle) {
+    RESTART_REQUESTED.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
+pub fn restart_requested() -> bool {
+    RESTART_REQUESTED.load(Ordering::SeqCst)
+}
+
+fn relaunch_binary(snapshot: &[(OsString, OsString)], current_exe: PathBuf) -> PathBuf {
+    snapshot
+        .iter()
+        .find(|(k, v)| k == "APPIMAGE" && !v.is_empty())
+        .map(|(_, v)| PathBuf::from(v))
+        .unwrap_or(current_exe)
+}
+
+/// Replaces this process in place, so the relaunch keeps its PID, sandbox and
+/// AppImage mount, and runs with the launch environment rather than the one
+/// `main` edited. Returns only if the exec failed.
+pub fn exec_relaunch() {
+    use std::os::unix::process::CommandExt;
+
     let env: Vec<(OsString, OsString)> = LAUNCH_ENV
         .get()
         .cloned()
         .unwrap_or_else(|| std::env::vars_os().collect());
-    match std::env::current_exe() {
-        Ok(exe) => {
-            let spawned = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(r#"while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; shift; exec "$@""#)
-                .arg("sh")
-                .arg(std::process::id().to_string())
-                .arg(exe)
-                .args(std::env::args_os().skip(1))
-                .env_clear()
-                .envs(env)
-                .spawn();
-            if let Err(e) = spawned {
-                log::warn!("[render] could not spawn relaunch: {e}");
-            }
+    let current_exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("[render] could not resolve current executable: {e}");
+            return;
         }
-        Err(e) => log::warn!("[render] could not resolve current executable: {e}"),
-    }
-    app.exit(0);
-    loop {
-        std::thread::park();
-    }
+    };
+    let binary = relaunch_binary(&env, current_exe);
+    let err = std::process::Command::new(&binary)
+        .args(std::env::args_os().skip(1))
+        .env_clear()
+        .envs(env)
+        .exec();
+    log::error!("[render] relaunch of {} failed: {err}", binary.display());
 }
 
 #[cfg(test)]
@@ -506,6 +539,40 @@ mod tests {
         assert!(nvidia_from("nvidia 1 0 - Live 0x0\n", false));
         assert!(!nvidia_from("nvidiafb 1 0\ni915 1 0\n", false));
         assert!(nvidia_from("", true));
+    }
+
+    #[test]
+    fn commit_writes_the_remembered_sidecar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("sone");
+        let after = Sidecar {
+            mode: RenderMode::Auto,
+            last: Some(EffectivePath::Cpu),
+            ..Default::default()
+        };
+        commit_launch_sidecar();
+        assert!(!dir.exists());
+        remember_launch_sidecar(dir.clone(), after.clone());
+        commit_launch_sidecar();
+        assert_eq!(read_sidecar(&dir), after);
+    }
+
+    #[test]
+    fn relaunch_prefers_the_appimage_over_the_current_exe() {
+        let exe = PathBuf::from("/tmp/.mount_sone/usr/bin/sone");
+        let with = [
+            (OsString::from("HOME"), OsString::from("/home/u")),
+            (
+                OsString::from("APPIMAGE"),
+                OsString::from("/home/u/SONE.AppImage"),
+            ),
+        ];
+        assert_eq!(
+            relaunch_binary(&with, exe.clone()),
+            PathBuf::from("/home/u/SONE.AppImage")
+        );
+        let without = [(OsString::from("HOME"), OsString::from("/home/u"))];
+        assert_eq!(relaunch_binary(&without, exe.clone()), exe);
     }
 
     #[test]
