@@ -305,13 +305,6 @@ pub fn remember_launch_env(env: Vec<(OsString, OsString)>) {
     let _ = LAUNCH_ENV.set(env);
 }
 
-/// The path `mode` would resolve to on a launch from this one's environment.
-pub fn launch_path_for(mode: RenderMode) -> Option<EffectivePath> {
-    let env = LAUNCH_ENV.get()?;
-    let nvidia = launch_info()?.resolution.nvidia;
-    Some(resolve(mode, env_preset(env), nvidia).path)
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveTrial {
@@ -328,22 +321,6 @@ pub fn confirmed_sidecar(before: Sidecar, trial: &ActiveTrial) -> Sidecar {
         trial: None,
         revert: None,
         ..before
-    }
-}
-
-/// `last` must follow the reverted mode, or the next launch sees a path change
-/// and starts an unprompted trial back towards the path just rejected.
-pub fn reverted_sidecar(
-    before: Sidecar,
-    trial: &ActiveTrial,
-    path: Option<EffectivePath>,
-) -> Sidecar {
-    Sidecar {
-        mode: trial.revert_to,
-        pending: None,
-        trial: None,
-        revert: None,
-        last: path.or(before.last),
     }
 }
 
@@ -668,28 +645,21 @@ mod tests {
     }
 
     #[test]
-    fn a_revert_records_the_reverted_path_so_the_next_launch_is_quiet() {
+    fn a_trial_left_in_the_sidecar_reverts_to_the_reverted_modes_path() {
         let before = Sidecar {
             mode: RenderMode::Auto,
-            pending: None,
             trial: Some(RenderMode::Gpu),
             revert: Some(RenderMode::Auto),
             last: Some(EffectivePath::Gpu),
+            ..Default::default()
         };
-        let after = reverted_sidecar(
-            before,
-            &active(RenderMode::Gpu, RenderMode::Auto),
-            Some(EffectivePath::Cpu),
-        );
-        assert_eq!(
-            after,
-            Sidecar {
-                mode: RenderMode::Auto,
-                last: Some(EffectivePath::Cpu),
-                ..Default::default()
-            }
-        );
-        assert_eq!(plan_launch(after, |_| EffectivePath::Cpu).trial, None);
+        let p = plan_launch(before, |m| match m {
+            RenderMode::Gpu => EffectivePath::Gpu,
+            _ => EffectivePath::Cpu,
+        });
+        assert_eq!(p.reverted_from, Some(RenderMode::Gpu));
+        assert_eq!(p.sidecar_after.mode, RenderMode::Auto);
+        assert_eq!(p.sidecar_after.last, Some(EffectivePath::Cpu));
     }
 
     #[test]

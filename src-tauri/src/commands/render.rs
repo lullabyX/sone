@@ -2,7 +2,7 @@ use std::path::Path;
 
 use tauri::State;
 
-use crate::render_mode::{self, ActiveTrial, EffectivePath, EnvAction, RenderMode, Resolution};
+use crate::render_mode::{self, ActiveTrial, EffectivePath, EnvPreset, RenderMode, Resolution};
 use crate::AppState;
 use crate::SoneError;
 
@@ -47,15 +47,16 @@ fn active_trial(state: &AppState) -> std::sync::MutexGuard<'_, Option<ActiveTria
 pub fn get_render_status() -> RenderStatus {
     let (resolution, mode) = render_mode::launch_info()
         .map(|i| (i.resolution, i.mode))
-        .unwrap_or((
-            Resolution {
-                action: EnvAction::Leave,
-                path: EffectivePath::Cpu,
-                env_override: false,
-                nvidia: false,
-            },
-            RenderMode::Auto,
-        ));
+        .unwrap_or_else(|| {
+            let no_env = EnvPreset {
+                dmabuf_disabled: false,
+                compositing_disabled: false,
+            };
+            (
+                render_mode::resolve(RenderMode::Auto, no_env, false),
+                RenderMode::Auto,
+            )
+        });
     RenderStatus {
         mode,
         path: resolution.path,
@@ -117,19 +118,12 @@ pub fn get_render_reverted() -> Option<RenderMode> {
 }
 
 /// Taking the trial out of state is what makes Keep, Revert and the timer
-/// mutually exclusive: whichever gets it first decides.
+/// mutually exclusive: whichever gets it first decides. The sidecar still
+/// records the trial, so the next launch reverts it and reports the revert.
 pub(crate) fn revert_and_restart(app: &tauri::AppHandle, state: &AppState) {
-    let Some(trial) = active_trial(state).take() else {
+    let Some(_) = active_trial(state).take() else {
         return;
     };
-    if let Ok(dir) = config_dir(state) {
-        let sidecar = render_mode::reverted_sidecar(
-            render_mode::read_sidecar(dir),
-            &trial,
-            render_mode::launch_path_for(trial.revert_to),
-        );
-        render_mode::write_sidecar(dir, &sidecar);
-    }
     render_mode::request_restart(app);
 }
 
