@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Play, User, Music, Heart, MoreHorizontal } from "lucide-react";
 import { getTidalImageUrl } from "../types";
 import {
@@ -70,11 +71,19 @@ export default function MediaCard({
   const subtitle = subtitleOverride ?? getItemSubtitle(item, userId);
   const { allowAi } = useContentPrefs();
   const restricted = !allowAi && item?.ai === true;
+  const [hot, setHot] = useState(false);
 
   return (
     <div
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      onFocus={() => setHot(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+          setHot(false);
+      }}
       className={`p-3 bg-th-elevated hover:bg-th-surface-hover rounded-lg cursor-pointer group transition-[background-color] duration-300 ${
         widthClass ?? ""
       }${restricted ? " opacity-50" : ""}`}
@@ -150,8 +159,8 @@ export default function MediaCard({
               </>
             )}
             {/* Right side icons — non-artist only */}
-            {!isArtist && (
-              <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-[opacity,transform,translate] duration-300">
+            {!isArtist && hot && (
+              <div className="absolute bottom-2 right-2 flex items-center gap-1 animate-fadeIn">
                 {onMoreClick && (
                   <button
                     onClick={(e) => {
