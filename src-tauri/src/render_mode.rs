@@ -116,9 +116,13 @@ pub fn read_sidecar(config_dir: &Path) -> Sidecar {
         .unwrap_or_default()
 }
 
-pub fn write_sidecar(config_dir: &Path, s: &Sidecar) {
-    if let Err(e) = write_sidecar_file(&sidecar_path(config_dir), &serialize_sidecar(s)) {
-        log::warn!("[render] could not write mode sidecar: {e}");
+pub fn write_sidecar(config_dir: &Path, s: &Sidecar) -> bool {
+    match write_sidecar_file(&sidecar_path(config_dir), &serialize_sidecar(s)) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("[render] could not write mode sidecar: {e}");
+            false
+        }
     }
 }
 
@@ -424,7 +428,7 @@ mod tests {
         };
         assert_eq!(parse_sidecar(&serialize_sidecar(&s)), s);
         let dir = tempfile::tempdir().unwrap();
-        write_sidecar(dir.path(), &s);
+        assert!(write_sidecar(dir.path(), &s));
         assert_eq!(read_sidecar(dir.path()), s);
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(
@@ -435,6 +439,15 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn a_failed_sidecar_write_reports_false() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!write_sidecar(
+            &dir.path().join("missing"),
+            &Sidecar::default()
+        ));
     }
 
     #[test]

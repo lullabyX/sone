@@ -95,11 +95,15 @@ pub fn get_render_trial(state: State<'_, AppState>) -> Option<ActiveTrial> {
 #[tauri::command]
 pub fn confirm_render_mode(state: State<'_, AppState>) -> Result<(), SoneError> {
     let dir = config_dir(&state)?;
-    let Some(trial) = active_trial(&state).take() else {
+    let mut slot = active_trial(&state);
+    let Some(trial) = *slot else {
         return Ok(());
     };
     let sidecar = render_mode::confirmed_sidecar(render_mode::read_sidecar(dir), &trial);
-    render_mode::write_sidecar(dir, &sidecar);
+    if !render_mode::write_sidecar(dir, &sidecar) {
+        return Err(SoneError::Io("Could not save the rendering mode".into()));
+    }
+    *slot = None;
     Ok(())
 }
 
