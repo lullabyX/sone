@@ -5,6 +5,7 @@ import { decorationsAtom, hideTitleBarAtom } from "../../atoms/ui";
 import { useToast } from "../../contexts/ToastContext";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
+import RenderingSection from "./RenderingSection";
 
 type TitleBarMode = "system" | "custom" | "hidden";
 
@@ -143,6 +144,8 @@ export default function GeneralTab() {
           </button>
         </SettingRow>
       </div>
+
+      <RenderingSection />
     </div>
   );
 }
