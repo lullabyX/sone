@@ -30,13 +30,13 @@ describe("RenderTrialDialog", () => {
     invoke.mockImplementation(async (cmd) => (cmd === "get_render_trial" ? trial({ unprompted: true, mode: "auto", revertTo: "cpu" }) : null));
     render(<RenderTrialDialog />);
     await waitFor(() => screen.getByRole("dialog"));
-    expect(screen.getByText(/SONE is now rendering on the GPU/)).toBeTruthy();
+    expect(screen.getByText("SONE is now rendering on the GPU. Keep it?")).toBeTruthy();
     fireEvent.click(screen.getByText("Revert"));
     expect(invoke).toHaveBeenCalledWith("revert_render_mode");
   });
   it("toasts a revert from the previous launch", async () => {
-    invoke.mockImplementation(async (cmd) => (cmd === "get_render_reverted" ? "gpu" : null));
+    invoke.mockImplementation(async (cmd) => (cmd === "get_render_reverted" ? "auto" : null));
     render(<RenderTrialDialog />);
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Rendering mode reverted to GPU"));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Rendering mode reverted to Auto"));
   });
 });

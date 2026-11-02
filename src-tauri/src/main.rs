@@ -8,6 +8,9 @@ fn main() {
 
         let launch_env: Vec<_> = std::env::vars_os().collect();
         let preset = render_mode::env_preset(&launch_env);
+        let sandboxed = launch_env
+            .iter()
+            .any(|(k, _)| k == "SNAP" || k == "FLATPAK_ID");
         render_mode::remember_launch_env(launch_env);
 
         let nvidia = render_mode::nvidia_present();
@@ -16,8 +19,9 @@ fn main() {
             .as_deref()
             .map(render_mode::read_sidecar)
             .unwrap_or_default();
-        let plan =
-            render_mode::plan_launch(before, |m| render_mode::resolve(m, preset, nvidia).path);
+        let plan = render_mode::plan_launch(before, sandboxed, |m| {
+            render_mode::resolve(m, preset, nvidia).path
+        });
         let resolution = render_mode::resolve(plan.apply, preset, nvidia);
 
         // WebKitGTK's DMA-BUF renderer is unreliable on the NVIDIA proprietary
@@ -65,8 +69,8 @@ fn main() {
         render_mode::remember_launch(render_mode::LaunchInfo {
             resolution,
             trial: if persisted { plan.trial } else { None },
-            reverted_from: plan.reverted_from,
-            mode: plan.sidecar_after.mode,
+            reverted_to: plan.reverted_to,
+            mode: plan.apply,
         });
 
         // Read once, used by both the bypass record and the scrub below, so
