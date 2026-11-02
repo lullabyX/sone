@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from "react";
 import TidalImage from "./TidalImage";
+import { bakeBlurredCover } from "../lib/coverBlur";
 
 interface CoverBannerProps {
   /** Resolved image URL (UUID already run through getTidalImageUrl, or a direct URL). */
@@ -25,6 +27,25 @@ export default function CoverBanner({
   src,
   variant = "blur",
 }: CoverBannerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [bakedSrc, setBakedSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!src || variant !== "blur") return;
+    let cancelled = false;
+    bakeBlurredCover(src).then((baked) => {
+      const canvas = canvasRef.current;
+      if (cancelled || !baked || !canvas) return;
+      canvas.width = baked.width;
+      canvas.height = baked.height;
+      canvas.getContext("2d")?.drawImage(baked, 0, 0);
+      setBakedSrc(src);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [src, variant]);
+
   if (!src) return null;
 
   const fade = variant === "dark" ? DARK_FADE : FADE;
@@ -36,14 +57,12 @@ export default function CoverBanner({
     >
       {variant === "blur" ? (
         <>
-          <div className="absolute inset-0 blur-[48px] saturate-[1.2]">
-            <TidalImage
-              src={src}
-              alt=""
-              className="w-full"
-              objectFit="object-top"
-            />
-          </div>
+          <canvas
+            ref={canvasRef}
+            data-testid="cover-blur"
+            className="w-full h-auto block transition-opacity duration-300"
+            style={{ opacity: bakedSrc === src ? 1 : 0 }}
+          />
           {/* Semitransparent base-tone layer: darkens on dark themes, lightens on
               light themes, so the bright blur reads as TIDAL's deep tone either way. */}
           <div className="absolute inset-0 bg-th-base/50" />
