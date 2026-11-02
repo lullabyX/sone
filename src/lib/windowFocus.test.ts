@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   trackWindowFocus,
   isWindowActive,
@@ -6,6 +6,10 @@ import {
 } from "./windowFocus";
 
 describe("windowFocus", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("notifies subscribers on blur and focus", () => {
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
     trackWindowFocus();

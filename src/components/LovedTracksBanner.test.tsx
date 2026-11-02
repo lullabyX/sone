@@ -8,13 +8,25 @@ vi.mock("../lib/lovedBanner", async (orig) => ({
 }));
 import LovedTracksBanner, { FRAME_INTERVAL_MS } from "./LovedTracksBanner";
 
-let rafCbs: FrameRequestCallback[] = [];
+let rafCbs = new Map<number, FrameRequestCallback>();
+let rafId = 0;
+let roCb: (
+  entries: { contentRect: { width: number; height: number } }[],
+) => void;
+let ioCb: (entries: { isIntersecting: boolean }[]) => void;
+let clock = 0;
+
 beforeEach(() => {
-  rafCbs = [];
+  rafCbs = new Map();
+  clock = 0;
   draw.mockReset();
+  vi.spyOn(performance, "now").mockImplementation(() => clock);
   vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
-    rafCbs.push(cb);
-    return rafCbs.length;
+    rafCbs.set(++rafId, cb);
+    return rafId;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    rafCbs.delete(id);
   });
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     save() {},
@@ -29,11 +41,15 @@ beforeEach(() => {
     createRadialGradient: () => ({ addColorStop() {} }),
   } as any);
   (globalThis as any).ResizeObserver = class {
+    constructor(cb: any) {
+      roCb = cb;
+    }
     observe() {}
     disconnect() {}
   };
   (globalThis as any).IntersectionObserver = class {
     constructor(cb: any) {
+      ioCb = cb;
       cb([{ isIntersecting: true }]);
     }
     observe() {}
@@ -49,11 +65,19 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 const pump = (now: number) => {
-  const cbs = rafCbs;
-  rafCbs = [];
+  const cbs = [...rafCbs.values()];
+  rafCbs = new Map();
   cbs.forEach((cb) => cb(now));
+};
+const lastT = () => draw.mock.calls[draw.mock.calls.length - 1][3];
+const setFocus = (focused: boolean) => {
+  (document.hasFocus as any).mockReturnValue(focused);
+  act(() => {
+    window.dispatchEvent(new Event(focused ? "focus" : "blur"));
+  });
 };
 
 describe("LovedTracksBanner", () => {
@@ -71,12 +95,12 @@ describe("LovedTracksBanner", () => {
     (document.hasFocus as any).mockReturnValue(false);
     render(<LovedTracksBanner />);
     act(() => pump(0));
-    expect(rafCbs).toHaveLength(0);
-    (document.hasFocus as any).mockReturnValue(true);
-    act(() => {
-      window.dispatchEvent(new Event("focus"));
-    });
-    expect(rafCbs.length).toBeGreaterThan(0);
+    expect(rafCbs.size).toBe(0);
+    const before = draw.mock.calls.length;
+    setFocus(true);
+    expect(rafCbs.size).toBeGreaterThan(0);
+    act(() => pump(1000));
+    expect(draw.mock.calls.length).toBe(before + 1);
   });
 
   it("draws one static frame under reduced motion", () => {
@@ -89,7 +113,7 @@ describe("LovedTracksBanner", () => {
     act(() => pump(0));
     expect(draw).toHaveBeenCalledTimes(1);
     expect(draw.mock.calls[0][3]).toBe(0);
-    expect(rafCbs).toHaveLength(0);
+    expect(rafCbs.size).toBe(0);
   });
 
   it("keeps the overlays", () => {
@@ -98,5 +122,55 @@ describe("LovedTracksBanner", () => {
     expect(
       container.querySelectorAll("div.absolute.inset-0").length,
     ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("freezes time while paused and resumes without a jump", () => {
+    clock = 1000;
+    render(<LovedTracksBanner />);
+    act(() => pump(0));
+    clock = 2000;
+    act(() => pump(1000));
+    expect(lastT()).toBe(1);
+
+    setFocus(false);
+    clock = 10000;
+    act(() => roCb([{ contentRect: { width: 800, height: 200 } }]));
+    expect(lastT()).toBe(1);
+
+    setFocus(true);
+    act(() => pump(9000));
+    expect(lastT()).toBe(1);
+    clock = 10500;
+    act(() => pump(9500));
+    expect(lastT()).toBe(1.5);
+  });
+
+  it("sizes the backing store to dpr / 4", () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const { getByTestId } = render(<LovedTracksBanner />);
+    const canvas = getByTestId("loved-banner-canvas") as HTMLCanvasElement;
+    act(() => roCb([{ contentRect: { width: 800, height: 200 } }]));
+    expect([canvas.width, canvas.height]).toEqual([400, 100]);
+  });
+
+  it("caps the backing width at 1024 and keeps the aspect ratio", () => {
+    vi.stubGlobal("devicePixelRatio", 2);
+    const { getByTestId } = render(<LovedTracksBanner />);
+    const canvas = getByTestId("loved-banner-canvas") as HTMLCanvasElement;
+    act(() => roCb([{ contentRect: { width: 4096, height: 400 } }]));
+    expect([canvas.width, canvas.height]).toEqual([1024, 100]);
+  });
+
+  it("stops the loop when scrolled out of view and restarts on return", () => {
+    render(<LovedTracksBanner />);
+    act(() => pump(0));
+    expect(rafCbs.size).toBe(1);
+    act(() => ioCb([{ isIntersecting: false }]));
+    expect(rafCbs.size).toBe(0);
+    act(() => ioCb([{ isIntersecting: true }]));
+    expect(rafCbs.size).toBe(1);
+    const before = draw.mock.calls.length;
+    act(() => pump(1000));
+    expect(draw.mock.calls.length).toBe(before + 1);
   });
 });
