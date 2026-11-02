@@ -34,7 +34,10 @@ export default function LovedTracksBanner() {
     let raf = 0;
 
     const time = () =>
-      reduced ? 0 : (performance.now() - mountedAt - pausedAccum) / 1000;
+      reduced
+        ? 0
+        : ((running ? performance.now() : pausedAt) - mountedAt - pausedAccum) /
+          1000;
     const paint = () => drawBanner(ctx, canvas.width, canvas.height, time());
 
     const frame = (now: number) => {
