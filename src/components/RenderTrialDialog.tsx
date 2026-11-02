@@ -12,9 +12,9 @@ import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 
 function trialTitle(trial: ActiveTrial): string {
-  if (!trial.unprompted) return "Keep the new rendering mode?";
-  const path = trial.revertTo === "cpu" ? "GPU" : "CPU";
-  return `SONE is now rendering on the ${path}. Keep it?`;
+  return trial.unprompted
+    ? "SONE is now rendering on the GPU. Keep it?"
+    : "Keep the new rendering mode?";
 }
 
 export default function RenderTrialDialog() {

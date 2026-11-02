@@ -82,7 +82,9 @@ pub fn set_render_mode(
     let dir = config_dir(&state)?;
     let mut sidecar = render_mode::read_sidecar(dir);
     sidecar.pending = Some(mode);
-    render_mode::write_sidecar(dir, &sidecar);
+    if !render_mode::write_sidecar(dir, &sidecar) {
+        return Err(SoneError::Io("Could not save the rendering mode".into()));
+    }
     render_mode::request_restart(&app);
     Ok(())
 }
@@ -118,7 +120,7 @@ pub fn revert_render_mode(
 
 #[tauri::command]
 pub fn get_render_reverted() -> Option<RenderMode> {
-    render_mode::launch_info().and_then(|i| i.reverted_from)
+    render_mode::launch_info().and_then(|i| i.reverted_to)
 }
 
 /// Taking the trial out of state is what makes Keep, Revert and the timer

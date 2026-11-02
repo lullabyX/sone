@@ -201,19 +201,25 @@ pub struct Trial {
 pub struct LaunchPlan {
     pub apply: RenderMode,
     pub trial: Option<Trial>,
-    pub reverted_from: Option<RenderMode>,
+    pub reverted_to: Option<RenderMode>,
     pub sidecar_after: Sidecar,
 }
 
 /// A trial still recorded at launch means the previous run never confirmed it,
 /// so it is treated as failed and rolled back.
+///
+/// Unprompted trials only guard a move onto the GPU path; reverting a move onto
+/// the CPU would pin `gpu`, which removes both WebKit variables for good. With
+/// no path recorded, only Snap and Flatpak (`first_launch_trial`) get a trial,
+/// since native installs were already on the GPU path.
 pub fn plan_launch(
     before: Sidecar,
+    first_launch_trial: bool,
     resolve_path: impl Fn(RenderMode) -> EffectivePath,
 ) -> LaunchPlan {
     let mut after = before.clone();
 
-    if let Some(tried) = before.trial {
+    if before.trial.is_some() {
         let apply = before.revert.unwrap_or(before.mode);
         after.mode = apply;
         after.trial = None;
@@ -222,7 +228,7 @@ pub fn plan_launch(
         return LaunchPlan {
             apply,
             trial: None,
-            reverted_from: Some(tried),
+            reverted_to: Some(apply),
             sidecar_after: after,
         };
     }
@@ -240,26 +246,23 @@ pub fn plan_launch(
         return LaunchPlan {
             apply: pending,
             trial: Some(trial),
-            reverted_from: None,
+            reverted_to: None,
             sidecar_after: after,
         };
     }
 
     let path = resolve_path(before.mode);
-    let changed = match before.last {
-        Some(last) => last != path,
-        None => path == EffectivePath::Gpu,
-    };
-    let trial = changed.then(|| {
-        let revert_to = match path {
-            EffectivePath::Gpu => RenderMode::Cpu,
-            EffectivePath::Cpu => RenderMode::Gpu,
+    let onto_gpu = path == EffectivePath::Gpu
+        && match before.last {
+            Some(last) => last == EffectivePath::Cpu,
+            None => first_launch_trial,
         };
+    let trial = onto_gpu.then(|| {
         after.trial = Some(before.mode);
-        after.revert = Some(revert_to);
+        after.revert = Some(RenderMode::Cpu);
         Trial {
             mode: before.mode,
-            revert_to,
+            revert_to: RenderMode::Cpu,
             unprompted: true,
         }
     });
@@ -267,7 +270,7 @@ pub fn plan_launch(
     LaunchPlan {
         apply: before.mode,
         trial,
-        reverted_from: None,
+        reverted_to: None,
         sidecar_after: after,
     }
 }
@@ -290,7 +293,7 @@ pub fn nvidia_present() -> bool {
 pub struct LaunchInfo {
     pub resolution: Resolution,
     pub trial: Option<Trial>,
-    pub reverted_from: Option<RenderMode>,
+    pub reverted_to: Option<RenderMode>,
     pub mode: RenderMode,
 }
 
@@ -513,7 +516,7 @@ mod tests {
             last: Some(EffectivePath::Cpu),
             ..Default::default()
         };
-        let p = plan_launch(before, |_| EffectivePath::Gpu);
+        let p = plan_launch(before, false, |_| EffectivePath::Gpu);
         assert_eq!(p.apply, RenderMode::Gpu);
         assert_eq!(
             p.trial,
@@ -544,10 +547,10 @@ mod tests {
             last: Some(EffectivePath::Gpu),
             ..Default::default()
         };
-        let p = plan_launch(before, |_| EffectivePath::Cpu);
+        let p = plan_launch(before, false, |_| EffectivePath::Cpu);
         assert_eq!(p.apply, RenderMode::Auto);
         assert_eq!(p.trial, None);
-        assert_eq!(p.reverted_from, Some(RenderMode::Gpu));
+        assert_eq!(p.reverted_to, Some(RenderMode::Auto));
         assert_eq!(p.sidecar_after.trial, None);
         assert_eq!(p.sidecar_after.last, Some(EffectivePath::Cpu));
     }
@@ -559,7 +562,7 @@ mod tests {
             last: Some(EffectivePath::Cpu),
             ..Default::default()
         };
-        let p = plan_launch(before, |_| EffectivePath::Gpu);
+        let p = plan_launch(before, false, |_| EffectivePath::Gpu);
         assert_eq!(
             p.trial,
             Some(Trial {
@@ -572,17 +575,57 @@ mod tests {
     }
 
     #[test]
-    fn first_launch_on_cpu_is_quiet_and_on_gpu_is_a_trial() {
+    fn a_change_towards_cpu_starts_no_trial() {
+        let before = Sidecar {
+            mode: RenderMode::Auto,
+            last: Some(EffectivePath::Gpu),
+            ..Default::default()
+        };
+        let p = plan_launch(before, true, |_| EffectivePath::Cpu);
+        assert_eq!(p.trial, None);
+        assert_eq!(p.sidecar_after.trial, None);
+        assert_eq!(p.sidecar_after.revert, None);
+        assert_eq!(p.sidecar_after.last, Some(EffectivePath::Cpu));
+    }
+
+    #[test]
+    fn first_launch_on_cpu_is_quiet() {
         assert_eq!(
-            plan_launch(Sidecar::default(), |_| EffectivePath::Cpu).trial,
+            plan_launch(Sidecar::default(), true, |_| EffectivePath::Cpu).trial,
             None
         );
-        assert!(
-            plan_launch(Sidecar::default(), |_| EffectivePath::Gpu)
-                .trial
-                .unwrap()
-                .unprompted
+    }
+
+    #[test]
+    fn first_sandboxed_launch_on_gpu_is_a_trial() {
+        let p = plan_launch(Sidecar::default(), true, |_| EffectivePath::Gpu);
+        assert!(p.trial.unwrap().unprompted);
+        assert_eq!(p.sidecar_after.last, Some(EffectivePath::Gpu));
+    }
+
+    #[test]
+    fn first_native_launch_on_gpu_only_records_the_path() {
+        let p = plan_launch(Sidecar::default(), false, |_| EffectivePath::Gpu);
+        assert_eq!(p.trial, None);
+        assert_eq!(
+            p.sidecar_after,
+            Sidecar {
+                last: Some(EffectivePath::Gpu),
+                ..Default::default()
+            }
         );
+    }
+
+    #[test]
+    fn the_running_mode_is_the_one_applied() {
+        let pending = Sidecar {
+            mode: RenderMode::Cpu,
+            pending: Some(RenderMode::Gpu),
+            ..Default::default()
+        };
+        let p = plan_launch(pending, false, |_| EffectivePath::Gpu);
+        assert_eq!(p.apply, RenderMode::Gpu);
+        assert_eq!(p.sidecar_after.mode, RenderMode::Cpu);
     }
 
     #[test]
@@ -666,11 +709,11 @@ mod tests {
             last: Some(EffectivePath::Gpu),
             ..Default::default()
         };
-        let p = plan_launch(before, |m| match m {
+        let p = plan_launch(before, false, |m| match m {
             RenderMode::Gpu => EffectivePath::Gpu,
             _ => EffectivePath::Cpu,
         });
-        assert_eq!(p.reverted_from, Some(RenderMode::Gpu));
+        assert_eq!(p.reverted_to, Some(RenderMode::Auto));
         assert_eq!(p.sidecar_after.mode, RenderMode::Auto);
         assert_eq!(p.sidecar_after.last, Some(EffectivePath::Cpu));
     }
@@ -696,6 +739,9 @@ mod tests {
             last: Some(EffectivePath::Gpu),
             ..Default::default()
         };
-        assert_eq!(plan_launch(before, |_| EffectivePath::Gpu).trial, None);
+        assert_eq!(
+            plan_launch(before, true, |_| EffectivePath::Gpu).trial,
+            None
+        );
     }
 }

@@ -160,7 +160,7 @@ export default function MediaCard({
             )}
             {/* Right side icons — non-artist only */}
             {!isArtist && hot && (
-              <div className="absolute bottom-2 right-2 flex items-center gap-1 animate-fadeIn">
+              <div className="absolute bottom-2 right-2 flex items-center gap-1 animate-fadeIn [animation-duration:300ms]!">
                 {onMoreClick && (
                   <button
                     onClick={(e) => {

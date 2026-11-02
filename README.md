@@ -424,6 +424,8 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 sone
 WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
 ```
 
+On WebKitGTK 2.54 and newer, `WEBKIT_DISABLE_COMPOSITING_MODE=1` gives a black window on NVIDIA, so prefer the **Settings → General → Rendering** choice.
+
 </details>
 
 ## Custom theme file
