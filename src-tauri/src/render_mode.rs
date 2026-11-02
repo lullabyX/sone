@@ -145,6 +145,14 @@ pub struct EnvPreset {
     pub compositing_disabled: bool,
 }
 
+pub fn env_preset(env: &[(OsString, OsString)]) -> EnvPreset {
+    let has = |name: &str| env.iter().any(|(k, _)| k == name);
+    EnvPreset {
+        dmabuf_disabled: has("WEBKIT_DISABLE_DMABUF_RENDERER"),
+        compositing_disabled: has("WEBKIT_DISABLE_COMPOSITING_MODE"),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EnvAction {
     Leave,
@@ -295,6 +303,48 @@ pub fn launch_info() -> Option<LaunchInfo> {
 
 pub fn remember_launch_env(env: Vec<(OsString, OsString)>) {
     let _ = LAUNCH_ENV.set(env);
+}
+
+/// The path `mode` would resolve to on a launch from this one's environment.
+pub fn launch_path_for(mode: RenderMode) -> Option<EffectivePath> {
+    let env = LAUNCH_ENV.get()?;
+    let nvidia = launch_info()?.resolution.nvidia;
+    Some(resolve(mode, env_preset(env), nvidia).path)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveTrial {
+    pub mode: RenderMode,
+    pub revert_to: RenderMode,
+    pub unprompted: bool,
+    pub deadline_ms: u64,
+}
+
+pub fn confirmed_sidecar(before: Sidecar, trial: &ActiveTrial) -> Sidecar {
+    Sidecar {
+        mode: trial.mode,
+        pending: None,
+        trial: None,
+        revert: None,
+        ..before
+    }
+}
+
+/// `last` must follow the reverted mode, or the next launch sees a path change
+/// and starts an unprompted trial back towards the path just rejected.
+pub fn reverted_sidecar(
+    before: Sidecar,
+    trial: &ActiveTrial,
+    path: Option<EffectivePath>,
+) -> Sidecar {
+    Sidecar {
+        mode: trial.revert_to,
+        pending: None,
+        trial: None,
+        revert: None,
+        last: path.or(before.last),
+    }
 }
 
 static PRIMARY_LOCK: OnceLock<std::fs::File> = OnceLock::new();
@@ -587,6 +637,74 @@ mod tests {
         );
         let without = [(OsString::from("HOME"), OsString::from("/home/u"))];
         assert_eq!(relaunch_binary(&without, exe.clone()), exe);
+    }
+
+    fn active(mode: RenderMode, revert_to: RenderMode) -> ActiveTrial {
+        ActiveTrial {
+            mode,
+            revert_to,
+            unprompted: false,
+            deadline_ms: 0,
+        }
+    }
+
+    #[test]
+    fn confirming_keeps_the_trial_mode_and_clears_the_rest() {
+        let before = Sidecar {
+            mode: RenderMode::Auto,
+            pending: None,
+            trial: Some(RenderMode::Gpu),
+            revert: Some(RenderMode::Auto),
+            last: Some(EffectivePath::Gpu),
+        };
+        assert_eq!(
+            confirmed_sidecar(before, &active(RenderMode::Gpu, RenderMode::Auto)),
+            Sidecar {
+                mode: RenderMode::Gpu,
+                last: Some(EffectivePath::Gpu),
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_revert_records_the_reverted_path_so_the_next_launch_is_quiet() {
+        let before = Sidecar {
+            mode: RenderMode::Auto,
+            pending: None,
+            trial: Some(RenderMode::Gpu),
+            revert: Some(RenderMode::Auto),
+            last: Some(EffectivePath::Gpu),
+        };
+        let after = reverted_sidecar(
+            before,
+            &active(RenderMode::Gpu, RenderMode::Auto),
+            Some(EffectivePath::Cpu),
+        );
+        assert_eq!(
+            after,
+            Sidecar {
+                mode: RenderMode::Auto,
+                last: Some(EffectivePath::Cpu),
+                ..Default::default()
+            }
+        );
+        assert_eq!(plan_launch(after, |_| EffectivePath::Cpu).trial, None);
+    }
+
+    #[test]
+    fn env_preset_reports_presence_whatever_the_value() {
+        let env = [(
+            OsString::from("WEBKIT_DISABLE_COMPOSITING_MODE"),
+            OsString::from("0"),
+        )];
+        assert_eq!(
+            env_preset(&env),
+            EnvPreset {
+                dmabuf_disabled: false,
+                compositing_disabled: true
+            }
+        );
     }
 
     #[test]

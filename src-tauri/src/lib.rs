@@ -269,6 +269,7 @@ pub struct AppState {
     pub overlay_state: crate::overlay::OverlayStateRef,
     pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
     pub signal_path: Arc<SignalPathTracker>,
+    pub render_trial: std::sync::Mutex<Option<render_mode::ActiveTrial>>,
 }
 
 /// The config directory, resolvable before `AppState` exists — `main.rs` needs
@@ -287,6 +288,13 @@ pub fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Write refreshed tokens back into the stored settings. Called from every
@@ -533,6 +541,7 @@ impl AppState {
             },
             overlay_handle: Mutex::new(None),
             signal_path,
+            render_trial: std::sync::Mutex::new(None),
         }
     }
 
@@ -667,6 +676,27 @@ pub fn run() {
             }
 
             app.manage(AppState::new(app.handle().clone()));
+
+            if let Some(trial) = render_mode::launch_info().and_then(|i| i.trial) {
+                let deadline_ms = now_ms() + 40_000;
+                *app.state::<AppState>()
+                    .render_trial
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                    Some(render_mode::ActiveTrial {
+                        mode: trial.mode,
+                        revert_to: trial.revert_to,
+                        unprompted: trial.unprompted,
+                        deadline_ms,
+                    });
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let wait = deadline_ms.saturating_sub(now_ms());
+                    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                    let state = handle.state::<AppState>();
+                    commands::render::revert_and_restart(&handle, &state);
+                });
+            }
 
             #[cfg(target_os = "linux")]
             webview_proxy_auth::install(app.handle());
@@ -1166,6 +1196,13 @@ pub fn run() {
             commands::utility::refresh_signal_path,
             // updates
             commands::updates::check_for_update,
+            // rendering
+            commands::render::get_render_status,
+            commands::render::set_render_mode,
+            commands::render::get_render_trial,
+            commands::render::confirm_render_mode,
+            commands::render::revert_render_mode,
+            commands::render::get_render_reverted,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -7,11 +7,7 @@ fn main() {
         use tauri_app_lib::render_mode::{self, EnvAction};
 
         let launch_env: Vec<_> = std::env::vars_os().collect();
-        let preset_has = |name: &str| launch_env.iter().any(|(k, _)| k == name);
-        let preset = render_mode::EnvPreset {
-            dmabuf_disabled: preset_has("WEBKIT_DISABLE_DMABUF_RENDERER"),
-            compositing_disabled: preset_has("WEBKIT_DISABLE_COMPOSITING_MODE"),
-        };
+        let preset = render_mode::env_preset(&launch_env);
         render_mode::remember_launch_env(launch_env);
 
         let nvidia = render_mode::nvidia_present();
