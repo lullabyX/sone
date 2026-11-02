@@ -54,14 +54,17 @@ fn main() {
             }
         }
 
-        if let Some(dir) = &render_dir {
-            if render_mode::claim_primary(dir) {
-                render_mode::write_sidecar(dir, &plan.sidecar_after);
-            }
+        // A trial the sidecar does not record would never be rolled back or
+        // confirmed, and its timer would restart the app forever.
+        let persisted = render_dir.as_deref().is_some_and(|dir| {
+            render_mode::claim_primary(dir) && render_mode::write_sidecar(dir, &plan.sidecar_after)
+        });
+        if !persisted && plan.trial.is_some() {
+            eprintln!("[sone] rendering trial skipped: the config dir could not be written.");
         }
         render_mode::remember_launch(render_mode::LaunchInfo {
             resolution,
-            trial: plan.trial,
+            trial: if persisted { plan.trial } else { None },
             reverted_from: plan.reverted_from,
             mode: plan.sidecar_after.mode,
         });
