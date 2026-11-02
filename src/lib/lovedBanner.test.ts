@@ -53,6 +53,10 @@ describe("lovedBanner", () => {
     const s = blobStateAt(BLOBS[0], 0.28 * 23 - 4); // drift stop 1 for blob 1
     expect(s.tx).toBeCloseTo(15.2, 5);
     expect(s.ty).toBeCloseTo(6.1, 5);
+    const m = blobStateAt(BLOBS[1], 0.44 * 17 - 2);
+    expect(m.deg).toBeCloseTo(-9, 5);
+    expect(m.scale).toBeCloseTo(1.19, 5);
+    expect(blobStateAt(BLOBS[2], 0.48 * 41 - 6).opacity).toBeCloseTo(0.38, 5);
   });
   it("drawBanner paints three gradients at the blob centres", () => {
     const calls: string[] = [];
@@ -77,5 +81,75 @@ describe("lovedBanner", () => {
     expect(calls).toContain(
       `translate ${(-0.1738 * 1200 + (0.7975 * 1200) / 2).toFixed(1)} ${(-0.7125 * 420 + (2.325 * 420) / 2).toFixed(1)}`,
     );
+  });
+
+  type Op = { op: string; args: number[]; alpha?: number };
+  function recordingCtx(): { ctx: Ctx2dLike; ops: Op[] } {
+    const ops: Op[] = [];
+    const ctx: Ctx2dLike = {
+      globalAlpha: 1,
+      fillStyle: null,
+      save: () => ops.push({ op: "save", args: [] }),
+      restore: () => ops.push({ op: "restore", args: [] }),
+      translate: (x, y) => ops.push({ op: "translate", args: [x, y] }),
+      rotate: (rad) => ops.push({ op: "rotate", args: [rad] }),
+      scale: (x, y) => ops.push({ op: "scale", args: [x, y] }),
+      clearRect: (...a) => ops.push({ op: "clear", args: a }),
+      fillRect: (...a) =>
+        ops.push({ op: "fill", args: a, alpha: ctx.globalAlpha }),
+      createRadialGradient: (...a) => {
+        ops.push({ op: "gradient", args: a });
+        return { addColorStop: () => {} };
+      },
+    };
+    return { ctx, ops };
+  }
+  function firstBlobOps(ops: Op[]): Op[] {
+    const start = ops.findIndex((o) => o.op === "save");
+    const end = ops.findIndex((o) => o.op === "restore");
+    return ops.slice(start + 1, end);
+  }
+
+  it("drawBanner applies drift, rotation, scale and pulse for a blob", () => {
+    const t = 0.28 * 23 - 4;
+    const state = blobStateAt(BLOBS[0], t);
+    const bw = 0.7975 * 1200;
+    const bh = 2.325 * 420;
+    const { ctx, ops } = recordingCtx();
+    drawBanner(ctx, 1200, 420, t);
+    const blob = firstBlobOps(ops);
+    const [centre, drift] = blob.filter((o) => o.op === "translate");
+    expect(centre.args[0]).toBeCloseTo(-0.1738 * 1200 + bw / 2, 5);
+    expect(drift.args[0]).toBeCloseTo(0.152 * bw, 5);
+    expect(drift.args[1]).toBeCloseTo(0.061 * bh, 5);
+    const rotate = blob.find((o) => o.op === "rotate")!;
+    expect(rotate.args[0]).toBeCloseTo((state.deg * Math.PI) / 180, 10);
+    const [morphScale] = blob.filter((o) => o.op === "scale");
+    expect(morphScale.args[0]).toBeCloseTo(state.scale, 10);
+    expect(morphScale.args[1]).toBeCloseTo(state.scale, 10);
+    expect(blob.find((o) => o.op === "fill")!.alpha).toBeCloseTo(
+      state.opacity,
+      10,
+    );
+  });
+
+  it("drawBanner paints a closest-side ellipse that turns with the box", () => {
+    const w = 800;
+    const h = 420;
+    const bw = 0.7975 * w;
+    const bh = 2.325 * h;
+    const { ctx, ops } = recordingCtx();
+    drawBanner(ctx, w, h, 0);
+    const blob = firstBlobOps(ops);
+    const names = blob.map((o) => o.op);
+    const scales = blob.filter((o) => o.op === "scale");
+    expect(scales).toHaveLength(2);
+    expect(names.indexOf("rotate")).toBeLessThan(names.lastIndexOf("scale"));
+    expect(scales[1].args[0]).toBeCloseTo(bw / 2, 5);
+    expect(scales[1].args[1]).toBeCloseTo(bh / 2, 5);
+    expect(blob.find((o) => o.op === "gradient")!.args).toEqual([
+      0, 0, 0, 0, 0, 1,
+    ]);
+    expect(blob.find((o) => o.op === "fill")!.args).toEqual([-1, -1, 2, 2]);
   });
 });

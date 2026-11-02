@@ -1,6 +1,5 @@
 export interface BlobSpec {
   color: [number, number, number];
-  baseOpacity: number;
   box: { w: number; h: number; left: number; top: number };
   drift: { period: number; delay: number; stops: [number, number, number][] };
   morph: { period: number; delay: number; stops: [number, number, number][] };
@@ -10,7 +9,6 @@ export interface BlobSpec {
 export const BLOBS: readonly BlobSpec[] = [
   {
     color: [69, 10, 245],
-    baseOpacity: 0.85,
     box: { w: 0.7975, h: 2.325, left: -0.1738, top: -0.7125 },
     drift: {
       period: 23,
@@ -45,7 +43,6 @@ export const BLOBS: readonly BlobSpec[] = [
   },
   {
     color: [142, 45, 226],
-    baseOpacity: 0.85,
     box: { w: 0.725, h: 2.17, left: 0.1375, top: -0.485 },
     drift: {
       period: 29,
@@ -80,7 +77,6 @@ export const BLOBS: readonly BlobSpec[] = [
   },
   {
     color: [0, 210, 255],
-    baseOpacity: 0.6,
     box: { w: 0.6525, h: 2.015, left: 0.3988, top: -0.5575 },
     drift: {
       period: 26,
@@ -232,21 +228,15 @@ export function drawBanner(
     ctx.translate((state.tx / 100) * bw, (state.ty / 100) * bh);
     ctx.rotate((state.deg * Math.PI) / 180);
     ctx.scale(state.scale, state.scale);
+    ctx.scale(bw / 2, bh / 2);
     ctx.globalAlpha = state.opacity;
 
-    const gradient = ctx.createRadialGradient(
-      0,
-      0,
-      0,
-      0,
-      0,
-      Math.min(bw, bh) / 2,
-    );
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
     for (const [offset, alpha] of GRADIENT_STOPS) {
       gradient.addColorStop(offset, `rgba(${r}, ${g}, ${b}, ${alpha})`);
     }
     ctx.fillStyle = gradient;
-    ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+    ctx.fillRect(-1, -1, 2, 2);
     ctx.restore();
   }
 }
