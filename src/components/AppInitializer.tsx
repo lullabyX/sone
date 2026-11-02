@@ -221,6 +221,7 @@ export function AppInitializer() {
     seekTo,
     predictNextTrack,
     advanceToTrack,
+    advanceCastTrack,
     autoplayIdsRef,
   } = usePlaybackActions();
   const pendingNextRef = useRef<PendingNext | null>(null);
@@ -1060,6 +1061,20 @@ export function AppInitializer() {
       );
     });
 
+    // 3a. Native playlist advance: the receiver moved to the next entry of the
+    // cast `.m3u8` BY ITSELF (preloaded ~90 s early, no gap, no push). The
+    // audio is already playing, so this only catches the UI up - invoking
+    // playback here would restart the track and bring the gap back.
+    const unlistenAdvanced = listen<{
+      index: number;
+      trackId: number;
+      streamInfo: StreamInfo | null;
+    }>("tidal-connect:track-advanced", (e) => {
+      const active = store.get(activeDeviceAtom);
+      if (!active || active.isLocal) return;
+      advanceCastTrack(e.payload.trackId, e.payload.streamInfo ?? null);
+    });
+
     // 3. Synchronize active device on startup. Retried for ~12 s: on
     // SONE_CAST_DEVICE autoselect the backend stores the selection one to
     // two seconds in, i.e. after this first sync returns None and before
@@ -1094,8 +1109,9 @@ export function AppInitializer() {
       unlistenDisc.then((fn) => fn());
       unlistenSel.then((fn) => fn());
       unlistenEnded.then((fn) => fn());
+      unlistenAdvanced.then((fn) => fn());
     };
-  }, [store]);
+  }, [store, playNext, advanceCastTrack]);
 
   // ================================================================
   //  AUDIO ERROR HANDLING

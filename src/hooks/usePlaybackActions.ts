@@ -10,6 +10,7 @@
 
 import { useCallback, useRef } from "react";
 import { useStore } from "jotai";
+import type { createStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import {
   isPlayingAtom,
@@ -33,7 +34,7 @@ import {
   userPausedAtom,
   queueEpochAtom,
 } from "../atoms/playback";
-import { activeDeviceAtom } from "../atoms/tidalConnect";
+import { activeDeviceAtom, isCastingAtom } from "../atoms/tidalConnect";
 import {
   currentVideoAtom,
   videoStreamAtom,
@@ -178,6 +179,10 @@ function fisherYatesShuffle<T>(arr: T[]): T[] {
 const DEVICE_RETRY_DELAY = 500;
 const DEVICE_MAX_RETRIES = 10;
 const MAX_HISTORY_TRACKS = 500;
+/** How many upcoming tracks ride along in one cast playlist push. Mirrors
+ *  `CAST_QUEUE_LOOKAHEAD` in the backend (commands/playback.rs): each entry is
+ *  a TIDAL resolve done before the push, and the receiver reads the list once. */
+const CAST_QUEUE_LOOKAHEAD = 12;
 const PLAY_REENTRY_GUARD_MS = 250;
 
 /** Hard ceiling on one play_tidal_track attempt. A backend that never
@@ -230,12 +235,19 @@ async function invokePlayWithRetry(
   trackId: number,
   useTrackGain: boolean,
   onFirstRetry: () => void,
+  queueTrackIds?: number[],
 ): Promise<StreamInfo> {
   for (let attempt = 0; attempt <= DEVICE_MAX_RETRIES; attempt++) {
     try {
       return await withInvokeTimeout<StreamInfo>({
         cmd: "play_tidal_track",
-        payload: { trackId, useTrackGain },
+        // `queueTrackIds` rides only a cast push: the backend turns the list
+        // into ONE native `.m3u8` playlist on the receiver, which then plays
+        // track to track with no push (and no ~10 s gap) between them.
+        payload:
+          queueTrackIds && queueTrackIds.length > 0
+            ? { trackId, useTrackGain, queueTrackIds }
+            : { trackId, useTrackGain },
         timeoutMs: PLAY_ATTEMPT_TIMEOUT_MS,
       });
     } catch (err: unknown) {
@@ -248,6 +260,23 @@ async function invokePlayWithRetry(
     }
   }
   throw new Error("device_busy"); // unreachable
+}
+
+/** Upcoming track ids for a native cast playlist, in play order (manual queue
+ *  first, then the context queue - the same order playNext drains them).
+ *  Video items and filtered tracks are skipped so the receiver never receives
+ *  an entry the app would refuse to play. */
+function castQueueLookahead(store: ReturnType<typeof createStore>): number[] {
+  const prefs = readContentPrefs(store);
+  const ids: number[] = [];
+  for (const t of [...store.get(manualQueueAtom), ...store.get(queueAtom)]) {
+    if (t.itemType === "video") continue;
+    if (isTrackUnavailable(t) || isContentBlocked(t, prefs)) continue;
+    if (ids.includes(t.id)) continue;
+    ids.push(t.id);
+    if (ids.length >= CAST_QUEUE_LOOKAHEAD) break;
+  }
+  return ids;
 }
 
 export function usePlaybackActions() {
@@ -433,6 +462,13 @@ export function usePlaybackActions() {
       store.set(currentTrackAtom, stamped);
 
       try {
+        // Native cast playlist: while casting, hand the backend the upcoming
+        // queue so the receiver gets ONE `.m3u8` it plays through on its own
+        // (no push per track, no ~10 s dead air at each boundary). Local
+        // playback keeps its own gapless pipeline and sends nothing.
+        const castQueueIds = store.get(isCastingAtom)
+          ? castQueueLookahead(store)
+          : undefined;
         const info = await invokePlayWithRetry(
           stamped.id,
           store.get(useTrackGainAtom),
@@ -440,6 +476,7 @@ export function usePlaybackActions() {
             store.set(isPlayingAtom, false);
             showToast("Preparing exclusive audio…", "info");
           },
+          castQueueIds,
         );
 
         if (generation !== playGenerationRef.current) {
@@ -659,9 +696,10 @@ export function usePlaybackActions() {
    *  Mirrors playTrack's success path WITHOUT invoking play: bumps the generation
    *  guard (aborts any in-flight playTrack writes), pushes history, stamps source
    *  context, sets current/streamInfo, preserves user-pause intent, and fires the
-   *  scrobble notify. */
+   *  scrobble notify. `info` may be null on a cast advance whose entry metadata
+   *  did not come back: the atom then keeps the last known stream. */
   const advanceToTrack = useCallback(
-    (track: Track, info: StreamInfo) => {
+    (track: Track, info: StreamInfo | null) => {
       ++playGenerationRef.current; // abort any in-flight playTrack writes
       const stamped = ensureQid(normalizeTrack(track));
       preloadImage(getTidalImageUrl(stamped.album?.cover, 640));
@@ -679,7 +717,7 @@ export function usePlaybackActions() {
       (stamped as any)._playingFrom = store.get(playbackSourceAtom);
       (stamped as any)._contextFrom = store.get(contextSourceAtom);
       store.set(currentTrackAtom, stamped); // cascades MPRIS/Discord/position reset
-      store.set(streamInfoAtom, info);
+      if (info) store.set(streamInfoAtom, info);
       // At a gapless advance the pipeline is definitionally rolling, so the new track IS
       // playing unless the USER paused. Use explicit pause intent via the GLOBAL
       // userPausedAtom (written by every pauseTrack/resumeTrack path, instance-independent),
@@ -699,6 +737,50 @@ export function usePlaybackActions() {
       }).catch(() => {});
     },
     [store],
+  );
+
+  /** Adopt a native cast-playlist advance: the receiver moved to the next
+   *  entry of the `.m3u8` it is playing, so the audio is ALREADY running and
+   *  nothing may be invoked. The app only catches its bookkeeping up: pop
+   *  through the queues up to the track the receiver is playing now (entries
+   *  the backend dropped as unplayable are popped silently, exactly like
+   *  playNext's skip drain) and adopt it via advanceToTrack. */
+  const advanceCastTrack = useCallback(
+    (trackId: number, info: StreamInfo | null) => {
+      const manual = store.get(manualQueueAtom);
+      const mi = manual.findIndex((t) => t.id === trackId);
+      if (mi >= 0) {
+        store.set(manualQueueAtom, manual.slice(mi + 1));
+        advanceToTrack(manual[mi], info);
+        return;
+      }
+      const queue = store.get(queueAtom);
+      const qi = queue.findIndex((t) => t.id === trackId);
+      if (qi >= 0) {
+        const played = queue.slice(0, qi + 1);
+        store.set(queueAtom, queue.slice(qi + 1));
+        const orig = store.get(originalQueueAtom);
+        if (orig) {
+          const playedQids = new Set(played.map((t) => (t as { _qid?: string })._qid));
+          store.set(
+            originalQueueAtom,
+            orig.filter((t) => !playedQids.has((t as { _qid?: string })._qid)),
+          );
+        }
+        advanceToTrack(queue[qi], info);
+        return;
+      }
+      // The queue no longer holds the entry (edited mid-album, or the entry
+      // came from a lookahead the app already dropped). Audio reality wins:
+      // adopt what metadata the backend sent, else leave the UI to the next
+      // advance or the playlist end.
+      console.warn(
+        "[cast] native advance to track",
+        trackId,
+        "not found in the queues; UI not advanced",
+      );
+    },
+    [store, advanceToTrack],
   );
 
   const setVolume = useCallback(
@@ -1079,8 +1161,17 @@ export function usePlaybackActions() {
           }
         }
 
-        // Stop old pipeline to prevent stale track-finished events
-        await invoke("stop_track").catch(() => {});
+        // Stop old pipeline to prevent stale track-finished events. While
+        // casting, skip this entirely: `stop_track`'s cast branch stops the
+        // RECEIVER media and wipes `cast_host`/`cast_status`, so on a natural
+        // album advance it re-stopped a just-stopped engine and destroyed the
+        // settle-before-push signal — the push then landed inside the A98
+        // fresh-stop jam window (2026-10-24: 3/3 deterministic advances into
+        // the 12 s jam cycle). A cast advance has no local pipeline worth
+        // stopping, and play_tidal_track's push supersedes the old stream.
+        if (!store.get(isCastingAtom)) {
+          await invoke("stop_track").catch(() => {});
+        }
 
         // Skip-loop helpers (issue #71). Counter resets on explicit user skip
         // so mashing Next across removed tracks never trips the cap.
@@ -1920,6 +2011,7 @@ export function usePlaybackActions() {
     playAllFromSource,
     predictNextTrack,
     advanceToTrack,
+    advanceCastTrack,
     playNextLockRef,
     playGenerationRef,
     autoplayIdsRef,

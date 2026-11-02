@@ -2,6 +2,9 @@ use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+use crate::tidal_api::StreamInfo;
+use crate::tidal_connect::manifest_server::QueueEntry;
+
 /// LinkPlay httpapi transport for pushed-URL casting to the receiver.
 ///
 /// The receiver's `loadLocalQueue` route crashes its process on any payload
@@ -104,6 +107,44 @@ pub struct CastStatus {
     /// device `totlen` may stay stale at the full length or drop to the
     /// trimmed remainder) still recognizes a genuine play-through.
     pub orig_totlen_ms: u64,
+    /// Native playlist cast (A98 `.m3u8` queue): track ids in playlist order.
+    /// Empty for a plain single-URL push. Entry boundaries are seamless, so
+    /// the receiver never leaves "play" between tracks; `queue_index` follows
+    /// it from the polled clock instead.
+    pub queue: Vec<u64>,
+    /// Playlist entries parallel to `queue`; a seek rebuilds the playlist from
+    /// here (trimmed head + the remaining entries).
+    pub queue_entries: Vec<QueueEntry>,
+    /// Per-entry stream metadata with the manifests stripped, so a native
+    /// advance can republish codec/quality to the UI with no TIDAL call.
+    pub queue_streams: Vec<StreamInfo>,
+    /// Index of the entry the receiver is currently playing.
+    pub queue_index: usize,
+    /// Entry-local position at `queue_entry_anchor_at`, the wall-clock anchor
+    /// for the entry playing now. The receiver's `curpos` is NOT a stable
+    /// reference across a playlist (2026-11-01: it ran cumulatively through
+    /// five album entries, then in a two-entry run switched to entry-local
+    /// partway through the second entry), so entry-local position is carried
+    /// by the wall clock and the device value is only adopted when it agrees.
+    pub queue_entry_anchor_ms: f64,
+    /// When `queue_entry_anchor_ms` was stamped; `None` while paused.
+    pub queue_entry_anchor_at: Option<Instant>,
+    /// Device-reported duration of the current entry (`totlen`); 0 until the
+    /// receiver has loaded it. A change is the entry-transition signal.
+    pub queue_entry_totlen_ms: u64,
+}
+
+/// One poll's worth of receiver observations.
+pub struct PollOutcome {
+    pub raw: PlayerStatusRaw,
+    /// Un-commanded play-to-stop at the end of the cast (single track) or at
+    /// the end of the playlist (queue cast).
+    pub track_ended: bool,
+    /// Volume (0-100) when the receiver reported a change.
+    pub volume: Option<u64>,
+    /// New playlist index when the receiver advanced natively to the next
+    /// entry. `None` for plain casts and for polls without a boundary.
+    pub advanced: Option<usize>,
 }
 
 impl CastStatus {
@@ -127,7 +168,30 @@ impl CastStatus {
             manifest_xml: None,
             start_offset_ms: 0.0,
             orig_totlen_ms: 0,
+            queue: Vec::new(),
+            queue_entries: Vec::new(),
+            queue_streams: Vec::new(),
+            queue_index: 0,
+            queue_entry_anchor_ms: 0.0,
+            queue_entry_anchor_at: None,
+            queue_entry_totlen_ms: 0,
         }
+    }
+
+    /// True when this cast is a native playlist (`.m3u8` queue).
+    pub fn is_queue(&self) -> bool {
+        !self.queue.is_empty()
+    }
+
+    /// Track id the receiver is currently playing.
+    pub fn current_track_id(&self) -> Option<u64> {
+        self.queue.get(self.queue_index).copied()
+    }
+
+    /// True when the receiver is on the last playlist entry (the only place a
+    /// queue cast can reach a natural end).
+    pub fn on_last_entry(&self) -> bool {
+        self.queue_index + 1 >= self.queue.len()
     }
 
     /// Wall position in milliseconds on the ORIGINAL track timeline.
@@ -144,6 +208,19 @@ impl CastStatus {
             self.orig_totlen_ms as f64
         } else {
             self.totlen_ms as f64
+        }
+    }
+
+    /// Position extrapolated to now. For a playlist entry that is the wall
+    /// clock since the entry started (see `queue_entry_anchor_ms`); for a
+    /// plain cast it is the last polled position (the device clock is
+    /// authoritative there).
+    fn live_pos_ms(&self) -> f64 {
+        match self.queue_entry_anchor_at {
+            Some(started) if self.is_queue() => {
+                self.queue_entry_anchor_ms + started.elapsed().as_secs_f64() * 1000.0
+            }
+            _ => self.pos_ms,
         }
     }
 }
@@ -237,22 +314,16 @@ impl LinkPlayClient {
         self.expect_ok(host, &cmd).await?;
         let mut slot = status_slot.write().await;
         let fresh = match slot.as_ref() {
-            Some(s) => CastStatus {
-                status: s.status.clone(),
-                pos_ms: position_ms,
-                anchor_ms: position_ms,
-                anchor_at: Some(Instant::now()),
-                totlen_ms: s.totlen_ms,
-                stop_commanded: s.stop_commanded,
-                pushed_at: s.pushed_at,
-                last_vol: s.last_vol,
-                cast_url: s.cast_url.clone(),
-                play_confirmed: s.play_confirmed,
-                repushes: s.repushes,
-                manifest_xml: s.manifest_xml.clone(),
-                start_offset_ms: s.start_offset_ms,
-                orig_totlen_ms: s.orig_totlen_ms,
-            },
+            Some(s) => {
+                // Clone-and-adjust instead of a field-by-field rebuild: the
+                // playlist fields must survive a seek, and a literal here goes
+                // stale every time a field is added.
+                let mut next = s.clone();
+                next.pos_ms = position_ms;
+                next.anchor_ms = position_ms;
+                next.anchor_at = Some(Instant::now());
+                next
+            }
             None => CastStatus::fresh(true),
         };
         *slot = Some(fresh);
@@ -343,15 +414,14 @@ impl LinkPlayClient {
     }
 
     /// One status poll; updates the extrapolation state machine in `slot` and
-    /// returns `(status, track_ended)` plus the observed volume (0-100) when
-    /// the device reported a CHANGE in `vol`. `track_ended` fires on an
-    /// un-commanded play-to-stop transition so the caller can emit
-    /// `tidal-connect:track-ended` for queue advancement.
+    /// returns the observed state plus the transition signals the caller
+    /// reports to the UI: a natural end (`track_ended`), a native playlist
+    /// advance (`advanced`), and a device volume change (`volume`).
     pub async fn poll(
         &self,
         host: &str,
         slot: &RwLock<Option<CastStatus>>,
-    ) -> Result<(PlayerStatusRaw, bool, Option<u64>), String> {
+    ) -> Result<PollOutcome, String> {
         let body = self
             .raw(host, "getPlayerStatus")
             .await
@@ -361,6 +431,7 @@ impl LinkPlayClient {
 
         let mut slot_guard = slot.write().await;
         let mut volume = None;
+        let mut advanced = None;
         if let Some(cur) = slot_guard.as_mut() {
             let new_status = raw.status.clone();
             if cur.status != new_status {
@@ -368,6 +439,16 @@ impl LinkPlayClient {
                     // Clock restart: extrapolation resumes from anchor_ms.
                     cur.anchor_at = Some(Instant::now());
                     cur.play_confirmed = true;
+                    // A playlist entry carries its own clock: start it at zero
+                    // when playback begins (push or jam re-push) and resume it
+                    // from the frozen anchor after a pause.
+                    if cur.is_queue() {
+                        if cur.status == "stop" || cur.status == "load" {
+                            cur.queue_entry_anchor_ms = 0.0;
+                            cur.pos_ms = 0.0;
+                        }
+                        cur.queue_entry_anchor_at = Some(Instant::now());
+                    }
                     // The first play confirmation after a push is the cast
                     // startup latency; it is measured against pushed_at and
                     // logged so a connection-time series can be derived from
@@ -386,9 +467,45 @@ impl LinkPlayClient {
                         let elapsed = started.elapsed().as_secs_f64() * 1000.0;
                         cur.anchor_ms += elapsed;
                     }
+                    // A playlist entry's position rides its own wall anchor, so
+                    // freeze that one instead of the single-track anchor.
+                    if cur.is_queue() {
+                        let frozen = cur.live_pos_ms();
+                        cur.queue_entry_anchor_ms = frozen;
+                        cur.queue_entry_anchor_at = None;
+                        cur.pos_ms = frozen;
+                    }
                 } else if new_status == "stop" && cur.status == "play" {
                     if cur.stop_commanded {
                         cur.stop_commanded = false;
+                    } else if cur.is_queue() {
+                        // Playlist cast: entry boundaries are seamless, so the
+                        // receiver only stops at the END of the playlist. A
+                        // stop mid-playlist is an operator stop (or a jam) and
+                        // never advances the app's queue.
+                        let end_pos = cur.live_pos_ms();
+                        if cur.on_last_entry()
+                            && cur.totlen_ms > 0
+                            && end_pos >= cur.totlen_ms as f64 - NATURAL_END_MARGIN_MS
+                        {
+                            *slot_guard = None;
+                            return Ok(PollOutcome {
+                                raw,
+                                track_ended: true,
+                                volume,
+                                advanced: None,
+                            });
+                        }
+                        // Freeze the entry clock at the stop position.
+                        cur.queue_entry_anchor_ms = end_pos;
+                        cur.queue_entry_anchor_at = None;
+                        log::debug!(
+                            "[cast-poller] ignoring mid-playlist stop at entry {}/{} ({:.1}/{:.1}s)",
+                            cur.queue_index + 1,
+                            cur.queue.len(),
+                            end_pos / 1000.0,
+                            cur.totlen_ms as f64 / 1000.0
+                        );
                     } else if cur.full_len_ms() > 0.0
                         && cur.wall_pos_ms() >= cur.full_len_ms() - NATURAL_END_MARGIN_MS
                     {
@@ -397,7 +514,12 @@ impl LinkPlayClient {
                         // length so a seek-trimmed push (receiver clock
                         // renumbered from the trim offset) still lands here.
                         *slot_guard = None;
-                        return Ok((raw, true, volume));
+                        return Ok(PollOutcome {
+                            raw,
+                            track_ended: true,
+                            volume,
+                            advanced: None,
+                        });
                     } else {
                         // Stop far from the track boundary: an operator stop
                         // on the receiver itself, or the transient stop some
@@ -413,11 +535,71 @@ impl LinkPlayClient {
                 cur.status = new_status;
             }
             if cur.status == "play" {
-                // The device's curpos is in ms and advances correctly until a
-                // seek happens, after which it switches to microseconds (and
-                // freezes). A curpos beyond twice the track length is that
-                // broken post-seek scale; extrapolate locally instead.
-                if raw.totlen > 0 && raw.curpos > raw.totlen.saturating_mul(2) {
+                if cur.is_queue() {
+                    // Native playlist: the receiver plays entry to entry with
+                    // no stop and no gap, and reports only `totlen` for the
+                    // entry playing now (`curpos` is not a dependable
+                    // reference - see `queue_entry_anchor_ms`). So:
+                    // - entry-local position comes from the wall clock since
+                    //   the entry started, corrected by the device clock when
+                    //   that clock agrees with it (then it is more precise);
+                    // - the boundary is that entry's own length, not an
+                    //   accumulated offset;
+                    // - `totlen` swapping to the next entry's length is the
+                    //   hint that the boundary is near (measured ~37 s early
+                    //   in one run, so it only counts once the length is
+                    //   actually used up).
+                    let mut pos = cur.live_pos_ms();
+                    let curpos = raw.curpos as f64;
+                    let device_is_entry_local = raw.totlen > 0
+                        && curpos <= raw.totlen as f64 + 1000.0
+                        && (curpos - pos).abs() < 5000.0;
+                    if device_is_entry_local {
+                        pos = curpos;
+                        cur.queue_entry_anchor_ms = pos;
+                        cur.queue_entry_anchor_at = Some(Instant::now());
+                    }
+                    let entry_len = cur.queue_entry_totlen_ms as f64;
+                    let swapped = raw.totlen > 0 && raw.totlen != cur.queue_entry_totlen_ms;
+                    let used_up = entry_len > 0.0 && pos >= entry_len - 500.0;
+                    // Equal-duration neighbours never change `totlen`, so a
+                    // clock that has plainly run past the entry proves the
+                    // change on its own.
+                    let overran = entry_len > 0.0 && pos >= entry_len + 2000.0;
+                    if !cur.on_last_entry() && ((swapped && used_up) || overran) {
+                        let previous_len = cur.queue_entry_totlen_ms;
+                        cur.queue_index += 1;
+                        cur.pos_ms = 0.0;
+                        cur.queue_entry_anchor_ms = 0.0;
+                        cur.queue_entry_anchor_at = Some(Instant::now());
+                        // Take the swapped length as the new entry's length;
+                        // an equal-duration neighbour keeps the old one.
+                        cur.queue_entry_totlen_ms = if raw.totlen > 0 && raw.totlen != previous_len
+                        {
+                            raw.totlen
+                        } else {
+                            0
+                        };
+                        // The seek path trims the CURRENT entry's manifest;
+                        // keep the stash pointing at the entry on screen.
+                        cur.manifest_xml = cur
+                            .queue_entries
+                            .get(cur.queue_index)
+                            .and_then(|e| e.manifest())
+                            .map(|xml| xml.to_string());
+                        cur.start_offset_ms = 0.0;
+                        advanced = Some(cur.queue_index);
+                    } else {
+                        cur.pos_ms = pos;
+                    }
+                    if cur.queue_entry_totlen_ms == 0 && raw.totlen > 0 {
+                        cur.queue_entry_totlen_ms = raw.totlen;
+                    }
+                } else if raw.totlen > 0 && raw.curpos > raw.totlen.saturating_mul(2) {
+                    // The device's curpos is in ms and advances correctly until a
+                    // seek happens, after which it switches to microseconds (and
+                    // freezes). A curpos beyond twice the track length is that
+                    // broken post-seek scale; extrapolate locally instead.
                     if let Some(started) = cur.anchor_at {
                         let elapsed = started.elapsed().as_secs_f64() * 1000.0;
                         cur.pos_ms = cur.anchor_ms + elapsed;
@@ -433,8 +615,9 @@ impl LinkPlayClient {
             // on an already-confirmed play so the pre-stash race around a
             // seek-trim push (slot freshly reset, start_offset not yet
             // re-applied) cannot stamp the reference with a stale or trimmed
-            // device register.
-            if cur.play_confirmed && cur.start_offset_ms == 0.0 {
+            // device register. A playlist cast reports per-entry lengths, so
+            // its reference lives in `queue_entry_*` instead.
+            if cur.play_confirmed && cur.start_offset_ms == 0.0 && !cur.is_queue() {
                 cur.orig_totlen_ms = raw.totlen;
             }
             volume = if cur.last_vol != raw.vol {
@@ -444,6 +627,11 @@ impl LinkPlayClient {
                 None
             };
         }
-        Ok((raw, false, volume))
+        Ok(PollOutcome {
+            raw,
+            track_ended: false,
+            volume,
+            advanced,
+        })
     }
 }

@@ -2,6 +2,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
+use crate::tidal_api::StreamInfo;
+
 pub mod client;
 pub mod discovery;
 pub mod linkplay;
@@ -11,9 +13,36 @@ pub mod protocol;
 
 pub use client::TidalConnectClient;
 pub use discovery::DiscoveryEngine;
-pub use linkplay::{CastStatus, LinkPlayClient, PlayerStatusRaw};
+pub use linkplay::{CastStatus, LinkPlayClient, PlayerStatusRaw, PollOutcome};
 pub use manifest_server::ManifestServer;
 pub use models::{ConnectDevice, PlaybackCommand, PlaybackState};
+
+/// Payload of `tidal-connect:track-advanced`: the receiver moved to the next
+/// entry of the native playlist (`.m3u8` queue) by itself, with no push and no
+/// audible gap. The renderer only updates its own bookkeeping - it must not
+/// invoke playback, because the audio is already playing.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastAdvance {
+    pub index: usize,
+    pub track_id: u64,
+    pub stream_info: Option<StreamInfo>,
+}
+
+/// A fully resolved stream, stashed by the gapless prefetch for the track it
+/// predicts next. While casting, `set_next_track` used to run the full TIDAL
+/// quality cascade and then throw the result away; the resolver consumes this
+/// slot exactly once so the cast auto-advance push skips the API round-trip
+/// entirely (one of the dead-air chunks of the album-flow gap, 2026-10-24).
+pub struct PrefetchedStream {
+    pub track_id: u64,
+    pub use_track_gain: bool,
+    pub stream_info: StreamInfo,
+    pub fetched_at: Instant,
+    /// Ready-made push display name (`Artist - Title`) pre-resolved at
+    /// prefetch time, so the cast push needs no `get_track` call of its own.
+    pub display_name: Option<String>,
+}
 
 pub type TidalConnectStateRef = Arc<TidalConnectState>;
 
@@ -36,6 +65,15 @@ pub struct TidalConnectState {
     pub cast_status: RwLock<Option<CastStatus>>,
     /// 1 s poller task handle for the active cast, for abort on select(local).
     pub poller: RwLock<Option<tokio::task::JoinHandle<()>>>,
+    /// Single-use resolved-stream slot for the predicted next track (see
+    /// `PrefetchedStream`). Replaced on every prefetch write, consumed once.
+    pub prefetch_stream: RwLock<Option<PrefetchedStream>>,
+    /// When the poller last reported a NATURAL track end. The poller clears
+    /// `cast_status` on that path (the cast position is dropped), so the
+    /// fresh-stop jam rule in `play_tidal_track` reads this instead: pushes
+    /// landing within the freshness window get the settle-before-push the
+    /// A98's just-stopped engine needs.
+    pub last_natural_end: RwLock<Option<Instant>>,
 }
 
 pub fn new_state(device_http: reqwest::Client) -> TidalConnectStateRef {
@@ -48,6 +86,8 @@ pub fn new_state(device_http: reqwest::Client) -> TidalConnectStateRef {
         manifest_server: ManifestServer::new(),
         cast_status: RwLock::new(None),
         poller: RwLock::new(None),
+        prefetch_stream: RwLock::new(None),
+        last_natural_end: RwLock::new(None),
     })
 }
 
@@ -92,7 +132,7 @@ pub async fn ensure_cast_poller(
             let Some(host) = cast_ref.cast_host.read().await.clone() else {
                 break;
             };
-            let (raw, track_ended, volume) = match cast_ref.linkplay.poll(&host, &cast_ref.cast_status).await {
+            let outcome = match cast_ref.linkplay.poll(&host, &cast_ref.cast_status).await {
                 Ok(res) => {
                     consecutive_failures = 0;
                     res
@@ -111,18 +151,56 @@ pub async fn ensure_cast_poller(
                     continue;
                 }
             };
+            let raw = outcome.raw;
             poll_interval = if raw.status == "pause" {
                 std::time::Duration::from_secs(2)
             } else {
                 std::time::Duration::from_secs(1)
             };
-            if let Some(vol) = volume {
+            if let Some(vol) = outcome.volume {
                 use tauri::Emitter;
                 let normalized = (vol as f64 / 100.0).clamp(0.0, 1.0);
                 let _ = app.emit("tidal-connect:volume", normalized);
             }
-            if track_ended {
+            if let Some(index) = outcome.advanced {
+                // Native playlist advance: the receiver already moved to the
+                // next entry. Report it so the UI tracks the album without
+                // re-pushing anything (a push here would restart the track and
+                // reintroduce the gap this queue exists to remove).
+                let payload = {
+                    let guard = cast_ref.cast_status.read().await;
+                    guard.as_ref().and_then(|s| {
+                        let track_id = s.queue.get(index).copied()?;
+                        Some(CastAdvance {
+                            index,
+                            track_id,
+                            stream_info: s.queue_streams.get(index).cloned(),
+                        })
+                    })
+                };
+                match payload {
+                    Some(payload) => {
+                        log::info!(
+                            "[cast-poller] native playlist advance to entry {} (track {})",
+                            index,
+                            payload.track_id
+                        );
+                        use tauri::Emitter;
+                        let _ = app.emit("tidal-connect:track-advanced", payload);
+                    }
+                    None => log::warn!(
+                        "[cast-poller] playlist advance to entry {} but the entry is unknown",
+                        index
+                    ),
+                }
+            }
+            if outcome.track_ended {
                 log::info!("[cast-poller] track ended on receiver {}", host);
+                // Stamp the natural end: cast_status is dropped on this path
+                // (the cast position is gone), so the fresh-stop jam rule in
+                // play_tidal_track needs this timestamp to know the engine
+                // JUST left the play state.
+                *cast_ref.last_natural_end.write().await = Some(Instant::now());
                 use tauri::Emitter;
                 let _ = app.emit("tidal-connect:track-ended", ());
             }
@@ -173,6 +251,12 @@ pub async fn ensure_cast_poller(
                                 s.play_confirmed = false;
                                 s.status = "load".into();
                                 s.anchor_at = None;
+                                // The re-push hands the playlist URL over
+                                // again, so the receiver starts at entry 0.
+                                s.queue_index = 0;
+                                s.queue_entry_anchor_ms = 0.0;
+                                s.queue_entry_anchor_at = None;
+                                s.queue_entry_totlen_ms = 0;
                             }
                         }
                     }

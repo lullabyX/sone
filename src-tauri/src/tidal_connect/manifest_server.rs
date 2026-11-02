@@ -1,7 +1,33 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+
+/// One entry of a served playlist.
+///
+/// The A98 receiver plays a native queue when it is handed an `.m3u8` list of
+/// URLs (verified 2026-11-01: it preloads the next entry ~90 s before the
+/// boundary and transitions with a continuous clock, no re-push and no gap).
+/// A DASH track cannot be listed by CDN URL, so each DASH entry is served from
+/// this endpoint instead, and non-DASH tracks are listed by their direct URL.
+#[derive(Clone, Debug)]
+pub enum QueueEntry {
+    /// DASH manifest XML, served at `/q<gen>-<i>.mpd`.
+    Manifest(String),
+    /// Direct (non-DASH) stream URL, listed verbatim in the playlist.
+    Direct(String),
+}
+
+impl QueueEntry {
+    /// The manifest body when this entry is DASH-served.
+    pub fn manifest(&self) -> Option<&str> {
+        match self {
+            QueueEntry::Manifest(xml) => Some(xml),
+            QueueEntry::Direct(_) => None,
+        }
+    }
+}
 
 /// Tiny local HTTP endpoint that serves the current TIDAL DASH manifest so
 /// the receiver can pull it over the LAN by plain URL. Segment URLs inside
@@ -11,7 +37,8 @@ use tokio::sync::RwLock;
 ///
 /// The listener binds once on an ephemeral port and serves whatever manifest
 /// `set()` stores at the time of the request; it lives for the process
-/// lifetime.
+/// lifetime. `set_queue()` additionally installs a playlist: every entry body
+/// plus the `.m3u8` list that points at them.
 pub struct ManifestServer {
     inner: Arc<Inner>,
 }
@@ -19,6 +46,47 @@ pub struct ManifestServer {
 struct Inner {
     base_url: RwLock<Option<String>>,
     body: RwLock<Vec<u8>>,
+    /// Installed playlist (native queue cast), if any.
+    queue: RwLock<Option<ServedQueue>>,
+    /// Bumped by every `set_queue()` so entry paths never repeat: the
+    /// receiver caches by URL (the single-manifest seek path already needs a
+    /// `-s<secs>` suffix for exactly this reason).
+    generation: AtomicU64,
+}
+
+struct ServedQueue {
+    playlist: Vec<u8>,
+    entries: Vec<QueueEntry>,
+}
+
+/// How a request path is served.
+#[derive(Debug, PartialEq, Eq)]
+enum Served {
+    /// The installed `.m3u8` playlist.
+    Playlist,
+    /// One playlist entry body, by index.
+    Entry(usize),
+    /// The single installed manifest body (any other path).
+    Single,
+}
+
+fn route(path: &str) -> Served {
+    if path.ends_with(".m3u8") {
+        return Served::Playlist;
+    }
+    match parse_entry_path(path) {
+        Some(idx) => Served::Entry(idx),
+        None => Served::Single,
+    }
+}
+
+/// `/q<generation>-<index>.mpd` -> index.
+fn parse_entry_path(path: &str) -> Option<usize> {
+    let name = path.trim_start_matches('/');
+    let (generation, rest) = name.split_once('-')?;
+    let generation = generation.strip_prefix('q')?;
+    generation.parse::<u64>().ok()?;
+    rest.strip_suffix(".mpd")?.parse().ok()
 }
 
 impl Default for ManifestServer {
@@ -33,6 +101,8 @@ impl ManifestServer {
             inner: Arc::new(Inner {
                 base_url: RwLock::new(None),
                 body: RwLock::new(Vec::new()),
+                queue: RwLock::new(None),
+                generation: AtomicU64::new(0),
             }),
         }
     }
@@ -72,16 +142,52 @@ impl ManifestServer {
                 let inner = Arc::clone(&inner);
                 tokio::spawn(async move {
                     let mut buf = [0u8; 4096];
-                    let _ = stream.read(&mut buf).await;
-                    let body = inner.body.read().await.clone();
-                    if body.is_empty() {
-                        let _ = stream
-                            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
-                            .await;
-                        return;
-                    }
+                    let read = stream.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..read]);
+                    let path = head
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("/")
+                        .to_string();
+                    let (body, content_type) = {
+                        match route(&path) {
+                            Served::Playlist => {
+                                let guard = inner.queue.read().await;
+                                match guard.as_ref() {
+                                    Some(q) => (
+                                        Some(q.playlist.clone()),
+                                        "application/vnd.apple.mpegurl",
+                                    ),
+                                    None => (None, "text/plain"),
+                                }
+                            }
+                            Served::Entry(idx) => {
+                                let guard = inner.queue.read().await;
+                                let body = guard
+                                    .as_ref()
+                                    .and_then(|q| q.entries.get(idx))
+                                    .and_then(|e| e.manifest())
+                                    .map(|xml| xml.as_bytes().to_vec());
+                                (body, "application/dash+xml")
+                            }
+                            Served::Single => (
+                                Some(inner.body.read().await.clone()),
+                                "application/dash+xml",
+                            ),
+                        }
+                    };
+                    let body = match body {
+                        Some(b) if !b.is_empty() => b,
+                        _ => {
+                            let _ = stream
+                                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                                .await;
+                            return;
+                        }
+                    };
                     let head = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/dash+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        content_type,
                         body.len()
                     );
                     let _ = stream.write_all(head.as_bytes()).await;
@@ -109,6 +215,49 @@ impl ManifestServer {
             }
             None => Err("manifest server not started".into()),
         }
+    }
+
+    /// Install a playlist and serve every entry body, returning the playlist
+    /// URL to push. `name` only shapes the pushed path (the receiver displays
+    /// the URL it was handed and ignores every metadata channel, see
+    /// `push_display_name_from`), so it should read like `Artist - Title`.
+    ///
+    /// The receiver reads the playlist exactly ONCE at push time (verified
+    /// 2026-11-01: a mid-play rewrite was ignored while it kept fetching the
+    /// entries it had already seen), so the full list must be installed before
+    /// the push.
+    pub async fn set_queue(
+        &self,
+        name: &str,
+        entries: Vec<QueueEntry>,
+    ) -> Result<String, String> {
+        let base = {
+            let guard = self.inner.base_url.read().await;
+            guard.clone()
+        };
+        let base = base.ok_or_else(|| "manifest server not started".to_string())?;
+        if entries.is_empty() {
+            return Err("playlist has no entries".into());
+        }
+        let generation = self.inner.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut playlist = String::with_capacity(entries.len() * 96);
+        for (idx, entry) in entries.iter().enumerate() {
+            match entry {
+                QueueEntry::Manifest(_) => {
+                    playlist.push_str(&format!("{}/q{}-{}.mpd\n", base, generation, idx));
+                }
+                QueueEntry::Direct(url) => {
+                    playlist.push_str(url);
+                    playlist.push('\n');
+                }
+            }
+        }
+        let url = format!("{}/{}.m3u8", base, name);
+        *self.inner.queue.write().await = Some(ServedQueue {
+            playlist: playlist.into_bytes(),
+            entries,
+        });
+        Ok(url)
     }
 }
 
@@ -274,7 +423,7 @@ fn udp_probe_ip(dst: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::trim_mpd;
+    use super::{route, trim_mpd, Served};
 
     /// Real shape captured from a served TIDAL HI_RES_LOSSLESS manifest
     /// (2026-10-24, Jellybelly 24/96): 57 segments (56 x 380928 + 164482
@@ -437,5 +586,20 @@ mod tests {
     fn offset_past_end_fails_closed() {
         assert!(trim_mpd(&sample_mpd(), 999.0).is_none());
         assert!(trim_mpd("not a manifest", 10.0).is_none());
+    }
+
+    /// Playlist routing: the receiver fetches the `.m3u8` once and then each
+    /// entry body by its generated path, while a plain single-manifest cast
+    /// keeps using an arbitrary path (the seek path appends `-s<secs>`).
+    #[test]
+    fn routes_playlist_entries_and_single_body() {
+        assert_eq!(route("/q3-0.mpd"), Served::Entry(0));
+        assert_eq!(route("/q12-11.mpd"), Served::Entry(11));
+        assert_eq!(route("/Smashing Pumpkins - Tonight, Tonight.m3u8"), Served::Playlist);
+        assert_eq!(route("/Smashing Pumpkins - Tonight, Tonight-s30.mpd"), Served::Single);
+        // Not an entry path: no generation prefix, wrong extension, bad index.
+        assert_eq!(route("/q-3.mpd"), Served::Single);
+        assert_eq!(route("/q3-3.mp4"), Served::Single);
+        assert_eq!(route("/q3-x.mpd"), Served::Single);
     }
 }
