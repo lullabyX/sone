@@ -20,6 +20,7 @@ import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
 import { AppInitializer } from "./components/AppInitializer";
 import ProxyNoticeBanner from "./components/ProxyNoticeBanner";
+import RenderTrialDialog from "./components/RenderTrialDialog";
 import TooltipLayer from "./components/TooltipLayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
@@ -204,6 +205,8 @@ function App() {
     <ToastProvider>
       <AppInitializer />
       <TooltipLayer />
+      {/* Outside AppContent so the login screen and the app share one mount. */}
+      <RenderTrialDialog />
       <AppContent />
     </ToastProvider>
   );
