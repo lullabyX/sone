@@ -25,6 +25,7 @@ pub mod mcp;
 pub mod overlay;
 mod http_util;
 pub mod proxy;
+pub mod render_mode;
 mod proxy_http;
 
 pub use error::SoneError;
