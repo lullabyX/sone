@@ -5,7 +5,10 @@ vi.mock("../lib/coverBlur", () => ({
   bakeBlurredCover: (...a: unknown[]) => bake(...a),
 }));
 import CoverBanner from "./CoverBanner";
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 describe("CoverBanner", () => {
   it("renders nothing without a source", () => {
     expect(

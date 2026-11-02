@@ -26,6 +26,7 @@ const defaultDeps: BakeDeps = {
   },
 };
 
+const MAX_ENTRIES = 64;
 const cache = new Map<string, Promise<HTMLCanvasElement | null>>();
 
 async function bake(
@@ -44,9 +45,34 @@ async function bake(
   ctx.drawImage(img, 0, 0, w, h);
   const id = ctx.getImageData(0, 0, w, h);
   saturateRGBA(id.data, BAKE_SATURATE);
-  blurRGBA(id.data, w, h, BAKE_RADIUS);
+  blurWithEdgeFade(id.data, w, h);
   ctx.putImageData(id, 0, 0);
   return canvas;
+}
+
+// Blurs into transparent padding, like a CSS filter does past an element's
+// bounds, so the top/left/right edges fade instead of staying fully opaque.
+function blurWithEdgeFade(data: Uint8ClampedArray, w: number, h: number) {
+  const p = 3 * BAKE_RADIUS;
+  const pw = w + 2 * p;
+  const ph = h + 2 * p;
+  const buf = new Uint8ClampedArray(pw * ph * 4);
+  for (let y = 0; y < h; y++) {
+    buf.set(data.subarray(y * w * 4, (y + 1) * w * 4), ((y + p) * pw + p) * 4);
+  }
+  blurRGBA(buf, pw, ph, BAKE_RADIUS);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = ((y + p) * pw + x + p) * 4;
+      const o = (y * w + x) * 4;
+      const a = buf[i + 3];
+      const k = a > 0 ? 255 / a : 0;
+      data[o] = buf[i] * k;
+      data[o + 1] = buf[i + 1] * k;
+      data[o + 2] = buf[i + 2] * k;
+      data[o + 3] = a;
+    }
+  }
 }
 
 // Blurred once at a small size; the browser's upscale keeps it smooth and
@@ -58,10 +84,11 @@ export function bakeBlurredCover(
   const hit = cache.get(src);
   if (hit) return hit;
   const promise = bake(src, deps).catch(() => {
-    cache.delete(src);
+    if (cache.get(src) === promise) cache.delete(src);
     return null;
   });
   cache.set(src, promise);
+  if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value!);
   return promise;
 }
 
