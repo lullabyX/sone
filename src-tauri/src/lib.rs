@@ -659,7 +659,6 @@ pub fn run() {
                     }
                 }),
             )?;
-            crate::render_mode::commit_launch_sidecar();
             // Deep link: register tidal:// scheme handler
             app.handle().plugin(tauri_plugin_deep_link::init())?;
             #[cfg(target_os = "linux")]

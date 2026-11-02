@@ -297,24 +297,34 @@ pub fn remember_launch_env(env: Vec<(OsString, OsString)>) {
     let _ = LAUNCH_ENV.set(env);
 }
 
-static LAUNCH_SIDECAR: OnceLock<(PathBuf, Sidecar)> = OnceLock::new();
+static PRIMARY_LOCK: OnceLock<std::fs::File> = OnceLock::new();
 static RESTART_REQUESTED: AtomicBool = AtomicBool::new(false);
 
-pub fn remember_launch_sidecar(config_dir: PathBuf, after: Sidecar) {
-    let _ = LAUNCH_SIDECAR.set((config_dir, after));
-}
-
-/// Deferred until the single-instance handoff, so a second launch that is about
-/// to exit never consumes or rolls back the running instance's trial.
-pub fn commit_launch_sidecar() {
-    if let Some((dir, after)) = LAUNCH_SIDECAR.get() {
-        write_launch_sidecar(dir, after);
+/// Held for the process lifetime, so a second launch that is about to hand off
+/// to the running instance never consumes or rolls back that instance's trial.
+pub fn claim_primary(config_dir: &Path) -> bool {
+    let _ = std::fs::create_dir_all(config_dir);
+    match try_lock_file(&config_dir.join("render.lock")) {
+        Some(file) => PRIMARY_LOCK.set(file).is_ok(),
+        None => false,
     }
 }
 
-fn write_launch_sidecar(config_dir: &Path, after: &Sidecar) {
-    let _ = std::fs::create_dir_all(config_dir);
-    write_sidecar(config_dir, after);
+fn try_lock_file(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+        .ok()?;
+    // SAFETY: the fd is owned by `file`, which outlives the call.
+    let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    locked.then_some(file)
 }
 
 pub fn request_restart(app: &tauri::AppHandle) {
@@ -352,11 +362,13 @@ pub fn exec_relaunch() {
         }
     };
     let binary = relaunch_binary(&env, current_exe);
-    let err = std::process::Command::new(&binary)
+    let mut command = std::process::Command::new(&binary);
+    command
         .args(std::env::args_os().skip(1))
         .env_clear()
-        .envs(env)
-        .exec();
+        .envs(env);
+    log::logger().flush();
+    let err = command.exec();
     log::error!("[render] relaunch of {} failed: {err}", binary.display());
 }
 
@@ -542,19 +554,21 @@ mod tests {
     }
 
     #[test]
-    fn commit_writes_the_remembered_sidecar() {
+    fn the_lock_is_exclusive_while_held() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("render.lock");
+        let first = try_lock_file(&path).expect("first lock");
+        assert!(try_lock_file(&path).is_none());
+        drop(first);
+        assert!(try_lock_file(&path).is_some());
+    }
+
+    #[test]
+    fn claim_primary_creates_a_missing_config_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("sone");
-        let after = Sidecar {
-            mode: RenderMode::Auto,
-            last: Some(EffectivePath::Cpu),
-            ..Default::default()
-        };
-        commit_launch_sidecar();
-        assert!(!dir.exists());
-        remember_launch_sidecar(dir.clone(), after.clone());
-        commit_launch_sidecar();
-        assert_eq!(read_sidecar(&dir), after);
+        assert!(claim_primary(&dir));
+        assert!(dir.join("render.lock").exists());
     }
 
     #[test]

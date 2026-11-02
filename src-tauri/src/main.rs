@@ -58,8 +58,10 @@ fn main() {
             }
         }
 
-        if let Some(dir) = render_dir {
-            render_mode::remember_launch_sidecar(dir, plan.sidecar_after.clone());
+        if let Some(dir) = &render_dir {
+            if render_mode::claim_primary(dir) {
+                render_mode::write_sidecar(dir, &plan.sidecar_after);
+            }
         }
         render_mode::remember_launch(render_mode::LaunchInfo {
             resolution,
