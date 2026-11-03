@@ -45,7 +45,7 @@
       <li>Modern, fully customizable light and dark themes</li>
       <li>15 theme presets and a full color picker that derives a complete palette from any two colors</li>
       <li>Full-screen player with album art, a blurred backdrop, and auto-hiding controls</li>
-      <li>Karaoke-style synced lyrics</li>
+      <li>Karaoke-style synced lyrics — click a line to seek</li>
       <li>Floating, resizable miniplayer</li>
       <li>Tabbed home page that remembers your last view</li>
       <li>Optional custom title bar — toggle native window decorations</li>
@@ -59,7 +59,7 @@
       <li>Sort tracks and favorites by date added, name, or artist</li>
       <li>Queue with append and persistence across restarts</li>
       <li>Track and mix radio</li>
-      <li>Explicit-content filter</li>
+      <li>Explicit and AI-content filters</li>
     </ul>
     <p>Integrations and system</p>
     <ul>
@@ -161,6 +161,47 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.23.0" date="2026-11-01">
+      <description>
+        <p>AI Content</p>
+        <ul>
+          <li>Tracks and albums labelled as AI-generated now carry an AI badge across Home, the Feed, search, the sidebar, and the players</li>
+          <li>A new Allow AI content setting under Playback lets you block them — blocked tracks are greyed out and never play, from any list, the queue, gapless playback, or a restored session</li>
+          <li>Turning off explicit or AI content while something is playing now asks first, since it stops playback and clears the queue</li>
+        </ul>
+        <p>Playback</p>
+        <ul>
+          <li>Play and Shuffle start right away, even on long playlists, while the rest loads into the queue in the background</li>
+          <li>Artist Play and Shuffle queue all top tracks, not just the few shown on the page</li>
+          <li>Clicking a track or playing an artist keeps the tracks you added with Play next and Add to queue</li>
+          <li>An unavailable track is skipped within its own album or playlist, and a rate-limited track is retried as the one you clicked</li>
+          <li>Streaming no longer stalls on some connections</li>
+        </ul>
+        <p>Lyrics, Cards &amp; Shortcuts</p>
+        <ul>
+          <li>Click any lyric line in the now-playing drawer to jump to that moment</li>
+          <li>Album cards show the release year, and artist pages show the release type too</li>
+          <li>Explicit badges now appear on Home rows and on artist and album page cards</li>
+          <li>New Close window (Ctrl+W) and Quit SONE (Ctrl+Q) shortcuts — your custom bindings pick them up automatically</li>
+        </ul>
+        <p>Signal Path</p>
+        <ul>
+          <li>Follows your audio through virtual sinks to the real output device, and reads its live hardware settings</li>
+          <li>Shows where resampling happens and the rate each stage really runs at — and no longer claims what it cannot verify</li>
+        </ul>
+        <p>Fixes</p>
+        <ul>
+          <li>Pausing in exclusive mode no longer freezes the app, and stopping or switching tracks no longer hangs the audio</li>
+          <li>Home shows magazine cards and uploader avatars, lays shelves out in an even grid, and reports a failed load instead of showing an empty page</li>
+          <li>Adding duplicates to a playlist still skips them, but now tells you and offers to add them anyway</li>
+          <li>Discord Rich Presence shows the SONE logo, and Snap users get a setup notice instead of a silent failure</li>
+          <li>The sign-in window no longer triggers a camera prompt under Flatpak</li>
+          <li>Password-protected proxies now work in the main window, the sign-in window, and the miniplayer</li>
+          <li>Space toggles playback right after launch, and double-clicking the title bar keeps the window maximized</li>
+          <li>Stacked menus are easier to tell apart, and picking a theme preset no longer gets reverted</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.22.1" date="2026-09-16">
       <description>
         <p>Activity Feed</p>

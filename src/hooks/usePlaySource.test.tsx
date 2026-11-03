@@ -17,6 +17,7 @@ import {
   currentTrackAtom,
   playbackSourceAtom,
   contextSourceAtom,
+  manualQueueAtom,
   allowExplicitAtom,
   allowAiAtom,
   queueEpochAtom,
@@ -561,5 +562,38 @@ describe("usePlaySource", () => {
     expect(started).toBe(false);
     expect(store.get(currentTrackAtom)).toBeNull();
     expect(screen.getByText("Couldn't load tracks")).toBeTruthy();
+  });
+
+  it("a clicked track keeps the manual queue", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [mk(100)]);
+    const epoch = store.get(queueEpochAtom);
+    const loaded = range(1, 3);
+    await act(async () => {
+      await result.current.play({ meta, loaded }, { startAt: loaded[1] });
+    });
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+    expect(store.get(queueEpochAtom)).toBe(epoch + 1);
+  });
+
+  it("Play on a playlist clears the manual queue", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [mk(100)]);
+    await act(async () => {
+      await result.current.play({ meta, loaded: range(1, 3) });
+    });
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it("Play on an artist keeps the manual queue", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [mk(100)]);
+    await act(async () => {
+      await result.current.play({
+        meta: { type: "artist", id: 1, name: "A" },
+        loaded: range(1, 3),
+      });
+    });
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
   });
 });

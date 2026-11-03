@@ -29,6 +29,7 @@ interface AddToPlaylistMenuProps {
 const RECENT_PLAYLISTS_KEY = "sone.recent-playlists.v1";
 const MAX_RECENT = 8;
 const DESC_MAX_LEN = 500;
+const DUPLICATE_TOAST_MS = 6000;
 
 function getRecentPlaylistIds(): string[] {
   try {
@@ -36,6 +37,21 @@ function getRecentPlaylistIds(): string[] {
     if (raw) return JSON.parse(raw);
   } catch {}
   return [];
+}
+
+/** ids requested but not added, keeping repeats (one removal per added id). */
+function skippedIds(requested: number[], added: number[]): number[] {
+  const pending = [...added];
+  return requested.filter((id) => {
+    const i = pending.indexOf(id);
+    if (i === -1) return true;
+    pending.splice(i, 1);
+    return false;
+  });
+}
+
+function tracksLabel(n: number): string {
+  return n === 1 ? "1 track" : `${n} tracks`;
 }
 
 function pushRecentPlaylistId(playlistId: string) {
@@ -86,7 +102,7 @@ export function CreatePlaylistModal({
         isPublic ? "PUBLIC" : "UNLISTED",
       );
       if (trackIds.length > 0) {
-        await addTracksToPlaylist(playlist.uuid, trackIds);
+        await addTracksToPlaylist(playlist.uuid, trackIds, "ADD");
       }
       pushRecentPlaylistId(playlist.uuid);
       showToast(`Created playlist "${title.trim()}"`);
@@ -457,47 +473,62 @@ export default function AddToPlaylistMenu({
       setError(null);
       setAddingTo(playlist.uuid);
       try {
-        await addTracksToPlaylist(playlist.uuid, trackIds);
+        const added = await addTracksToPlaylist(
+          playlist.uuid,
+          trackIds,
+          "SKIP",
+        );
         pushRecentPlaylistId(playlist.uuid);
         setAddedTo((prev) => new Set([...prev, playlist.uuid]));
         const label =
           playlist.title.length > 25
             ? playlist.title.slice(0, 23) + "…"
             : playlist.title;
-        showToast(
-          trackIds.length > 1
-            ? `Added ${trackIds.length} tracks to "${label}"`
-            : `Added to "${label}"`,
-        );
+        const skipped = skippedIds(trackIds, added);
+
+        if (skipped.length === 0) {
+          showToast(
+            trackIds.length > 1
+              ? `Added ${trackIds.length} tracks to "${label}"`
+              : `Added to "${label}"`,
+          );
+        } else {
+          const addDuplicates = async () => {
+            try {
+              await addTracksToPlaylist(playlist.uuid, skipped, "ADD");
+              showToast(
+                trackIds.length > 1
+                  ? `Added ${tracksLabel(skipped.length)} again to "${label}"`
+                  : `Added to "${label}" again`,
+              );
+            } catch {
+              showToast(
+                skipped.length > 1
+                  ? "Failed to add tracks"
+                  : "Failed to add track",
+                "error",
+              );
+            }
+          };
+          showToast(
+            added.length === 0
+              ? `Already in "${label}"`
+              : `Added ${tracksLabel(added.length)} to "${label}" · ${skipped.length} already there`,
+            "info",
+            DUPLICATE_TOAST_MS,
+            {
+              label: added.length === 0 ? "Add anyway" : "Add them too",
+              onClick: addDuplicates,
+            },
+          );
+        }
         setTimeout(onClose, 500);
         // Reset so next open re-fetches all playlists
         setAllPlaylists([]);
-      } catch (err: any) {
-        const isDuplicateError = (e: unknown): boolean => {
-          try {
-            const parsed = typeof e === "string" ? JSON.parse(e) : e;
-            if (parsed?.kind === "Api" && parsed?.message?.status === 409)
-              return true;
-          } catch {}
-          return (
-            String(e).includes("409") ||
-            String(e).toLowerCase().includes("dupe")
-          );
-        };
-
-        if (isDuplicateError(err)) {
-          setError(
-            trackIds.length > 1
-              ? "Some tracks already in this playlist"
-              : "Track already in this playlist",
-          );
-        } else {
-          setError(
-            trackIds.length > 1
-              ? "Failed to add tracks"
-              : "Failed to add track",
-          );
-        }
+      } catch {
+        setError(
+          trackIds.length > 1 ? "Failed to add tracks" : "Failed to add track",
+        );
       } finally {
         setAddingTo(null);
       }
@@ -686,7 +717,7 @@ export default function AddToPlaylistMenu({
 
             {/* RECENT section */}
             {recentPlaylists.length > 0 ? (
-              <div className="flex flex-col mt-1">
+              <div className="flex flex-col mt-1 min-h-0">
                 <div className="px-5 pt-2 pb-1">
                   <span className="text-[11px] font-bold text-th-text-muted uppercase tracking-[0.12em]">
                     Recent
@@ -699,7 +730,7 @@ export default function AddToPlaylistMenu({
                 </div>
               </div>
             ) : allPlaylists.length > 0 ? (
-              <div className="flex flex-col mt-1">
+              <div className="flex flex-col mt-1 min-h-0">
                 <div className="px-5 pt-2 pb-1">
                   <span className="text-[11px] font-bold text-th-text-muted uppercase tracking-[0.12em]">
                     Recent

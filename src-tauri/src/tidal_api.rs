@@ -57,6 +57,37 @@ const TIDAL_API_V2_URL: &str = "https://api.tidal.com/v2";
 const TIDAL_OPENAPI_URL: &str = "https://openapi.tidal.com/v2";
 const TIDAL_CLIENT_VERSION: &str = "2026.9.15";
 
+/// How the playlist-items endpoint treats tracks already in the playlist.
+/// `Fail` rejects the whole batch with 409 (subStatus 7008) if any is a duplicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum OnDupes {
+    Fail,
+    Skip,
+    Add,
+}
+
+impl OnDupes {
+    fn as_str(self) -> &'static str {
+        match self {
+            OnDupes::Fail => "FAIL",
+            OnDupes::Skip => "SKIP",
+            OnDupes::Add => "ADD",
+        }
+    }
+}
+
+fn parse_added_item_ids(body: &str) -> Option<Vec<u64>> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AddItemsResponse {
+        added_item_ids: Vec<u64>,
+    }
+    serde_json::from_str::<AddItemsResponse>(body)
+        .ok()
+        .map(|r| r.added_item_ids)
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthTokens {
     pub access_token: String,
@@ -3602,11 +3633,13 @@ impl TidalClient {
         Ok(())
     }
 
+    /// Returns the ids the server actually added (duplicates dropped under `Skip`).
     pub async fn add_tracks_to_playlist(
         &self,
         playlist_id: &str,
         track_ids: &[u64],
-    ) -> Result<(), SoneError> {
+        on_dupes: OnDupes,
+    ) -> Result<Vec<u64>, SoneError> {
         let tokens = self.tokens.as_ref().ok_or(SoneError::NotAuthenticated)?;
 
         // Get the playlist ETag which is required for modifications
@@ -3638,22 +3671,25 @@ impl TidalClient {
             .query(&[("countryCode", self.country_code.as_str())])
             .form(&[
                 ("trackIds", ids_str.as_str()),
-                ("onDupes", "SKIP"),
+                ("onDupes", on_dupes.as_str()),
                 ("onArtifactNotFound", "FAIL"),
             ]);
         let response = self.send(generation, req).await?;
 
         let status = response.status();
+        let body = response.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
             return Err(SoneError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
 
-        Ok(())
+        Ok(parse_added_item_ids(&body).unwrap_or_else(|| {
+            log::warn!("[add_tracks_to_playlist]: no addedItemIds in response");
+            track_ids.to_vec()
+        }))
     }
 
     pub async fn get_stream_url(
@@ -7344,5 +7380,26 @@ mod proxy_routing_tests {
             tc.raw_client().is_err(),
             "a client built earlier must observe the swap"
         );
+    }
+}
+
+#[cfg(test)]
+mod playlist_add_tests {
+    use super::*;
+
+    #[test]
+    fn added_item_ids_reflect_skipped_duplicates() {
+        let body = r#"{"lastUpdated":1793530877736,"addedItemIds":[20115561]}"#;
+        assert_eq!(parse_added_item_ids(body), Some(vec![20115561]));
+        let all_dupes = r#"{"lastUpdated":1793530857547,"addedItemIds":[]}"#;
+        assert_eq!(parse_added_item_ids(all_dupes), Some(vec![]));
+        assert_eq!(parse_added_item_ids(""), None);
+    }
+
+    #[test]
+    fn on_dupes_deserializes_from_frontend_strings() {
+        let modes: Vec<OnDupes> = serde_json::from_str(r#"["FAIL","SKIP","ADD"]"#).unwrap();
+        assert_eq!(modes, vec![OnDupes::Fail, OnDupes::Skip, OnDupes::Add]);
+        assert_eq!(OnDupes::Fail.as_str(), "FAIL");
     }
 }
