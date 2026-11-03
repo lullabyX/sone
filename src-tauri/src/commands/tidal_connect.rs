@@ -91,7 +91,7 @@ pub async fn tidal_connect_get_active_device(
     // the one command a wedged client could use to stall every renderer
     // refresh behind a foreign lock, while the lock carries no await of its
     // own once the predicates are known.
-    let mut active = state.tidal_connect.active_device.write().await;
+    let active = state.tidal_connect.active_device.write().await;
     // Deliberate selections must survive the receiver's normal lifecycle:
     // certified receivers idle-close the WebSocket session ~30 s in, which
     // is routine for push-URL casts (the session only matters at cast
