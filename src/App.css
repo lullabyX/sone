@@ -425,9 +425,20 @@ svg[stroke-width="3"] {
   }
 }
 
-/* Toggled from main.tsx when the OS window loses focus. */
+/* Hold the blobs still while nobody can watch them move: the OS window is in the
+   background (lib/windowFocus.ts), the banner is scrolled away or under the Now
+   Playing drawer (LovedTracksBanner.tsx), or WebKitGTK paints without
+   compositing (lib/renderMode.ts). In that last mode no frame is cheap: each one
+   repaints the whole header area, the page gradient under it and the cover,
+   buttons and text over it in software, 100 ms or more at 2x scale, so even one
+   frame a second costs over 10% of a core. Paused, the banner keeps its colors
+   and layout. */
 .window-unfocused .loved-blob,
-.window-unfocused .loved-blob-inner {
+.window-unfocused .loved-blob-inner,
+.software-rendering .loved-blob,
+.software-rendering .loved-blob-inner,
+.loved-banner-paused .loved-blob,
+.loved-banner-paused .loved-blob-inner {
   animation-play-state: paused;
 }
 
