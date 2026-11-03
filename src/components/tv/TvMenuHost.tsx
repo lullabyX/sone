@@ -89,8 +89,12 @@ const TvMenuHost = forwardRef<
   const { addToQueue, playNextInQueue } = usePlaybackActions();
   const playMedia = useMediaPlay();
   const fav = useFavorites();
-  const { addTrackToPlaylist, createPlaylist, updatePlaylist, deletePlaylist } =
-    usePlaylists();
+  const {
+    addTracksToPlaylist,
+    createPlaylist,
+    updatePlaylist,
+    deletePlaylist,
+  } = usePlaylists();
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const setAllPlaylists = useSetAtom(allPlaylistsAtom);
 
@@ -102,6 +106,13 @@ const TvMenuHost = forwardRef<
   }, [stack]);
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const openSpec = useCallback((spec: TvMenuSpec) => {
+    if (stackRef.current.length === 0) {
+      const active = document.activeElement;
+      returnFocus.current = active instanceof HTMLElement ? active : null;
+    }
+    setStack([spec]);
+  }, []);
 
   const close = useCallback(() => setStack([]), []);
 
@@ -143,7 +154,7 @@ const TvMenuHost = forwardRef<
           try {
             const created = await createPlaylist(title);
             setAllPlaylists((prev) => [created, ...prev]);
-            await addTrackToPlaylist(created.uuid, track.id);
+            await addTracksToPlaylist(created.uuid, [track.id]);
             showToast(`Added to new playlist "${label(title)}"`);
           } catch {
             showToast("Couldn't create the playlist", "error");
@@ -161,8 +172,37 @@ const TvMenuHost = forwardRef<
                 icon: ListPlus,
                 onSelect: async () => {
                   try {
-                    await addTrackToPlaylist(p.uuid, track.id);
-                    showToast(`Added to "${label(p.title)}"`);
+                    // As on the desktop, a track already in the playlist is
+                    // skipped; here the choice to add it anyway is a menu,
+                    // since a toast's button can't be reached by remote.
+                    const added = await addTracksToPlaylist(p.uuid, [track.id]);
+                    if (added.length > 0) {
+                      showToast(`Added to "${label(p.title)}"`);
+                      return;
+                    }
+                    openSpec({
+                      title: `Already in "${label(p.title)}"`,
+                      subtitle: track.title,
+                      items: [
+                        {
+                          label: "Add anyway",
+                          icon: ListPlus,
+                          onSelect: async () => {
+                            try {
+                              await addTracksToPlaylist(
+                                p.uuid,
+                                [track.id],
+                                "ADD",
+                              );
+                              showToast(`Added to "${label(p.title)}" again`);
+                            } catch {
+                              showToast("Couldn't add to playlist", "error");
+                            }
+                          },
+                        },
+                        { label: "Cancel", icon: X, onSelect: () => {} },
+                      ],
+                    });
                   } catch {
                     showToast("Couldn't add to playlist", "error");
                   }
@@ -176,7 +216,8 @@ const TvMenuHost = forwardRef<
       store,
       userId,
       setAllPlaylists,
-      addTrackToPlaylist,
+      addTracksToPlaylist,
+      openSpec,
       createPlaylist,
       onPrompt,
       showToast,
@@ -597,19 +638,13 @@ const TvMenuHost = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      open: (spec) => {
-        if (stackRef.current.length === 0) {
-          const active = document.activeElement;
-          returnFocus.current = active instanceof HTMLElement ? active : null;
-        }
-        setStack([spec]);
-      },
+      open: openSpec,
       isOpen: () => stackRef.current.length > 0,
       back: () => setStack((s) => s.slice(0, -1)),
       trackMenu,
       mediaMenu,
     }),
-    [trackMenu, mediaMenu],
+    [openSpec, trackMenu, mediaMenu],
   );
 
   const select = async (item: TvMenuItem) => {
