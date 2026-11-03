@@ -106,6 +106,14 @@ pub struct TidalConnectState {
     /// landing within the freshness window get the settle-before-push the
     /// A98's just-stopped engine needs.
     pub last_natural_end: RwLock<Option<Instant>>,
+    /// When a COMMANDED stop last actually left the play state
+    /// (`stop_playback`'s cast branch / `stop_verified`). The stop path ALSO
+    /// clears `cast_status`, so the fresh-stop check can no longer see the
+    /// engine state; without this stamp a skip's immediate re-push lands
+    /// ~1 s after the stop, wedges the A98 in pause/load ("no play within
+    /// 12 s"), and only the poller's 22 s jam recovery plays again
+    /// (soak-observed 2026-11-03: every skip, deterministic).
+    pub last_cast_stop: RwLock<Option<Instant>>,
 }
 
 pub fn new_state(device_http: reqwest::Client) -> TidalConnectStateRef {
@@ -120,6 +128,7 @@ pub fn new_state(device_http: reqwest::Client) -> TidalConnectStateRef {
         poller: RwLock::new(None),
         prefetch_stream: RwLock::new(None),
         last_natural_end: RwLock::new(None),
+        last_cast_stop: RwLock::new(None),
     })
 }
 

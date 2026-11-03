@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 use tauri::State;
 
 use crate::tidal_api::{StreamInfo, TidalVideo, VideoStreamInfo};
@@ -583,19 +584,38 @@ pub async fn play_tidal_track(
             let guard = state.tidal_connect.last_natural_end.read().await;
             guard.map(|t| t.elapsed().as_secs_f64())
         };
+        // COMMANDED stop stamp: stop_playback clears cast_status (the
+        // position is meaningless after a stop), so the status read below
+        // cannot see it. `last_cast_stop` is exactly the time the engine
+        // left play, so settle only the REMAINDER of the 3 s window rather
+        // than paying the full settle on top of work that already passed.
+        let commanded_stop_age = {
+            let guard = state.tidal_connect.last_cast_stop.read().await;
+            guard.map(|t| t.elapsed().as_secs_f64())
+        };
         const FRESH_STOP_WINDOW_S: f64 = 15.0;
-        let fresh_stop = last_engine_status.as_deref() == Some("stop")
+        const SETTLE_S: f64 = 3.0;
+        let fresh_stop = commanded_stop_age
+            .map(|age| age <= SETTLE_S)
+            .unwrap_or(false)
+            || last_engine_status.as_deref() == Some("stop")
             || natural_end_age
                 .map(|age| age <= FRESH_STOP_WINDOW_S)
                 .unwrap_or(false);
         if fresh_stop {
+            let remaining_s = commanded_stop_age
+                .filter(|age| *age <= SETTLE_S)
+                .map(|age| SETTLE_S - age)
+                .unwrap_or(SETTLE_S);
             log::info!(
-                "[play_tidal_track] engine freshly stopped ({}); settling 3s before push (A98 fresh-stop jam rule)",
+                "[play_tidal_track] engine freshly stopped ({}, last_cast_stop {:?}); settling {:.1}s before push (A98 fresh-stop jam rule)",
                 natural_end_age
                     .map(|age| format!("natural end {:.1} s ago", age))
-                    .unwrap_or_else(|| format!("status {:?}", last_engine_status.unwrap_or_default()))
+                    .unwrap_or_else(|| format!("status {:?}", last_engine_status.unwrap_or_default())),
+                commanded_stop_age,
+                remaining_s
             );
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            tokio::time::sleep(std::time::Duration::from_secs_f64(remaining_s)).await;
         }
 
         // Outer bound beyond the per-request 4 s httpapi timeout: the wedges
@@ -892,15 +912,25 @@ pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
         let cast_host: Option<String> = state.tidal_connect.cast_host.read().await.clone();
         if let Some(host) = cast_host {
             log::debug!("[stop_playback] cast branch: stopping media on {}", host);
-            let _ = state
+            // Drop the push-URL stream context, then stamp the stop for the
+            // fresh-stop jam rule: the stop path clears `cast_status` (the
+            // position is meaningless afterwards), so `play_tidal_track`
+            // cannot read the engine's state; a skip issued right after this
+            // stop pushed ~1 s later and wedged the receiver every time
+            // (2026-11-03 soak: skips recovered only through the 22 s poller
+            // jam cycle). `stop_verified` returns once the engine has
+            // actually left play, so stamping here anchors the 3 s settle.
+            if state
                 .tidal_connect
                 .linkplay
                 .stop_verified(&host, &state.tidal_connect.cast_status)
-                .await;
-            // The push-URL stream is gone once the receiver's player is
-            // stopped; dropping the cast context routes a later resume
-            // through the last-track re-push (play_tidal_track) rather than
-            // a receiver-side `resume` that has nothing to resume.
+                .await
+                .is_ok()
+            {
+                *state.tidal_connect.last_cast_stop.write().await = Some(Instant::now());
+            } else {
+                log::debug!("[stop_playback] stop not receiver-verified; not stamping fresh-stop");
+            }
             *state.tidal_connect.cast_host.write().await = None;
             *state.tidal_connect.cast_status.write().await = None;
         } else {
@@ -1237,6 +1267,9 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                 }
                 None => {
                     // Restart fallback: the old restart-at-zero behavior.
+                    // Same A98 rule as the trimmed path above: a push issued
+                    // into a just-stopped engine wedges it, so the settle is
+                    // not optional here either.
                     match cast_url {
                         Some(ref url) => {
                             state
@@ -1245,6 +1278,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                                 .stop(&host, &state.tidal_connect.cast_status)
                                 .await
                                 .ok();
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                             state
                                 .tidal_connect
                                 .linkplay
