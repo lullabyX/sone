@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAtom } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { decorationsAtom, hideTitleBarAtom } from "../../atoms/ui";
+import { tvModeAtom } from "../../atoms/tv";
 import { useToast } from "../../contexts/ToastContext";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
@@ -30,6 +31,7 @@ export default function GeneralTab() {
   const [decorations, setDecorations] = useAtom(decorationsAtom);
   const [hideTitleBar, setHideTitleBar] = useAtom(hideTitleBarAtom);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
+  const [tvMode, setTvMode] = useAtom(tvModeAtom);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -140,6 +142,20 @@ export default function GeneralTab() {
             }}
           >
             <Toggle on={minimizeToTray} />
+          </button>
+        </SettingRow>
+      </div>
+
+      <p className="text-[10.5px] font-bold tracking-[1.4px] uppercase text-th-text-faint mt-6 mb-1">
+        TV
+      </p>
+      <div className="rounded-[14px] bg-th-surface border border-th-border-subtle overflow-hidden divide-y divide-th-border-subtle">
+        <SettingRow
+          title="TV mode"
+          subtitle="Fullscreen interface for a TV or media PC, driven by arrow keys, Enter and Back or a remote. Launch with --tv to start in it."
+        >
+          <button onClick={() => setTvMode(!tvMode)}>
+            <Toggle on={tvMode} />
           </button>
         </SettingRow>
       </div>

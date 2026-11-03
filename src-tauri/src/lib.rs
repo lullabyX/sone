@@ -650,11 +650,16 @@ pub fn run() {
         .setup(|app| {
             // Single-instance: focus existing window if launched again
             app.handle().plugin(
-                tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                tauri_plugin_single_instance::init(|app, args, _cwd| {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.unminimize();
                         let _ = window.set_focus();
+                    }
+                    // `sone --tv` while already running switches the open
+                    // window to the TV interface.
+                    if commands::utility::args_request_tv_mode(args.iter().skip(1)) {
+                        let _ = app.emit("tv-mode:enter", ());
                     }
                 }),
             )?;
@@ -1118,6 +1123,7 @@ pub fn run() {
             commands::utility::set_enable_logging,
             commands::utility::open_log_folder,
             commands::utility::get_decorations,
+            commands::utility::get_launch_tv_mode,
             commands::utility::set_decorations,
             commands::utility::get_volume_normalization,
             commands::utility::set_volume_normalization,
