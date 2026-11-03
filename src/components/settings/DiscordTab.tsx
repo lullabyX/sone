@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
+import { AlertTriangle } from "lucide-react";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 import { currentTrackAtom, streamInfoAtom } from "../../atoms/playback";
@@ -13,8 +14,14 @@ import {
 
 const TAGS = ["{track}", "{artist}", "{album}"] as const;
 
+const SNAP_RELAY = `mkdir -p $XDG_RUNTIME_DIR/snap.sone
+socat UNIX-LISTEN:$XDG_RUNTIME_DIR/snap.sone/discord-ipc-0,fork \\
+      UNIX-CONNECT:$XDG_RUNTIME_DIR/discord-ipc-0`;
+
 export default function DiscordTab() {
   const [discordRpc, setDiscordRpc] = useState(false);
+  const [isSnap, setIsSnap] = useState(false);
+  const [relayCopied, setRelayCopied] = useState(false);
   const [discordStatusText, setDiscordStatusText] = useState("");
   const discordStatusSaveTimer = useRef<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -26,6 +33,9 @@ export default function DiscordTab() {
   useEffect(() => {
     invoke<boolean>("get_discord_rpc")
       .then(setDiscordRpc)
+      .catch(() => {});
+    invoke<boolean>("is_snap")
+      .then(setIsSnap)
       .catch(() => {});
     invoke<string>("get_discord_status_text")
       .then(setDiscordStatusText)
@@ -110,6 +120,46 @@ export default function DiscordTab() {
           <Toggle on={discordRpc} />
         </button>
       </SettingRow>
+
+      {isSnap && (
+        <div className="mx-4 mb-3.5 rounded-[11px] border border-amber-400/25 bg-amber-400/10 px-[13px] py-3">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle
+              size={14}
+              className="text-amber-400 flex-shrink-0 mt-0.5"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold text-th-text-primary">
+                Snap blocks the connection to Discord
+              </p>
+              <p className="text-[11px] text-th-text-muted mt-1 leading-[1.5]">
+                Strict confinement denies access to Discord's socket. Run this
+                relay before starting SONE, and leave it running:
+              </p>
+            </div>
+          </div>
+          <div className="mt-2.5 rounded-[10px] border border-th-border-subtle bg-th-inset px-[13px] py-3 overflow-x-auto">
+            <code className="block font-mono text-[11px] leading-[1.6] text-th-text-secondary whitespace-pre">
+              {SNAP_RELAY}
+            </code>
+          </div>
+          <div className="flex items-center gap-2.5 mt-2.5">
+            <span className="text-[11px] text-th-text-muted">
+              Or install the Flatpak or a native package.
+            </span>
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(SNAP_RELAY);
+                setRelayCopied(true);
+                setTimeout(() => setRelayCopied(false), 1500);
+              }}
+              className="ml-auto flex-shrink-0 px-3 py-[5px] text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+            >
+              {relayCopied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {discordRpc && (
         <div className="px-4 pb-3 pt-3.5 border-t border-th-border-subtle space-y-1.5">

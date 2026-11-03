@@ -585,6 +585,7 @@ export default function AlbumView({
             <CardScrollSection
               key={idx}
               section={section}
+              artistId={album?.artist?.id ?? album?.artists?.[0]?.id}
               onCardClick={handleCardClick}
               onContextMenu={handleCardContextMenu}
               onViewAll={

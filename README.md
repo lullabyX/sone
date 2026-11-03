@@ -60,7 +60,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Bit-perfect output** — no resampling, no dithering. Your DAC receives the unaltered decoded signal
 - **Exclusive ALSA** — bypasses PipeWire/PulseAudio entirely for direct hardware access
 - **Smart DAC matching** — automatically detects your hardware's supported formats and sample rates, picking the best fit
-- **Signal Path Transparency** — see exactly what your audio is going through end-to-end. Probes the live GStreamer pipeline, OS mixer (`pactl`), and ALSA card (`/proc/asound`); flags every conversion, format mismatch, or volume alteration with a PRISTINE verdict for bit-clean playback
+- **Signal Path Transparency** — see exactly what your audio is going through end-to-end. Probes the live GStreamer pipeline, follows your stream through the OS mixer (`pactl`) and any virtual sinks to the real output device, and reads that ALSA card's live hardware parameters; shows where resampling happens and flags every conversion, format mismatch, or volume alteration with a PRISTINE verdict for bit-clean playback
 - **Volume normalization** (ReplayGain) with automatic context switching between album and track gain
 - **Autoplay** — discovers and plays similar tracks when your queue ends
 - **Gapless playback** — seamless, silence-free transitions between tracks in normal output mode. On by default, with automatic fallback when unavailable
@@ -74,7 +74,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 ### Interface
 
 - **Custom themes** — 15 presets and a full color picker for accent and background with both light/dark mode
-- **Lyrics** — synced lyrics display for supported tracks
+- **Lyrics** — synced lyrics display for supported tracks; click any line to jump to it
 - **Miniplayer** — compact floating window with album art, playback controls, and resizable-adaptive layout
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
 - **TV mode** — a fullscreen 10-foot interface for a TV or media PC, driven entirely by arrow keys, Enter and Back (a remote, a gamepad mapped to keys, or a keyboard)
@@ -86,6 +86,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 ### Library
 
 - **Library management** — browse and sort your playlists, albums, artists, and mixes with playlist folder support
+- **Content filters** — hide explicit or AI-generated tracks; filtered items are greyed out and never play, and AI-labelled content carries a badge everywhere
 - **Share** — share tracks, albums, playlists, artists, and mixes with your friends via a direct TIDAL link
 - **Deep links** — open `tidal://` URLs directly in SONE
 - **Profile** — edit your bio, social links, and avatar
@@ -600,13 +601,15 @@ Leave that running and SONE will find it. Run it before starting SONE, or restar
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/lullabyX/sone). To set up a development environment, follow the [Building from source](#building-from-source) instructions.
+Issues and pull requests are welcome on [GitHub](https://github.com/lullabyX/sone). To set up a development environment, follow the [Building from source](#building-from-source) instructions. AI-assisted contributions are welcome, as long as they're reviewed and manually tested.
 
 If you enjoy using SONE, consider giving the project a star to help others find it.
 
 ## Disclaimer
 
 SONE is an independent, community-driven project. It is **not affiliated with, endorsed by, or connected to TIDAL** in any way. All content is streamed directly from TIDAL's service and requires a valid paid subscription. SONE is a streaming client only — it does not support offline downloads, and does not redistribute or circumvent protection of any content. As with any third-party client, please be aware of TIDAL's terms of use.
+
+SONE is developed with AI assistance; every change is reviewed and tested before release.
 
 All trademarks belong to their respective owners.
 

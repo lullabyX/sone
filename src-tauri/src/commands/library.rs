@@ -1180,15 +1180,17 @@ pub async fn add_tracks_to_playlist(
     state: State<'_, AppState>,
     playlist_id: String,
     track_ids: Vec<u64>,
-) -> Result<(), SoneError> {
+    on_dupes: crate::tidal_api::OnDupes,
+) -> Result<Vec<u64>, SoneError> {
     log::debug!(
-        "[add_tracks_to_playlist]: playlist_id={}, count={}",
+        "[add_tracks_to_playlist]: playlist_id={}, count={}, on_dupes={:?}",
         playlist_id,
-        track_ids.len()
+        track_ids.len(),
+        on_dupes
     );
     let client = state.tidal_client.lock().await;
-    client
-        .add_tracks_to_playlist(&playlist_id, &track_ids)
+    let added = client
+        .add_tracks_to_playlist(&playlist_id, &track_ids, on_dupes)
         .await?;
     drop(client);
     state
@@ -1196,7 +1198,7 @@ pub async fn add_tracks_to_playlist(
         .invalidate_tag(&format!("playlist:{}", playlist_id))
         .await;
     state.disk_cache.invalidate_tag("folders").await;
-    Ok(())
+    Ok(added)
 }
 
 #[tauri::command(rename_all = "camelCase")]

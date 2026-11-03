@@ -183,6 +183,28 @@ export function getItemSubtitle(item: any, userId?: number): string {
   return "";
 }
 
+const RELEASE_TYPE_LABELS: Record<string, string> = {
+  ALBUM: "Album",
+  EP: "EP",
+  SINGLE: "Single",
+};
+
+/** Album card subtitle on an artist's pages: "2026 · Album", or
+ *  "Various Artists · 2026" when the artist only appears on it. */
+export function getArtistAlbumSubtitle(
+  item: any,
+  artistId: number,
+): string | undefined {
+  const year = /^\d{4}/.exec(item?.releaseDate ?? "")?.[0];
+  if (!year) return undefined;
+  const artists: any[] = item.artists ?? (item.artist ? [item.artist] : []);
+  if (artists.length > 0 && !artists.some((a) => a.id === artistId)) {
+    return `${artists.map((a) => a.name).join(", ")} · ${year}`;
+  }
+  const label = RELEASE_TYPE_LABELS[item.type];
+  return label ? `${year} · ${label}` : year;
+}
+
 export function getItemId(item: any): string {
   if (isMagazineItem(item)) {
     const d = getMagazineData(item);

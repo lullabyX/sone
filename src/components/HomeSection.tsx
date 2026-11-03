@@ -478,6 +478,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
                     : undefined
                 }
                 isArtist={isArtist}
+                showExplicit
                 isFavorited={isFavorited}
                 onFavoriteToggle={onFavoriteToggle}
                 widthClass={isVideo ? "card-scroll-item-video" : "card-scroll-item"}

@@ -23,7 +23,7 @@ interface MediaCardProps {
   showPlayButton?: boolean;
   /** Show an explicit badge beside the title when `item.explicit` is set.
    *  Off by default: badges are otherwise a list-row convention here, and most
-   *  card surfaces (home rows, favorites, library) deliberately go without. */
+   *  card surfaces (favorites, library) deliberately go without. */
   showExplicit?: boolean;
   /** Card width class — defaults to full-width (grid-controlled). Use "card-scroll-item" for horizontal scroll rows. */
   widthClass?: string;

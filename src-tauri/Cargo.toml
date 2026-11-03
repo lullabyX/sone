@@ -1,6 +1,6 @@
 [package]
 name = "sone"
-version = "0.22.1"
+version = "0.23.0"
 description = "Native Linux client for TIDAL — lossless and bit-perfect audio streaming"
 authors = ["lullabyX"]
 license = "GPL-3.0-only"
@@ -62,7 +62,7 @@ futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webkit2gtk = { version = "=2.0.2", features = ["v2_2"] }
+webkit2gtk = { version = "=2.0.2", features = ["v2_4"] }
 gtk = "0.18"
 gdk = "0.18"
 mpris-server = "0.9"

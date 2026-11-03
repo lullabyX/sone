@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, screen, cleanup } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
@@ -26,10 +26,11 @@ import type { Track } from "../types";
 // playNext drives the audio backend through invoke(); stub it so play_tidal_track
 // resolves and the repeat-all rebuild runs to completion. `playResult` lets a
 // single case make play_tidal_track reject without disturbing the others.
-let playResult: () => Promise<unknown> = () => Promise.resolve({});
+let playResult: (args?: { trackId?: number }) => Promise<unknown> = () =>
+  Promise.resolve({});
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn((cmd: string) => {
-    if (cmd === "play_tidal_track") return playResult();
+  invoke: vi.fn((cmd: string, args?: { trackId?: number }) => {
+    if (cmd === "play_tidal_track") return playResult(args);
     return Promise.resolve({});
   }),
 }));
@@ -39,6 +40,12 @@ const track = (over: Partial<Track> = {}): Track =>
 
 const tracks = (n: number): Track[] =>
   Array.from({ length: n }, (_, i) => track({ id: i + 1, title: `T${i + 1}` }));
+
+const ids = (ts: Track[]) => ts.map((t) => t.id);
+const c = [track({ id: 10 }), track({ id: 11 }), track({ id: 12 })];
+const src = (type: string, all: Track[]) => ({
+  source: { type, id: "x", name: "X", allTracks: all },
+});
 
 function setup() {
   const store = createStore();
@@ -503,5 +510,350 @@ describe("AI content filter", () => {
     expect(await result.current.playAllFromSource([synth(1), synth(2)])).toBe(
       false,
     );
+  });
+});
+
+describe("manual queue survives like TIDAL", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    playResult = () => Promise.resolve({});
+  });
+
+  it("playFromSource keeps the manual queue and replaces the context", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    store.set(queueAtom, tracks(3));
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(ids(store.get(manualQueueAtom))).toEqual([100, 101]);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+    expect(store.get(playbackSourceAtom)?.type).toBe("album");
+  });
+
+  it("playFromSource keeps the manual queue with global shuffle on", async () => {
+    const { store, result } = setup();
+    store.set(shuffleAtom, true);
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    store.set(queueAtom, tracks(3));
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(ids(store.get(manualQueueAtom))).toEqual([100, 101]);
+    expect(ids(store.get(queueAtom)).sort()).toEqual([11, 12]);
+  });
+
+  it("playSingle keeps the manual queue and empties the context", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    store.set(queueAtom, tracks(3));
+    store.set(playbackSourceAtom, {
+      type: "album",
+      id: "a",
+      name: "A",
+      tracks: [],
+    });
+    await act(() => result.current.playSingle(c[0]));
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+    expect(store.get(queueAtom)).toEqual([]);
+    expect(store.get(playbackSourceAtom)).toBeNull();
+  });
+
+  it("Play on an album clears both queues", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("album", c)));
+    expect(store.get(manualQueueAtom)).toEqual([]);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+  });
+
+  it("Shuffle on a playlist clears both queues", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() =>
+      result.current.playAllFromSource(c, {
+        ...src("playlist", c),
+        shuffle: true,
+      }),
+    );
+    expect(store.get(manualQueueAtom)).toEqual([]);
+    expect(store.get(queueAtom)).toHaveLength(2);
+  });
+
+  it("Play on favorites clears both queues", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("favorites", c)));
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it.each([
+    ["artist", false],
+    ["artist", true],
+    ["artist-tracks", false],
+    ["artist-tracks", true],
+  ])("%s Play (shuffle=%s) keeps the manual queue", async (type, shuffle) => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    await act(() =>
+      result.current.playAllFromSource(c, { ...src(type, c), shuffle }),
+    );
+    expect(ids(store.get(manualQueueAtom))).toEqual([100, 101]);
+    const playing = store.get(currentTrackAtom)?.id;
+    expect(ids(store.get(queueAtom)).sort()).toEqual(
+      ids(c).filter((id) => id !== playing),
+    );
+  });
+
+  it("play_now with no source clears the manual queue", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c));
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it("stash points at the new context after a manual track was playing", async () => {
+    const { store, result } = setup();
+    // A queued track (tagged with its own _source) is playing; Album A is stashed.
+    store.set(playbackSourceAtom, {
+      type: "playlist",
+      id: "m",
+      name: "M",
+      tracks: [],
+    });
+    store.set(contextSourceAtom, {
+      type: "album",
+      id: "A",
+      name: "A",
+      tracks: [],
+    });
+    store.set(manualQueueAtom, [
+      {
+        ...track({ id: 100 }),
+        _source: { type: "playlist", id: "m", name: "M" },
+      } as Track,
+    ]);
+    await act(() =>
+      result.current.playFromSource(c[0], c, {
+        source: { type: "album", id: "C", name: "C", allTracks: c },
+      }),
+    );
+    // The manual drain resets the re-entry guard itself.
+    await act(() => result.current.playNext());
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    await act(() => result.current.playNext());
+    expect(store.get(playbackSourceAtom)?.id).toBe("C");
+    expect(store.get(contextSourceAtom)).toBeNull();
+  });
+});
+
+describe("rate-limited click", () => {
+  const rateLimited = { kind: "Api", message: { status: 429, body: "" } };
+
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.useFakeTimers();
+    vi.mocked(invoke).mockClear();
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(rateLimited) : Promise.resolve({});
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stops the old track and retries the clicked album track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_track");
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(10);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("a retried track that turns out dead moves to the next album track", async () => {
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(rateLimited);
+      if (calls === 2)
+        return Promise.reject({
+          kind: "Api",
+          message: { status: 404, body: "" },
+        });
+      return Promise.resolve({});
+    };
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("retries the first artist top track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("artist", c)));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_track");
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(10);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("retries a single top-hit play", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playSingle(track({ id: 7 })));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_track");
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(7);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("an abandoned retry leaves no trace", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    vi.setSystemTime(Date.now() + 1000);
+    await act(() => result.current.playFromQueue(0));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+  });
+
+  it("a video started during the cooldown cancels the retry", async () => {
+    const { store, result } = setup();
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    vi.setSystemTime(Date.now() + 1000);
+    await act(() =>
+      result.current.playSingle(
+        track({ id: 50, itemType: "video" } as Partial<Track>),
+      ),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(store.get(currentTrackAtom)?.id).toBe(50);
+  });
+
+  it("a newer click from another component cancels the older retry", async () => {
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      return calls <= 2 ? Promise.reject(rateLimited) : Promise.resolve({});
+    };
+    const store = createStore();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <Provider store={store}>
+        <ToastProvider>{children}</ToastProvider>
+      </Provider>
+    );
+    const a = renderHook(() => usePlaybackActions(), { wrapper }).result;
+    const b = renderHook(() => usePlaybackActions(), { wrapper }).result;
+    await act(() => a.current.playFromSource(c[0], c, src("album", c)));
+    vi.setSystemTime(Date.now() + 1000);
+    await act(() => b.current.playFromSource(c[1], c, src("album", c)));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(calls).toBe(3);
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+  });
+
+  it("a retried queue track that turns out dead does not jump ahead of the queue", async () => {
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(rateLimited);
+      if (calls === 2)
+        return Promise.reject({
+          kind: "Api",
+          message: { status: 404, body: "" },
+        });
+      return Promise.resolve({});
+    };
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 }), track({ id: 101 })]);
+    store.set(queueAtom, [track({ id: 10 }), track({ id: 11 })]);
+    await act(() => result.current.playFromQueue(0));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(calls).toBe(2);
+    expect(store.get(currentTrackAtom)).toBeNull();
+    expect(ids(store.get(manualQueueAtom))).toEqual([101]);
+    expect(ids(store.get(queueAtom))).toEqual([10, 11]);
+  });
+
+  it("clearing the queue during the cooldown cancels the retry", async () => {
+    const { store, result } = setup();
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    act(() => result.current.clearQueue());
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([cmd]) => cmd === "play_tidal_track"),
+    ).toHaveLength(1);
+    expect(store.get(currentTrackAtom)).toBeNull();
+  });
+
+  it("an automatic advance into a 429 leaves the old track playing", async () => {
+    const { store, result } = setup();
+    store.set(queueAtom, [track({ id: 10 }), track({ id: 11 })]);
+    await act(() => result.current.playNext());
+    const cmds = vi.mocked(invoke).mock.calls.map(([cmd]) => cmd);
+    expect(cmds).toContain("play_tidal_track");
+    expect(cmds.slice(cmds.indexOf("play_tidal_track"))).not.toContain(
+      "stop_track",
+    );
+    expect(ids(store.get(queueAtom))).toEqual([10, 11]);
+  });
+});
+
+describe("a dead clicked track", () => {
+  const notFound = { kind: "Api", message: { status: 404, body: "" } };
+
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    let calls = 0;
+    playResult = () => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(notFound) : Promise.resolve({});
+    };
+  });
+
+  it("a dead clicked track moves to the next album track, not the queued one", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("a dead first artist top track moves to the next top track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playAllFromSource(c, src("artist", c)));
+    expect(store.get(currentTrackAtom)?.id).toBe(11);
+    expect(ids(store.get(manualQueueAtom))).toEqual([100]);
+  });
+
+  it("falls back to the queued track when the collection has nothing left", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() =>
+      result.current.playFromSource(c[0], [c[0]], src("album", [c[0]])),
+    );
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+
+  it("falls back to the queued track when every album track 404s", async () => {
+    playResult = (args) =>
+      args?.trackId === 100 ? Promise.resolve({}) : Promise.reject(notFound);
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [track({ id: 100 })]);
+    await act(() => result.current.playFromSource(c[0], c, src("album", c)));
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(store.get(manualQueueAtom)).toEqual([]);
   });
 });
