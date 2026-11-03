@@ -1,5 +1,17 @@
+//! TIDAL Connect device model types.
+//!
+//! [Maintainer walkthrough] `ConnectDevice` is the candidate a renderer sees
+//! (mDNS-resolved identity plus addresses). `PlaybackCommand` and
+//! `PlaybackState` belong to the legacy WS-command path that predates the
+//! LinkPlay push-URL transport and are kept only for the few handshake
+//! messages the session still exchanges. Note the naming difference between
+//! a TIDAL Connect cast (this module, receiver pulls from TIDAL) and local
+//! playback in `audio.rs` (Sone decodes). Device model quirks of record:
+//! certified WiiM (A98) receivers idle-close WS sessions ~30 s in and can
+//! wedge if pushed while loading; both are handled upstream of this file.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

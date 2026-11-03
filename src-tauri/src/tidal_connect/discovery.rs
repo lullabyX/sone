@@ -1,3 +1,13 @@
+//! mDNS discovery for `_tidalconnect._tcp` receivers on the LAN.
+//!
+//! [Maintainer walkthrough] `DiscoveryEngine` runs bursts of `mdns-sd` scans
+//! (started/stopped on demand, not a permanent listener) and merges results
+//! into a device snapshot map keyed by instance name. Certified receivers
+//! announce `_tcp.local` services; the resolved `ConnectDevice` carries their
+//! mDNS hostname, resolved IPv4 addresses, and control port for both the
+//! WebSocket session (client.rs) and the httpapi transport (linkplay.rs).
+//! `avahi-browse -rt _tidalconnect._tcp` reproduces what this module sees
+//! for manual debugging.
 use super::models::ConnectDevice;
 use log::{debug, info};
 use mdns_sd::{ServiceDaemon, ServiceEvent};

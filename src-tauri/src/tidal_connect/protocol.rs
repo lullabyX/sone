@@ -1,3 +1,13 @@
+//! tisoc framing envelope for the TIDAL Connect WebSocket protocol.
+//!
+//! [Maintainer walkthrough] The receiver's `tisoc` engine wraps its JSON
+//! messages in a small binary frame: `0xFF 0x02 [len_hi] [len_lo] payload
+//! 0xFF 0x03`. `TisocFrame` encodes/decodes that envelope for the control
+//! session in `client.rs`. The WebSocket layer is event traffic only these
+//! days (media commands ride LinkPlay); if you are adding a session feature,
+//! check `AGENTS.md` section 5.3 first, because several frame-level
+//! behaviors (idle-closed sessions, stale volume advertisement, crash on
+//! `loadLocalQueue`) are firmware-fixed quirks, not protocol requirements.
 use std::io::{self, Error, ErrorKind};
 use serde_json::Value;
 

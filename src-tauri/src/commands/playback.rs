@@ -319,6 +319,40 @@ fn explain_block(
     Ok(())
 }
 
+/// The single entry point for starting, switching, or auto-advancing
+/// playback of a TIDAL track. [Maintainer walkthrough]
+///
+/// Control flow, in the order everything depends on it:
+///
+/// 1. *Stream resolution* (`resolve_play_uri` quality cascade, or the
+///    one-shot `set_next_track` prefetch slot when a native cast advance
+///    already resolved the incoming track). The prefetch slot is cast-only
+///    by design: the local gapless pipeline consumes the SAME slot via
+///    audio worker bookkeeping, so taking it for local plays would double.
+/// 2. *Route decision:* `active_device` set means a remote receiver is the
+///    output, never a local decode; the WS session may not be alive (idle
+///    closes are routine), so it is re-established on demand before the WS
+///    handshake's optional richer events are re-armed. All transport
+///    commands then go through `cast_host` httpapi, never the session.
+/// 3. *Cast push:* with a non-empty `queue_track_ids` and a queue capable of
+///    it, entries up to `CAST_QUEUE_LOOKAHEAD` are pre-resolved and pushed
+///    as ONE native `.m3u8` playlist so the receiver preloads every entry
+///    (that is the gap between tracks gone - the receiver preloads ~20-90 s
+///    early and advances itself). Without a queue, or past the lookahead
+///    cap, the classic single-URL push runs and `playNext`/the poller's
+///    `tidal-connect:track-ended` event drives the next advance.
+/// 4. *Local push:* otherwise the resolved stream goes to the audio worker
+///    for a local pipeline (see `audio.rs`; cold-start buffering and
+///    latency markers live there).
+///
+/// Timing invariants: a stop followed by a push must settle ~3 s (`A98`
+/// wedges otherwise); pushes are bounded everywhere, transactional
+/// `cast_status` writes are bounded everywhere (3 s), and every step in the
+/// cast path logs `[latency]`/`[play_tidal_track]`/`[cast-poller]` markers to
+/// `sone_r*.log` so a cast can be narrated after the fact. This function is
+/// the ground truth for "what landed on the receiver" - the renderer may
+/// desync, the receiver may lie, but the push markers here are what was
+/// actually issued.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn play_tidal_track(
     app: tauri::AppHandle,

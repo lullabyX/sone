@@ -1,3 +1,31 @@
+//! Local HTTP server that hands DASH/playlist files to the receiver.
+//!
+//! [Maintainer walkthrough] The receiver cannot play a TIDAL CDN URL that the
+//! app can fetch (the OAuth flow is per client), so Sone re-serves the media
+//! descriptions locally: `play_tidal_track` feeds the track's DASH XML here,
+//! the receiver is pushed `http://<lan-ip>:<port>/<name>.mpd` (or an `.m3u8`
+//! playlist of several such entries), and the receiver HTML-fetches the
+//! manifest, resolves segment URLs (which still point at TIDAL's CDN) and
+//! decodes on its own. This crate serves exactly three things:
+//!
+//! - `/<name>.mpd` - the DASH manifest of the current track, byte-identical to
+//!   what TIDAL returned (zero-copy: the server string-matches ranges, never
+//!   reparses, so a TIDAL-side schema tweak cannot silently corrupt it);
+//! - `/<name>.m3u8` - a native playlist manifest (audio entries), which makes
+//!   the receiver preload upcoming entries ~20-40 s early and advance
+//!   seamlessly (`QueueEntry::Manifest` lanes map to `/q<gen>-<i>.mpd`);
+//! - trimmed `.mpd` variants (`/...-s<sec>.mpd`, built by `trim_mpd`) which is
+//!   how seek works - the A98 cannot seek its own player.
+//!
+//! Rules honored here (see AGENTS.md 5.3):
+//! - Generation counters in entry paths (`q<gen>-<i>.mpd`): the receiver
+//!   caches by URL, so a re-push of an entry with the SAME URL is a no-op.
+//! - Every HTTP body assembled by string surgery (trimmed manifests)
+//!   passes a well-formedness gate; a silently truncated XML is the killer
+//!   failure mode (receiver answers OK, then wedges with `totlen=0`).
+//! - The server binds only when a cast needs it (`ensure_started`) and picks
+//!   its port at bind time; the LAN IP comes from a UDP probe, not a
+//!   guessed address.
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

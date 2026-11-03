@@ -1,3 +1,33 @@
+//! LinkPlay httpapi transport for TIDAL Connect receiver casts.
+//!
+//! [Maintainer walkthrough] This is the module that actually talks to the
+//! receiver. The receiver exposes an HTTP control API (`httpapi.asp`) where a
+//! percent-encoded `setPlayerCmd:<op>[:<arg>]` command drives the player and
+//! `getPlayerStatus` returns a JSON snapshot (status, `curpos`, `totlen`,
+//! `vol`). Casting is a push: `setPlayerCmd:play:<url>` plus a URL that Sone
+//! itself serves (`manifest_server.rs`), either a single DASH `.mpd`, a
+//! trimmed `.mpd` variant (seek), or a native `.m3u8` playlist (album cast).
+//!
+//! Two things this module owns that are easy to get wrong:
+//!
+//! - **Position truth.** The receiver's device clock is not a reliable
+//!   cross-track reference: `curpos` has been observed cumulative over some
+//!   playlists and entry-local in others mid-playlist, `totlen` flips to the
+//!   preloaded NEXT entry well before the current one ends, and after a seek
+//!   trim clocks are renumbered. `CastStatus` therefore carries its own
+//!   wall-clock math (anchor + monotonic elapsed) for BOTH a single cast and
+//!   each playlist entry; device numbers are adopted only when they agree
+//!   with the wall estimate and lie inside the entry.
+//! - **Boundary semantics.** The boundary line between
+//!   "receiver stopped playing" and "track/playlist ended naturally" is thin:
+//!   the poller reports a natural end only for an UN-commanded play-to-stop,
+//!   one poll cycle, with the position in the end margin. See the `poll`
+//!   function and `NATURAL_END_MARGIN_MS`; `stop_commanded`, `stop_verified`,
+//!   and `last_natural_end` (state) suppress or confirm report paths.
+//!
+//! Error-return convention: every `Result<_, String>` in this file is
+//! human-readable; points of failure log INFO/WARN with the `[cast-poller]`
+//! prefix so a single cast run can be narrated from `sone_r*.log` alone.
 use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;

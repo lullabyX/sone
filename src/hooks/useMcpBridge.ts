@@ -357,7 +357,19 @@ export function useMcpBridge() {
 
     unlisteners.push(
       listen<{ positionSeconds: number }>("mcp:seek", (e) => {
-        actionsRef.current.seekTo(e.payload.positionSeconds).catch(() => {});
+        // A seek that silently fails is the hardest cast symptom to explain
+        // after the fact: the receiver keeps playing while the UI believes a
+        // seek happened (2026-11-03 lesson), so surface the dispatch path
+        // through the console bridge instead of swallowing like the volume
+        // listener above.
+        const seek = actionsRef.current.seekTo;
+        if (!seek) {
+          console.error("mcp:seek dropped: seekTo missing from actionsRef");
+          return;
+        }
+        seek(e.payload.positionSeconds).catch((err) => {
+          console.error("mcp:seek dispatch failed:", err);
+        });
       }),
     );
 

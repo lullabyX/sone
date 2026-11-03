@@ -1,3 +1,35 @@
+//! TIDAL Connect: local cast subsystem.
+//!
+//! [Maintainer walkthrough] Casting to a certified receiver (e.g. WiiM Amp)
+//! does NOT stream audio from Sone. The receiver pulls audio from TIDAL's CDN
+//! itself using tokens Sone supplies. Sone processes are:
+//!
+//! 1..charCodeAt discovery (`discovery.rs`) finds `_tidalconnect._tcp` devices on the LAN.
+//! 2. `client.rs` keeps a TIDAL Connect TLS WebSocket session for richer
+//!    events. It is NOT the transport: never send `loadLocalQueue` here (it
+//!    crashes the receiver's process; the receiver relies on
+//!    `oauthServerInfo` access/refresh tokens inside `loadLocalQueue`).
+//! 3. The real transport (`linkplay.rs`, `cast_host`) is the receiver's own
+//!    httpapi: `setPlayerCmd:play:<url>` with a URL Sone serves.
+//! 4. `manifest_server.rs` serves the DASH manifests the receiver HTML-fetches;
+//!    casts push either a single `.mpd` (trimmed or full) or a native playlist
+//!    `.m3u8` so the receiver preloads the entire album.
+//! 5. The 1-second poller (`ensure_cast_poller`, below) reads the receiver
+//!    status, emits volume/advance/track-ended events to the frontend, and
+//!    re-pushes when a push jams.
+//!
+//! Invariants that carry over from production debugging (full history:
+//! `AGENTS.md` section 5.3 at the repository root):
+//! - All `RwLock` guards may not be held across an `.await` (otherwise the
+//!   in-`if let` scrutinee pattern starves the poller and user workflows).
+//! - Push timing: after any stop there must be a ~3-second settle before a
+//!   push pushes; a push into a busy receiver wedges it (A98).
+//! - The receiver's position clock is unreliable across track boundaries; the
+//!   wall clock in `CastStatus` (anchored at entry start) is the source of
+//!   truth, and the receiver's numbers are a refinement only when they agree.
+//! - Receiver volume authority: a physical knob is the source of truth, so
+//!   never write saved desktop volume on connect; mirror receiver reports
+//!   (`tidal-connect:volume` event) up into the UI with no write-back.
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;

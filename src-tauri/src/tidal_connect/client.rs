@@ -1,3 +1,25 @@
+//! TIDAL Connect WebSocket control-session client.
+//!
+//! [Maintainer walkthrough] This session is NOT the audio path. Certified
+//! receivers keep an event channel open; we maintain a TLS WebSocket for the
+//! richer peer events, but every media operation goes through the LinkPlay
+//! httpapi route (`linkplay.rs` / `cast_host`). The session is also the
+//! receiver-discovery authentication window: it is what certifies that this
+//! device is visible as a TIDAL Connect target at all.
+//!
+//! Behaviors that come from production debugging:
+//! - The receiver idle-closes the session ~30 s after boot as a routine part
+//!   of the lifecycle of a push-URL cast. That is NOT an error: the app must
+//!   not surface `tidal-connect:disconnected` for it; instead every play
+//!   path transparently reconnects on demand (`is_connected()` check) and
+//!   bespoke selection state (`active_device`) must survive meanwhile.
+//! - Never issue `loadLocalQueue` over this socket: the receiver's process
+//!   crashes with no output payload-independently (see `AGENTS.md` 5.3).
+//! - The session-start volume advertisement of an A98 is stale (the tisoc
+//!   app reports a user volume that is not the LinkPlay-registered volume);
+//!   the push-URL register must win, so early reports are suppressed.
+//! - Volume over this socket is ACKed but never applied; volume belongs to
+//!   `setPlayerCmd:vol` through the httpapi (linkplay.rs).
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock as StdRwLock};
 use futures_util::{SinkExt, StreamExt};
