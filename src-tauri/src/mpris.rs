@@ -214,6 +214,22 @@ impl MprisHandle {
                         else {
                             continue;
                         };
+                        // Cast-aware position: a LinkPlay push cast is not
+                        // the local GStreamer player, so read the receiver's
+                        // extrapolated position (plus the trimmed-seek start
+                        // offset) instead of returning 0 or a stale local
+                        // value. Mirrors get_playback_position's cast branch.
+                        if state.tidal_connect.active_device.read().await.is_some()
+                            && state.tidal_connect.cast_host.read().await.is_some()
+                        {
+                            let cast = state.tidal_connect.cast_status.read().await;
+                            if let Some(c) = cast.as_ref() {
+                                let secs = (c.start_offset_ms + c.pos_ms) / 1000.0;
+                                let micros = (secs * 1_000_000.0) as i64;
+                                player_for_tick.set_position(Time::from_micros(micros));
+                            }
+                            continue;
+                        }
                         // Blocking pool: this runtime also serves D-Bus.
                         let player = state.audio_player.clone();
                         let pos = tokio::task::spawn_blocking(move || player.get_position()).await;

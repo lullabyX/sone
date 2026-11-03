@@ -26,6 +26,7 @@ pub mod overlay;
 mod http_util;
 pub mod proxy;
 mod proxy_http;
+pub mod tidal_connect;
 
 pub use error::SoneError;
 pub use signal_path::{SignalPath, SignalPathTracker};
@@ -268,6 +269,8 @@ pub struct AppState {
     pub overlay_state: crate::overlay::OverlayStateRef,
     pub overlay_handle: Mutex<Option<crate::overlay::OverlayHandle>>,
     pub signal_path: Arc<SignalPathTracker>,
+    pub tidal_connect: crate::tidal_connect::TidalConnectStateRef,
+    pub cached_settings: Arc<std::sync::RwLock<Option<Settings>>>,
 }
 
 /// The config directory, resolvable before `AppState` exists — `main.rs` needs
@@ -292,13 +295,24 @@ pub fn now_secs() -> u64 {
 /// refresh, including the automatic one after a 401 — without it the stored
 /// access token stays stale and each launch burns a 401 before the first
 /// request succeeds.
-fn persist_auth_tokens(path: &Path, crypto: &Crypto, tokens: &AuthTokens) {
+fn persist_auth_tokens(
+    path: &Path,
+    crypto: &Crypto,
+    tokens: &AuthTokens,
+    cached_settings: Option<&std::sync::RwLock<Option<Settings>>>,
+) {
     let mut settings = fs::read(path)
         .ok()
         .and_then(|data| crypto.decrypt(&data).ok())
         .and_then(|plain| serde_json::from_slice::<Settings>(&plain).ok())
         .unwrap_or_default();
     settings.auth_tokens = Some(tokens.clone());
+
+    if let Some(cache) = cached_settings {
+        if let Ok(mut guard) = cache.write() {
+            *guard = Some(settings.clone());
+        }
+    }
 
     let write = || -> Result<(), SoneError> {
         let json = serde_json::to_string_pretty(&settings)?;
@@ -488,12 +502,15 @@ impl AppState {
             Arc::clone(&audio_player),
         ));
 
+        let cached_settings = Arc::new(std::sync::RwLock::new(saved.clone()));
+        let cached_for_persist = Arc::clone(&cached_settings);
+
         let mut tidal_client = TidalClient::new(proxied_http.clone());
         tidal_client.set_token_persist({
             let settings_path = settings_path.clone();
             let crypto = Arc::clone(&crypto);
             Arc::new(move |tokens: &AuthTokens| {
-                persist_auth_tokens(&settings_path, &crypto, tokens);
+                persist_auth_tokens(&settings_path, &crypto, tokens, Some(&cached_for_persist));
             })
         });
 
@@ -519,7 +536,7 @@ impl AppState {
             last_replay_gain: AtomicU64::new(f64::NAN.to_bits()),
             last_peak_amplitude: AtomicU64::new(f64::NAN.to_bits()),
             #[cfg(target_os = "linux")]
-            mpris: mpris::MprisHandle::new(app_handle),
+            mpris: mpris::MprisHandle::new(app_handle.clone()),
             scrobble_manager,
             tidal_reporter,
             discord: discord_handle,
@@ -532,6 +549,14 @@ impl AppState {
             },
             overlay_handle: Mutex::new(None),
             signal_path,
+            tidal_connect: {
+                let device_http = crate::proxy_http::build_local_device_client()
+                    .expect("local device HTTP client could not be built; TIDAL Connect casting cannot start");
+                let tc = crate::tidal_connect::new_state(device_http);
+                tc.client.set_app_handle(app_handle);
+                tc
+            },
+            cached_settings,
         }
     }
 
@@ -567,14 +592,32 @@ impl AppState {
         *caps = probed;
     }
 
+    pub fn invalidate_settings_cache(&self) {
+        if let Ok(mut guard) = self.cached_settings.write() {
+            *guard = None;
+        }
+    }
+
     pub fn load_settings(&self) -> Option<Settings> {
+        if let Ok(guard) = self.cached_settings.read() {
+            if let Some(ref settings) = *guard {
+                return Some(settings.clone());
+            }
+        }
         let data = fs::read(&self.settings_path).ok()?;
         let plain = self.crypto.decrypt(&data).ok()?;
         let text = String::from_utf8(plain).ok()?;
-        serde_json::from_str(&text).ok()
+        let settings = serde_json::from_str::<Settings>(&text).ok()?;
+        if let Ok(mut guard) = self.cached_settings.write() {
+            *guard = Some(settings.clone());
+        }
+        Some(settings)
     }
 
     pub fn save_settings(&self, settings: &Settings) -> Result<(), SoneError> {
+        if let Ok(mut guard) = self.cached_settings.write() {
+            *guard = Some(settings.clone());
+        }
         let json = serde_json::to_string_pretty(settings)?;
         let encrypted = self.crypto.encrypt(json.as_bytes())?;
         fs::write(&self.settings_path, encrypted)?;
@@ -677,6 +720,64 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     crate::mcp::ensure_mcp_started(&handle_for_mcp).await;
                 });
+            }
+
+            // Test-harness override: SONE_CAST_DEVICE=<lan-host> auto-selects
+            // the receiver after discovery settles, so cold-start cast runs
+            // need no modal click. Normal installs never inherit the env var.
+            if let Ok(host) = std::env::var("SONE_CAST_DEVICE") {
+                if !host.is_empty() {
+                    let app_handle_for_cast = app.handle().clone();
+                    let want_host = host.clone();
+                    tauri::async_runtime::spawn(async move {
+                        use tauri::Manager;
+                        {
+                            let state = app_handle_for_cast.state::<AppState>();
+                            let mut engine = state.tidal_connect.discovery.write().await;
+                            if let Err(e) = engine.start().await {
+                                log::warn!("[cast-autoselect] discovery failed for {}: {}", want_host, e);
+                                return;
+                            }
+                        }
+                        // The mDNS scan needs a few seconds; wait up to 15 s.
+                        let mut selected = None;
+                        for _ in 0..30 {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            let state = app_handle_for_cast.state::<AppState>();
+                            let engine = state.tidal_connect.discovery.read().await;
+                            let devices = engine.get_devices().await;
+                            if let Some(dev) = devices.iter().find(|d| {
+                                d.addresses.iter().any(|a| a == &want_host)
+                                    || d.host == want_host
+                            }) {
+                                selected = Some(dev.clone());
+                                break;
+                            }
+                        }
+                        let Some(dev) = selected else {
+                            log::warn!("[cast-autoselect] device {} not found via mDNS", want_host);
+                            return;
+                        };
+                        let select_result = {
+                            let state = app_handle_for_cast.state::<AppState>();
+                            crate::commands::tidal_connect::tidal_connect_select_device(
+                                app_handle_for_cast.clone(),
+                                state,
+                                dev.id.clone(),
+                            )
+                            .await
+                        };
+                        match select_result {
+                            Ok(()) => log::info!("[cast-autoselect] connected SONE_CAST_DEVICE {} ({})", want_host, dev.name),
+                            Err(e) => log::warn!("[cast-autoselect] selecting {} failed: {}", want_host, e),
+                        }
+                        let _ = crate::commands::tidal_connect::tidal_connect_stop_discovery(
+                            app_handle_for_cast.state::<AppState>(),
+                        )
+                        .await;
+                    });
+                    log::info!("[cast-autoselect] SONE_CAST_DEVICE={} requested", host);
+                }
             }
 
             // Start Overlay server in background (if enabled).
@@ -850,24 +951,71 @@ pub fn run() {
                     let _ = window.set_icon(icon);
                 }
 
-                // WebKitGTK rendering settings for Linux
+                // WebKitGTK rendering settings for Linux.
+                //
+                // Switch (2026-10-17, default flipped after A/B measurement):
+                //   SONE_HWACCEL       = always | demand | never
+                //       always -> HardwareAccelerationPolicy::Always  (full-time
+                //                  compositing; DEFAULT. Keeps one warm GPU
+                //                  compositing process instead of boot/tearing
+                //                  it down per frame batch. Measured parity on
+                //                  fps with far steadier scroll/animation)
+                //       demand -> OnDemand ("auto"; historical default. Found
+                //                  intermittent dead renderer boots and scroll
+                //                  stutter on this Fleet — use only for A/B)
+                //       never  -> Never (pure software: baseline for CPU-bound
+                //                  measurement; do not ship)
+                //   SONE_SMOOTH_SCROLL = 0/1 (WebKit smooth-scroll animation;
+                //       on a raster-capped pipeline it can feel like input lag)
+                // Unset values keep the historical behavior exactly.
                 #[cfg(target_os = "linux")]
                 {
                     use webkit2gtk::{SettingsExt, WebViewExt};
-                    window
-                        .with_webview(|webview| {
-                            let wv = webview.inner();
-                            if let Some(settings) = wv.settings() {
-                                // Use OnDemand (default) — Always can cause severe lag
-                                // on dual-GPU systems (NVIDIA + iGPU) with WebKitGTK
-                                settings.set_hardware_acceleration_policy(
-                                    webkit2gtk::HardwareAccelerationPolicy::OnDemand,
-                                );
-                                settings.set_enable_webgl(true);
-                                settings.set_enable_smooth_scrolling(true);
-                            }
-                        })
-                        .ok();
+                    let hw_choice = std::env::var("SONE_HWACCEL")
+                        .ok()
+                        .map(|s| s.trim().to_ascii_lowercase())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "always".to_string());
+                    let smooth_choice = std::env::var("SONE_SMOOTH_SCROLL")
+                        .ok()
+                        .map(|s| s.trim().to_ascii_lowercase());
+
+                window
+                    .with_webview(move |webview| {
+                        let wv = webview.inner();
+                        if let Some(settings) = wv.settings() {
+                            // Default Always: one warm GPU compositing
+                            // process. OnDemand tears it down and reboots it
+                            // per frame batch; that path showed intermittent
+                            // dead renderer boots and scroll stutter on this
+                            // single-amdGPU machine (reachable again via
+                            // SONE_HWACCEL=demand for A/B runs).
+                            let policy = match hw_choice.as_str() {
+                                "always" | "1" | "on" => {
+                                    webkit2gtk::HardwareAccelerationPolicy::Always
+                                }
+                                "never" | "0" | "off" => {
+                                    webkit2gtk::HardwareAccelerationPolicy::Never
+                                }
+                                _ => webkit2gtk::HardwareAccelerationPolicy::OnDemand,
+                            };
+                            settings.set_hardware_acceleration_policy(policy);
+                            settings.set_enable_webgl(true);
+                            let smooth = !matches!(
+                                smooth_choice.as_deref(),
+                                Some("0") | Some("off") | Some("false") | Some("no")
+                            );
+                            settings.set_enable_smooth_scrolling(smooth);
+                            log::info!(
+                                "[perf-flags] WebKit hardware-acceleration policy={} \
+                                 smooth-scrolling={} (override via SONE_HWACCEL / \
+                                 SONE_SMOOTH_SCROLL)",
+                                hw_choice,
+                                if smooth { "on" } else { "off" }
+                            );
+                        }
+                    })
+                    .ok();
                 }
 
                 // tauri.conf.json sets decorations: false, so the window is
@@ -1109,6 +1257,9 @@ pub fn run() {
             commands::scrobble::disconnect_provider,
             // utility
             commands::utility::get_image_bytes,
+            commands::diagnostics::log_frontend_error,
+            commands::diagnostics::get_perf_flags,
+            commands::diagnostics::log_perf_sample,
             commands::utility::get_cache_stats,
             commands::utility::clear_disk_cache,
             commands::utility::quit_app,
@@ -1165,6 +1316,13 @@ pub fn run() {
             commands::utility::refresh_signal_path,
             // updates
             commands::updates::check_for_update,
+            // tidal connect
+            commands::tidal_connect::tidal_connect_start_discovery,
+            commands::tidal_connect::tidal_connect_stop_discovery,
+            commands::tidal_connect::tidal_connect_get_available_devices,
+            commands::tidal_connect::tidal_connect_select_device,
+            commands::tidal_connect::tidal_connect_get_active_device,
+            commands::tidal_connect::tidal_connect_send_command,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

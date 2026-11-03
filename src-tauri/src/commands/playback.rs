@@ -1,10 +1,85 @@
 use serde::Deserialize;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
 use tauri::State;
 
 use crate::tidal_api::{StreamInfo, TidalVideo, VideoStreamInfo};
+use crate::tidal_connect::manifest_server::QueueEntry;
+use crate::tidal_connect::PrefetchedStream;
 use crate::AppState;
 use crate::SoneError;
+
+/// How many upcoming queue tracks ride along in one native playlist push.
+///
+/// The receiver reads the `.m3u8` once and preloads each entry ~90 s before
+/// the boundary, so every entry has to be resolved and served before the push;
+/// that resolution is a TIDAL round-trip per track and lands in the FIRST
+/// track's start latency. Twelve covers an album side and costs ~1-2 s once,
+/// instead of a ~10 s gap at every track boundary. Tracks past the cap fall
+/// back to the classic push-advance.
+const CAST_QUEUE_LOOKAHEAD: usize = 12;
+
+/// Stream metadata for UI republishing: the manifest XML has already been
+/// served to the receiver and would bloat every event payload.
+fn strip_stream_manifests(mut info: StreamInfo) -> StreamInfo {
+    info.manifest = None;
+    info.manifest_b64 = None;
+    info
+}
+
+/// Resolve the upcoming queue tracks into playlist entries, in play order.
+///
+/// A track that fails to resolve is dropped from the playlist (the rest keeps
+/// playing); the head track is never duplicated. Resolution is sequential on
+/// purpose: `resolve_play_uri` holds the shared TIDAL client lock across its
+/// quality cascade, so parallel calls would only queue on that mutex.
+async fn resolve_queue_entries(
+    state: &AppState,
+    track_id: u64,
+    ids: &[u64],
+    use_track_gain: bool,
+) -> (Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>) {
+    let started = std::time::Instant::now();
+    let mut entries = Vec::new();
+    let mut kept_ids = Vec::new();
+    let mut streams = Vec::new();
+    for &id in ids.iter().take(CAST_QUEUE_LOOKAHEAD) {
+        if id == track_id || kept_ids.contains(&id) {
+            continue;
+        }
+        match resolve_play_uri(state, id, use_track_gain).await {
+            Ok((info, _uri, _gain, _rg, _peak, dash)) => {
+                let entry = if dash {
+                    match info.manifest.clone() {
+                        Some(xml) => QueueEntry::Manifest(xml),
+                        None => continue,
+                    }
+                } else if info.url.is_empty() {
+                    continue;
+                } else {
+                    QueueEntry::Direct(info.url.clone())
+                };
+                entries.push(entry);
+                kept_ids.push(id);
+                streams.push(strip_stream_manifests(info));
+            }
+            Err(e) => log::warn!(
+                "[play_tidal_track] playlist entry {} unresolved, dropped: {}",
+                id,
+                e
+            ),
+        }
+    }
+    log::info!(
+        "[latency] play_tidal_track {}: playlist resolved {}/{} entries in {} ms",
+        track_id,
+        entries.len(),
+        ids.len().min(CAST_QUEUE_LOOKAHEAD),
+        started.elapsed().as_millis()
+    );
+    (entries, kept_ids, streams)
+}
 
 /// Tidal-correct normalization: 0.8 * min(10^((rg + 4) / 20), 1 / peak)
 pub fn compute_norm_gain(replay_gain: Option<f64>, peak_amplitude: Option<f64>) -> f64 {
@@ -57,7 +132,16 @@ pub async fn resolve_play_uri(
     let stream_info = {
         let mut client = state.tidal_client.lock().await;
         let has_secret = !client.client_secret.is_empty();
-        let ceiling = state.max_quality.lock().unwrap().clone();
+        // SONE_QUALITY_CEILING: test override for the quality ceiling
+        // (mirrors SONE_MAX_VOLUME). Brings a whole app run down one tier so
+        // cast cold-start latency can be A/B'd without touching saved
+        // settings. Unknown values fall through to the saved ceiling.
+        let ceiling = match std::env::var("SONE_QUALITY_CEILING") {
+            Ok(v) if ["HI_RES_LOSSLESS", "HI_RES", "LOSSLESS", "HIGH"].contains(&v.trim()) => {
+                v.trim().to_string()
+            }
+            _ => state.max_quality.lock().unwrap().clone(),
+        };
         let tiers = quality_tiers(&ceiling, has_secret);
 
         let mut result: Option<StreamInfo> = None;
@@ -91,7 +175,46 @@ pub async fn resolve_play_uri(
         stream_info.codec, stream_info.manifest.is_some()
     );
 
-    // Capture the actual served attributes for TIDAL play-reporting.
+    Ok(finish_resolved(state, track_id, stream_info, use_track_gain).await)
+}
+
+/// Single-use take of the prefetch stream slot: exact (track_id,
+/// use_track_gain) match and a 10-minute expiry (TIDAL signed stream URLs and
+/// manifests live far longer, but the exact TTL is undocumented, so stay well
+/// inside it). The whole read-decide-clear runs under one write guard with no
+/// awaits inside, so the take is atomic against a racing prefetch write and
+/// introduces no starvation window.
+async fn take_prefetched(
+    state: &AppState,
+    track_id: u64,
+    use_track_gain: bool,
+) -> Option<PrefetchedStream> {
+    const MAX_AGE: Duration = Duration::from_secs(600);
+    let mut guard = state.tidal_connect.prefetch_stream.write().await;
+    let hit = guard
+        .as_ref()
+        .is_some_and(|p| {
+            p.track_id == track_id
+                && p.use_track_gain == use_track_gain
+                && p.fetched_at.elapsed() <= MAX_AGE
+        });
+    if hit {
+        guard.take()
+    } else {
+        None
+    }
+}
+
+/// Shared tail of the resolver: notes the served attributes for TIDAL
+/// play-reporting, builds the DASH/BTS URI and selects the replay gain.
+/// Used by both the fetch path and the prefetch-hit path so the reporter
+/// never loses the stream metadata, no matter where the resolution came from.
+async fn finish_resolved(
+    state: &AppState,
+    track_id: u64,
+    stream_info: StreamInfo,
+    use_track_gain: bool,
+) -> ResolvedStream {
     state
         .tidal_reporter
         .note_stream_resolved(
@@ -118,8 +241,12 @@ pub async fn resolve_play_uri(
     let is_dash = stream_info.manifest.is_some();
     let uri = if let Some(ref mpd) = stream_info.manifest {
         // DASH: pass MPD manifest as a data URI for GStreamer's dashdemux.
-        use base64::Engine;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(mpd.as_bytes());
+        let b64 = if let Some(ref cached_b64) = stream_info.manifest_b64 {
+            cached_b64.clone()
+        } else {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(mpd.as_bytes())
+        };
         format!("data:application/dash+xml;base64,{}", b64)
     } else {
         // BTS: direct URL.
@@ -160,14 +287,14 @@ pub async fn resolve_play_uri(
         selected_peak
     );
 
-    Ok((
+    (
         stream_info,
         uri,
         norm_gain,
         selected_rg.unwrap_or(f64::NAN),
         selected_peak.unwrap_or(f64::NAN),
         is_dash,
-    ))
+    )
 }
 
 /// Report why a tier will be refused, so the user sees the proxy named rather
@@ -193,14 +320,85 @@ fn explain_block(
     Ok(())
 }
 
+/// The single entry point for starting, switching, or auto-advancing
+/// playback of a TIDAL track. [Maintainer walkthrough]
+///
+/// Control flow, in the order everything depends on it:
+///
+/// 1. *Stream resolution* (`resolve_play_uri` quality cascade, or the
+///    one-shot `set_next_track` prefetch slot when a native cast advance
+///    already resolved the incoming track). The prefetch slot is cast-only
+///    by design: the local gapless pipeline consumes the SAME slot via
+///    audio worker bookkeeping, so taking it for local plays would double.
+/// 2. *Route decision:* `active_device` set means a remote receiver is the
+///    output, never a local decode; the WS session may not be alive (idle
+///    closes are routine), so it is re-established on demand before the WS
+///    handshake's optional richer events are re-armed. All transport
+///    commands then go through `cast_host` httpapi, never the session.
+/// 3. *Cast push:* with a non-empty `queue_track_ids` and a queue capable of
+///    it, entries up to `CAST_QUEUE_LOOKAHEAD` are pre-resolved and pushed
+///    as ONE native `.m3u8` playlist so the receiver preloads every entry
+///    (that is the gap between tracks gone - the receiver preloads ~20-90 s
+///    early and advances itself). Without a queue, or past the lookahead
+///    cap, the classic single-URL push runs and `playNext`/the poller's
+///    `tidal-connect:track-ended` event drives the next advance.
+/// 4. *Local push:* otherwise the resolved stream goes to the audio worker
+///    for a local pipeline (see `audio.rs`; cold-start buffering and
+///    latency markers live there).
+///
+/// Timing invariants: a stop followed by a push must settle ~3 s (`A98`
+/// wedges otherwise); pushes are bounded everywhere, transactional
+/// `cast_status` writes are bounded everywhere (3 s), and every step in the
+/// cast path logs `[latency]`/`[play_tidal_track]`/`[cast-poller]` markers to
+/// `sone_r*.log` so a cast can be narrated after the fact. This function is
+/// the ground truth for "what landed on the receiver" - the renderer may
+/// desync, the receiver may lie, but the push markers here are what was
+/// actually issued.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn play_tidal_track(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     track_id: u64,
     use_track_gain: bool,
+    queue_track_ids: Option<Vec<u64>>,
 ) -> Result<StreamInfo, SoneError> {
-    let (stream_info, uri, norm_gain, rg, peak, is_dash) =
-        resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+    let t0 = std::time::Instant::now();
+    // Prefetch consumption (cast only): the gapless prefetch resolves the
+    // predicted next track ahead of time (set_next_track), and a cast advance
+    // re-resolving it at push time adds a full TIDAL API round-trip to the
+    // dead air between album tracks. Read the device state into a `let`
+    // first; an `if let` scrutinee clone would hold the guard across the
+    // awaits below (standing rule, AGENTS 5.3).
+    let device_early = state.tidal_connect.active_device.read().await.clone();
+    let prefetched = if device_early.is_some() {
+        take_prefetched(state.inner(), track_id, use_track_gain).await
+    } else {
+        None
+    };
+    let prefetch_display_name = prefetched
+        .as_ref()
+        .and_then(|p| p.display_name.clone());
+    let (stream_info, uri, norm_gain, rg, peak, is_dash) = match prefetched {
+        Some(p) => {
+            log::info!(
+                "[latency] play_tidal_track {}: prefetch hit, {:.1} s old",
+                track_id,
+                p.fetched_at.elapsed().as_secs_f64()
+            );
+            // Same resolver tail as a fresh fetch: URI build, gain selection,
+            // and the play-reporter note are all recreated from the stashed
+            // StreamInfo, so a prefetch hit differs from a fresh fetch only
+            // in the absence of network calls.
+            finish_resolved(state.inner(), track_id, p.stream_info, use_track_gain).await
+        }
+        None => resolve_play_uri(state.inner(), track_id, use_track_gain).await?,
+    };
+    log::info!(
+        "[latency] play_tidal_track {}: source resolved {} ms (dash={})",
+        track_id,
+        t0.elapsed().as_millis(),
+        is_dash
+    );
 
     // Advisory only, and deliberately fail-open: `load_settings()` returns
     // `None` on a read, decrypt, UTF-8 or JSON failure, and the default has
@@ -219,16 +417,296 @@ pub async fn play_tidal_track(
         .last_peak_amplitude
         .store(peak.to_bits(), Ordering::Relaxed);
 
-    // Apply normalization gain BEFORE play_url so the pipeline builds with
-    // the correct current_norm_gain — prevents volume spike on track start.
-    let player = state.audio_player.clone();
-    tokio::task::spawn_blocking(move || {
-        player.set_normalization_gain(norm_gain)?;
-        player.play_url(&uri, None)
-    })
+    // Check if remote TIDAL Connect speaker is active
+    let active_device_opt = state.tidal_connect.active_device.read().await.clone();
+    let is_remote = if let Some(ref dev) = active_device_opt {
+        if !state.tidal_connect.client.is_connected().await {
+            log::info!("[play_tidal_track] Reconnecting to TIDAL Connect device {} ({}:{})", dev.name, dev.host, dev.port);
+            let target_host = dev
+                .addresses
+                .iter()
+                .find(|a| !a.contains(':'))
+                .unwrap_or(&dev.host);
+            state.tidal_connect.client.connect(&dev.id, target_host, dev.port, None).await.is_ok()
+        } else {
+            true
+        }
+    } else {
+        false
+    };
+    if is_remote {
+        // LinkPlay push-URL cast. The receiver's loadLocalQueue route crashes
+        // its process on any payload (findings/tidal_connect_protocol_spec.md
+        // section 6), so never build that envelope again. Instead, resolve a
+        // concrete URL and hand it to the receiver's LinkPlay player:
+        // - DASH: the resolved manifest is XML with ABSOLUTE segment URLs on
+        //   the TIDAL CDN; serve it locally so the receiver can fetch it.
+        // - BTS: the resolved URL is a plain stream URL; push it directly.
+        let dev = active_device_opt
+            .as_ref()
+            .expect("is_remote implies active device");
+        let target_host = dev
+            .addresses
+            .iter()
+            .find(|a| !a.contains(':'))
+            .unwrap_or(&dev.host)
+            .clone();
+
+        let mut cast_manifest: Option<String> = None;
+        // Native playlist state, committed into `CastStatus` after the push:
+        // entries (served bodies), parallel track ids, and per-entry stream
+        // metadata for UI republishing on a native advance.
+        let mut cast_queue: Option<(Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>)> = None;
+        let push_url = if is_dash {
+            let mpd_xml = stream_info
+                .manifest
+                .clone()
+                .ok_or_else(|| SoneError::Audio("TIDAL Connect DASH manifest missing".into()))?;
+            cast_manifest = Some(mpd_xml.clone());
+            let base = state
+                .tidal_connect
+                .manifest_server
+                .ensure_started(&target_host)
+                .await
+                .map_err(SoneError::Audio)?;
+            // The receiver names the push after the URL it was handed, so put
+            // the track in the path: the WiiM Home app shows the decoded URL
+            // as the now-playing title. This firmware ignores every metadata
+            // write channel (setPlayerCmd:setMetaInfo?*, stream tags, ICY
+            // headers - verified 2026-10-17), so the named path is the only
+            // user-visible track identification for push-URL casts. The
+            // prefetch path carries the name pre-resolved (see
+            // set_next_track), so the advance push makes zero TIDAL calls.
+            let display_name = if let Some(name) = prefetch_display_name {
+                name
+            } else {
+                let mut client = state.tidal_client.lock().await;
+                match client.get_track(track_id).await {
+                    Ok(track_val) => push_display_name_from(&track_val),
+                    Err(_) => format!("track-{}", track_id),
+                }
+            };
+            let upcoming = queue_track_ids.as_deref().unwrap_or(&[]);
+            if upcoming.is_empty() {
+                state
+                    .tidal_connect
+                    .manifest_server
+                    .set(&mpd_xml)
+                    .await
+                    .map_err(SoneError::Audio)?;
+                format!("{}/{}.mpd", base, encode_display_name(&display_name))
+            } else {
+                // Native queue: one `.m3u8` the receiver plays through on its
+                // own, entry to entry, with no push and no audible gap
+                // (verified 2026-11-01 on the A98). The head entry is the
+                // track the user picked, so playback still starts where the
+                // click landed.
+                let (entries, mut ids, mut streams) =
+                    resolve_queue_entries(state.inner(), track_id, upcoming, use_track_gain).await;
+                if entries.is_empty() {
+                    state
+                        .tidal_connect
+                        .manifest_server
+                        .set(&mpd_xml)
+                        .await
+                        .map_err(SoneError::Audio)?;
+                    format!("{}/{}.mpd", base, encode_display_name(&display_name))
+                } else {
+                    let mut all = Vec::with_capacity(entries.len() + 1);
+                    all.push(QueueEntry::Manifest(mpd_xml.clone()));
+                    all.extend(entries);
+                    ids.insert(0, track_id);
+                    streams.insert(0, strip_stream_manifests(stream_info.clone()));
+                    let url = state
+                        .tidal_connect
+                        .manifest_server
+                        .set_queue(&encode_display_name(&display_name), all.clone())
+                        .await
+                        .map_err(SoneError::Audio)?;
+                    log::info!(
+                        "[play_tidal_track] native playlist push: {} entries (head {})",
+                        all.len(),
+                        track_id
+                    );
+                    cast_queue = Some((all, ids, streams));
+                    url
+                }
+            }
+        } else {
+            if stream_info.url.is_empty() {
+                return Err(SoneError::Audio(
+                    "TIDAL Connect: no stream URL for non-DASH track".into(),
+                ));
+            }
+            stream_info.url.clone()
+        };
+
+        // Stop local GStreamer audio so user's headphones don't play simultaneously
+        {
+            let player = state.audio_player.clone();
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(11),
+                tokio::task::spawn_blocking(move || player.stop()),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => log::warn!("[play_tidal_track] local audio stop failed: {}", e),
+                // stop() bounds itself at 10 s; 11 s here covers only its send
+                // overhead and means the worker never scheduled the reply.
+                Err(_) => log::error!(
+                    "[play_tidal_track] local audio worker never answered stop within 11s (wedged worker)"
+                ),
+            }
+        }
+
+        // A98 fresh-stop rule: a push into a PLAYING engine supersedes
+        // cleanly, but a push into an engine that just left the play state
+        // wedges in pause/load with no play at all (2026-10-24: 4/4
+        // deterministic on natural album advances once the prefetch cut
+        // removed the old resolve delay; pre-prefetch advances walked past
+        // this window by a second or two of TIDAL API latency). The jam
+        // watchdog's own recovery sequence - stop, settle, push - reaches
+        // play in ~6 s, which is the proof the engine needs roughly this
+        // settle after a stop. Settle here instead of paying the
+        // detect-(12 s grace)-re-push-plus-(11 s) jam cycle, which costs
+        // ~28 s of dead air on every album advance.
+        //
+        // Signal: the poller DROPS cast_status on the natural-end path, so
+        // the "stop" status read below only wakes for commanded/operator
+        // stops; the stamped `last_natural_end` covers the album-advance
+        // case the dedup-free prefetch made common.
+        let last_engine_status = {
+            let guard = state.tidal_connect.cast_status.read().await;
+            guard.as_ref().map(|s| s.status.clone())
+        };
+        let natural_end_age = {
+            let guard = state.tidal_connect.last_natural_end.read().await;
+            guard.map(|t| t.elapsed().as_secs_f64())
+        };
+        // COMMANDED stop stamp: stop_playback clears cast_status (the
+        // position is meaningless after a stop), so the status read below
+        // cannot see it. `last_cast_stop` is exactly the time the engine
+        // left play, so settle only the REMAINDER of the 3 s window rather
+        // than paying the full settle on top of work that already passed.
+        let commanded_stop_age = {
+            let guard = state.tidal_connect.last_cast_stop.read().await;
+            guard.map(|t| t.elapsed().as_secs_f64())
+        };
+        const FRESH_STOP_WINDOW_S: f64 = 15.0;
+        const SETTLE_S: f64 = 3.0;
+        let fresh_stop = commanded_stop_age
+            .map(|age| age <= SETTLE_S)
+            .unwrap_or(false)
+            || last_engine_status.as_deref() == Some("stop")
+            || natural_end_age
+                .map(|age| age <= FRESH_STOP_WINDOW_S)
+                .unwrap_or(false);
+        if fresh_stop {
+            let remaining_s = commanded_stop_age
+                .filter(|age| *age <= SETTLE_S)
+                .map(|age| SETTLE_S - age)
+                .unwrap_or(SETTLE_S);
+            log::info!(
+                "[play_tidal_track] engine freshly stopped ({}, last_cast_stop {:?}); settling {:.1}s before push (A98 fresh-stop jam rule)",
+                natural_end_age
+                    .map(|age| format!("natural end {:.1} s ago", age))
+                    .unwrap_or_else(|| format!("status {:?}", last_engine_status.unwrap_or_default())),
+                commanded_stop_age,
+                remaining_s
+            );
+            tokio::time::sleep(std::time::Duration::from_secs_f64(remaining_s)).await;
+        }
+
+        // Outer bound beyond the per-request 4 s httpapi timeout: the wedges
+        // pinned the command right around a confirmed push, so the play
+        // command must fail loudly instead of lingering with no answer.
+        let push_result = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            state
+                .tidal_connect
+                .linkplay
+                .push_url(&target_host, &push_url, &state.tidal_connect.cast_status),
+        )
         .await
-        .map_err(|e| SoneError::Audio(e.to_string()))?
-        .map_err(SoneError::Audio)?;
+        {
+            Ok(r) => r,
+            Err(_) => Err("LinkPlay push timed out after 10s (no completion from request)".to_string()),
+        };
+        push_result
+            .map_err(|e| SoneError::Audio(format!("LinkPlay push-URL cast failed: {}", e)))?;
+
+        // Stash the ORIGINAL (untrimmed) manifest and a zero start offset so
+        // a later seek can trim this manifest instead of restarting the
+        // track (A98 firmware cannot seek its own player). A playlist push
+        // additionally records the entry list, so the poller can follow the
+        // receiver across entries and a seek can rebuild the playlist.
+        if cast_manifest.is_some() || cast_queue.is_some() {
+            let mut slot = state.tidal_connect.cast_status.write().await;
+            if let Some(cur) = slot.as_mut() {
+                if let Some(ref xml) = cast_manifest {
+                    cur.manifest_xml = Some(xml.clone());
+                    cur.start_offset_ms = 0.0;
+                }
+                if let Some((entries, ids, streams)) = cast_queue.take() {
+                    cur.queue = ids;
+                    cur.queue_entries = entries;
+                    cur.queue_streams = streams;
+                    cur.queue_index = 0;
+                    cur.queue_entry_anchor_ms = 0.0;
+                    cur.queue_entry_anchor_at = None;
+                    cur.queue_entry_totlen_ms = 0;
+                }
+            }
+        }
+
+        // Step markers: the 2026-10-22 wedges stalled the command after a
+        // receiver-confirmed push and before this exact span logged anything,
+        // and every marker below is deliberately cheap (no possible side
+        // effect) so the stalled site shows up as the last printed one.
+        log::debug!("[play_tidal_track] push accepted, committing cast state");
+        // Bounded write: tokio RwLock is write-preferring, so a foreign
+        // cast_host reader holding its guard across an await starves this
+        // writer - the played push completed but the cast would stay
+        // unmanaged (2026-10-24: resume replay stalled 25 s between this
+        // line and the commit INFO with no writer in sight). Fail loudly
+        // instead of leaving a pushed-but-unmanaged cast.
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            state.tidal_connect.cast_host.write(),
+        )
+        .await
+        {
+            Ok(mut guard) => *guard = Some(target_host.clone()),
+            Err(_) => {
+                log::error!(
+                    "[play_tidal_track] cast_host write lock not granted within 3s; failing cast"
+                );
+                return Err(SoneError::Audio(
+                    "cast commit timed out acquiring cast_host".into(),
+                ));
+            }
+        }
+        state.tidal_connect.client.set_cast_active(true);
+        crate::tidal_connect::ensure_cast_poller(app.clone(), &state.tidal_connect).await;
+        log::debug!("[play_tidal_track] cast state committed for {}", target_host);
+        log::info!(
+            "[play_tidal_track] Cast track {} to {} via LinkPlay push-URL",
+            track_id,
+            target_host
+        );
+    } else {
+        // Apply normalization gain BEFORE play_url so the pipeline builds with
+        // the correct current_norm_gain — prevents volume spike on track start.
+        let player = state.audio_player.clone();
+        tokio::task::spawn_blocking(move || {
+            player.set_normalization_gain(norm_gain)?;
+            player.play_url(&uri, None)
+        })
+            .await
+            .map_err(|e| SoneError::Audio(e.to_string()))?
+            .map_err(SoneError::Audio)?;
+    }
 
     // Save last played track
     if let Some(mut settings) = state.load_settings() {
@@ -237,6 +715,26 @@ pub async fn play_tidal_track(
     }
 
     Ok(stream_info)
+}
+
+/// `Artist - Title` from a TIDAL track payload, used verbatim in the served
+/// manifest path. The receiver names the push after the URL it was handed,
+/// and this firmware ignores every metadata write channel
+/// (setPlayerCmd:setMetaInfo?*, stream tags, ICY headers - verified
+/// 2026-10-17), so the named path is the only user-visible track
+/// identification for push-URL casts.
+fn push_display_name_from(track_val: &serde_json::Value) -> String {
+    let title = track_val
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Title unknown");
+    let artist = track_val
+        .get("artist")
+        .or_else(|| track_val.get("artists").and_then(|v| v.get(0)))
+        .and_then(|a| a.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("Artist unknown");
+    format!("{} - {}", artist, title)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -248,6 +746,38 @@ pub async fn set_next_track(
 ) -> Result<StreamInfo, SoneError> {
     let (info, uri, gain, rg, peak, is_dash) =
         resolve_play_uri(state.inner(), track_id, use_track_gain).await?;
+
+    // Stash the resolved stream for the predicted next track. While casting
+    // this used to be the last step before the early return threw it away;
+    // now the cast advance consumes it exactly once (see play_tidal_track)
+    // and skips the TIDAL API round-trip inside the dead-air window. The
+    // display name is resolved here deliberately: it happens mid-album, off
+    // the advance critical path, so the push needs no get_track call of its
+    // own. Hoisted read clone (standing `if let` guard rule, AGENTS 5.3).
+    let device_active = state.tidal_connect.active_device.read().await.is_some();
+    let display_name = if device_active && is_dash {
+        let mut client = state.tidal_client.lock().await;
+        match client.get_track(track_id).await {
+            Ok(track_val) => Some(push_display_name_from(&track_val)),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    {
+        let mut slot = state.tidal_connect.prefetch_stream.write().await;
+        *slot = Some(crate::tidal_connect::PrefetchedStream {
+            track_id,
+            use_track_gain,
+            stream_info: info.clone(),
+            fetched_at: std::time::Instant::now(),
+            display_name,
+        });
+    }
+
+    if device_active {
+        return Ok(info);
+    }
 
     // Advisory only, same fail-open caveat as `play_tidal_track`: a corrupt
     // settings file makes this pass silently. The audio thread is the
@@ -264,6 +794,9 @@ pub async fn set_next_track(
 
 #[tauri::command]
 pub fn clear_next_track(state: State<'_, AppState>) -> Result<(), SoneError> {
+    if state.tidal_connect.active_device.blocking_read().is_some() {
+        return Ok(());
+    }
     state.audio_player.clear_next_track().map_err(SoneError::Audio)
 }
 
@@ -307,6 +840,21 @@ pub async fn get_video_metadata(
 #[tauri::command]
 pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[pause_track]");
+    if state.tidal_connect.active_device.read().await.is_some() {
+        // Hoisted clone: an `if let` scrutinee keeps the read guard alive
+        // for the whole block, so the LinkPlay command await below would
+        // hold cast_host.read() for seconds and (tokio RwLock is
+        // write-preferring) starve the play path's writer behind it.
+        let cast_host = state.tidal_connect.cast_host.read().await.clone();
+        if let Some(host) = cast_host {
+            let _ = state.tidal_connect.linkplay.pause(&host).await;
+        } else {
+            let _ = state.tidal_connect.client.pause().await;
+        }
+        state.tidal_reporter.on_pause().await;
+        state.scrobble_manager.on_pause().await;
+        return Ok(());
+    }
     let result = state.audio_player.pause().map_err(SoneError::Audio);
     state.tidal_reporter.on_pause().await;
     state.scrobble_manager.on_pause().await;
@@ -314,8 +862,38 @@ pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 }
 
 #[tauri::command]
-pub async fn resume_track(state: State<'_, AppState>) -> Result<(), SoneError> {
+pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[resume_track]");
+    if state.tidal_connect.active_device.read().await.is_some() {
+        // Hoisted clone (same guard-lifetime rule as pause_track): the read
+        // guard must not span the LinkPlay command await.
+        let cast_host = state.tidal_connect.cast_host.read().await.clone();
+        if let Some(host) = cast_host {
+            let _ = state.tidal_connect.linkplay.resume(&host).await;
+        } else if let Some(track_id) = state.load_settings().and_then(|s| s.last_track_id) {
+            // Watchdog: a stalled push path (2026-10-22 wedges) must release
+            // the command instead of hanging the transport gate; the camera
+            // rolls back to a stopped UI and the retry is a fresh command.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(25),
+                play_tidal_track(app, state.clone(), track_id, true, None),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => log::warn!("[resume_track] replay attempt failed: {}", e),
+                Err(_) => {
+                    log::error!("[resume_track] replay attempt stalled beyond 25s; releasing command");
+                    return Err(SoneError::Audio(
+                        "resume: replay attempt did not complete within 25s".into(),
+                    ));
+                }
+            }
+        }
+        state.tidal_reporter.on_resume().await;
+        state.scrobble_manager.on_resume().await;
+        return Ok(());
+    }
     let result = state.audio_player.resume().map_err(SoneError::Audio);
     state.tidal_reporter.on_resume().await;
     state.scrobble_manager.on_resume().await;
@@ -326,6 +904,46 @@ pub async fn resume_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 /// now-playing surfaces, and notify the scrobble manager. Shared by the
 /// `stop_track` command and `logout`.
 pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
+    if state.tidal_connect.active_device.read().await.is_some() {
+        // Hoist the clone out of the `if let` scrutinee: Rust keeps if-let
+        // temporaries (here the cast_host read guard) alive for the whole
+        // block, so writing cast_host inside that block would hold readers
+        // forever and self-deadlock the write below.
+        let cast_host: Option<String> = state.tidal_connect.cast_host.read().await.clone();
+        if let Some(host) = cast_host {
+            log::debug!("[stop_playback] cast branch: stopping media on {}", host);
+            // Drop the push-URL stream context, then stamp the stop for the
+            // fresh-stop jam rule: the stop path clears `cast_status` (the
+            // position is meaningless afterwards), so `play_tidal_track`
+            // cannot read the engine's state; a skip issued right after this
+            // stop pushed ~1 s later and wedged the receiver every time
+            // (2026-11-03 soak: skips recovered only through the 22 s poller
+            // jam cycle). `stop_verified` returns once the engine has
+            // actually left play, so stamping here anchors the 3 s settle.
+            if state
+                .tidal_connect
+                .linkplay
+                .stop_verified(&host, &state.tidal_connect.cast_status)
+                .await
+                .is_ok()
+            {
+                *state.tidal_connect.last_cast_stop.write().await = Some(Instant::now());
+            } else {
+                log::debug!("[stop_playback] stop not receiver-verified; not stamping fresh-stop");
+            }
+            *state.tidal_connect.cast_host.write().await = None;
+            *state.tidal_connect.cast_status.write().await = None;
+        } else {
+            let _ = state.tidal_connect.client.stop().await;
+        }
+        #[cfg(target_os = "linux")]
+        state.mpris.send(crate::mpris::MprisCommand::Stop);
+        state.discord.send(crate::discord::DiscordCommand::Stop);
+        state.tidal_reporter.on_track_stopped().await;
+        state.scrobble_manager.on_track_stopped().await;
+        let _ = state.audio_player.stop();
+        return Ok(());
+    }
     let result = state.audio_player.stop().map_err(SoneError::Audio);
     #[cfg(target_os = "linux")]
     state.mpris.send(crate::mpris::MprisCommand::Stop);
@@ -342,7 +960,88 @@ pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 }
 
 #[tauri::command]
-pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
+pub async fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
+    let active_opt = state.tidal_connect.active_device.read().await.clone();
+    if let Some(dev) = active_opt {
+        // Preferred channel: LinkPlay httpapi (device DAC). The TIDAL
+        // Connect WS setVolume command acks with resultCode 0 but does not
+        // move the hardware volume on A98 firmware, so it is only a
+        // fallback for when httpapi is unreachable. While a push-URL cast
+        // is live, cast_host carries the confirmed host; otherwise fall
+        // back to the selected device's IPv4 address.
+        let host = state
+            .tidal_connect
+            .cast_host
+            .read()
+            .await
+            .clone()
+            .or_else(|| {
+                dev.addresses
+                    .iter()
+                    .find(|a| !a.contains(':'))
+                    .cloned()
+            });
+        if let Some(host) = host {
+            //
+            // Test-harness cap: SONE_MAX_VOLUME=<0-100> clamps pushes to the
+            // receiver so automated runs cannot blast the speakers. Normal
+            // installs never inherit the env var.
+            let mut target = level as f64;
+            if let Some(cap) = std::env::var("SONE_MAX_VOLUME")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|c| c.clamp(0.0, 100.0))
+            {
+                let clamped = target.min(cap / 100.0);
+                if clamped < target {
+                    log::debug!("[set_volume] capping receiver volume {:.2} -> {:.2} (SONE_MAX_VOLUME)", target, clamped);
+                    target = clamped;
+                }
+            }
+            match state
+                .tidal_connect
+                .linkplay
+                .set_volume(&host, target * 100.0)
+                .await
+            {
+                Ok(()) => log::info!(
+                    "[set_volume] receiver push level={:.3} target={:.3} -> {} via {}",
+                    level,
+                    target,
+                    (target * 100.0).round() as i64,
+                    host
+                ),
+                Err(e) => {
+                    // httpapi unreachable: fall back to the WS command for
+                    // non-LinkPlay receivers (A98 acks but applies nothing).
+                    log::warn!(
+                        "[set_volume] LinkPlay volume push to {} failed: {}; trying WS setVolume",
+                        host,
+                        e
+                    );
+                    if !state.tidal_connect.client.is_connected().await {
+                        let target_host = dev
+                            .addresses
+                            .iter()
+                            .find(|a| !a.contains(':'))
+                            .unwrap_or(&dev.host)
+                            .clone();
+                        let _ = state
+                            .tidal_connect
+                            .client
+                            .connect(&dev.id, &target_host, dev.port, None)
+                            .await;
+                    }
+                    let _ = state
+                        .tidal_connect
+                        .client
+                        .set_volume(level as f64)
+                        .await;
+                }
+            }
+        }
+    }
+
     state
         .audio_player
         .set_volume(level)
@@ -366,6 +1065,22 @@ pub fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneErro
 // audio thread froze the whole window.
 #[tauri::command]
 pub async fn get_playback_position(state: State<'_, AppState>) -> Result<f32, SoneError> {
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if state.tidal_connect.cast_host.read().await.is_some() {
+            // Wall position on the ORIGINAL track timeline: the receiver
+            // counts from the trimmed-seek start offset, so a seek to 90 s
+            // reports ~90 s immediately after the trimmed push.
+            return Ok(state
+                .tidal_connect
+                .cast_status
+                .read()
+                .await
+                .as_ref()
+                .map(|s| ((s.start_offset_ms + s.pos_ms) / 1000.0) as f32)
+                .unwrap_or(0.0));
+        }
+        return Ok(state.tidal_connect.client.get_position().await);
+    }
     let player = state.audio_player.clone();
     tokio::task::spawn_blocking(move || player.get_position())
         .await
@@ -376,6 +1091,233 @@ pub async fn get_playback_position(state: State<'_, AppState>) -> Result<f32, So
 #[tauri::command(rename_all = "camelCase")]
 pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Result<(), SoneError> {
     log::debug!("[seek_track]: position_secs={:.1}", position_secs);
+    if state.tidal_connect.active_device.read().await.is_some() {
+        // Hoisted clone: this block spans the trim, the stop-verify, the 3 s
+        // settle and a bounded push - holding the read guard across all of
+        // it starves the remaining cast_host writers (tokio RwLock is
+        // write-preferring) for the whole span.
+        let cast_host = state.tidal_connect.cast_host.read().await.clone();
+        if let Some(host) = cast_host {
+            // A98 firmware cannot seek a push-URL cast: setPlayerCmd:seek
+            // returns OK and then wedges the player in a permanent "stop"
+            // (curpos frozen on the microsecond scale, receiver never
+            // resumes; observed 2026-10-23, see AGENTS.md 5.3 and the
+            // protocol spec caveat). Genuine seek instead: trim the
+            // ORIGINAL track manifest so playback starts at the requested
+            // offset and push that variant (receiver-verified 2026-10-24:
+            // it starts playing instantly and reports the trimmed length
+            // as totlen). Falls back to a restart-from-top re-push when
+            // the manifest is missing or not trimmable.
+            let (manifest_xml, cast_url, orig_len_ms, cast_queue) = {
+                let slot = state.tidal_connect.cast_status.read().await;
+                let s = slot.as_ref();
+                (
+                    s.and_then(|x| x.manifest_xml.clone()),
+                    s.and_then(|x| x.cast_url.clone()),
+                    s.map(|x| if x.orig_totlen_ms > 0 { x.orig_totlen_ms } else { x.totlen_ms })
+                        .unwrap_or(0),
+                    // Native playlist cast: (ids, entries, streams, index) so
+                    // the seek can rebuild the playlist from the entry playing
+                    // now instead of dropping the queue.
+                    s.filter(|x| x.is_queue()).map(|x| {
+                        (
+                            x.queue.clone(),
+                            x.queue_entries.clone(),
+                            x.queue_streams.clone(),
+                            x.queue_index,
+                        )
+                    }),
+                )
+            };
+            let trim_result = match (&manifest_xml, &cast_url) {
+                (Some(xml), Some(url)) => {
+                    let trimmed = crate::tidal_connect::manifest_server::trim_mpd(
+                        xml,
+                        position_secs as f64,
+                    );
+                    trimmed.map(|(trimmed_xml, _remaining)| (trimmed_xml, url.clone()))
+                }
+                _ => None,
+            };
+            let mut rebuilt_queue: Option<(Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>)> = None;
+            let outcome = match trim_result {
+                Some((trimmed_xml, base_url)) => {
+                    let _ = state
+                        .tidal_connect
+                        .manifest_server
+                        .ensure_started(&host)
+                        .await
+                        .map_err(SoneError::Audio)?;
+                    // Playlist cast: rebuild the `.m3u8` with the trimmed entry
+                    // as its head, so the rest of the album keeps flowing
+                    // gaplessly after the seek. A plain cast keeps the
+                    // cache-busted `.mpd` path (a repeated fetch of the same
+                    // path must not serve a stale cached manifest).
+                    let playlist = cast_queue.as_ref().and_then(|(ids, entries, streams, index)| {
+                        let index = *index;
+                        if index >= entries.len() {
+                            return None;
+                        }
+                        let mut all = Vec::with_capacity(entries.len() - index);
+                        all.push(QueueEntry::Manifest(trimmed_xml.clone()));
+                        all.extend(entries[index + 1..].iter().cloned());
+                        let stem = base_url
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("queue")
+                            .strip_suffix(".m3u8")
+                            .unwrap_or("queue");
+                        let name = format!("{}-s{}", stem, position_secs as u64);
+                        Some((
+                            name,
+                            all,
+                            ids[index..].to_vec(),
+                            streams[index..].to_vec(),
+                        ))
+                    });
+                    let seek_url = match playlist {
+                        Some((name, all, ids, streams)) => {
+                            let url = state
+                                .tidal_connect
+                                .manifest_server
+                                .set_queue(&name, all.clone())
+                                .await
+                                .map_err(SoneError::Audio)?;
+                            rebuilt_queue = Some((all, ids, streams));
+                            url
+                        }
+                        None => {
+                            let seek_url = format!(
+                                "{}-s{}.mpd",
+                                base_url
+                                    .strip_suffix(".mpd")
+                                    .unwrap_or(base_url.as_str()),
+                                position_secs as u64
+                            );
+                            state
+                                .tidal_connect
+                                .manifest_server
+                                .set(&trimmed_xml)
+                                .await
+                                .map_err(SoneError::Audio)?;
+                            seek_url
+                        }
+                    };
+                    // Stop-first: an A98 engine ignores a play command that
+                    // cuts into an active stream and jams until a full
+                    // stop/reload cycle (verified 2026-10-24; every working
+                    // push - normal play and queue advance - runs stop then
+                    // push). push_url resets the slot right after, so the
+                    // commanded-stop flag set here never suppresses the new
+                    // session's transitions.
+                    if let Err(e) = state
+                        .tidal_connect
+                        .linkplay
+                        .stop_verified(&host, &state.tidal_connect.cast_status)
+                        .await
+                    {
+                        log::debug!("[seek_track] pre-push stop not accepted: {}", e);
+                    }
+                    // Settle window: a push issued immediately after the stop
+                    // still jams the A98 engine (stop is asynchronous inside
+                    // the receiver); the working skip flow spends 1-2 s here
+                    // re-establishing its WS session, so give the same head-
+                    // room. Stop -> ~3 s -> push is the only sequence verified
+                    // to play a trimmed manifest reliably (2026-10-24).
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        state
+                            .tidal_connect
+                            .linkplay
+                            .push_url(&host, &seek_url, &state.tidal_connect.cast_status),
+                    )
+                    .await
+                    {
+                        Ok(Ok(())) => {
+                            // Re-stash the original manifest and the seek
+                            // offset after push_url reset the slot: wall
+                            // position = start_offset + receiver clock. The
+                            // pre-push full-length reference carries over so
+                            // natural-end detection still sees the ORIGINAL
+                            // track length.
+                            let mut slot = state.tidal_connect.cast_status.write().await;
+                            if let Some(cur) = slot.as_mut() {
+                                cur.manifest_xml = manifest_xml.clone();
+                                cur.start_offset_ms = position_secs as f64 * 1000.0;
+                                if orig_len_ms > 0 {
+                                    cur.orig_totlen_ms = orig_len_ms;
+                                }
+                                if let Some((entries, ids, streams)) = rebuilt_queue.take() {
+                                    cur.queue = ids;
+                                    cur.queue_entries = entries;
+                                    cur.queue_streams = streams;
+                                    cur.queue_index = 0;
+                                    cur.queue_entry_anchor_ms = 0.0;
+                                    cur.queue_entry_anchor_at = None;
+                                    cur.queue_entry_totlen_ms = 0;
+                                }
+                            }
+                            drop(slot);
+                            Ok(seek_url)
+                        }
+                        Ok(Err(e)) => Err(format!("trimmed seek push failed: {}", e)),
+                        Err(_) => Err("trimmed seek push timed out after 10s".into()),
+                    }
+                }
+                None => {
+                    // Restart fallback: the old restart-at-zero behavior.
+                    // Same A98 rule as the trimmed path above: a push issued
+                    // into a just-stopped engine wedges it, so the settle is
+                    // not optional here either.
+                    match cast_url {
+                        Some(ref url) => {
+                            state
+                                .tidal_connect
+                                .linkplay
+                                .stop(&host, &state.tidal_connect.cast_status)
+                                .await
+                                .ok();
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                            state
+                                .tidal_connect
+                                .linkplay
+                                .push_url(&host, url, &state.tidal_connect.cast_status)
+                                .await
+                                .map(|_| url.clone())
+                                .map_err(|e| format!("restart fallback push failed: {}", e))
+                        }
+                        None => {
+                            log::warn!(
+                                "[seek_track] cast seek requested but no cast state is known; ignoring"
+                            );
+                            Err("no cast state to seek".into())
+                        }
+                    }
+                }
+            };
+            match &outcome {
+                Ok(url) => log::info!(
+                    "[seek_track] re-pushed {} on {} (cast seek via manifest trim)",
+                    url,
+                    host
+                ),
+                Err(e) => log::warn!("[seek_track] cast seek failed: {}", e),
+            }
+        } else {
+            let _ = state.tidal_connect.client.seek(position_secs as f64).await;
+        }
+        #[cfg(target_os = "linux")]
+        state.mpris.send(crate::mpris::MprisCommand::Seeked {
+            position_secs: position_secs as f64,
+        });
+        state.discord.send(crate::discord::DiscordCommand::Seeked {
+            position_secs: position_secs as f64,
+        });
+        state.tidal_reporter.on_seek().await;
+        state.scrobble_manager.on_seek().await;
+        return Ok(());
+    }
     let result = state
         .audio_player
         .seek(position_secs)
@@ -394,6 +1336,37 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
 
 #[tauri::command]
 pub async fn is_track_finished(state: State<'_, AppState>) -> Result<bool, SoneError> {
+    if state.tidal_connect.active_device.read().await.is_some() {
+        if state.tidal_connect.cast_host.read().await.is_some() {
+            // Push-URL cast: "stop" after the receiver played the track to
+            // its end is a finished track (not a user stop). Wall position
+            // vs the ORIGINAL length so a seek-trimmed push (receiver clock
+            // renumbered from the trim offset) still lands here.
+            let slot = state.tidal_connect.cast_status.read().await;
+            if let Some(s) = slot.as_ref() {
+                if s.is_queue() {
+                    // Playlist cast: entry boundaries never stop the engine, so
+                    // only the end of the LAST entry is a finished cast.
+                    return Ok(s.status == "stop"
+                        && s.on_last_entry()
+                        && s.totlen_ms > 0
+                        && s.pos_ms >= s.totlen_ms as f64 - 1500.0);
+                }
+                let full_len = if s.orig_totlen_ms > 0 {
+                    s.orig_totlen_ms as f64
+                } else {
+                    s.totlen_ms as f64
+                };
+                return Ok(
+                    s.status == "stop"
+                        && full_len > 0.0
+                        && s.start_offset_ms + s.pos_ms >= full_len - 1500.0,
+                );
+            }
+            return Ok(false);
+        }
+        return Ok(state.tidal_connect.client.is_finished().await);
+    }
     let player = state.audio_player.clone();
     tokio::task::spawn_blocking(move || player.is_finished())
         .await
@@ -538,6 +1511,27 @@ pub fn update_mpris_loop_status(
         .mpris
         .send(crate::mpris::MprisCommand::SetLoopStatus { mode });
     Ok(())
+}
+
+/// Percent-encode a track title for use as a URL path segment. The receiver
+/// displays the hex-decoded push URL as its now-playing title, so keep it
+/// human-readable: alphanumerics and `-_.()` untouched, everything else
+/// percent-encoded.
+fn encode_display_name(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars() {
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '(' | ')' => out.push(c),
+            ' ' => out.push_str("%20"),
+            _ => {
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

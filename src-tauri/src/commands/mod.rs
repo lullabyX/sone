@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod diagnostics;
 pub mod feed;
 pub mod library;
 pub mod mcp;
@@ -9,5 +10,6 @@ pub mod playback;
 pub mod profile;
 pub mod scrobble;
 pub mod search;
+pub mod tidal_connect;
 pub mod updates;
 pub mod utility;

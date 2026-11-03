@@ -174,12 +174,39 @@ export function useMcpBridge() {
   // Position is updated via a custom DOM event so we avoid re-rendering
   // this hook on every tick — a ref read is sufficient at publish time.
   const positionRef = useRef(0);
+  // Snapshot of the last mcp_publish_state payload; the heartbeat re-publish
+  // reuses it with only positionSeconds swapped for the live value.
+  const lastPayloadRef = useRef<{
+    nowPlaying: NowPlayingSnapshot | null;
+    queue: QueueTrackSnapshot[];
+  } | null>(null);
+  const lastPosPublishAtRef = useRef(0);
 
   useEffect(() => {
     const onTime = (e: Event) => {
       const detail = (e as CustomEvent<{ position: number }>).detail;
       if (typeof detail?.position === "number") {
         positionRef.current = Math.round(detail.position);
+        // The snapshot the backend serves to get_now_playing only refreshes
+        // when this hook re-publishes, so periodically push the live
+        // position through. Throttled to 5 s — a 1 Hz publish would spam
+        // the invocation channel for data nearly nothing reads at that
+        // resolution.
+        if (
+          detail.position > 0 &&
+          Date.now() - lastPosPublishAtRef.current > 5000 &&
+          lastPayloadRef.current
+        ) {
+          lastPosPublishAtRef.current = Date.now();
+          const { nowPlaying, queue: payloadQueue } = lastPayloadRef.current;
+          invoke("mcp_publish_state", {
+            nowPlaying:
+              nowPlaying === null
+                ? null
+                : { ...nowPlaying, positionSeconds: positionRef.current },
+            queue: payloadQueue,
+          }).catch(() => {});
+        }
       }
     };
     window.addEventListener("sone:playback-position", onTime);
@@ -207,6 +234,10 @@ export function useMcpBridge() {
         artist: getTrackArtistDisplay(t),
       }));
 
+    // Keep the last payload around so the position heartbeat can re-publish
+    // only the position while track/queue state is unchanged (below).
+    lastPayloadRef.current = { nowPlaying, queue: merged };
+
     invoke("mcp_publish_state", {
       nowPlaying,
       queue: merged,
@@ -217,6 +248,12 @@ export function useMcpBridge() {
 
   useEffect(() => {
     const unlisteners: Array<Promise<() => void>> = [];
+    try {
+      // eslint-disable-next-line no-console
+      console.error("boot: MCP bridge effect running (listener install start)");
+    } catch {
+      /* nothing may block listener install */
+    }
 
     unlisteners.push(
       listen<{ trackIds: number[]; action: string }>(
@@ -297,7 +334,9 @@ export function useMcpBridge() {
     );
     unlisteners.push(
       listen("mcp:skip-next", () => {
-        actionsRef.current.playNext({ explicit: true }).catch(() => {});
+        actionsRef.current.playNext({ explicit: true }).catch((err) => {
+          console.error("[skip-next] playNext failed:", err);
+        });
       }),
     );
     unlisteners.push(
@@ -318,7 +357,19 @@ export function useMcpBridge() {
 
     unlisteners.push(
       listen<{ positionSeconds: number }>("mcp:seek", (e) => {
-        actionsRef.current.seekTo(e.payload.positionSeconds).catch(() => {});
+        // A seek that silently fails is the hardest cast symptom to explain
+        // after the fact: the receiver keeps playing while the UI believes a
+        // seek happened (2026-11-03 lesson), so surface the dispatch path
+        // through the console bridge instead of swallowing like the volume
+        // listener above.
+        const seek = actionsRef.current.seekTo;
+        if (!seek) {
+          console.error("mcp:seek dropped: seekTo missing from actionsRef");
+          return;
+        }
+        seek(e.payload.positionSeconds).catch((err) => {
+          console.error("mcp:seek dispatch failed:", err);
+        });
       }),
     );
 

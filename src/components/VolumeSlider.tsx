@@ -3,6 +3,7 @@ import { useAtomValue } from "jotai";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
 import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
 import { currentVideoAtom } from "../atoms/video";
+import { activeDeviceAtom } from "../atoms/tidalConnect";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 
 interface VolumeSliderProps {
@@ -22,11 +23,14 @@ const VolumeSlider = memo(function VolumeSlider({
   const volume = useAtomValue(volumeAtom);
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const currentVideo = useAtomValue(currentVideoAtom);
+  const activeDevice = useAtomValue(activeDeviceAtom);
   const { setVolume } = usePlaybackActions();
 
-  // Bit-perfect locks the slider at unity — but only for audio. Video audio is
-  // lossy and plays through the <video> element, so it stays controllable.
-  const locked = bitPerfect && !currentVideo;
+  // Bit-perfect locks the slider at unity for local DAC audio.
+  // Video audio is lossy (<video>), and remote casting devices (WiiM Amp DAC)
+  // perform hardware attenuation, so they stay fully controllable.
+  const isRemote = activeDevice && !activeDevice.isLocal;
+  const locked = bitPerfect && !currentVideo && !isRemote;
   const displayVolume = locked ? 1 : volume;
 
   const containerRef = useRef<HTMLDivElement>(null);

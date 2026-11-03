@@ -3,10 +3,22 @@ use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use tauri::Emitter;
+
+/// Wall-clock ms of the most recent `PlayUrl` command; the ALSA writer
+/// compares its first successful write against this to report the
+/// command-to-audible-sample latency in the app log.
+static TRACK_T0_MS: AtomicI64 = AtomicI64::new(0);
+
+fn wall_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 /// Read the real GStreamer registry.
 ///
@@ -618,14 +630,41 @@ const STREAM_BUFFER_DURATION_NS: i64 = 30_000_000_000;
 /// duration, not this, is what binds.
 const STREAM_BUFFER_SIZE_BYTES: i32 = 40 * 1024 * 1024;
 
-fn make_stream_decodebin(uri: &str) -> Result<gst::Element, String> {
+/// Cold-start buffering targets (see `make_cold_start_decodebin`): 3 s of
+/// DASH / 1.5 s of BTS audio is the smallest gate that reliably absorbs
+/// network jitter while keeping the play -> first-sample latency in the
+/// sub-second range on this setup.
+const COLD_START_BUFFER_DURATION_NS: i64 = 3_000_000_000;
+const COLD_START_BUFFER_DURATION_BTS_NS: i64 = 1_500_000_000;
+
+fn make_decodebin(uri: &str, buffer_duration_ns: i64) -> Result<gst::Element, String> {
     gst::ElementFactory::make("uridecodebin")
         .property("uri", uri)
-        .property("buffer-duration", STREAM_BUFFER_DURATION_NS)
+        .property("buffer-duration", buffer_duration_ns)
         .property("buffer-size", STREAM_BUFFER_SIZE_BYTES)
         .property("use-buffering", true)
         .build()
         .map_err(|e| format!("Failed to create uridecodebin: {e}"))
+}
+
+fn make_stream_decodebin(uri: &str) -> Result<gst::Element, String> {
+    make_decodebin(uri, STREAM_BUFFER_DURATION_NS)
+}
+
+/// Cold-start variant of `make_stream_decodebin`: a small buffering target,
+/// so the first track (or a manual skip) starts on the first audible sample
+/// instead of gating on a full reservoir. Measured 2026-10-17: a 15 s DASH
+/// target put seconds of dead air before live audio on slow network moments;
+/// 3 s (DASH) / 1.5 s (BTS) collapsed the gate to 30-250 ms. The gapless
+/// branch (`attach_next_bin`) keeps the large target because it prerolls
+/// while the previous track still plays.
+fn make_cold_start_decodebin(uri: &str, is_dash: bool) -> Result<gst::Element, String> {
+    let target = if is_dash {
+        COLD_START_BUFFER_DURATION_NS
+    } else {
+        COLD_START_BUFFER_DURATION_BTS_NS
+    };
+    make_decodebin(uri, target)
 }
 
 /// 2b-A2: build + preroll the next-track branch on the executor thread.
@@ -1573,12 +1612,22 @@ fn spawn_alsa_writer(
                         resolve_pending(&mut pending_promotion_from, &current_fmt);
                         let vol = f32::from_bits(combined_vol.load(Ordering::Relaxed));
                         apply_volume(&mut chunk.data, &current_fmt, vol);
+                        let frames_before = frames_written.load(Ordering::Relaxed);
                         match write_bytes(&pcm, &chunk.data, &current_fmt, &frames_written, &silence_buf, &stop) {
                             Ok(()) => {}
                             Err(WRITE_STOPPED) => break 'main,
                             Err(kind) => {
                                 report_fault(&app_handle, &tearing_down, &stop, serde_json::json!({ "kind": kind }), true);
                                 break;
+                            }
+                        }
+                        if frames_before == 0 && frames_written.load(Ordering::Relaxed) > 0 {
+                            let t0 = TRACK_T0_MS.load(Ordering::Acquire);
+                            if t0 > 0 {
+                                log::info!(
+                                    "[latency] audio: first samples written {} ms after play start",
+                                    wall_ms().saturating_sub(t0)
+                                );
                             }
                         }
                     }
@@ -1719,12 +1768,22 @@ fn spawn_alsa_writer(
                                     resolve_pending(&mut pending_promotion_from, &current_fmt);
                                     let vol = f32::from_bits(combined_vol.load(Ordering::Relaxed));
                                     apply_volume(&mut chunk.data, &current_fmt, vol);
+                                    let frames_before = frames_written.load(Ordering::Relaxed);
                                     match write_bytes(&pcm, &chunk.data, &current_fmt, &frames_written, &silence_buf, &stop) {
                                         Ok(()) => {}
                                         Err(WRITE_STOPPED) => break 'main,
                                         Err(kind) => {
                                             report_fault(&app_handle, &tearing_down, &stop, serde_json::json!({ "kind": kind }), false);
                                             break 'main;
+                                        }
+                                    }
+                                    if frames_before == 0 && frames_written.load(Ordering::Relaxed) > 0 {
+                                        let t0 = TRACK_T0_MS.load(Ordering::Acquire);
+                                        if t0 > 0 {
+                                            log::info!(
+                                                "[latency] audio: first samples written {} ms after play start",
+                                                wall_ms().saturating_sub(t0)
+                                            );
                                         }
                                     }
                                     break; // back to main loop
@@ -2117,6 +2176,8 @@ impl AudioPlayer {
                         start_secs,
                         reply,
                     } => {
+                        let t0 = std::time::Instant::now();
+                        TRACK_T0_MS.store(wall_ms(), Ordering::Release);
                         let result = (|| -> Result<(), String> {
                             // ── Teardown old backend (GStreamer pipeline only) ──
                             if let Some(old_backend) = backend.take() {
@@ -2181,6 +2242,10 @@ impl AudioPlayer {
                             current_branch = None;
 
                             tearing_down.store(false, Ordering::SeqCst);
+                            log::info!(
+                                "[latency] audio: teardown {} ms",
+                                t0.elapsed().as_millis()
+                            );
                             eos.store(false, Ordering::SeqCst);
                             has_uri.store(true, Ordering::SeqCst);
                             frames_written.store(0, Ordering::Relaxed);
@@ -2325,6 +2390,10 @@ impl AudioPlayer {
                                     // Start pipeline directly — errors come via bus watcher
                                     pipe.set_state(gst::State::Playing)
                                         .map_err(|e| format!("Failed to start playback: {e}"))?;
+                                    log::info!(
+                                        "[latency] audio: direct-alsa pipeline dispatched {} ms",
+                                        t0.elapsed().as_millis()
+                                    );
 
                                     // Bus watcher: decode errors + EOS → forward to writer
                                     let eos_flag = Arc::clone(&eos);
@@ -2419,7 +2488,13 @@ impl AudioPlayer {
                                 // about-to-finish. Legacy uridecodebin handles Tidal
                                 // `data:application/dash+xml` URIs and works on GStreamer
                                 // < 1.24.
-                                let uridecodebin = make_stream_decodebin(&uri)?;
+                                // Cold-start gate: the small buffering target
+                                // (see make_cold_start_decodebin) starts the
+                                // track on its first audible sample; the large
+                                // 30 s reservoir above belongs to gapless
+                                // preroll (attach_next_bin), which fills while
+                                // the previous track still plays.
+                                let uridecodebin = make_cold_start_decodebin(&uri, is_dash)?;
                                 // Per-branch upstream queue (C1): decouples the decoder from
                                 // concat's gate so the next branch can pre-buffer ahead while
                                 // the current track plays. With one branch it's a passthrough.
@@ -2649,6 +2724,10 @@ impl AudioPlayer {
 
                                 pipe.set_state(gst::State::Playing)
                                     .map_err(|e| format!("Failed to start playback: {e}"))?;
+                                log::info!(
+                                    "[latency] audio: pipeline dispatched {} ms",
+                                    t0.elapsed().as_millis()
+                                );
 
                                 // Bus watcher (normal mode). 2b: the StreamStart arm
                                 // (2a gapless trigger) is gone; advance is driven by
@@ -3702,6 +3781,42 @@ impl AudioPlayer {
         rx.recv().expect("Audio thread dead")
     }
 
+    /// Bounded command wait. A wedged audio worker must never freeze the app:
+    /// the 2026-10-17 incident had one stuck worker turn every in-app
+    /// play/pause/stop control dead and strip the progress bar, with the only
+    /// witness being an 8-minute gap in the log. After `timeout` the command
+    /// is abandoned; its late reply goes to a dropped receiver, which the
+    /// worker ignores, so nothing on the worker side changes.
+    fn send_cmd_t<T>(
+        &self,
+        timeout: std::time::Duration,
+        build: impl FnOnce(Reply<T>) -> AudioCommand,
+    ) -> Result<T, String> {
+        let (tx, rx) = mpsc::channel();
+        self.cmd_tx
+            .send(build(tx))
+            .map_err(|_| "Audio thread dead".to_string())?;
+        match rx.recv_timeout(timeout) {
+            Ok(result) => Ok(result),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+                "audio thread did not answer within {:.0}s (worker wedged; restart the app to recover audio)",
+                timeout.as_secs_f32()
+            )),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err("Audio thread dead".into()),
+        }
+    }
+
+    /// Bounded send for arms whose reply is `Result<(), String>`: flatten the
+    /// inner result so callers of `play_url`/`pause`/... keep their existing
+    /// error mapping.
+    fn send_cmd_ok(
+        &self,
+        timeout: std::time::Duration,
+        build: impl FnOnce(Reply<Result<(), String>>) -> AudioCommand,
+    ) -> Result<(), String> {
+        self.send_cmd_t(timeout, build).and_then(|inner| inner)
+    }
+
     /// For commands whose reply is always `Ok`: queued in order without waiting,
     /// so a busy or stalled audio thread can't block the caller.
     fn post_cmd(
@@ -3733,20 +3848,30 @@ impl AudioPlayer {
     }
 
     pub fn play_url(&self, uri: &str, start_secs: Option<f32>) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::PlayUrl {
-            uri: uri.to_string(),
-            start_secs,
-            reply,
+        // 15s covers cold DASH resolve + pipeline build + the 3s buffer target
+        // with margin; a wedged worker historically never answered at all.
+        self.send_cmd_ok(std::time::Duration::from_secs(15), |reply| {
+            AudioCommand::PlayUrl {
+                uri: uri.to_string(),
+                start_secs,
+                reply,
+            }
         })
     }
     pub fn pause(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Pause { reply })
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Pause { reply }
+        })
     }
     pub fn resume(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Resume { reply })
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Resume { reply }
+        })
     }
     pub fn stop(&self) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Stop { reply })
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Stop { reply }
+        })
     }
     pub fn set_volume(&self, level: f32) -> Result<(), String> {
         self.post_cmd(|reply| AudioCommand::SetVolume { level, reply })
@@ -3755,9 +3880,11 @@ impl AudioPlayer {
         self.post_cmd(|reply| AudioCommand::SetNormalizationGain { gain, reply })
     }
     pub fn seek(&self, position_secs: f32) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::Seek {
-            position_secs,
-            reply,
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::Seek {
+                position_secs,
+                reply,
+            }
         })
     }
     pub fn get_position(&self) -> Result<f32, String> {
@@ -3782,7 +3909,11 @@ impl AudioPlayer {
         self.post_cmd(|reply| AudioCommand::SetBitPerfect { enabled, reply })
     }
     pub fn set_proxy_settings(&self, settings: crate::ProxySettings) {
-        self.send_cmd(|reply| AudioCommand::SetProxySettings { settings, reply });
+        // Bounded: a wedged audio thread must not hang the settings save
+        // forever; the timeline reply is dropped with the receiver.
+        let _ = self.send_cmd_t(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::SetProxySettings { settings, reply }
+        });
     }
     pub fn set_gapless(&self, enabled: bool) -> Result<(), String> {
         self.post_cmd(|reply| AudioCommand::SetGapless { enabled, reply })
@@ -3798,15 +3929,17 @@ impl AudioPlayer {
         peak_amplitude: f64,
         is_dash: bool,
     ) -> Result<(), String> {
-        self.send_cmd(|reply| AudioCommand::SetNextTrack {
-            uri,
-            norm_gain,
-            track_id,
-            qid,
-            replay_gain,
-            peak_amplitude,
-            is_dash,
-            reply,
+        self.send_cmd_ok(std::time::Duration::from_secs(10), |reply| {
+            AudioCommand::SetNextTrack {
+                uri,
+                norm_gain,
+                track_id,
+                qid,
+                replay_gain,
+                peak_amplitude,
+                is_dash,
+                reply,
+            }
         })
     }
     pub fn clear_next_track(&self) -> Result<(), String> {
@@ -3873,7 +4006,10 @@ fn build_appsink_pipeline(
 
     let pipe = gst::Pipeline::new();
     watch_pipeline_sources(&pipe, route);
-    let uridecodebin = make_stream_decodebin(uri)?;
+    // Cold-start gate on the DirectAlsa path too: the small buffering target
+    // starts the track on its first audible sample; the large 30 s reservoir
+    // belongs to gapless preroll (attach_next_bin).
+    let uridecodebin = make_cold_start_decodebin(uri, is_dash)?;
     let device_channels = negotiated_fmt.channels;
     let audioconvert = gst::ElementFactory::make("audioconvert")
         .build()

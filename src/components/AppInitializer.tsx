@@ -72,6 +72,11 @@ import {
 import { themeAtom } from "../atoms/theme";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import {
+  activeDeviceAtom,
+  localDevice,
+  type ConnectDevice,
+} from "../atoms/tidalConnect";
+import {
   syncThemeToFile,
   applyExternalThemeFile,
   recreateThemeFile,
@@ -216,6 +221,7 @@ export function AppInitializer() {
     seekTo,
     predictNextTrack,
     advanceToTrack,
+    advanceCastTrack,
     autoplayIdsRef,
   } = usePlaybackActions();
   const pendingNextRef = useRef<PendingNext | null>(null);
@@ -1017,6 +1023,97 @@ export function AppInitializer() {
   }, [store]);
 
   // ================================================================
+  //  TIDAL CONNECT (remote casting & volume sync)
+  // ================================================================
+  useEffect(() => {
+    // 1. Listen for hardware volume changes from remote device (WiiM Amp)
+    const unlistenVol = listen<number>("tidal-connect:volume", (e) => {
+      const active = store.get(activeDeviceAtom);
+      if (active && !active.isLocal) {
+        store.set(volumeAtom, e.payload);
+      }
+    });
+
+    // 2. Listen for receiver disconnect / session closure
+    const unlistenDisc = listen("tidal-connect:disconnected", () => {
+      store.set(activeDeviceAtom, localDevice);
+    });
+
+    // 2b. Backend-driven selection (SONE_CAST_DEVICE autoselect): the modal
+    // sets the atom locally on RPC select, but a backend select must mirror
+    // into the renderer or set_volume keeps targeting the local DAC.
+    const unlistenSel = listen<ConnectDevice>(
+      "tidal-connect:device-selected",
+      (e) => {
+        if (e.payload && !e.payload.isLocal) {
+          store.set(activeDeviceAtom, e.payload);
+        }
+      },
+    );
+
+    // 3. Push-URL cast track end: the receiver finished the track on its own
+    // (LinkPlay transport); advance the queue like a manual skip would.
+    const unlistenEnded = listen("tidal-connect:track-ended", () => {
+      const active = store.get(activeDeviceAtom);
+      if (!active || active.isLocal) return;
+      playNext().catch((err) =>
+        console.warn("[cast] failed to advance after track end", err),
+      );
+    });
+
+    // 3a. Native playlist advance: the receiver moved to the next entry of the
+    // cast `.m3u8` BY ITSELF (preloaded ~90 s early, no gap, no push). The
+    // audio is already playing, so this only catches the UI up - invoking
+    // playback here would restart the track and bring the gap back.
+    const unlistenAdvanced = listen<{
+      index: number;
+      trackId: number;
+      streamInfo: StreamInfo | null;
+    }>("tidal-connect:track-advanced", (e) => {
+      const active = store.get(activeDeviceAtom);
+      if (!active || active.isLocal) return;
+      advanceCastTrack(e.payload.trackId, e.payload.streamInfo ?? null);
+    });
+
+    // 3. Synchronize active device on startup. Retried for ~12 s: on
+    // SONE_CAST_DEVICE autoselect the backend stores the selection one to
+    // two seconds in, i.e. after this first sync returns None and before
+    // any subsequent UI action would re-read it.
+    const syncActiveDevice = () =>
+      invoke<ConnectDevice | null>("tidal_connect_get_active_device")
+        .then((dev) => {
+          if (dev) store.set(activeDeviceAtom, dev);
+          else {
+            store.set(activeDeviceAtom, localDevice);
+            return false;
+          }
+          return true;
+        })
+        .catch(() => false);
+    void syncActiveDevice();
+    let syncTriesLeft = 5;
+    const syncRetry = window.setInterval(() => {
+      if (store.get(activeDeviceAtom)?.id !== localDevice.id) {
+        clearInterval(syncRetry);
+        return;
+      }
+      syncTriesLeft -= 1;
+      syncActiveDevice().then((selected) => {
+        if (selected || syncTriesLeft <= 0) clearInterval(syncRetry);
+      });
+    }, 2500);
+
+    return () => {
+      clearInterval(syncRetry);
+      unlistenVol.then((fn) => fn());
+      unlistenDisc.then((fn) => fn());
+      unlistenSel.then((fn) => fn());
+      unlistenEnded.then((fn) => fn());
+      unlistenAdvanced.then((fn) => fn());
+    };
+  }, [store, playNext, advanceCastTrack]);
+
+  // ================================================================
   //  AUDIO ERROR HANDLING
   //  Async GStreamer bus errors (device busy, pipeline failures, etc.)
   // ================================================================
@@ -1252,6 +1349,31 @@ export function AppInitializer() {
     const unsubVideoPlaying = store.sub(videoPlayingAtom, pushStatus);
     const unsubVideo = store.sub(currentVideoAtom, pushStatus);
     return () => {
+      unsubPlaying();
+      unsubVideoPlaying();
+      unsubVideo();
+    };
+  }, [store]);
+
+  // Position heartbeat: the MCP state mirror reads its position from the
+  // "sone:playback-position" DOM event (no React subscription, to keep the
+  // per-second tick off the render path), so something must dispatch it.
+  // One tick per second while the app runs; play/pause changes dispatch an
+  // immediate update so the published snapshot never lags a state flip.
+  useEffect(() => {
+    const dispatch = () => {
+      window.dispatchEvent(
+        new CustomEvent("sone:playback-position", {
+          detail: { position: getInterpolatedPosition() },
+        }),
+      );
+    };
+    const heartbeat = setInterval(dispatch, 1000);
+    const unsubPlaying = store.sub(isPlayingAtom, dispatch);
+    const unsubVideoPlaying = store.sub(videoPlayingAtom, dispatch);
+    const unsubVideo = store.sub(currentVideoAtom, dispatch);
+    return () => {
+      clearInterval(heartbeat);
       unsubPlaying();
       unsubVideoPlaying();
       unsubVideo();

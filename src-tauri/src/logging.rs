@@ -38,7 +38,7 @@ use std::path::PathBuf;
 /// deps at `info`. `RUST_LOG` overrides it. Falls back to stderr-only
 /// on any file-system error.
 pub fn init_logging(log_dir: PathBuf, file_enabled: bool) -> LoggerHandle {
-    let base = Logger::try_with_env_or_str("tauri_app_lib=debug,info")
+    let base = Logger::try_with_env_or_str("tauri_app_lib=debug,zbus=warn,mpris_server=warn,info")
         .expect("flexi_logger spec parsing should never fail for a static spec");
 
     if !file_enabled {

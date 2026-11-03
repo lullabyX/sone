@@ -371,6 +371,7 @@ export default function MixPage({ mixId, mixInfo, onBack }: MixPageProps) {
             showAlbum={true}
             showCover={true}
             context="playlist"
+            virtualize
           />
 
           {tracks.length === 0 && (
