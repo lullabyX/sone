@@ -709,6 +709,122 @@ fn the_proxy_hook_is_attached_once_per_pipeline() {
     );
 }
 
+/// An inline `uridecodebin` silently falls back to a 2 MB stream buffer
+/// (`buffer-size` unset), which is what issue #225's stutter came from.
+#[test]
+fn uridecodebin_is_built_in_one_place() {
+    let body = without_comments(&audio_rs_production_source());
+    assert_eq!(
+        body.matches("ElementFactory::make(\"uridecodebin\")")
+            .count(),
+        1,
+        "build stream decoders through make_stream_decodebin so every one \
+         gets the stream buffer budget"
+    );
+}
+
+/// `drain_writer_rx` returns whether it swallowed a Shutdown. A caller that
+/// ignores it leaves the writer running while the worker joins it forever.
+#[test]
+fn a_flush_never_swallows_a_writer_shutdown() {
+    let body = without_comments(&audio_rs_production_source());
+    let ignored = body
+        .lines()
+        .filter(|l| l.trim().starts_with("drain_writer_rx("))
+        .count()
+        + body.matches("{ drain_writer_rx(&rx);").count();
+    assert_eq!(
+        ignored, 0,
+        "a Flush that drains a Shutdown must exit the writer, or the worker's join hangs"
+    );
+}
+
+/// A blocking send from the appsink callback holds the sink's preroll lock,
+/// so a writer that stops reading freezes `set_state(Null)` on the worker.
+#[test]
+fn the_appsink_never_blocks_on_the_writer() {
+    let body = without_comments(&audio_rs_production_source());
+    assert_eq!(
+        body.matches(".send(WriterCommand::Data(").count(),
+        0,
+        "hand chunks to the writer through send_chunk, which gives up once \
+         teardown bumps the generation"
+    );
+}
+
+/// Both DirectAlsa teardowns (track change and Stop) must tell the appsink to
+/// stop waiting on the writer before `set_state(Null)`, or a writer that is
+/// not reading freezes the worker there.
+#[test]
+fn every_exclusive_teardown_closes_the_sink_first() {
+    let body = without_comments(&audio_rs_production_source());
+    assert_eq!(
+        body.matches("sink_closing.store(true").count(),
+        2,
+        "set sink_closing before each DirectAlsa set_state(Null)"
+    );
+}
+
+/// Every fault the ALSA writer reports goes through one helper that stays
+/// silent once the writer is stopping. A stopping writer whose reopen fails
+/// would otherwise toast an error and set `tearing_down` under the next
+/// track's backend, which stops that track from advancing.
+#[test]
+fn the_writer_reports_faults_in_one_place() {
+    let body = without_comments(&audio_rs_production_source());
+    let start = body.find("fn spawn_alsa_writer(").expect("writer present");
+    let end = body.find("fn direct_alsa_seek(").expect("seek present");
+    let writer = &body[start..end];
+    assert_eq!(
+        writer.matches("emit(\"audio-error\"").count(),
+        1,
+        "emit writer faults through report_fault"
+    );
+    assert_eq!(
+        writer.matches("tearing_down.store(true").count(),
+        1,
+        "set tearing_down only through report_fault"
+    );
+}
+
+/// A write that fails because the writer is stopping must end the writer
+/// quietly. Reported as a device fault it pops a bogus "device disconnected"
+/// toast and sets `tearing_down` under the next track's backend.
+#[test]
+fn a_stopped_write_is_never_reported_as_a_device_fault() {
+    let body = without_comments(&audio_rs_production_source());
+    assert_eq!(
+        body.matches("if !write_silence(").count(),
+        0,
+        "write_silence must return a Result so a stop can be told apart from a fault"
+    );
+    assert_eq!(
+        body.matches("Err(WRITE_STOPPED) =>").count(),
+        6,
+        "every write call site must handle WRITE_STOPPED before reporting an error"
+    );
+}
+
+/// Every worker-side writer stop goes through `shutdown_writer`, whose wait is
+/// bounded. An ad-hoc Shutdown plus `join()` hung the audio thread for good.
+#[test]
+fn the_worker_never_waits_unbounded_on_the_writer() {
+    let body = without_comments(&audio_rs_production_source());
+    for (needle, want) in [
+        ("try_send(WriterCommand::Shutdown)", 1),
+        (".send(WriterCommand::Shutdown)", 0),
+        ("WriterCommand::Shutdown,", 0),
+        (".send(WriterCommand::Flush)", 0),
+    ] {
+        assert_eq!(
+            body.matches(needle).count(),
+            want,
+            "`{needle}`: stop writers through shutdown_writer and never block \
+             the worker on a send to the writer"
+        );
+    }
+}
+
 /// With no proxy, `souphttpsrc` must win HTTP source selection over
 /// `curlhttpsrc`, which is true only while soup outranks curl in the registry.
 ///
