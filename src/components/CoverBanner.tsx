@@ -32,7 +32,12 @@ export default function CoverBanner({
   return (
     <div
       className="pointer-events-none absolute inset-0 overflow-hidden select-none"
-      style={{ maskImage: fade, WebkitMaskImage: fade }}
+      style={{
+        maskImage: fade,
+        WebkitMaskImage: fade,
+        // Own layer, so the blur rasterizes once instead of on every scroll repaint.
+        ...(variant === "blur" ? { willChange: "transform" } : null),
+      }}
     >
       {variant === "blur" ? (
         <>
