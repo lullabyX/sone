@@ -420,6 +420,14 @@ describe("AI content filter", () => {
     act(() => result.current.setQueueTracks([human(1), synth(2)]));
     expect(store.get(queueAtom).map((t) => t.id)).toEqual([1, 2]);
   });
+  it("setQueueTracks and setShuffledQueue keep the manual queue", () => {
+    const { result, store } = setup();
+    store.set(manualQueueAtom, [human(7), human(8)]);
+    act(() => result.current.setQueueTracks([human(1)]));
+    expect(store.get(manualQueueAtom).map((t) => t.id)).toEqual([7, 8]);
+    act(() => result.current.setShuffledQueue([human(2)]));
+    expect(store.get(manualQueueAtom).map((t) => t.id)).toEqual([7, 8]);
+  });
   it("addToQueue and playNextInQueue ignore ai tracks when AI is off", () => {
     const { result, store } = setup();
     store.set(allowAiAtom, false);
