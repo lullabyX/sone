@@ -126,7 +126,7 @@ export default function ArtistTracksPage({
 
   if (loading) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto">
+      <div className="flex-1 page-gradient overflow-y-auto">
         <PageContainer>
           <div className="px-8 pt-6 pb-4">
             <div className="h-8 w-48 bg-th-surface-hover rounded animate-pulse mb-6" />
@@ -146,7 +146,7 @@ export default function ArtistTracksPage({
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
+      <div className="flex-1 page-gradient flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <p className="text-th-text-primary font-semibold text-lg">
             Couldn't load tracks
@@ -158,7 +158,7 @@ export default function ArtistTracksPage({
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+    <div className="flex-1 page-gradient overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
         <div className="px-8 pt-6 pb-4">
           <h1 className="text-[32px] font-extrabold text-th-text-primary leading-tight mb-1">
@@ -175,7 +175,7 @@ export default function ArtistTracksPage({
           />
           <button
             onClick={handleShuffle}
-            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+            className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
           >
             <Shuffle size={18} />
             Shuffle

@@ -100,7 +100,7 @@ export default function ExplorePage() {
   console.log("iconSection", iconSection);
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+    <div className="flex-1 page-gradient min-h-full">
       <PageContainer className="px-8 py-10">
         {/* Header */}
         <h1 className="text-[32px] font-bold text-th-text-primary tracking-tight mb-10">

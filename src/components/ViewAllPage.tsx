@@ -295,7 +295,7 @@ export default function ViewAllPage({
   };
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+    <div className="flex-1 page-gradient min-h-full">
       <PageContainer className="px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
