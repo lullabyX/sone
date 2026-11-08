@@ -16,14 +16,14 @@ import { sectionEntries, type TvEntry } from "./tvItems";
 
 const MY_TRACKS: TvEntry = {
   key: "my-tracks",
-  title: "My Tracks",
+  title: "Loved Tracks",
   subtitle: "",
   image: "",
   icon: "heart",
   action: { kind: "open", view: { type: "favorites" } },
 };
 
-/** The feed's shortcuts as a grid led by My Tracks (desktop Home's quick
+/** The feed's shortcuts as a grid led by Loved Tracks (desktop Home's quick
  *  access: the first shortcut section, up to 7 of its items, with the
  *  desktop's small artwork). A track plays with the shown ones queued. */
 function QuickAccess({ section }: { section: HomeSection }) {
@@ -42,7 +42,7 @@ function QuickAccess({ section }: { section: HomeSection }) {
     <div
       data-tv-remember
       data-testid="tv-quick-access"
-      className="grid grid-cols-4 gap-x-[1.1rem] gap-y-[0.9rem] px-[3rem] pb-[0.8rem] mb-[1.2rem]"
+      className="grid grid-cols-3 gap-x-[1.1rem] gap-y-[0.9rem] px-[3rem] pb-[0.8rem] mb-[1.2rem]"
     >
       {[MY_TRACKS, ...shown].map((entry, i) => (
         <TvTile
@@ -168,7 +168,7 @@ export default function TvHome() {
         </div>
       )}
       {feed.loading ? (
-        <TvSpinner />
+        <TvSpinner screen />
       ) : feed.error && sections.length === 0 ? (
         <TvError message={feed.error} onRetry={feed.retry} />
       ) : (

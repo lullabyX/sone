@@ -138,10 +138,11 @@ describe("sectionEntries", () => {
     expect(entries).toHaveLength(1);
   });
 
-  it("sends the My Tracks shortcut to the favorites screen", () => {
+  it("names the feed's favorites shortcut Loved Tracks and opens the favorites screen", () => {
     const { entries } = sectionEntries([
       { id: "tidal://my-collection/tracks", title: "My Tracks" },
     ]);
+    expect(entries[0].title).toBe("Loved Tracks");
     expect(entries[0].action).toEqual({
       kind: "open",
       view: { type: "favorites" },

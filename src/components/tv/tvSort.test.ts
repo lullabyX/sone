@@ -68,7 +68,7 @@ it("offers Date added only on own playlists and marks the current sort with its 
   expect(onPick).toHaveBeenLastCalledWith(null);
 });
 
-it("My Tracks has no playlist order and treats newest first as the default", async () => {
+it("Loved Tracks has no playlist order and treats newest first as the default", async () => {
   const onPick = vi.fn();
   const fav = trackSortMenu({
     current: null,

@@ -28,7 +28,7 @@ export default function TvPageScreen({
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!data) return <TvSpinner />;
+  if (!data) return <TvSpinner screen />;
 
   const sections = data.sections
     .map((section) => ({

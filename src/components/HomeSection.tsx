@@ -527,7 +527,7 @@ function TrackListSection({
     position: { x: number; y: number };
   } | null>(null);
 
-  // Exclude the My Tracks shortcut so it never enters the playback queue
+  // Exclude the Loved Tracks shortcut so it never enters the playback queue
   // as a fake track — its id is a URI string, not a numeric track id.
   const playableItems = items.filter((t: any) => !isMyTracksItem(t));
 

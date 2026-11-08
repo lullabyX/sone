@@ -18,7 +18,7 @@ export const TRACK_SORT_OPTIONS: {
   { value: "LENGTH", label: "Duration" },
 ];
 
-/** My Tracks' order when nothing is stored (FavoritesView's default). */
+/** Loved Tracks' order when nothing is stored (FavoritesView's default). */
 export const FAVORITES_TRACK_SORT: SortOrder = {
   order: "DATE",
   direction: "DESC",

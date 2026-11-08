@@ -67,7 +67,7 @@ it("lists folders and liked playlists from the collection folders", async () => 
       .getAllByRole("button")
       .map((b) => b.textContent),
   ).toEqual([
-    "My TracksYour favorite tracks",
+    "Loved TracksYour favorite tracks",
     "Road0 playlists",
     expect.stringContaining("Liked one"),
   ]);
@@ -108,7 +108,7 @@ it("rows use the saved sorts", async () => {
   store.set(mixSortAtom, { order: "DATE", direction: "ASC" });
   store.set(playlistSortAtom, { order: "NAME", direction: "ASC" });
   renderTv(<TvCollection />, { store });
-  expect(await screen.findByText("My Tracks")).toBeTruthy();
+  expect(await screen.findByText("Loved Tracks")).toBeTruthy();
   expect(api.getFavoriteAlbums.mock.lastCall).toEqual([
     42,
     0,

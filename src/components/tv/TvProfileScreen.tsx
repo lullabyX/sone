@@ -30,7 +30,7 @@ function ProfileBody({ userId }: { userId: number }) {
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!data) return <TvSpinner />;
+  if (!data) return <TvSpinner screen />;
 
   const { name, handle, bio, fanCount, pictureFiles, publicPlaylists } = data;
   const fans =

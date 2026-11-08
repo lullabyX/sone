@@ -36,7 +36,7 @@ export default function TvFeedScreen() {
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!data) return <TvSpinner />;
+  if (!data) return <TvSpinner screen />;
 
   const groups = groupFeedByPeriod(data.items, new Date())
     .map((g) => ({ label: g.label, entries: feedEntries(g.items) }))

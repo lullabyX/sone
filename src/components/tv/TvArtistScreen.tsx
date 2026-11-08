@@ -43,10 +43,10 @@ export default function TvArtistScreen({
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!data) return <TvSpinner />;
+  if (!data) return <TvSpinner screen />;
 
   const name = data.artistName || view.name || "Artist";
-  const image = getArtistImage(data, 750) || view.image;
+  const image = getArtistImage(data, 320) || view.image;
   const meta = { type: "artist", id: view.id, name, image };
   // The preview isn't guaranteed to be a prefix of the full list, so page
   // from 0 and let de-duplication drop the overlap (desktop ArtistPage).
@@ -68,6 +68,12 @@ export default function TvArtistScreen({
         round
         kicker="Artist"
         title={name}
+        menu={() =>
+          nav.mediaMenu(
+            { type: "artist", id: view.id, name, picture: data.picture },
+            true,
+          )
+        }
         subtitle={
           data.followers
             ? `${data.followers.toLocaleString()} followers`
@@ -188,6 +194,7 @@ export default function TvArtistScreen({
                           type: "artistTracks",
                           artistId: view.id,
                           name,
+                          image,
                         })
                       }
                     />

@@ -51,7 +51,7 @@ interface Rows {
 
 const MY_TRACKS: TvEntry = {
   key: "my-tracks",
-  title: "My Tracks",
+  title: "Loved Tracks",
   subtitle: "Your favorite tracks",
   image: "",
   icon: "heart",
@@ -190,7 +190,7 @@ export default function TvCollection() {
   useTvInitialFocus(rows !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!rows) return <TvSpinner />;
+  if (!rows) return <TvSpinner screen />;
 
   return (
     <div className="pt-[2rem] pb-[2rem]">

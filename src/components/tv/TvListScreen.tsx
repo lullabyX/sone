@@ -293,7 +293,7 @@ export default function TvListScreen({
         {paged.error ? (
           <TvError message={paged.error} onRetry={paged.retry} />
         ) : paged.loading ? (
-          <TvSpinner />
+          <TvSpinner screen />
         ) : (
           <>
             {entries.length === 0 ? (

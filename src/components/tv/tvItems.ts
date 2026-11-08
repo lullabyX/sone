@@ -60,7 +60,7 @@ export type TvView =
     }
   | { type: "artist"; id: number; name?: string; image?: string }
   /** Every top track of an artist, behind its page's "View all". */
-  | { type: "artistTracks"; artistId: number; name: string }
+  | { type: "artistTracks"; artistId: number; name: string; image?: string }
   /** Every search result of one kind, behind its row's "View all". */
   | { type: "searchResults"; query: string; what: SearchKind; title: string };
 
@@ -205,7 +205,7 @@ export function viewForSource(source: PlaybackSource | null): TvView | null {
     case "artist":
       return { type: "artist", id: Number(id), name: title };
     case "artist-tracks":
-      return { type: "artistTracks", artistId: Number(id), name: title };
+      return { type: "artistTracks", artistId: Number(id), name: title, image };
     case "favorites":
       return { type: "favorites" };
     default:
@@ -231,7 +231,7 @@ function toTvEntry(
   if (isMyTracksItem(item)) {
     return {
       key: "my-tracks",
-      title: title || "My Tracks",
+      title: "Loved Tracks",
       subtitle: subtitle || "Your favorite tracks",
       image: getItemImage(item, imageSize),
       icon: "heart",
@@ -458,7 +458,7 @@ function topHitEntry(hit: DirectHitItem): TvEntry | null {
         key: `artist:${hit.id}`,
         title: media.name,
         subtitle: "Artist",
-        image: getArtistImage(hit, 480),
+        image: getArtistImage(hit, 320),
         round: true,
         media,
         action: actionForMedia(media),

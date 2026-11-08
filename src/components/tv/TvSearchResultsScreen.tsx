@@ -22,7 +22,7 @@ export default function TvSearchResultsScreen({
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!data) return <TvSpinner />;
+  if (!data) return <TvSpinner screen />;
 
   const { entries, tracks } = searchEntries(data, what);
 

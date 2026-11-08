@@ -274,7 +274,7 @@ const myTracks = { id: "tidal://my-collection/tracks", title: "My Tracks" };
 const pl1 = { uuid: "u1", title: "Road", squareImage: "i" };
 const alb1 = { id: 3, title: "Blue", cover: "c" };
 
-it("shows shortcuts as a quick-access grid led by My Tracks", async () => {
+it("shows shortcuts as a quick-access grid led by Loved Tracks", async () => {
   api.getHomePage.mockResolvedValue({
     home: {
       tabs: [],
@@ -296,9 +296,9 @@ it("shows shortcuts as a quick-access grid led by My Tracks", async () => {
     within(grid)
       .getAllByRole("button")
       .map((b) => b.textContent),
-  ).toEqual(["My Tracks", "Road", "Blue"]);
+  ).toEqual(["Loved Tracks", "Road", "Blue"]);
   expect(grid.querySelector("[data-tv-autofocus]")!.textContent).toBe(
-    "My Tracks",
+    "Loved Tracks",
   );
   expect(screen.queryByRole("heading", { name: "Shortcuts" })).toBeNull();
 });
@@ -332,7 +332,7 @@ it("a quick-access track plays with only the shown tracks queued", async () => {
   ]);
 });
 
-it("opens My Tracks and shortcuts from the quick-access grid", async () => {
+it("opens Loved Tracks and shortcuts from the quick-access grid", async () => {
   api.getHomePage.mockResolvedValue({
     home: {
       tabs: [],
@@ -349,7 +349,7 @@ it("opens My Tracks and shortcuts from the quick-access grid", async () => {
   });
   const r = renderTv(<TvHome />);
   const grid = await screen.findByTestId("tv-quick-access");
-  fireEvent.click(within(grid).getByText("My Tracks"));
+  fireEvent.click(within(grid).getByText("Loved Tracks"));
   expect(vi.mocked(r.nav.run).mock.lastCall![0]).toEqual({
     kind: "open",
     view: { type: "favorites" },
@@ -367,7 +367,7 @@ it("opens My Tracks and shortcuts from the quick-access grid", async () => {
   ).toBe(true);
   expect(
     within(grid)
-      .getByText("My Tracks")
+      .getByText("Loved Tracks")
       .closest("button")!
       .hasAttribute("data-tv-has-menu"),
   ).toBe(false);
@@ -398,7 +398,7 @@ it("hands focus from Load more to the first new row below the quick access", asy
   expect(document.activeElement).toBe(firstCardOf("D"));
 });
 
-it("focuses My Tracks on entry but leaves focus on a tab it switches to", async () => {
+it("focuses Loved Tracks on entry but leaves focus on a tab it switches to", async () => {
   const restore = stubLayout();
   try {
     const tabs = [
@@ -425,7 +425,7 @@ it("focuses My Tracks on entry but leaves focus on a tab it switches to", async 
     const grid = await screen.findByTestId("tv-quick-access");
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        within(grid).getByText("My Tracks").closest("button"),
+        within(grid).getByText("Loved Tracks").closest("button"),
       ),
     );
     const music = screen.getByRole("button", { name: "Music" });
