@@ -5,6 +5,7 @@ import {
   sampleStops,
   blobStateAt,
   drawBanner,
+  bannerOverlay,
   type Ctx2dLike,
 } from "./lovedBanner";
 
@@ -72,6 +73,7 @@ describe("lovedBanner", () => {
       clearRect: () => calls.push("clear"),
       fillRect: () => calls.push("fill"),
       createRadialGradient: () => ({ addColorStop: () => calls.push("stop") }),
+      createLinearGradient: () => ({ addColorStop: () => {} }),
     };
     drawBanner(ctx, 1200, 420, 0);
     expect(calls.filter((c) => c === "fill")).toHaveLength(3);
@@ -99,6 +101,10 @@ describe("lovedBanner", () => {
         ops.push({ op: "fill", args: a, alpha: ctx.globalAlpha }),
       createRadialGradient: (...a) => {
         ops.push({ op: "gradient", args: a });
+        return { addColorStop: () => {} };
+      },
+      createLinearGradient: (...a) => {
+        ops.push({ op: "linear", args: a });
         return { addColorStop: () => {} };
       },
     };
@@ -151,5 +157,44 @@ describe("lovedBanner", () => {
       0, 0, 0, 0, 0, 1,
     ]);
     expect(blob.find((o) => o.op === "fill")!.args).toEqual([-1, -1, 2, 2]);
+  });
+
+  it("bannerOverlay builds the wash, right-edge and bottom gradients", () => {
+    expect(bannerOverlay("#101010", "#202020")).toEqual({
+      wash: "rgba(16, 16, 16, 0.6)",
+      right: [
+        [0, "rgba(16, 16, 16, 0)"],
+        [0.5, "rgba(16, 16, 16, 0.2)"],
+        [1, "rgba(16, 16, 16, 0.6)"],
+      ],
+      bottom: [
+        [0, "rgba(32, 32, 32, 0)"],
+        [0.7, "rgba(32, 32, 32, 0)"],
+        [1, "rgba(32, 32, 32, 1)"],
+      ],
+    });
+    expect(bannerOverlay("#zz", "#202020")).toBeNull();
+  });
+
+  it("drawBanner lays the wash and both gradients over the blobs", () => {
+    const { ctx, ops } = recordingCtx();
+    const styles: unknown[] = [];
+    const fill = ctx.fillRect;
+    ctx.fillRect = (...a) => {
+      styles.push(ctx.fillStyle);
+      fill(...a);
+    };
+    drawBanner(ctx, 400, 100, 0, bannerOverlay("#101010", "#202020"));
+    const tail = ops.slice(ops.map((o) => o.op).lastIndexOf("restore") + 1);
+    expect(tail.map((o) => o.op)).toEqual([
+      "fill",
+      "linear",
+      "fill",
+      "linear",
+      "fill",
+    ]);
+    expect(tail[1].args).toEqual([0, 0, 400, 0]);
+    expect(tail[3].args).toEqual([0, 0, 0, 100]);
+    expect(styles[3]).toBe("rgba(16, 16, 16, 0.6)");
   });
 });

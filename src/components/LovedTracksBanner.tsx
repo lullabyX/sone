@@ -1,5 +1,10 @@
-import { useEffect, useRef } from "react";
-import { drawBanner } from "../lib/lovedBanner";
+import { useEffect, useMemo, useRef } from "react";
+import {
+  bannerOverlay,
+  drawBanner,
+  type BannerOverlay,
+} from "../lib/lovedBanner";
+import { useDerivedTheme } from "../hooks/useDerivedTheme";
 import { isWindowActive, onWindowActiveChange } from "../lib/windowFocus";
 
 // Animated "Living Heart" backdrop for the Loved Tracks header, drawn on a
@@ -15,6 +20,18 @@ const FRAME_SLACK_MS = 1;
 export default function LovedTracksBanner() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { bgBase, bgSurface } = useDerivedTheme();
+  const overlay = useMemo(
+    () => bannerOverlay(bgBase, bgSurface),
+    [bgBase, bgSurface],
+  );
+  const overlayRef = useRef<BannerOverlay | null>(overlay);
+  const repaintRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    overlayRef.current = overlay;
+    repaintRef.current?.();
+  }, [overlay]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -38,7 +55,9 @@ export default function LovedTracksBanner() {
         ? 0
         : ((running ? performance.now() : pausedAt) - mountedAt - pausedAccum) /
           1000;
-    const paint = () => drawBanner(ctx, canvas.width, canvas.height, time());
+    const paint = () =>
+      drawBanner(ctx, canvas.width, canvas.height, time(), overlayRef.current);
+    repaintRef.current = paint;
 
     const frame = (now: number) => {
       raf = 0;
@@ -104,6 +123,7 @@ export default function LovedTracksBanner() {
     schedule();
 
     return () => {
+      repaintRef.current = null;
       cancelAnimationFrame(raf);
       offActive();
       motion.removeEventListener("change", onMotion);
@@ -119,14 +139,10 @@ export default function LovedTracksBanner() {
     >
       <canvas
         ref={canvasRef}
+        aria-hidden
         data-testid="loved-banner-canvas"
         className="absolute inset-0 w-full h-full"
       />
-      {/* Base-tone overlay: keeps the title readable on light or dark themes. */}
-      <div className="absolute inset-0 bg-th-base/60" />
-      {/* Settle the right edge into the page tone, like CoverBanner. */}
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-th-base/20 to-th-base/60" />
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent from-70% to-th-surface" />
     </div>
   );
 }

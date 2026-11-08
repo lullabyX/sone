@@ -1,5 +1,6 @@
 import { fetchCachedImageUrl } from "../components/TidalImage";
 import { blurRGBA, saturateRGBA } from "./imageBlur";
+import { createCanvas, loadImage } from "./bannerCanvas";
 
 export const BAKE_WIDTH = 128;
 export const BAKE_RADIUS = 5;
@@ -10,43 +11,48 @@ export interface BakeDeps {
   createCanvas(w: number, h: number): HTMLCanvasElement;
 }
 
-const defaultDeps: BakeDeps = {
-  loadImage: (src) =>
-    new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("image load failed"));
-      img.src = src;
-    }),
-  createCanvas: (w, h) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    return canvas;
-  },
+const defaultDeps: BakeDeps = { loadImage, createCanvas };
+
+export const SHARP_MAX_WIDTH = 1280;
+
+export interface BakeOptions {
+  blur: boolean;
+  /** Exact width when blurring; an upper bound for sharp art, which is never upscaled. */
+  width: number;
+}
+
+export const BLUR_OPTIONS: BakeOptions = { blur: true, width: BAKE_WIDTH };
+export const SHARP_OPTIONS: BakeOptions = {
+  blur: false,
+  width: SHARP_MAX_WIDTH,
 };
 
-const MAX_ENTRIES = 64;
-const cache = new Map<string, Promise<HTMLCanvasElement | null>>();
+const BLUR_MAX_ENTRIES = 64;
+const SHARP_MAX_ENTRIES = 4;
+const blurCache = new Map<string, Promise<HTMLCanvasElement | null>>();
+const sharpCache = new Map<string, Promise<HTMLCanvasElement | null>>();
 
 async function bake(
   src: string,
+  opts: BakeOptions,
   deps: BakeDeps,
 ): Promise<HTMLCanvasElement | null> {
   const img = await deps.loadImage(await fetchCachedImageUrl(src));
   if (!img.width || !img.height) throw new Error("empty image");
-  const w = BAKE_WIDTH;
-  const h = Math.max(1, Math.round((BAKE_WIDTH * img.height) / img.width));
+  const w = opts.blur ? opts.width : Math.min(img.width, opts.width);
+  const h = Math.max(1, Math.round((w * img.height) / img.width));
   const canvas = deps.createCanvas(w, h);
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
   ctx.drawImage(img, 0, 0, w, h);
-  const id = ctx.getImageData(0, 0, w, h);
-  saturateRGBA(id.data, BAKE_SATURATE);
-  blurWithEdgeFade(id.data, w, h);
-  ctx.putImageData(id, 0, 0);
+  if (opts.blur) {
+    const id = ctx.getImageData(0, 0, w, h);
+    saturateRGBA(id.data, BAKE_SATURATE);
+    blurWithEdgeFade(id.data, w, h);
+    ctx.putImageData(id, 0, 0);
+  }
   return canvas;
 }
 
@@ -75,23 +81,32 @@ function blurWithEdgeFade(data: Uint8ClampedArray, w: number, h: number) {
   }
 }
 
-// Blurred once at a small size; the browser's upscale keeps it smooth and
-// scroll repaints become a plain blit instead of a live CSS filter.
-export function bakeBlurredCover(
+// Blurred art is baked small and upscaled when drawn; sharp art is capped in
+// width. Each kind has its own LRU cache.
+export function bakeCover(
   src: string,
+  opts: BakeOptions,
   deps: BakeDeps = defaultDeps,
 ): Promise<HTMLCanvasElement | null> {
-  const hit = cache.get(src);
-  if (hit) return hit;
-  const promise = bake(src, deps).catch(() => {
-    if (cache.get(src) === promise) cache.delete(src);
+  const cache = opts.blur ? blurCache : sharpCache;
+  const max = opts.blur ? BLUR_MAX_ENTRIES : SHARP_MAX_ENTRIES;
+  const key = `${opts.width}:${src}`;
+  const hit = cache.get(key);
+  if (hit) {
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
+  const promise = bake(src, opts, deps).catch(() => {
+    if (cache.get(key) === promise) cache.delete(key);
     return null;
   });
-  cache.set(src, promise);
-  if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value!);
+  cache.set(key, promise);
+  if (cache.size > max) cache.delete(cache.keys().next().value!);
   return promise;
 }
 
 export function _resetCoverBlurCacheForTests() {
-  cache.clear();
+  blurCache.clear();
+  sharpCache.clear();
 }
