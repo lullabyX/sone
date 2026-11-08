@@ -640,7 +640,7 @@ export default function LibraryViewAll({
 
   if (loading) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+      <div className="flex-1 page-gradient overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
         <PageContainer>
           <div className="px-8 pt-10 pb-6">
             <div className="h-8 w-64 bg-th-surface-hover rounded animate-pulse mb-2" />
@@ -658,7 +658,7 @@ export default function LibraryViewAll({
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+    <div className="flex-1 page-gradient overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <PageContainer>
         {/* Header */}
         <div className="px-8 pt-10 pb-6">
