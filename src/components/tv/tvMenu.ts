@@ -1,4 +1,6 @@
 import { X, type LucideIcon } from "lucide-react";
+import { getArtistPage } from "../../api/tidal";
+import { getArtistImage } from "../../utils/itemHelpers";
 import type { TvMenuHostHandle } from "./TvMenuHost";
 import type { TvNav } from "./TvNavContext";
 
@@ -13,6 +15,8 @@ export interface TvMenuItem {
   checked?: boolean;
   /** The label wraps instead of being cut off (reading text such as credits). */
   multiline?: boolean;
+  /** A round avatar before the label: its URL, or a loader for it. */
+  avatar?: string | (() => Promise<string | undefined>);
 }
 
 export interface TvMenuSpec {
@@ -34,6 +38,31 @@ export function linkMenu(url: string, title: string): TvMenuSpec {
     subtitle: "Scan with your phone to open this link",
     qr: url,
     items: [{ label: url, multiline: true }],
+  };
+}
+
+export interface TvMenuArtist {
+  id: number;
+  name: string;
+  picture?: string | null;
+}
+
+/** Artists to pick from, each with their picture: from the item itself, or
+ *  from the artist's page (cached) when the item has none. */
+export function artistsMenu(
+  title: string,
+  artists: TvMenuArtist[],
+  open: (a: TvMenuArtist) => void,
+): TvMenuSpec {
+  return {
+    title,
+    items: artists.map((a) => ({
+      label: a.name,
+      avatar: a.picture
+        ? getArtistImage(a, 320)
+        : async () => getArtistImage(await getArtistPage(a.id), 320) || undefined,
+      onSelect: () => open(a),
+    })),
   };
 }
 

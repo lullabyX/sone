@@ -73,6 +73,8 @@ export interface TvMenuHostHandle {
   isOpen: () => boolean;
   /** Back inside the menu: leaves a submenu, or closes the menu. */
   back: () => void;
+  /** Closes the whole menu, submenus included. */
+  close: () => void;
   trackMenu: (track: Track, extra?: TvMenuItem[]) => TvMenuSpec;
   mediaMenu: (
     item: MediaItemType,
@@ -86,6 +88,8 @@ const accessOf = (p: Playlist) =>
   p.accessType ?? (p.sharingLevel === "PUBLIC" ? "PUBLIC" : "UNLISTED");
 
 const PLAYLISTS_PAGE = 500;
+/** The slide-out in tv.css (`tv-menu-out`). */
+const MENU_SLIDE_MS = 180;
 
 /** All the user's playlists, page by page as AddToPlaylistMenu loads them. */
 async function fetchAllPlaylists(userId: number): Promise<Playlist[]> {
@@ -158,6 +162,24 @@ const TvMenuHost = forwardRef<
   }, [stack]);
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+
+  // A closed menu stays drawn while it slides out, inert and no longer a
+  // layer (keys and focus are the screen's again at once).
+  const [leaving, setLeaving] = useState<TvMenuSpec | null>(null);
+  const lastSpec = useRef<TvMenuSpec | null>(null);
+  useLayoutEffect(() => {
+    const top = stack[stack.length - 1];
+    if (top) {
+      lastSpec.current = top;
+      setLeaving(null);
+      return;
+    }
+    if (!lastSpec.current) return;
+    setLeaving(lastSpec.current);
+    lastSpec.current = null;
+    const timer = window.setTimeout(() => setLeaving(null), MENU_SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [stack]);
 
   // Per menu on the stack, the index of its entry that opened the next one.
   const openers = useRef<number[]>([]);
@@ -465,7 +487,7 @@ const TvMenuHost = forwardRef<
             submenu: () => playlistMenu(track),
           },
           {
-            label: liked ? "Remove from My Tracks" : "Add to My Tracks",
+            label: liked ? "Remove from Loved Tracks" : "Add to Loved Tracks",
             icon: Heart,
             checked: liked,
             onSelect: async () => {
@@ -473,7 +495,7 @@ const TvMenuHost = forwardRef<
                 if (liked) await fav.removeFavoriteTrack(track.id);
                 else await fav.addFavoriteTrack(track.id, track);
               } catch {
-                showToast("Couldn't update My Tracks", "error");
+                showToast("Couldn't update Loved Tracks", "error");
               }
             },
           },
@@ -944,10 +966,11 @@ const TvMenuHost = forwardRef<
       open: openMenu,
       isOpen: () => stackRef.current.length > 0,
       back: () => setStack((s) => s.slice(0, -1)),
+      close,
       trackMenu,
       mediaMenu,
     }),
-    [openMenu, trackMenu, mediaMenu],
+    [openMenu, close, trackMenu, mediaMenu],
   );
 
   const select = async (item: TvMenuItem, index: number) => {
@@ -978,18 +1001,27 @@ const TvMenuHost = forwardRef<
     await item.onSelect();
   };
 
-  const spec = stack[stack.length - 1];
+  const spec = stack[stack.length - 1] ?? leaving;
   if (!spec) return null;
+  const closing = stack.length === 0;
 
   return (
-    <div className="fixed inset-0 z-[10000] tv-overlay flex justify-end">
-      <div className="absolute inset-0 bg-black/55" onClick={close} />
+    <div
+      className={`fixed inset-0 z-[10000] tv-overlay flex justify-end ${
+        closing ? "pointer-events-none" : ""
+      }`}
+    >
+      {!closing && (
+        <div className="absolute inset-0 bg-black/55" onClick={close} />
+      )}
       <div
         ref={panelRef}
-        data-tv-modal
-        role="menu"
+        data-tv-modal={closing ? undefined : true}
+        data-closing={closing || undefined}
+        inert={closing}
+        role={closing ? undefined : "menu"}
         aria-label={spec.title}
-        className={`tv-screen relative h-full ${
+        className={`tv-menu-panel tv-screen relative h-full ${
           spec.wide ? "w-[40rem]" : "w-[28rem]"
         } max-w-full overflow-y-auto bg-th-elevated shadow-2xl px-[1.5rem] py-[2rem]`}
       >
@@ -1047,6 +1079,9 @@ const TvMenuHost = forwardRef<
                     }
                   />
                 )}
+                {item.avatar !== undefined && (
+                  <MenuAvatar avatar={item.avatar} alt={item.label} />
+                )}
                 <span
                   className={`flex-1 min-w-0 ${
                     item.multiline
@@ -1073,5 +1108,35 @@ const TvMenuHost = forwardRef<
     </div>
   );
 });
+
+/** A row's round avatar; a loader's picture appears once it resolves. */
+function MenuAvatar({
+  avatar,
+  alt,
+}: {
+  avatar: NonNullable<TvMenuItem["avatar"]>;
+  alt: string;
+}) {
+  const [loaded, setLoaded] = useState<string | undefined>();
+  useEffect(() => {
+    if (typeof avatar === "string") return;
+    let live = true;
+    avatar()
+      .then((src) => live && setLoaded(src))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [avatar]);
+  const src = typeof avatar === "string" ? avatar : loaded;
+  return (
+    <TidalImage
+      src={src || undefined}
+      alt={alt}
+      type="artist"
+      className="w-[2.2rem] h-[2.2rem] shrink-0 rounded-full overflow-hidden"
+    />
+  );
+}
 
 export default TvMenuHost;
