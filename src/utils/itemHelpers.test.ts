@@ -150,8 +150,28 @@ describe("getMediaQualityBadge", () => {
 describe("getArtistImage", () => {
   it("prefers picture over artworkId and uses artist CDN sizes", () => {
     expect(
-      getArtistImage({ artworkId: "aaaa-bbbb", picture: "cccc-dddd" }, 480),
-    ).toBe("https://resources.tidal.com/images/cccc/dddd/480x480.jpg");
+      getArtistImage({ artworkId: "aaaa-bbbb", picture: "cccc-dddd" }, 320),
+    ).toBe("https://resources.tidal.com/images/cccc/dddd/320x320.jpg");
+  });
+
+  // Many artist pictures (lesser-known artists especially) have no 480 square.
+  it("never asks for the 480 square, which many artist pictures lack", () => {
+    expect(getArtistImage({ picture: "cccc-dddd" }, 480)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/320x320.jpg",
+    );
+    expect(getArtistImage({ picture: "cccc-dddd" }, 400)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/320x320.jpg",
+    );
+    expect(getArtistImage({ picture: "cccc-dddd" }, 750)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/750x750.jpg",
+    );
+    // A large card asks getItemImage for 640; an artist card still gets 320.
+    expect(getItemImage({ picture: "cccc-dddd" }, 640)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/320x320.jpg",
+    );
+    expect(getArtistImage({ picture: "cccc-dddd" }, 160)).toBe(
+      "https://resources.tidal.com/images/cccc/dddd/160x160.jpg",
+    );
   });
 
   it("falls back to artworkId when there is no picture", () => {
