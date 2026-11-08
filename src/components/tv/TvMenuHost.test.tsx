@@ -456,7 +456,8 @@ describe("new playlists and playlist details", () => {
   beforeEach(() => {
     mockInvoke({
       create_playlist: () => ({ uuid: "new", title: "Mix" }),
-      add_track_to_playlist: () => undefined,
+      add_tracks_to_playlist: ({ trackIds }: { trackIds: number[] }) =>
+        trackIds,
       update_playlist: () => ({}),
       get_playlist_folders: () => ({
         items: [],
@@ -524,9 +525,10 @@ describe("new playlists and playlist details", () => {
         }),
       );
       await waitFor(() =>
-        expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", {
+        expect(invoke).toHaveBeenCalledWith("add_tracks_to_playlist", {
           playlistId: "new",
-          trackId: 1,
+          trackIds: [1],
+          onDupes: "SKIP",
         }),
       );
       expect(
@@ -756,7 +758,7 @@ describe("new playlists and playlist details", () => {
   it("a new playlist whose track can't be added says it was created", async () => {
     mockInvoke({
       create_playlist: () => ({ uuid: "new", title: "Mix" }),
-      add_track_to_playlist: () => {
+      add_tracks_to_playlist: () => {
         throw new Error("x");
       },
     });
@@ -851,16 +853,49 @@ describe("new playlists and playlist details", () => {
     await act(async () => {});
     expect(playlistRevision("p")).toBe(before + 1);
     expect(
-      vi.mocked(invoke).mock.calls.some(([c]) => c === "add_track_to_playlist"),
+      vi
+        .mocked(invoke)
+        .mock.calls.some(([c]) => c === "add_tracks_to_playlist"),
     ).toBe(false);
     removal.resolve();
     await act(async () => {
       await adding;
     });
-    expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", {
+    expect(invoke).toHaveBeenCalledWith("add_tracks_to_playlist", {
       playlistId: "p",
-      trackId: 1,
+      trackIds: [1],
+      onDupes: "SKIP",
     });
+  });
+
+  it("a track already in the playlist is skipped, with Add anyway in a menu", async () => {
+    mockInvoke({
+      add_tracks_to_playlist: ({ onDupes }: { onDupes: string }) =>
+        onDupes === "ADD" ? [1] : [],
+      get_playlist_folders: () => ({
+        items: [],
+        totalNumberOfItems: 0,
+        cursor: null,
+      }),
+    });
+    const { ref } = renderMenuHost({ store: ownStore() });
+    const sub = await ref
+      .current!.trackMenu(mkTrack(1))
+      .items.find((i) => i.label === "Add to playlist")!.submenu!();
+    await act(async () => {
+      await sub.items.find((i) => i.label === "Old")!.onSelect!();
+    });
+    expect(screen.getByRole("menu", { name: 'Already in "Old"' })).toBeTruthy();
+    expect(screen.queryByText('Added to "Old"')).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Add anyway" }));
+    });
+    expect(invoke).toHaveBeenLastCalledWith("add_tracks_to_playlist", {
+      playlistId: "p",
+      trackIds: [1],
+      onDupes: "ADD",
+    });
+    expect(await screen.findByText('Added to "Old" again')).toBeTruthy();
   });
 
   it("editing details goes behind the playlist's other writes and marks its pages out of date", async () => {

@@ -28,6 +28,7 @@ import {
   Plus,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import TidalImage from "../TidalImage";
 import {
@@ -55,7 +56,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { useFavorites } from "../../hooks/useFavorites";
 import { getRecentFolderIds, useFolders } from "../../hooks/useFolders";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
-import { usePlaylists } from "../../hooks/usePlaylists";
+import { type OnDupes, usePlaylists } from "../../hooks/usePlaylists";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import type { Folder, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
@@ -134,14 +135,25 @@ const TvMenuHost = forwardRef<
   const { addToQueue, playNextInQueue } = usePlaybackActions();
   const { playMedia } = useTvPlayback(onPlayed);
   const fav = useFavorites();
-  const { addTrackToPlaylist, createPlaylist, updatePlaylist, deletePlaylist } =
-    usePlaylists();
+  const {
+    addTracksToPlaylist,
+    createPlaylist,
+    updatePlaylist,
+    deletePlaylist,
+  } = usePlaylists();
   // Playlist writes wait behind the ones already going to that playlist
-  // (an open page's removals) and mark its pages out of date.
+  // (an open page's removals) and mark its pages out of date. As on the
+  // desktop, a track already in the playlist is skipped unless `onDupes`
+  // is "ADD"; false when it was skipped.
   const addToPlaylist = useCallback(
-    (uuid: string, trackId: number) =>
-      queuePlaylistEdit(uuid, () => addTrackToPlaylist(uuid, trackId)),
-    [addTrackToPlaylist],
+    async (uuid: string, trackId: number, onDupes: OnDupes = "SKIP") => {
+      let added: number[] = [];
+      await queuePlaylistEdit(uuid, async () => {
+        added = await addTracksToPlaylist(uuid, [trackId], onDupes);
+      });
+      return added.length > 0;
+    },
+    [addTracksToPlaylist],
   );
   const editPlaylist = useCallback(
     (uuid: string, title: string, description: string, access: string) =>
@@ -403,8 +415,32 @@ const TvMenuHost = forwardRef<
                 icon: ListPlus,
                 onSelect: async () => {
                   try {
-                    await addToPlaylist(p.uuid, track.id);
-                    showToast(`Added to "${label(p.title)}"`);
+                    // A track already in the playlist is skipped; the choice
+                    // to add it anyway is a menu, since a toast's button
+                    // can't be reached by remote.
+                    if (await addToPlaylist(p.uuid, track.id)) {
+                      showToast(`Added to "${label(p.title)}"`);
+                      return;
+                    }
+                    openMenu({
+                      title: `Already in "${label(p.title)}"`,
+                      subtitle: track.title,
+                      items: [
+                        {
+                          label: "Add anyway",
+                          icon: ListPlus,
+                          onSelect: async () => {
+                            try {
+                              await addToPlaylist(p.uuid, track.id, "ADD");
+                              showToast(`Added to "${label(p.title)}" again`);
+                            } catch {
+                              showToast("Couldn't add to playlist", "error");
+                            }
+                          },
+                        },
+                        { label: "Cancel", icon: X, onSelect: () => {} },
+                      ],
+                    });
                   } catch {
                     showToast("Couldn't add to playlist", "error");
                   }
