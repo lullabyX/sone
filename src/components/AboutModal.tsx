@@ -4,13 +4,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { X, Heart, CircleDot } from "lucide-react";
 import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
+import { REPO_URL } from "../lib/projectLinks";
 
 interface AboutModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-const REPO_URL = "https://github.com/lullabyX/sone";
 const RELEASES_URL = `${REPO_URL}/releases`;
 const ISSUES_URL = `${REPO_URL}/issues`;
 const LICENSE_URL = `${REPO_URL}/blob/master/LICENSE`;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { createStore } from "jotai";
 import { getVersion } from "@tauri-apps/api/app";
 
@@ -50,6 +50,28 @@ describe("TvAboutSection", () => {
       expect(el.hasAttribute("data-tv-focusable")).toBe(true);
     }
     expect(qr.tabIndex).toBe(0);
+  });
+
+  it("opens About SONE with QR links to the project and to report a problem", async () => {
+    const { nav } = renderTv(<TvAboutSection />);
+    await screen.findByText("1.2.3");
+    fireEvent.click(screen.getByRole("button", { name: /sone.*1\.2\.3/i }));
+    const spec = vi.mocked(nav.openMenu).mock.lastCall![0];
+    expect(spec).toMatchObject({
+      title: "About SONE",
+      subtitle: "Version 1.2.3",
+    });
+    expect(spec.items.map((i) => i.label)).toEqual([
+      "Project page",
+      "Report a problem",
+    ]);
+    const [project, report] = await Promise.all(
+      spec.items.map((i) => i.submenu!()),
+    );
+    expect(project.qr).toBe("https://github.com/lullabyX/sone");
+    expect(report.qr).toBe(
+      "https://github.com/lullabyX/sone/issues/new/choose",
+    );
   });
 
   it("a version that cannot be read leaves the row empty", async () => {

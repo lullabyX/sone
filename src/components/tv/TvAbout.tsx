@@ -1,13 +1,36 @@
 import { useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { getVersion } from "@tauri-apps/api/app";
+import { Bug, Globe } from "lucide-react";
 import { updateInfoAtom } from "../../atoms/updates";
+import { NEW_ISSUE_URL, REPO_URL } from "../../lib/projectLinks";
+import { linkMenu } from "./tvMenu";
+import { useTvNav } from "./TvNavContext";
 import { TvQrCode } from "./TvQrCode";
 import { TvSettingsRow, TvSettingsSection } from "./TvSettingsParts";
 
 export function TvAboutSection() {
+  const nav = useTvNav();
   const info = useAtomValue(updateInfoAtom);
   const [version, setVersion] = useState<string | null>(null);
+  // A TV can't open a browser: the links are QR codes for a phone.
+  const openAbout = () =>
+    nav.openMenu({
+      title: "About SONE",
+      subtitle: version ? `Version ${version}` : undefined,
+      items: [
+        {
+          label: "Project page",
+          icon: Globe,
+          submenu: () => linkMenu(REPO_URL, "Project page"),
+        },
+        {
+          label: "Report a problem",
+          icon: Bug,
+          submenu: () => linkMenu(NEW_ISSUE_URL, "Report a problem"),
+        },
+      ],
+    });
 
   useEffect(() => {
     getVersion()
@@ -17,17 +40,18 @@ export function TvAboutSection() {
 
   return (
     <TvSettingsSection title="About">
-      {/* Rows here do nothing when selected; they take focus only so the
-          remote can scroll the section into view. */}
       <TvSettingsRow
         title="SONE"
+        subtitle="Project page and reporting a problem"
         value={
           version ? (
             <span className="text-[0.8rem] text-th-text-muted">{version}</span>
           ) : undefined
         }
-        onSelect={() => {}}
+        onSelect={openAbout}
       />
+      {/* The update lines do nothing when selected; they take focus only so
+          the remote can scroll the section into view. */}
       {info?.available && (
         <>
           <TvSettingsRow
