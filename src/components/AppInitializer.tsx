@@ -70,6 +70,8 @@ import {
   maximizedPlayerAtom,
 } from "../atoms/ui";
 import { themeAtom } from "../atoms/theme";
+import { tvModeAtom } from "../atoms/tv";
+import { TV_VOLUME_STEP } from "./tv/tvKeys";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import {
   syncThemeToFile,
@@ -1333,14 +1335,20 @@ export function AppInitializer() {
   //  Configurable via shortcutsAtom (see src/lib/shortcuts.ts).
   //  Action callbacks are stable; store.get() reads at call-time.
   // ================================================================
+  // TV mode steps finer, like its remote volume keys.
+  const stepVolume = (dir: 1 | -1) => {
+    const step = store.get(tvModeAtom) ? TV_VOLUME_STEP : 0.1;
+    const next = Math.round((store.get(volumeAtom) + dir * step) * 100) / 100;
+    setVolume(Math.min(1, Math.max(0, next)));
+  };
   useShortcuts({
     playPause: () => {
       togglePlayPause();
     },
     nextTrack: () => playNext({ explicit: true }),
     prevTrack: () => playPrevious(),
-    volumeUp: () => setVolume(Math.min(1.0, store.get(volumeAtom) + 0.1)),
-    volumeDown: () => setVolume(Math.max(0.0, store.get(volumeAtom) - 0.1)),
+    volumeUp: () => stepVolume(1),
+    volumeDown: () => stepVolume(-1),
     muteToggle: () => toggleMute(store, setVolume),
     likeToggle: () => {
       const track = store.get(currentTrackAtom);
