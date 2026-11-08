@@ -66,7 +66,8 @@ pub async fn get_image_bytes(
                 .proxied_http
                 .client()
                 .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
-            let res = http_client.get(&url).send().await?;
+            // A missing size (403) must fail, not be cached as the image.
+            let res = http_client.get(&url).send().await?.error_for_status()?;
             let bytes = res.bytes().await?.to_vec();
 
             state
