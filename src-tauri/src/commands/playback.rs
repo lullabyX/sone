@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::tidal_api::{StreamInfo, TidalVideo, VideoStreamInfo};
 use crate::tidal_connect::manifest_server::QueueEntry;
-use crate::tidal_connect::PrefetchedStream;
+use crate::tidal_connect::{encode_display_name, PrefetchedStream};
 use crate::AppState;
 use crate::SoneError;
 
@@ -38,13 +38,15 @@ async fn resolve_queue_entries(
     state: &AppState,
     track_id: u64,
     ids: &[u64],
+    titles: Option<&[String]>,
     use_track_gain: bool,
-) -> (Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>) {
+) -> (Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>, Vec<String>) {
     let started = std::time::Instant::now();
     let mut entries = Vec::new();
     let mut kept_ids = Vec::new();
     let mut streams = Vec::new();
-    for &id in ids.iter().take(CAST_QUEUE_LOOKAHEAD) {
+    let mut kept_titles = Vec::new();
+    for (idx, &id) in ids.iter().enumerate().take(CAST_QUEUE_LOOKAHEAD) {
         if id == track_id || kept_ids.contains(&id) {
             continue;
         }
@@ -60,9 +62,14 @@ async fn resolve_queue_entries(
                 } else {
                     QueueEntry::Direct(info.url.clone())
                 };
+                let title = titles
+                    .and_then(|t| t.get(idx))
+                    .cloned()
+                    .unwrap_or_else(|| format!("track-{}", id));
                 entries.push(entry);
                 kept_ids.push(id);
                 streams.push(strip_stream_manifests(info));
+                kept_titles.push(title);
             }
             Err(e) => log::warn!(
                 "[play_tidal_track] playlist entry {} unresolved, dropped: {}",
@@ -78,7 +85,7 @@ async fn resolve_queue_entries(
         ids.len().min(CAST_QUEUE_LOOKAHEAD),
         started.elapsed().as_millis()
     );
-    (entries, kept_ids, streams)
+    (entries, kept_ids, streams, kept_titles)
 }
 
 /// Tidal-correct normalization: 0.8 * min(10^((rg + 4) / 20), 1 / peak)
@@ -361,6 +368,7 @@ pub async fn play_tidal_track(
     track_id: u64,
     use_track_gain: bool,
     queue_track_ids: Option<Vec<u64>>,
+    queue_track_titles: Option<Vec<String>>,
 ) -> Result<StreamInfo, SoneError> {
     let t0 = std::time::Instant::now();
     // Prefetch consumption (cast only): the gapless prefetch resolves the
@@ -456,7 +464,7 @@ pub async fn play_tidal_track(
         // Native playlist state, committed into `CastStatus` after the push:
         // entries (served bodies), parallel track ids, and per-entry stream
         // metadata for UI republishing on a native advance.
-        let mut cast_queue: Option<(Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>)> = None;
+        let mut cast_queue: Option<(Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>, Vec<String>)> = None;
         let push_url = if is_dash {
             let mpd_xml = stream_info
                 .manifest
@@ -487,6 +495,7 @@ pub async fn play_tidal_track(
                 }
             };
             let upcoming = queue_track_ids.as_deref().unwrap_or(&[]);
+            let upcoming_titles = queue_track_titles.as_deref();
             if upcoming.is_empty() {
                 state
                     .tidal_connect
@@ -501,8 +510,8 @@ pub async fn play_tidal_track(
                 // (verified 2026-11-01 on the A98). The head entry is the
                 // track the user picked, so playback still starts where the
                 // click landed.
-                let (entries, mut ids, mut streams) =
-                    resolve_queue_entries(state.inner(), track_id, upcoming, use_track_gain).await;
+                let (entries, mut ids, mut streams, mut kept_titles) =
+                    resolve_queue_entries(state.inner(), track_id, upcoming, upcoming_titles, use_track_gain).await;
                 if entries.is_empty() {
                     state
                         .tidal_connect
@@ -517,10 +526,13 @@ pub async fn play_tidal_track(
                     all.extend(entries);
                     ids.insert(0, track_id);
                     streams.insert(0, strip_stream_manifests(stream_info.clone()));
+                    let mut all_titles = Vec::with_capacity(kept_titles.len() + 1);
+                    all_titles.push(display_name.clone());
+                    all_titles.append(&mut kept_titles);
                     let url = state
                         .tidal_connect
                         .manifest_server
-                        .set_queue(&encode_display_name(&display_name), all.clone())
+                        .set_queue_with_titles(&encode_display_name(&display_name), all.clone(), all_titles.clone())
                         .await
                         .map_err(SoneError::Audio)?;
                     log::info!(
@@ -528,7 +540,7 @@ pub async fn play_tidal_track(
                         all.len(),
                         track_id
                     );
-                    cast_queue = Some((all, ids, streams));
+                    cast_queue = Some((all, ids, streams, all_titles));
                     url
                 }
             }
@@ -594,9 +606,9 @@ pub async fn play_tidal_track(
             guard.map(|t| t.elapsed().as_secs_f64())
         };
         const FRESH_STOP_WINDOW_S: f64 = 15.0;
-        const SETTLE_S: f64 = 3.0;
+        let settle_time = if commanded_stop_age.is_some() { 3.0 } else { 0.8 };
         let fresh_stop = commanded_stop_age
-            .map(|age| age <= SETTLE_S)
+            .map(|age| age <= settle_time)
             .unwrap_or(false)
             || last_engine_status.as_deref() == Some("stop")
             || natural_end_age
@@ -604,9 +616,9 @@ pub async fn play_tidal_track(
                 .unwrap_or(false);
         if fresh_stop {
             let remaining_s = commanded_stop_age
-                .filter(|age| *age <= SETTLE_S)
-                .map(|age| SETTLE_S - age)
-                .unwrap_or(SETTLE_S);
+                .filter(|age| *age <= settle_time)
+                .map(|age| settle_time - age)
+                .unwrap_or(settle_time);
             log::info!(
                 "[play_tidal_track] engine freshly stopped ({}, last_cast_stop {:?}); settling {:.1}s before push (A98 fresh-stop jam rule)",
                 natural_end_age
@@ -648,10 +660,11 @@ pub async fn play_tidal_track(
                     cur.manifest_xml = Some(xml.clone());
                     cur.start_offset_ms = 0.0;
                 }
-                if let Some((entries, ids, streams)) = cast_queue.take() {
+                if let Some((entries, ids, streams, titles)) = cast_queue.take() {
                     cur.queue = ids;
                     cur.queue_entries = entries;
                     cur.queue_streams = streams;
+                    cur.queue_titles = titles;
                     cur.queue_index = 0;
                     cur.queue_entry_anchor_ms = 0.0;
                     cur.queue_entry_anchor_at = None;
@@ -876,7 +889,7 @@ pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> 
             // rolls back to a stopped UI and the retry is a fresh command.
             match tokio::time::timeout(
                 std::time::Duration::from_secs(25),
-                play_tidal_track(app, state.clone(), track_id, true, None),
+                play_tidal_track(app, state.clone(), track_id, true, None, None),
             )
             .await
             {
@@ -1116,7 +1129,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                     s.and_then(|x| x.cast_url.clone()),
                     s.map(|x| if x.orig_totlen_ms > 0 { x.orig_totlen_ms } else { x.totlen_ms })
                         .unwrap_or(0),
-                    // Native playlist cast: (ids, entries, streams, index) so
+                    // Native playlist cast: (ids, entries, streams, titles, index) so
                     // the seek can rebuild the playlist from the entry playing
                     // now instead of dropping the queue.
                     s.filter(|x| x.is_queue()).map(|x| {
@@ -1124,6 +1137,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                             x.queue.clone(),
                             x.queue_entries.clone(),
                             x.queue_streams.clone(),
+                            x.queue_titles.clone(),
                             x.queue_index,
                         )
                     }),
@@ -1139,7 +1153,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                 }
                 _ => None,
             };
-            let mut rebuilt_queue: Option<(Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>)> = None;
+            let mut rebuilt_queue: Option<(Vec<QueueEntry>, Vec<u64>, Vec<StreamInfo>, Vec<String>)> = None;
             let outcome = match trim_result {
                 Some((trimmed_xml, base_url)) => {
                     let _ = state
@@ -1153,7 +1167,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                     // gaplessly after the seek. A plain cast keeps the
                     // cache-busted `.mpd` path (a repeated fetch of the same
                     // path must not serve a stale cached manifest).
-                    let playlist = cast_queue.as_ref().and_then(|(ids, entries, streams, index)| {
+                    let playlist = cast_queue.as_ref().and_then(|(ids, entries, streams, titles, index)| {
                         let index = *index;
                         if index >= entries.len() {
                             return None;
@@ -1161,29 +1175,38 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                         let mut all = Vec::with_capacity(entries.len() - index);
                         all.push(QueueEntry::Manifest(trimmed_xml.clone()));
                         all.extend(entries[index + 1..].iter().cloned());
-                        let stem = base_url
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or("queue")
-                            .strip_suffix(".m3u8")
-                            .unwrap_or("queue");
+                        let remaining_titles = if index < titles.len() {
+                            titles[index..].to_vec()
+                        } else {
+                            Vec::new()
+                        };
+                        let stem = remaining_titles.first().map(|t| encode_display_name(t)).unwrap_or_else(|| {
+                            base_url
+                                .rsplit('/')
+                                .next()
+                                .unwrap_or("queue")
+                                .strip_suffix(".m3u8")
+                                .unwrap_or("queue")
+                                .to_string()
+                        });
                         let name = format!("{}-s{}", stem, position_secs as u64);
                         Some((
                             name,
                             all,
                             ids[index..].to_vec(),
                             streams[index..].to_vec(),
+                            remaining_titles,
                         ))
                     });
                     let seek_url = match playlist {
-                        Some((name, all, ids, streams)) => {
+                        Some((name, all, ids, streams, titles)) => {
                             let url = state
                                 .tidal_connect
                                 .manifest_server
-                                .set_queue(&name, all.clone())
+                                .set_queue_with_titles(&name, all.clone(), titles.clone())
                                 .await
                                 .map_err(SoneError::Audio)?;
-                            rebuilt_queue = Some((all, ids, streams));
+                            rebuilt_queue = Some((all, ids, streams, titles));
                             url
                         }
                         None => {
@@ -1248,10 +1271,11 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                                 if orig_len_ms > 0 {
                                     cur.orig_totlen_ms = orig_len_ms;
                                 }
-                                if let Some((entries, ids, streams)) = rebuilt_queue.take() {
+                                if let Some((entries, ids, streams, titles)) = rebuilt_queue.take() {
                                     cur.queue = ids;
                                     cur.queue_entries = entries;
                                     cur.queue_streams = streams;
+                                    cur.queue_titles = titles;
                                     cur.queue_index = 0;
                                     cur.queue_entry_anchor_ms = 0.0;
                                     cur.queue_entry_anchor_at = None;
@@ -1513,26 +1537,7 @@ pub fn update_mpris_loop_status(
     Ok(())
 }
 
-/// Percent-encode a track title for use as a URL path segment. The receiver
-/// displays the hex-decoded push URL as its now-playing title, so keep it
-/// human-readable: alphanumerics and `-_.()` untouched, everything else
-/// percent-encoded.
-fn encode_display_name(name: &str) -> String {
-    let mut out = String::new();
-    for c in name.chars() {
-        match c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '(' | ')' => out.push(c),
-            ' ' => out.push_str("%20"),
-            _ => {
-                let mut buf = [0u8; 4];
-                for b in c.encode_utf8(&mut buf).as_bytes() {
-                    out.push_str(&format!("%{:02X}", b));
-                }
-            }
-        }
-    }
-    out
-}
+
 
 #[cfg(test)]
 mod tests {

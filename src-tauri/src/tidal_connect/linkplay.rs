@@ -148,6 +148,9 @@ pub struct CastStatus {
     /// Per-entry stream metadata with the manifests stripped, so a native
     /// advance can republish codec/quality to the UI with no TIDAL call.
     pub queue_streams: Vec<StreamInfo>,
+    /// Display names (Artist - Title) parallel to `queue`, used for pushing
+    /// track-specific named playlists on native advances.
+    pub queue_titles: Vec<String>,
     /// Index of the entry the receiver is currently playing.
     pub queue_index: usize,
     /// Entry-local position at `queue_entry_anchor_at`, the wall-clock anchor
@@ -175,6 +178,10 @@ pub struct PollOutcome {
     /// New playlist index when the receiver advanced natively to the next
     /// entry. `None` for plain casts and for polls without a boundary.
     pub advanced: Option<usize>,
+    /// Target position in milliseconds if the receiver experienced an unexpected
+    /// mid-stream stop (e.g. from an external seek on companion app/remote)
+    /// that requires manifest-trim recovery.
+    pub seek_recovery_ms: Option<f64>,
 }
 
 impl CastStatus {
@@ -201,6 +208,7 @@ impl CastStatus {
             queue: Vec::new(),
             queue_entries: Vec::new(),
             queue_streams: Vec::new(),
+            queue_titles: Vec::new(),
             queue_index: 0,
             queue_entry_anchor_ms: 0.0,
             queue_entry_anchor_at: None,
@@ -524,18 +532,34 @@ impl LinkPlayClient {
                                 track_ended: true,
                                 volume,
                                 advanced: None,
+                                seek_recovery_ms: None,
                             });
                         }
                         // Freeze the entry clock at the stop position.
                         cur.queue_entry_anchor_ms = end_pos;
                         cur.queue_entry_anchor_at = None;
                         log::debug!(
-                            "[cast-poller] ignoring mid-playlist stop at entry {}/{} ({:.1}/{:.1}s)",
+                            "[cast-poller] mid-playlist stop at entry {}/{} ({:.1}/{:.1}s, raw.curpos={})",
                             cur.queue_index + 1,
                             cur.queue.len(),
                             end_pos / 1000.0,
-                            cur.totlen_ms as f64 / 1000.0
+                            cur.totlen_ms as f64 / 1000.0,
+                            raw.curpos
                         );
+                        // When seeking via companion app or receiver remote, the receiver
+                        // halts in "stop" with raw.curpos at the target position.
+                        let target_pos = if raw.curpos > 0 && (raw.curpos as f64 - end_pos).abs() > 2000.0 {
+                            raw.curpos as f64
+                        } else {
+                            end_pos
+                        };
+                        return Ok(PollOutcome {
+                            raw,
+                            track_ended: false,
+                            volume,
+                            advanced: None,
+                            seek_recovery_ms: Some(target_pos),
+                        });
                     } else if cur.full_len_ms() > 0.0
                         && cur.wall_pos_ms() >= cur.full_len_ms() - NATURAL_END_MARGIN_MS
                     {
@@ -549,17 +573,31 @@ impl LinkPlayClient {
                             track_ended: true,
                             volume,
                             advanced: None,
+                            seek_recovery_ms: None,
                         });
                     } else {
                         // Stop far from the track boundary: an operator stop
-                        // on the receiver itself, or the transient stop some
-                        // firmware emits around a load. Never advance the
-                        // queue from here; the receiver may return to play.
+                        // on the receiver itself, or an external seek stop on
+                        // single track casts.
+                        let end_pos = cur.pos_ms;
+                        let target_pos = if raw.curpos > 0 && (raw.curpos as f64 - end_pos).abs() > 2000.0 {
+                            raw.curpos as f64
+                        } else {
+                            end_pos
+                        };
                         log::debug!(
-                            "[cast-poller] ignoring mid-track stop at {:.1}/{:.1}s",
+                            "[cast-poller] mid-track stop at {:.1}/{:.1}s (curpos={})",
                             cur.wall_pos_ms() / 1000.0,
-                            cur.full_len_ms() / 1000.0
+                            cur.full_len_ms() / 1000.0,
+                            raw.curpos
                         );
+                        return Ok(PollOutcome {
+                            raw,
+                            track_ended: false,
+                            volume,
+                            advanced: None,
+                            seek_recovery_ms: Some(target_pos),
+                        });
                     }
                 }
                 cur.status = new_status;
@@ -596,7 +634,11 @@ impl LinkPlayClient {
                     // clock that has plainly run past the entry proves the
                     // change on its own.
                     let overran = entry_len > 0.0 && pos >= entry_len + 2000.0;
-                    if !cur.on_last_entry() && ((swapped && used_up) || overran) {
+                    // When skipping from receiver (WiiM Home next or hardware remote),
+                    // totlen swaps immediately while curpos starts low (< 5000ms),
+                    // even if the entry was not yet used up.
+                    let manual_skip = swapped && (raw.curpos as f64) < 5000.0 && entry_len > 0.0;
+                    if !cur.on_last_entry() && ((swapped && used_up) || manual_skip || overran) {
                         let previous_len = cur.queue_entry_totlen_ms;
                         cur.queue_index += 1;
                         cur.pos_ms = 0.0;
@@ -662,6 +704,7 @@ impl LinkPlayClient {
             track_ended: false,
             volume,
             advanced,
+            seek_recovery_ms: None,
         })
     }
 }

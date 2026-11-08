@@ -108,13 +108,15 @@ fn route(path: &str) -> Served {
     }
 }
 
-/// `/q<generation>-<index>.mpd` -> index.
+/// `/q<generation>-<index>[-*].mpd` -> index.
 fn parse_entry_path(path: &str) -> Option<usize> {
     let name = path.trim_start_matches('/');
     let (generation, rest) = name.split_once('-')?;
     let generation = generation.strip_prefix('q')?;
     generation.parse::<u64>().ok()?;
-    rest.strip_suffix(".mpd")?.parse().ok()
+    let stem = rest.strip_suffix(".mpd")?;
+    let idx_str = stem.split('-').next()?;
+    idx_str.parse().ok()
 }
 
 impl Default for ManifestServer {
@@ -196,6 +198,9 @@ impl ManifestServer {
                                     .and_then(|q| q.entries.get(idx))
                                     .and_then(|e| e.manifest())
                                     .map(|xml| xml.as_bytes().to_vec());
+                                if let Some(ref b) = body {
+                                    *inner.body.write().await = b.clone();
+                                }
                                 (body, "application/dash+xml")
                             }
                             Served::Single => (
@@ -259,6 +264,18 @@ impl ManifestServer {
         name: &str,
         entries: Vec<QueueEntry>,
     ) -> Result<String, String> {
+        self.set_queue_with_titles(name, entries, Vec::new()).await
+    }
+
+    /// Install a playlist and serve every entry body, returning the playlist
+    /// URL to push. Generates standard #EXTM3U and #EXTINF tags so companion
+    /// apps and receivers have clean metadata.
+    pub async fn set_queue_with_titles(
+        &self,
+        name: &str,
+        entries: Vec<QueueEntry>,
+        titles: Vec<String>,
+    ) -> Result<String, String> {
         let base = {
             let guard = self.inner.base_url.read().await;
             guard.clone()
@@ -268,19 +285,37 @@ impl ManifestServer {
             return Err("playlist has no entries".into());
         }
         let generation = self.inner.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut playlist = String::with_capacity(entries.len() * 96);
+        let mut playlist = String::with_capacity(entries.len() * 128);
+        playlist.push_str("#EXTM3U\n#EXT-X-VERSION:3\n");
         for (idx, entry) in entries.iter().enumerate() {
+            let title_opt = titles.get(idx).map(|s| s.as_str());
             match entry {
                 QueueEntry::Manifest(_) => {
-                    playlist.push_str(&format!("{}/q{}-{}.mpd\n", base, generation, idx));
+                    let path = match title_opt {
+                        Some(t) => {
+                            let clean = t.replace('/', "-");
+                            format!("{}/q{}-{}-{}.mpd\n", base, generation, idx, clean)
+                        }
+                        None => format!("{}/q{}-{}.mpd\n", base, generation, idx),
+                    };
+                    if let Some(t) = title_opt {
+                        playlist.push_str(&format!("#EXTINF:-1,{}\n", t));
+                    }
+                    playlist.push_str(&path);
                 }
                 QueueEntry::Direct(url) => {
+                    if let Some(t) = title_opt {
+                        playlist.push_str(&format!("#EXTINF:-1,{}\n", t));
+                    }
                     playlist.push_str(url);
                     playlist.push('\n');
                 }
             }
         }
         let url = format!("{}/{}.m3u8", base, name);
+        if let Some(first_manifest) = entries.first().and_then(|e| e.manifest()) {
+            *self.inner.body.write().await = first_manifest.as_bytes().to_vec();
+        }
         *self.inner.queue.write().await = Some(ServedQueue {
             playlist: playlist.into_bytes(),
             entries,
@@ -451,7 +486,7 @@ fn udp_probe_ip(dst: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{route, trim_mpd, Served};
+    use super::{route, trim_mpd, ManifestServer, QueueEntry, Served};
 
     /// Real shape captured from a served TIDAL HI_RES_LOSSLESS manifest
     /// (2026-10-24, Jellybelly 24/96): 57 segments (56 x 380928 + 164482
@@ -622,12 +657,44 @@ mod tests {
     #[test]
     fn routes_playlist_entries_and_single_body() {
         assert_eq!(route("/q3-0.mpd"), Served::Entry(0));
+        assert_eq!(route("/q3-0-First Song.mpd"), Served::Entry(0));
         assert_eq!(route("/q12-11.mpd"), Served::Entry(11));
+        assert_eq!(route("/q12-11-Second Song.mpd"), Served::Entry(11));
         assert_eq!(route("/Smashing Pumpkins - Tonight, Tonight.m3u8"), Served::Playlist);
         assert_eq!(route("/Smashing Pumpkins - Tonight, Tonight-s30.mpd"), Served::Single);
         // Not an entry path: no generation prefix, wrong extension, bad index.
         assert_eq!(route("/q-3.mpd"), Served::Single);
         assert_eq!(route("/q3-3.mp4"), Served::Single);
         assert_eq!(route("/q3-x.mpd"), Served::Single);
+    }
+
+    #[tokio::test]
+    async fn set_queue_with_titles_generates_extinf_and_named_paths() {
+        let server = ManifestServer::new();
+        *server.inner.base_url.write().await = Some("http://127.0.0.1:35443".to_string());
+        let entries = vec![
+            QueueEntry::Manifest("<MPD>1</MPD>".into()),
+            QueueEntry::Direct("https://tidal.com/stream2.mp4".into()),
+        ];
+        let titles = vec![
+            "Ariana Grande - hate that i made you love me".to_string(),
+            "Ariana Grande - petal".to_string(),
+        ];
+        let playlist_url = server
+            .set_queue_with_titles("Ariana Grande - Album", entries, titles)
+            .await
+            .unwrap();
+        assert_eq!(
+            playlist_url,
+            "http://127.0.0.1:35443/Ariana Grande - Album.m3u8"
+        );
+
+        let queue_guard = server.inner.queue.read().await;
+        let queue = queue_guard.as_ref().unwrap();
+        let body = String::from_utf8(queue.playlist.clone()).unwrap();
+        assert!(body.starts_with("#EXTM3U\n#EXT-X-VERSION:3\n"));
+        assert!(body.contains("#EXTINF:-1,Ariana Grande - hate that i made you love me\n"));
+        assert!(body.contains("http://127.0.0.1:35443/q1-0-Ariana Grande - hate that i made you love me.mpd\n"));
+        assert!(body.contains("#EXTINF:-1,Ariana Grande - petal\nhttps://tidal.com/stream2.mp4\n"));
     }
 }

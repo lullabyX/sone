@@ -49,6 +49,27 @@ pub use linkplay::{CastStatus, LinkPlayClient, PlayerStatusRaw, PollOutcome};
 pub use manifest_server::ManifestServer;
 pub use models::{ConnectDevice, PlaybackCommand, PlaybackState};
 
+/// Percent-encode a track title for use as a URL path segment. The receiver
+/// displays the hex-decoded push URL as its now-playing title, so keep it
+/// human-readable: alphanumerics and `-_.()` untouched, everything else
+/// percent-encoded.
+pub fn encode_display_name(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars() {
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '(' | ')' => out.push(c),
+            ' ' => out.push_str("%20"),
+            _ => {
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Payload of `tidal-connect:track-advanced`: the receiver moved to the next
 /// entry of the native playlist (`.m3u8` queue) by itself, with no push and no
 /// audible gap. The renderer only updates its own bookkeeping - it must not
@@ -204,35 +225,208 @@ pub async fn ensure_cast_poller(
                 let _ = app.emit("tidal-connect:volume", normalized);
             }
             if let Some(index) = outcome.advanced {
-                // Native playlist advance: the receiver already moved to the
-                // next entry. Report it so the UI tracks the album without
-                // re-pushing anything (a push here would restart the track and
-                // reintroduce the gap this queue exists to remove).
-                let payload = {
-                    let guard = cast_ref.cast_status.read().await;
-                    guard.as_ref().and_then(|s| {
-                        let track_id = s.queue.get(index).copied()?;
-                        Some(CastAdvance {
+                let advance_info = {
+                    let mut guard = cast_ref.cast_status.write().await;
+                    if let Some(s) = guard.as_mut() {
+                        let track_id = s.queue.get(index).copied();
+                        let stream_info = s.queue_streams.get(index).cloned();
+                        if index < s.queue_entries.len() {
+                            let rem_entries = s.queue_entries[index..].to_vec();
+                            let rem_ids = s.queue[index..].to_vec();
+                            let rem_streams = s.queue_streams[index..].to_vec();
+                            let rem_titles = if index < s.queue_titles.len() {
+                                s.queue_titles[index..].to_vec()
+                            } else {
+                                Vec::new()
+                            };
+                            let new_title = rem_titles.first().cloned().unwrap_or_else(|| {
+                                format!("track-{}", track_id.unwrap_or(0))
+                            });
+                            s.queue = rem_ids;
+                            s.queue_entries = rem_entries.clone();
+                            s.queue_streams = rem_streams;
+                            s.queue_titles = rem_titles.clone();
+                            s.queue_index = 0;
+                            s.queue_entry_anchor_ms = 0.0;
+                            s.queue_entry_anchor_at = Some(Instant::now());
+                            s.pos_ms = 0.0;
+                            s.manifest_xml = s
+                                .queue_entries
+                                .first()
+                                .and_then(|e| e.manifest())
+                                .map(|xml| xml.to_string());
+                            Some((track_id, stream_info, new_title, rem_entries, rem_titles))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some((Some(track_id), stream_info, new_title, entries, titles)) = advance_info {
+                    log::info!(
+                        "[cast-poller] native playlist advance to track {} ({}); updating receiver metadata",
+                        track_id,
+                        new_title
+                    );
+                    let encoded_name = encode_display_name(&new_title);
+                    match cast_ref
+                        .manifest_server
+                        .set_queue_with_titles(&encoded_name, entries, titles)
+                        .await
+                    {
+                        Ok(new_url) => {
+                            if let Err(e) = cast_ref.linkplay.push_play(&host, &new_url).await {
+                                log::warn!("[cast-poller] advance title push failed: {}", e);
+                            } else if let Ok(mut guard) = cast_ref.cast_status.try_write() {
+                                if let Some(s) = guard.as_mut() {
+                                    s.cast_url = Some(new_url);
+                                    s.pushed_at = Instant::now();
+                                    s.play_confirmed = true;
+                                }
+                            }
+                        }
+                        Err(e) => log::warn!("[cast-poller] advance playlist creation failed: {}", e),
+                    }
+
+                    use tauri::Emitter;
+                    let _ = app.emit(
+                        "tidal-connect:track-advanced",
+                        CastAdvance {
                             index,
                             track_id,
-                            stream_info: s.queue_streams.get(index).cloned(),
+                            stream_info,
+                        },
+                    );
+                }
+            }
+            if let Some(target_ms) = outcome.seek_recovery_ms {
+                let position_secs = (target_ms / 1000.0).max(0.0);
+                log::info!(
+                    "[cast-poller] receiver mid-stream stop detected at {:.1}s (receiver-side seek); initiating recovery push",
+                    position_secs
+                );
+                let (manifest_xml, cast_url, orig_len_ms, cast_queue, titles) = {
+                    let slot = cast_ref.cast_status.read().await;
+                    let s = slot.as_ref();
+                    (
+                        s.and_then(|x| x.manifest_xml.clone()),
+                        s.and_then(|x| x.cast_url.clone()),
+                        s.map(|x| {
+                            if x.orig_totlen_ms > 0 {
+                                x.orig_totlen_ms
+                            } else {
+                                x.totlen_ms
+                            }
                         })
-                    })
+                        .unwrap_or(0),
+                        s.filter(|x| x.is_queue()).map(|x| {
+                            (
+                                x.queue.clone(),
+                                x.queue_entries.clone(),
+                                x.queue_streams.clone(),
+                                x.queue_index,
+                            )
+                        }),
+                        s.map(|x| x.queue_titles.clone()).unwrap_or_default(),
+                    )
                 };
-                match payload {
-                    Some(payload) => {
-                        log::info!(
-                            "[cast-poller] native playlist advance to entry {} (track {})",
-                            index,
-                            payload.track_id
-                        );
-                        use tauri::Emitter;
-                        let _ = app.emit("tidal-connect:track-advanced", payload);
+                if let (Some(xml), Some(base_url)) = (manifest_xml.as_ref(), cast_url.as_ref()) {
+                    if let Some((trimmed_xml, _)) =
+                        crate::tidal_connect::manifest_server::trim_mpd(xml, position_secs)
+                    {
+                        let _ = cast_ref.manifest_server.ensure_started(&host).await;
+                        let mut rebuilt_queue = None;
+                        let seek_url = match cast_queue.as_ref() {
+                            Some((ids, entries, streams, index)) => {
+                                let idx = *index;
+                                if idx < entries.len() {
+                                    let mut all = Vec::with_capacity(entries.len() - idx);
+                                    all.push(crate::tidal_connect::manifest_server::QueueEntry::Manifest(
+                                        trimmed_xml.clone(),
+                                    ));
+                                    all.extend(entries[idx + 1..].iter().cloned());
+                                    let remaining_titles = if idx < titles.len() {
+                                        titles[idx..].to_vec()
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    let head_title = remaining_titles.first().cloned().unwrap_or_else(|| {
+                                        base_url
+                                            .rsplit('/')
+                                            .next()
+                                            .unwrap_or("track")
+                                            .replace(".m3u8", "")
+                                    });
+                                    let stem = encode_display_name(&head_title);
+                                    let name = format!("{}-s{}", stem, position_secs as u64);
+                                    match cast_ref
+                                        .manifest_server
+                                        .set_queue_with_titles(&name, all.clone(), remaining_titles.clone())
+                                        .await
+                                    {
+                                        Ok(url) => {
+                                            rebuilt_queue = Some((
+                                                all,
+                                                ids[idx..].to_vec(),
+                                                streams[idx..].to_vec(),
+                                                remaining_titles,
+                                            ));
+                                            Some(url)
+                                        }
+                                        Err(e) => {
+                                            log::warn!("[cast-poller] seek recovery set_queue failed: {}", e);
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
+                            None => {
+                                let stem = base_url.strip_suffix(".mpd").unwrap_or(base_url.as_str());
+                                let seek_url = format!("{}-s{}.mpd", stem, position_secs as u64);
+                                if let Err(e) = cast_ref.manifest_server.set(&trimmed_xml).await {
+                                    log::warn!("[cast-poller] seek recovery set manifest failed: {}", e);
+                                    None
+                                } else {
+                                    Some(seek_url)
+                                }
+                            }
+                        };
+                        if let Some(seek_url) = seek_url {
+                            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                            if let Ok(()) = cast_ref
+                                .linkplay
+                                .push_url(&host, &seek_url, &cast_ref.cast_status)
+                                .await
+                            {
+                                let mut slot = cast_ref.cast_status.write().await;
+                                if let Some(cur) = slot.as_mut() {
+                                    cur.manifest_xml = manifest_xml.clone();
+                                    cur.start_offset_ms = target_ms;
+                                    if orig_len_ms > 0 {
+                                        cur.orig_totlen_ms = orig_len_ms;
+                                    }
+                                    if let Some((entries, ids, streams, q_titles)) = rebuilt_queue {
+                                        cur.queue = ids;
+                                        cur.queue_entries = entries;
+                                        cur.queue_streams = streams;
+                                        cur.queue_titles = q_titles;
+                                        cur.queue_index = 0;
+                                        cur.queue_entry_anchor_ms = 0.0;
+                                        cur.queue_entry_anchor_at = Some(Instant::now());
+                                        cur.queue_entry_totlen_ms = 0;
+                                    }
+                                }
+                                log::info!(
+                                    "[cast-poller] receiver seek recovered at {:.1}s",
+                                    position_secs
+                                );
+                            }
+                        }
                     }
-                    None => log::warn!(
-                        "[cast-poller] playlist advance to entry {} but the entry is unknown",
-                        index
-                    ),
                 }
             }
             if outcome.track_ended {

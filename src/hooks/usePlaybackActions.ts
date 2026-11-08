@@ -236,17 +236,18 @@ async function invokePlayWithRetry(
   useTrackGain: boolean,
   onFirstRetry: () => void,
   queueTrackIds?: number[],
+  queueTrackTitles?: string[],
 ): Promise<StreamInfo> {
   for (let attempt = 0; attempt <= DEVICE_MAX_RETRIES; attempt++) {
     try {
       return await withInvokeTimeout<StreamInfo>({
         cmd: "play_tidal_track",
-        // `queueTrackIds` rides only a cast push: the backend turns the list
-        // into ONE native `.m3u8` playlist on the receiver, which then plays
+        // `queueTrackIds` and `queueTrackTitles` ride only a cast push: the backend
+        // turns the list into ONE native `.m3u8` playlist on the receiver, which then plays
         // track to track with no push (and no ~10 s gap) between them.
         payload:
           queueTrackIds && queueTrackIds.length > 0
-            ? { trackId, useTrackGain, queueTrackIds }
+            ? { trackId, useTrackGain, queueTrackIds, queueTrackTitles }
             : { trackId, useTrackGain },
         timeoutMs: PLAY_ATTEMPT_TIMEOUT_MS,
       });
@@ -262,21 +263,28 @@ async function invokePlayWithRetry(
   throw new Error("device_busy"); // unreachable
 }
 
-/** Upcoming track ids for a native cast playlist, in play order (manual queue
+/** Upcoming track ids and titles for a native cast playlist, in play order (manual queue
  *  first, then the context queue - the same order playNext drains them).
  *  Video items and filtered tracks are skipped so the receiver never receives
  *  an entry the app would refuse to play. */
-function castQueueLookahead(store: ReturnType<typeof createStore>): number[] {
+function castQueueLookahead(store: ReturnType<typeof createStore>): {
+  ids: number[];
+  titles: string[];
+} {
   const prefs = readContentPrefs(store);
   const ids: number[] = [];
+  const titles: string[] = [];
   for (const t of [...store.get(manualQueueAtom), ...store.get(queueAtom)]) {
     if (t.itemType === "video") continue;
     if (isTrackUnavailable(t) || isContentBlocked(t, prefs)) continue;
     if (ids.includes(t.id)) continue;
     ids.push(t.id);
+    const artist = t.artists?.[0]?.name || t.artist?.name || "";
+    const title = artist ? `${artist} - ${t.title}` : t.title;
+    titles.push(title);
     if (ids.length >= CAST_QUEUE_LOOKAHEAD) break;
   }
-  return ids;
+  return { ids, titles };
 }
 
 export function usePlaybackActions() {
@@ -466,7 +474,7 @@ export function usePlaybackActions() {
         // queue so the receiver gets ONE `.m3u8` it plays through on its own
         // (no push per track, no ~10 s dead air at each boundary). Local
         // playback keeps its own gapless pipeline and sends nothing.
-        const castQueueIds = store.get(isCastingAtom)
+        const lookahead = store.get(isCastingAtom)
           ? castQueueLookahead(store)
           : undefined;
         const info = await invokePlayWithRetry(
@@ -476,7 +484,8 @@ export function usePlaybackActions() {
             store.set(isPlayingAtom, false);
             showToast("Preparing exclusive audio…", "info");
           },
-          castQueueIds,
+          lookahead?.ids,
+          lookahead?.titles,
         );
 
         if (generation !== playGenerationRef.current) {
