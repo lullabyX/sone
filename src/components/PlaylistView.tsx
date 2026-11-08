@@ -531,7 +531,7 @@ export default function PlaylistView({
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
+      <div className="flex-1 page-gradient flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <Music size={48} className="text-th-text-disabled" />
           <p className="text-th-text-primary font-semibold text-lg">
@@ -550,22 +550,24 @@ export default function PlaylistView({
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+    <div className="flex-1 page-gradient overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       <div className="relative">
         <CoverBanner src={getTidalImageUrl(effectiveInfo?.image, 640)} />
         <PageContainer>
           <div className="px-8 pb-8 pt-8 flex items-end gap-7 relative z-10">
-            <div className="w-[232px] h-[232px] shrink-0 rounded-lg overflow-hidden shadow-[0_16px_48px_8px_rgba(0,0,0,0.55)] bg-th-surface-hover flex items-center justify-center">
-              {effectiveInfo?.image ? (
-                <TidalImage
-                  src={getTidalImageUrl(effectiveInfo!.image, 640)}
-                  alt={displayTitle}
-                  type="playlist"
-                  className="w-full h-full"
-                />
-              ) : (
-                <Music size={56} className="text-th-text-faint" />
-              )}
+            <div className="relative shrink-0 cover-glow">
+              <div className="w-[232px] h-[232px] rounded-lg overflow-hidden bg-th-surface-hover flex items-center justify-center">
+                {effectiveInfo?.image ? (
+                  <TidalImage
+                    src={getTidalImageUrl(effectiveInfo!.image, 640)}
+                    alt={displayTitle}
+                    type="playlist"
+                    className="w-full h-full"
+                  />
+                ) : (
+                  <Music size={56} className="text-th-text-faint" />
+                )}
+              </div>
             </div>
             <div className="flex flex-col gap-2 pb-1 min-w-0">
               <span className="text-[12px] font-bold text-th-text-secondary uppercase tracking-widest">
@@ -619,7 +621,7 @@ export default function PlaylistView({
               />
               <button
                 onClick={handleShuffle}
-                className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+                className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
               >
                 <Shuffle size={18} />
                 Shuffle

@@ -21,6 +21,7 @@ import Login from "./components/Login";
 import TvApp from "./components/tv/TvApp";
 import { AppInitializer } from "./components/AppInitializer";
 import ProxyNoticeBanner from "./components/ProxyNoticeBanner";
+import RenderTrialDialog from "./components/RenderTrialDialog";
 import TooltipLayer from "./components/TooltipLayer";
 import VideoPlayer from "./components/VideoPlayer";
 import { useAuth } from "./hooks/useAuth";
@@ -256,6 +257,8 @@ function App() {
     <ToastProvider>
       <AppInitializer />
       <TooltipLayer />
+      {/* Outside AppContent so the login screen and the app share one mount. */}
+      <RenderTrialDialog />
       <AppContent />
       <AppVideo />
     </ToastProvider>

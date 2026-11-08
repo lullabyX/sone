@@ -362,7 +362,7 @@ export default function HomeSection({ section }: HomeSectionProps) {
                     <TidalImage
                       src={getTidalPromoImageUrl(promo.imageURL || promo.imageId)}
                       alt={promoTitle}
-                      className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover transition-[width,height,margin] duration-500 group-hover:w-[105%] group-hover:h-[105%] group-hover:-mx-[2.5%] group-hover:-my-[1.8182%]"
                     />
                   }
                   showPlayButton={false}

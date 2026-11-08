@@ -231,7 +231,7 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+      <div className="flex-1 page-gradient min-h-full">
         <PageContainer className="px-6 py-8">
           {/* On a cold reload the tab list isn't known yet (it comes from the
               feed response), so fall back to skeleton pills. */}
@@ -286,7 +286,7 @@ export default function Home() {
   // it's a failure, offer the retry instead of waiting out the cache TTL.
   if (sections.length === 0) {
     return (
-      <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+      <div className="flex-1 page-gradient min-h-full">
         <PageContainer className="px-6 py-8">
           {renderTabBar("mb-8")}
           <div className="text-center py-20">
@@ -315,7 +315,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-th-surface to-th-base min-h-full">
+    <div className="flex-1 page-gradient min-h-full">
       <PageContainer className="px-6 py-8">
         {renderTabBar(shortcutSection ? "mb-10" : "mb-8")}
         {/* Keyed on the active tab so switching tabs remounts the content and

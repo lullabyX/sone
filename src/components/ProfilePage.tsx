@@ -280,7 +280,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
 
   if (userId == null) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
+      <div className="flex-1 page-gradient flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <User size={48} className="text-th-text-disabled" />
           <p className="text-th-text-primary font-semibold text-lg">
@@ -304,7 +304,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
 
   if (error || !profile) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
+      <div className="flex-1 page-gradient flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <User size={48} className="text-th-text-disabled" />
           <p className="text-th-text-primary font-semibold text-lg">
@@ -364,7 +364,7 @@ export default function ProfilePage({ onBack }: ProfilePageProps) {
     : null;
 
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+    <div className="flex-1 page-gradient overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Profile hero — sharp photo up top, real filter-blur frost at the bottom */}
       <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
         {heroBlob && (
