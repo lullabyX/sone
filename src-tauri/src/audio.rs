@@ -1851,7 +1851,7 @@ fn direct_alsa_seek(
     let seek_frames = (position_secs as f64 * sample_rate.load(Ordering::Relaxed) as f64) as u64;
     frames_written.store(seek_frames, Ordering::Relaxed);
     let result = pipeline
-        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, pos)
+        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, pos)
         .map_err(|e| format!("Seek failed: {e}"));
     if was_paused {
         paused.store(true, Ordering::Release);
@@ -2818,7 +2818,7 @@ impl AudioPlayer {
                                         pipeline.state(gst::ClockTime::from_seconds(10));
                                     log::debug!("[audio] resume: preroll {ret:?} {cur:?} {pend:?}");
                                     if let Err(e) = pipeline.seek_simple(
-                                        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                                        gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
                                         pos,
                                     ) {
                                         log::warn!(
@@ -3040,7 +3040,7 @@ impl AudioPlayer {
                         // 2b-A3 (detach matrix): a flush seek must NOT detach the
                         // prerolled next branch. Empirically verified on GStreamer
                         // 1.24.2 (python-gi, concat + dual uridecodebin→queue): a
-                        // `seek_simple(FLUSH|KEY_UNIT)` on the pipeline forwards the
+                        // `seek_simple(FLUSH|ACCURATE)` on the pipeline forwards the
                         // FLUSH_START/FLUSH_STOP + new SEGMENT only to concat's ACTIVE
                         // sink pad (sink_0). The inactive prerolled branch on sink_1
                         // sees ZERO flush events, stays linked + PLAYING, and concat
@@ -3055,9 +3055,11 @@ impl AudioPlayer {
                                 let pos = gst::ClockTime::from_nseconds(
                                     (position_secs as f64 * 1_000_000_000.0) as u64,
                                 );
+                                // ACCURATE, not KEY_UNIT: on DASH a key-unit seek
+                                // snaps back to the segment start (seconds early).
                                 pipeline
                                     .seek_simple(
-                                        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                                        gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
                                         pos,
                                     )
                                     .map_err(|e| format!("Seek failed: {e}"))
