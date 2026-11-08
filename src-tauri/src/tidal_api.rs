@@ -56,6 +56,8 @@ const TIDAL_API_URL: &str = "https://api.tidal.com/v1";
 const TIDAL_API_V2_URL: &str = "https://api.tidal.com/v2";
 const TIDAL_OPENAPI_URL: &str = "https://openapi.tidal.com/v2";
 const TIDAL_CLIENT_VERSION: &str = "2026.9.15";
+/// Page size for a v2 view-all that lists nothing without one.
+const VIEW_ALL_LIMIT: &str = "50";
 
 /// How the playlist-items endpoint treats tracks already in the playlist.
 /// `Fail` rejects the whole batch with 409 (subStatus 7008) if any is a duplicate.
@@ -5527,10 +5529,34 @@ impl TidalClient {
             self.api_get_body(&path, &[("countryCode", &cc), ("deviceType", "BROWSER")])
                 .await?
         };
-
-        let json: Value =
+        let mut json: Value =
             serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        // Some v2 view-alls (Spotlighted Uploads) list nothing unless asked
+        // for a page size.
+        if is_v2 && path.contains("/view-all") && Self::has_no_items(&json) {
+            log::debug!("[get_page] empty view-all, retrying with a limit: {}", path);
+            let body = self
+                .api_get_body(
+                    &path,
+                    &[
+                        ("countryCode", &cc),
+                        ("locale", "en_US"),
+                        ("deviceType", "BROWSER"),
+                        ("platform", "WEB"),
+                        ("limit", VIEW_ALL_LIMIT),
+                        ("offset", "0"),
+                    ],
+                )
+                .await?;
+            json = serde_json::from_str(&body).map_err(|e| SoneError::Parse(e.to_string()))?;
+        }
         Self::parse_page_response(&json)
+    }
+
+    fn has_no_items(json: &Value) -> bool {
+        json.get("items")
+            .and_then(|i| i.as_array())
+            .is_some_and(|i| i.is_empty())
     }
 
     /// Resolve the user's artistId from `/v1/users/{id}`. Returns `Ok(None)`
@@ -7401,5 +7427,19 @@ mod playlist_add_tests {
         let modes: Vec<OnDupes> = serde_json::from_str(r#"["FAIL","SKIP","ADD"]"#).unwrap();
         assert_eq!(modes, vec![OnDupes::Fail, OnDupes::Skip, OnDupes::Add]);
         assert_eq!(OnDupes::Fail.as_str(), "FAIL");
+    }
+}
+
+#[cfg(test)]
+mod view_all_tests {
+    use super::*;
+
+    #[test]
+    fn only_an_empty_items_list_counts_as_empty() {
+        let empty = serde_json::json!({"title": "Spotlighted Uploads", "items": []});
+        assert!(TidalClient::has_no_items(&empty));
+        let full = serde_json::json!({"items": [{"type": "TRACK", "data": {}}]});
+        assert!(!TidalClient::has_no_items(&full));
+        assert!(!TidalClient::has_no_items(&serde_json::json!({"rows": []})));
     }
 }
