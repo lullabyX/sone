@@ -6,7 +6,9 @@ vi.mock("../lib/lovedBanner", async (orig) => ({
   ...(await orig<any>()),
   drawBanner: (...a: unknown[]) => draw(...a),
 }));
+import { Provider, createStore } from "jotai";
 import LovedTracksBanner, { FRAME_INTERVAL_MS } from "./LovedTracksBanner";
+import { themeAtom } from "../atoms/theme";
 
 let rafCbs = new Map<number, FrameRequestCallback>();
 let rafId = 0;
@@ -39,6 +41,7 @@ beforeEach(() => {
     globalAlpha: 1,
     fillStyle: null,
     createRadialGradient: () => ({ addColorStop() {} }),
+    createLinearGradient: () => ({ addColorStop() {} }),
   } as any);
   (globalThis as any).ResizeObserver = class {
     constructor(cb: any) {
@@ -116,12 +119,50 @@ describe("LovedTracksBanner", () => {
     expect(rafCbs.size).toBe(0);
   });
 
-  it("keeps the overlays", () => {
-    const { container } = render(<LovedTracksBanner />);
-    expect(container.querySelector("canvas")).not.toBeNull();
-    expect(
-      container.querySelectorAll("div.absolute.inset-0").length,
-    ).toBeGreaterThanOrEqual(3);
+  it("draws the theme overlays into the canvas", () => {
+    const store = createStore();
+    store.set(themeAtom, {
+      name: "Ocean",
+      accent: "#3B82F6",
+      bgBase: "#0E1118",
+    });
+    const { container } = render(
+      <Provider store={store}>
+        <LovedTracksBanner />
+      </Provider>,
+    );
+    expect(container.querySelector("canvas")!.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    expect((container.firstChild as HTMLElement).children).toHaveLength(1);
+    act(() => pump(0));
+    const overlay = draw.mock.calls[draw.mock.calls.length - 1][4];
+    expect(overlay.wash).toBe("rgba(14, 17, 24, 0.6)");
+  });
+
+  it("repaints with the new overlay when the theme changes", () => {
+    const store = createStore();
+    store.set(themeAtom, {
+      name: "Ocean",
+      accent: "#3B82F6",
+      bgBase: "#0E1118",
+    });
+    render(
+      <Provider store={store}>
+        <LovedTracksBanner />
+      </Provider>,
+    );
+    act(() => pump(0));
+    const before = draw.mock.calls.length;
+    act(() =>
+      store.set(themeAtom, {
+        name: "Paper",
+        accent: "#111111",
+        bgBase: "#F5F3EE",
+      }),
+    );
+    expect(draw.mock.calls.length).toBe(before + 1);
+    expect(draw.mock.calls[before][4].wash).toBe("rgba(245, 243, 238, 0.6)");
   });
 
   it("freezes time while paused and resumes without a jump", () => {

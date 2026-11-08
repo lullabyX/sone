@@ -1,3 +1,10 @@
+import {
+  alphaStops,
+  fillLinear,
+  withAlpha,
+  type ColorStops,
+} from "./bannerCanvas";
+
 export interface BlobSpec {
   color: [number, number, number];
   box: { w: number; h: number; left: number; top: number };
@@ -208,6 +215,41 @@ export interface Ctx2dLike {
     y1: number,
     r1: number,
   ): { addColorStop(o: number, c: string): void };
+  createLinearGradient(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+  ): { addColorStop(o: number, c: string): void };
+}
+
+export interface BannerOverlay {
+  wash: string;
+  right: ColorStops;
+  bottom: ColorStops;
+}
+
+/**
+ * Base-tone wash that keeps the title readable on light or dark themes, a
+ * right-edge settle into the page tone and a bottom blend into the surface.
+ * Null when a colour can't be parsed.
+ */
+export function bannerOverlay(
+  base: string,
+  surface: string,
+): BannerOverlay | null {
+  const wash = withAlpha(base, 0.6);
+  const right = alphaStops(base, [
+    [0, 0],
+    [0.5, 0.2],
+    [1, 0.6],
+  ]);
+  const bottom = alphaStops(surface, [
+    [0, 0],
+    [0.7, 0],
+    [1, 1],
+  ]);
+  return wash && right && bottom ? { wash, right, bottom } : null;
 }
 
 export function drawBanner(
@@ -215,6 +257,7 @@ export function drawBanner(
   w: number,
   h: number,
   t: number,
+  overlay?: BannerOverlay | null,
 ): void {
   ctx.clearRect(0, 0, w, h);
   for (const spec of BLOBS) {
@@ -238,5 +281,11 @@ export function drawBanner(
     ctx.fillStyle = gradient;
     ctx.fillRect(-1, -1, 2, 2);
     ctx.restore();
+  }
+  if (overlay) {
+    ctx.fillStyle = overlay.wash;
+    ctx.fillRect(0, 0, w, h);
+    fillLinear(ctx, "right", w, h, overlay.right);
+    fillLinear(ctx, "down", w, h, overlay.bottom);
   }
 }
