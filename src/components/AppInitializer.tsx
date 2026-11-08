@@ -1034,9 +1034,22 @@ export function AppInitializer() {
       }
     });
 
-    // 2. Listen for receiver disconnect / session closure
+    // 2. Listen for receiver disconnect / session closure. The WS control
+    // session idles out on its own as a normal part of the push-URL lifecycle
+    // (certified receivers drop it ~30 s in, and it is not restored until the
+    // next cast needs it), so this event must NOT be read as "the device is
+    // gone": doing that reset a deliberate selection to local while the
+    // backend kept casting, which silently disabled the native album playlist
+    // (the renderer only sends the queue lookahead while it believes it is
+    // casting) and routed the UI's volume/transport elsewhere. Re-query the
+    // backend, which owns selection truth and clears it only on an explicit
+    // local select or a device teardown.
     const unlistenDisc = listen("tidal-connect:disconnected", () => {
-      store.set(activeDeviceAtom, localDevice);
+      invoke<ConnectDevice | null>("tidal_connect_get_active_device")
+        .then((dev) => {
+          if (!dev || dev.isLocal) store.set(activeDeviceAtom, localDevice);
+        })
+        .catch(() => store.set(activeDeviceAtom, localDevice));
     });
 
     // 2b. Backend-driven selection (SONE_CAST_DEVICE autoselect): the modal
