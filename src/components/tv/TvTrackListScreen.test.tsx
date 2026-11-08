@@ -18,6 +18,7 @@ import type { Playlist, Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
 import { TvScreenContext, type TvNav } from "./TvNavContext";
 import { markPlaylistChanged } from "./tvPlaylistEdits";
+import { menuForElement } from "./tvMenu";
 import {
   deferred,
   type Deferred,
@@ -40,6 +41,7 @@ const api = vi.hoisted(() => ({
   getFavoriteTracks: vi.fn(),
   getMixItems: vi.fn(),
   getArtistTopTracksAll: vi.fn(),
+  getArtistPage: vi.fn(),
   getPlaylistRecommendations: vi.fn(async () => ({ items: [] as Track[] })),
 }));
 vi.mock("../../api/tidal", async (importOriginal) => ({
@@ -174,7 +176,65 @@ it("a track radio without a seed artist links its first track's artist; a mix li
   });
 });
 
-it("mix meta follows the desktop: the opened card's title and image first, with the subtitle", async () => {
+it("the Menu key on the page's buttons opens the album's menu; a row keeps its own", async () => {
+  api.getAlbumPage.mockResolvedValue(album([t1]));
+  const { nav } = renderTv(
+    <TvTrackListScreen view={{ type: "album", id: 5 }} />,
+  );
+  await screen.findByText("LP");
+  const build = menuForElement(screen.getByRole("button", { name: "Shuffle" }));
+  expect(build).not.toBeNull();
+  build!();
+  expect(nav.mediaMenu).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "album", id: 5 }),
+    true,
+    expect.anything(),
+  );
+  const rowMenu = menuForElement(rowFor(t1.title));
+  expect(rowMenu).not.toBe(build);
+});
+
+it("links a single album artist by name; several share an Artists list", async () => {
+  const withArtists = (names: string[]) => ({
+    page: {
+      album: {
+        id: 5,
+        title: "LP",
+        cover: "c",
+        artists: names.map((name, i) => ({ id: i + 1, name })),
+      },
+      tracks: [t1],
+    },
+  });
+  api.getAlbumPage.mockResolvedValue(withArtists(["Y"]));
+  const first = renderTv(<TvTrackListScreen view={{ type: "album", id: 5 }} />);
+  await screen.findByText("LP");
+  fireEvent.click(screen.getByRole("button", { name: "Go to Y" }));
+  expect(first.nav.push).toHaveBeenLastCalledWith({
+    type: "artist",
+    id: 1,
+    name: "Y",
+  });
+  first.unmount();
+
+  api.getAlbumPage.mockResolvedValue(withArtists(["X", "Y"]));
+  const { nav } = renderTv(
+    <TvTrackListScreen view={{ type: "album", id: 5 }} />,
+  );
+  await screen.findByText("LP");
+  expect(screen.queryByRole("button", { name: "Go to X" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Artists" }));
+  const menu = vi.mocked(nav.openMenu).mock.lastCall![0];
+  expect(menu.items.map((i) => i.label)).toEqual(["X", "Y"]);
+  void menu.items[1].onSelect!();
+  expect(nav.push).toHaveBeenLastCalledWith({
+    type: "artist",
+    id: 2,
+    name: "Y",
+  });
+});
+
+it("mix meta follows the desktop: the opened card's title first, the mix's own (larger) image, with the subtitle", async () => {
   api.getMixItems.mockResolvedValue({
     mixId: "m",
     mixType: "DISCOVERY_MIX",
@@ -192,7 +252,7 @@ it("mix meta follows the desktop: the opened card's title and image first, with 
   expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({
     type: "mix",
     name: "Card",
-    image: "c.jpg",
+    image: "f.jpg",
     subtitle: "Sub",
   });
   unmount();
@@ -270,6 +330,38 @@ it("the top-tracks screen pages and plays as the artist", async () => {
   });
   await src.fetchPage!(3);
   expect(api.getArtistTopTracksAll).toHaveBeenLastCalledWith(9, 3, 50);
+});
+
+it("the top-tracks screen shows the artist's picture as a round avatar", async () => {
+  api.getArtistTopTracksAll.mockResolvedValue({
+    items: [mkTrack(1)],
+    hasMore: false,
+  });
+  const cover = () =>
+    document.querySelector("aside")!.firstElementChild as HTMLElement;
+  // Passed from the artist page's View all.
+  const r = renderTv(
+    <TvTrackListScreen
+      view={{ type: "artistTracks", artistId: 9, name: "X", image: "img://x" }}
+    />,
+  );
+  await screen.findByText("X: Top tracks");
+  expect(cover().className).toContain("rounded-full");
+  expect(api.getArtistPage).not.toHaveBeenCalled();
+  r.unmount();
+  // Opened without it (from "Playing from"): looked up on the artist page.
+  api.getArtistPage.mockResolvedValue({ picture: "aaaa-bbbb" });
+  const { nav } = renderTv(
+    <TvTrackListScreen
+      view={{ type: "artistTracks", artistId: 9, name: "X" }}
+    />,
+  );
+  await screen.findByText("X: Top tracks");
+  expect(api.getArtistPage).toHaveBeenCalledWith(9);
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  expect(vi.mocked(nav.playSource).mock.lastCall![0].meta).toMatchObject({
+    image: "https://resources.tidal.com/images/aaaa/bbbb/320x320.jpg",
+  });
 });
 
 const shownRows = () =>
@@ -353,7 +445,7 @@ it("after a removal focus lands on the row that took its place, past a blocked r
   await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
 });
 
-it("My Tracks renders the first page, hides un-liked rows and plays the rest lazily", async () => {
+it("Loved Tracks renders the first page, hides un-liked rows and plays the rest lazily", async () => {
   const [a, b, c] = [mkTrack(1), mkTrack(2), mkTrack(3)];
   api.getFavoriteTracks
     .mockResolvedValueOnce({ items: [a, b, c], totalNumberOfItems: 250 })
@@ -434,7 +526,7 @@ it("shows the description and reads a long one in a wide panel", async () => {
     { store: signedIn(42) },
   );
   expect(await screen.findByText(/Late-night jazz\./)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "About" }));
+  fireEvent.click(screen.getByRole("button", { name: "Read more" }));
   expect(vi.mocked(nav.openMenu).mock.lastCall![0]).toMatchObject({
     wide: true,
     items: [
@@ -442,6 +534,71 @@ it("shows the description and reads a long one in a wide panel", async () => {
       { label: "Second paragraph.", multiline: true },
     ],
   });
+});
+
+it("offers Read more for a short description the column cuts off", async () => {
+  const proto = HTMLElement.prototype;
+  const sh = vi
+    .spyOn(proto, "scrollHeight", "get")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.textContent === "Short but wraps" ? 90 : 0;
+    });
+  const ch = vi
+    .spyOn(proto, "clientHeight", "get")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.textContent === "Short but wraps" ? 60 : 0;
+    });
+  api.getPlaylistDetails.mockResolvedValue({
+    uuid: "p",
+    title: "P",
+    numberOfTracks: 1,
+    creator: { id: 42 },
+    description: "Short but wraps",
+  });
+  api.getPlaylistTracksPage.mockResolvedValue({
+    items: [t1],
+    totalNumberOfItems: 1,
+  });
+  mockInvoke({
+    get_playlist_folders: () => ({
+      items: [],
+      totalNumberOfItems: 0,
+      cursor: null,
+    }),
+  });
+  renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, {
+    store: signedIn(42),
+  });
+  expect(await screen.findByText("Short but wraps")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Read more" })).toBeTruthy();
+  sh.mockRestore();
+  ch.mockRestore();
+});
+
+it("has no Read more for a description that fits", async () => {
+  api.getPlaylistDetails.mockResolvedValue({
+    uuid: "p",
+    title: "P",
+    numberOfTracks: 1,
+    creator: { id: 42 },
+    description: "Fits",
+  });
+  api.getPlaylistTracksPage.mockResolvedValue({
+    items: [t1],
+    totalNumberOfItems: 1,
+  });
+  mockInvoke({
+    get_playlist_folders: () => ({
+      items: [],
+      totalNumberOfItems: 0,
+      cursor: null,
+    }),
+  });
+  renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, {
+    store: signedIn(42),
+  });
+  expect(await screen.findByText("Fits")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Read more" })).toBeNull();
 });
 
 it("shows recommendations once the playlist is fully loaded and adds one", async () => {
@@ -1473,7 +1630,7 @@ describe("sorting", () => {
     ).toEqual(["Remove from this playlist"]);
   });
 
-  it("My Tracks uses its saved sort for the first page and the pager, and newest first stores no key", async () => {
+  it("Loved Tracks uses its saved sort for the first page and the pager, and newest first stores no key", async () => {
     api.getFavoriteTracks.mockResolvedValue({
       items: [t1, t2],
       totalNumberOfItems: 250,
@@ -1524,8 +1681,8 @@ describe("sorting", () => {
   });
 });
 
-describe("filtering My Tracks", () => {
-  it("filters My Tracks after loading every page", async () => {
+describe("filtering Loved Tracks", () => {
+  it("filters Loved Tracks after loading every page", async () => {
     api.getFavoriteTracks
       .mockResolvedValueOnce({
         items: [mkTrack(1, { title: "Blue" }), mkTrack(2)],
@@ -1548,7 +1705,7 @@ describe("filtering My Tracks", () => {
     fireEvent.click(screen.getByRole("button", { name: "Filter" }));
     await screen.findByText(/Filter: “blue”/);
     expect(vi.mocked(nav.prompt).mock.lastCall![0]).toEqual({
-      title: "Filter My Tracks",
+      title: "Filter Loved Tracks",
       initial: "",
       confirm: "Filter",
       allowEmpty: true,

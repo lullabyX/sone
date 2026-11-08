@@ -22,10 +22,12 @@ import {
   Play,
   RefreshCw,
   Shuffle,
+  Users,
   X,
 } from "lucide-react";
 import {
   getAlbumPage,
+  getArtistPage,
   getArtistTopTracksAll,
   getFavoriteTracks,
   getMixItems,
@@ -56,13 +58,15 @@ import type { AlbumDetail, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
 import {
   formatTotalDuration,
+  getArtistImage,
   getTrackArtistDisplay,
   playlistCountLabel,
 } from "../../utils/itemHelpers";
 import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
-import TidalImage from "../TidalImage";
+import TidalImage, { fetchCachedImageUrl } from "../TidalImage";
 import { TvButton, TvError, TvSpinner, TvTrackRow } from "./TvParts";
 import { groupByVolume, type TvView } from "./tvItems";
+import { artistsMenu, tvMenuRef, type TvMenuArtist } from "./tvMenu";
 import {
   playlistBusy,
   playlistRevision,
@@ -108,6 +112,8 @@ interface TrackListSpec {
   subtitle?: string;
   description?: string;
   image?: string;
+  /** The image is an artist's picture: a round avatar. */
+  round?: boolean;
   /** Show the liked-tracks heart tile instead of a cover image. */
   heart?: boolean;
   /** The first page, or the whole list when there is no `pager`. */
@@ -121,7 +127,8 @@ interface TrackListSpec {
   dedupe?: boolean;
   /** For a first page that reports `hasMore` instead of a total. */
   hasMore?: boolean;
-  artist?: { id: number; name: string };
+  /** One gets a "Go to" button with its name; several share an Artists button. */
+  artists?: TvMenuArtist[];
   /** The album / playlist itself, handed to the like call so the
    *  collection shows it straight away (as the desktop pages do). */
   album?: AlbumDetail;
@@ -171,6 +178,20 @@ function matchesTrack(t: Track, q: string): boolean {
   );
 }
 
+/** Square playlist art at 1080px, the largest playlist size (no 1280);
+ *  640 when an image lacks it. */
+async function sharpestSquare(id: string): Promise<string> {
+  const base = getTidalImageUrl(id, 640);
+  const large = base.replace("/640x640.", "/1080x1080.");
+  if (large === base) return base;
+  try {
+    await fetchCachedImageUrl(large);
+    return large;
+  } catch {
+    return base;
+  }
+}
+
 async function loadList(
   view: ListView,
   userId: number | undefined,
@@ -181,7 +202,13 @@ async function loadList(
       const { page } = await getAlbumPage(view.id);
       const a = page.album;
       const year = a.releaseDate?.slice(0, 4);
-      const artist = a.artist ?? a.artists?.[0];
+      const artists = [
+        ...new Map(
+          (a.artists?.length ? a.artists : a.artist ? [a.artist] : []).map(
+            (x) => [x.id, { id: x.id, name: x.name, picture: x.picture }],
+          ),
+        ).values(),
+      ];
       const image = getTidalImageUrl(a.cover, 1280);
       return {
         kicker:
@@ -198,7 +225,7 @@ async function loadList(
         first: page.tracks,
         total: page.tracks.length,
         album: a,
-        artist: artist ? { id: artist.id, name: artist.name } : undefined,
+        artists,
         meta: { type: "album", id: view.id, name: a.title, image },
         albumMode: true,
       };
@@ -220,11 +247,10 @@ async function loadList(
         ),
       ]);
       const title = details?.title ?? view.title ?? "Playlist";
-      // Playlist images have no 1280px size; 640 is the largest the CDN
-      // serves for both square and wide playlist art.
       const image =
-        getTidalImageUrl(details?.squareImage ?? details?.image, 640) ||
-        view.image;
+        (details?.squareImage
+          ? await sharpestSquare(details.squareImage)
+          : getTidalImageUrl(details?.image, 640)) || view.image;
       const creator = details?.creator?.name
         ? `By ${details.creator.name}`
         : details?.creator?.id === 0
@@ -254,7 +280,8 @@ async function loadList(
       const isTrackRadio = mixType === "TRACK_MIX";
       const title =
         view.title || mix.title || (isTrackRadio ? "Track Radio" : "Mix");
-      const image = view.image || mix.image || undefined;
+      // The mix's own LARGE picture; the card's is a smaller size.
+      const image = mix.image || view.image || undefined;
       const subtitle = mix.subtitle || undefined;
       const seed = isTrackRadio
         ? (view.artist ?? mix.tracks[0]?.artists?.[0] ?? mix.tracks[0]?.artist)
@@ -266,7 +293,7 @@ async function loadList(
         image,
         first: mix.tracks,
         total: mix.tracks.length,
-        artist: seed ? { id: seed.id, name: seed.name } : undefined,
+        artists: seed ? [{ id: seed.id, name: seed.name }] : undefined,
         meta: {
           type: isTrackRadio ? "radio" : "mix",
           id: view.mixId,
@@ -290,7 +317,7 @@ async function loadList(
       );
       return {
         kicker: "Collection",
-        title: "My Tracks",
+        title: "Loved Tracks",
         // Shown as the heart tile, as in the collection and on the desktop.
         heart: true,
         first: page.items,
@@ -301,14 +328,21 @@ async function loadList(
       };
     }
     case "artistTracks": {
-      const page = await getArtistTopTracksAll(
-        view.artistId,
-        0,
-        ARTIST_TRACKS_PAGE_SIZE,
-      );
+      // The artist page (cached once visited) has the picture when the view
+      // doesn't carry it, e.g. when opened from "Playing from".
+      const [page, image] = await Promise.all([
+        getArtistTopTracksAll(view.artistId, 0, ARTIST_TRACKS_PAGE_SIZE),
+        view.image
+          ? Promise.resolve(view.image)
+          : (async () =>
+              getArtistImage(await getArtistPage(view.artistId), 320) ||
+              undefined)().catch(() => undefined),
+      ]);
       return {
         kicker: "Artist",
         title: `${view.name}: Top tracks`,
+        image,
+        round: true,
         first: page.items,
         // The endpoint reports no total, so no track count is shown.
         total: page.items.length,
@@ -316,7 +350,12 @@ async function loadList(
         pager: artistTopTracksPager(view.artistId),
         // Its pages can overlap, as on the desktop ArtistTracksPage.
         dedupe: true,
-        meta: { type: "artist-tracks", id: view.artistId, name: view.name },
+        meta: {
+          type: "artist-tracks",
+          id: view.artistId,
+          name: view.name,
+          image,
+        },
       };
     }
   }
@@ -397,7 +436,7 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
   useTvInitialFocus(data !== null || error !== null);
 
   if (error) return <TvError message={error} onRetry={retry} />;
-  if (!spec) return <TvSpinner />;
+  if (!spec) return <TvSpinner screen />;
   // The list's near-end detector needs its root at mount, so the page is
   // its own component, mounted once the spec has loaded.
   return (
@@ -561,6 +600,11 @@ function TrackListPage({
               image: spec.image,
             }
           : null;
+  // The More button's menu; the Menu key opens it from the page's buttons.
+  const pageMenu = media
+    ? () =>
+        nav.mediaMenu(media, true, { creatorId: spec.playlist?.creator?.id })
+    : undefined;
   const liked =
     view.type === "album"
       ? fav.favoriteAlbumIds.has(view.id)
@@ -624,6 +668,9 @@ function TrackListPage({
     showToast("Wait for removals to finish");
     return true;
   };
+  const artists = spec.artists ?? [];
+  const goToArtist = (a: { id: number; name: string }) =>
+    nav.push({ type: "artist", id: a.id, name: a.name });
   const openSort = () => {
     if (!sortKey || removalsPending()) return;
     nav.openMenu(
@@ -645,7 +692,7 @@ function TrackListPage({
   };
   const openFilter = async () => {
     const q = await nav.prompt({
-      title: "Filter My Tracks",
+      title: "Filter Loved Tracks",
       initial: query,
       confirm: "Filter",
       allowEmpty: true,
@@ -827,7 +874,46 @@ function TrackListPage({
     listedPlaylist?.description != null
       ? listedPlaylist.description.trim() || undefined
       : spec.description;
-  const coverSize = description ? COVER_SIZE_DESCRIBED : COVER_SIZE;
+  // The cover takes what the text and buttons under it leave, so a long title
+  // or a second row of buttons never gets squeezed and clipped.
+  const infoRef = useRef<HTMLDivElement>(null);
+  const [infoHeight, setInfoHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = infoRef.current;
+    if (!el) return;
+    const measure = () => setInfoHeight(el.offsetHeight || null);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const coverSize =
+    infoHeight != null
+      ? `min(100cqw, 100cqh - ${infoHeight}px)`
+      : description
+        ? COVER_SIZE_DESCRIBED
+        : COVER_SIZE;
+  // "Read more" whenever the clamped description is cut off; the length rule
+  // covers layouts that can't be measured.
+  const descriptionRef = useRef<HTMLParagraphElement>(null);
+  const [descriptionCut, setDescriptionCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return setDescriptionCut(false);
+    const check = () =>
+      setDescriptionCut(el.scrollHeight > el.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [description]);
+  const readMore =
+    !!description &&
+    (descriptionCut ||
+      description.length > LONG_DESCRIPTION ||
+      description.includes("\n"));
   const openAbout = () =>
     nav.openMenu({
       title: "About",
@@ -846,14 +932,18 @@ function TrackListPage({
   return (
     <div className="flex h-full">
       <aside
-        ref={sideRef}
+        ref={(el) => {
+          sideRef.current = el;
+          if (pageMenu) tvMenuRef(pageMenu)(el);
+        }}
+        data-tv-has-menu={pageMenu ? true : undefined}
         data-tv-side
         data-tv-remember
         className="w-[32rem] shrink-0 h-full overflow-hidden flex flex-col justify-center pl-[3rem] pr-[1.5rem] py-[1.5rem]"
         style={{ containerType: "size" }}
       >
         <div
-          className="aspect-square shrink-0 overflow-hidden rounded-[0.8rem] bg-th-surface shadow-2xl"
+          className={`aspect-square shrink-0 overflow-hidden ${spec.round ? "rounded-full" : "rounded-[0.8rem]"} bg-th-surface shadow-2xl`}
           style={{ width: coverSize }}
         >
           {spec.heart ? (
@@ -867,121 +957,125 @@ function TrackListPage({
             <TidalImage
               src={spec.image || undefined}
               alt={title}
-              type="album"
+              type={spec.round ? "artist" : "album"}
               className="w-full h-full"
             />
           )}
         </div>
-        {spec.kicker && (
-          <p className="mt-[1.4rem] text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
-            {spec.kicker}
-          </p>
-        )}
-        <h1 className="text-[1.8rem] font-extrabold leading-tight text-th-text-primary line-clamp-2">
-          {title}
-        </h1>
-        {subtitle && (
-          <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary line-clamp-2">
-            {subtitle}
-          </p>
-        )}
-        {description && (
-          <p className="mt-[0.3rem] text-[0.8rem] text-th-text-muted line-clamp-3">
-            {description}
-          </p>
-        )}
-        {filtering && (
-          <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary truncate">
-            Filter: “{query}”
-          </p>
-        )}
-        {/* Play and Shuffle share the first line, the smaller actions the
-            second, so nothing wraps awkwardly in the narrow column. */}
-        <div
-          className="mt-[1.2rem] grid grid-cols-2 gap-[0.7rem]"
-          style={{ width: coverSize }}
-        >
-          <TvButton
-            primary
-            autoFocus
-            icon={<Play className="w-[1rem] h-[1rem]" fill="currentColor" />}
-            label="Play"
-            onClick={playAll}
-          />
-          <TvButton
-            icon={<Shuffle className="w-[1rem] h-[1rem]" />}
-            label="Shuffle"
-            onClick={shufflePlay}
-          />
-        </div>
-        <div className="mt-[0.8rem] flex flex-wrap gap-[0.7rem]">
-          {media && (
-            <TvButton
-              title={liked ? "Remove from collection" : "Add to collection"}
-              active={liked}
-              icon={
-                <Heart
-                  className="w-[1rem] h-[1rem]"
-                  fill={liked ? "currentColor" : "none"}
-                />
-              }
-              onClick={toggleLike}
-            />
+        <div ref={infoRef} className="flex shrink-0 flex-col">
+          {spec.kicker && (
+            <p className="mt-[1.4rem] text-[0.75rem] font-bold uppercase tracking-[0.15em] text-th-text-muted">
+              {spec.kicker}
+            </p>
           )}
-          {media && (
-            <TvButton
-              title="More options"
-              icon={<MoreHorizontal className="w-[1rem] h-[1rem]" />}
-              onClick={() =>
-                nav.openMenu(
-                  nav.mediaMenu(media, true, {
-                    creatorId: spec.playlist?.creator?.id,
-                  }),
-                )
-              }
-            />
+          <h1 className="text-[1.8rem] font-extrabold leading-tight text-th-text-primary line-clamp-2">
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary line-clamp-2">
+              {subtitle}
+            </p>
           )}
-          {description && description.length > LONG_DESCRIPTION && (
-            <TvButton
-              label="About"
-              icon={<Info className="w-[1rem] h-[1rem]" />}
-              onClick={openAbout}
-            />
-          )}
-          {sortKey && (
-            <TvButton
-              label={sortLabel ? `Sort: ${sortLabel}` : "Sort"}
-              icon={<SortIcon className="w-[1rem] h-[1rem]" />}
-              onClick={openSort}
-            />
-          )}
-          {view.type === "favorites" && (
-            <TvButton
-              label="Filter"
-              icon={<ListFilter className="w-[1rem] h-[1rem]" />}
-              onClick={() => void openFilter()}
-            />
+          {description && (
+            <p
+              ref={descriptionRef}
+              className="mt-[0.3rem] text-[0.8rem] text-th-text-muted line-clamp-3"
+            >
+              {description}
+            </p>
           )}
           {filtering && (
-            <TvButton
-              label="Clear"
-              icon={<X className="w-[1rem] h-[1rem]" />}
-              onClick={clearFilter}
-            />
+            <p className="mt-[0.3rem] text-[0.8rem] text-th-text-secondary truncate">
+              Filter: “{query}”
+            </p>
           )}
-          {spec.artist && (
+          {/* Play and Shuffle share the first line, the smaller actions the
+            second, so nothing wraps awkwardly in the narrow column. */}
+          <div
+            className="mt-[1.2rem] grid grid-cols-2 gap-[0.7rem]"
+            style={{ width: coverSize }}
+          >
             <TvButton
-              label={spec.artist.name}
-              title={`Go to ${spec.artist.name}`}
-              onClick={() =>
-                nav.push({
-                  type: "artist",
-                  id: spec.artist!.id,
-                  name: spec.artist!.name,
-                })
-              }
+              primary
+              autoFocus
+              icon={<Play className="w-[1rem] h-[1rem]" fill="currentColor" />}
+              label="Play"
+              onClick={playAll}
             />
-          )}
+            <TvButton
+              icon={<Shuffle className="w-[1rem] h-[1rem]" />}
+              label="Shuffle"
+              onClick={shufflePlay}
+            />
+          </div>
+          <div className="mt-[0.8rem] flex flex-wrap gap-[0.7rem]">
+            {media && (
+              <TvButton
+                title={liked ? "Remove from collection" : "Add to collection"}
+                active={liked}
+                icon={
+                  <Heart
+                    className="w-[1rem] h-[1rem]"
+                    fill={liked ? "currentColor" : "none"}
+                  />
+                }
+                onClick={toggleLike}
+              />
+            )}
+            {pageMenu && (
+              <TvButton
+                title="More options"
+                icon={<MoreHorizontal className="w-[1rem] h-[1rem]" />}
+                onClick={() => nav.openMenu(pageMenu())}
+              />
+            )}
+            {readMore && (
+              <TvButton
+                title="Read more"
+                icon={<Info className="w-[1rem] h-[1rem]" />}
+                onClick={openAbout}
+              />
+            )}
+            {sortKey && (
+              <TvButton
+                label={sortLabel ? `Sort: ${sortLabel}` : "Sort"}
+                icon={<SortIcon className="w-[1rem] h-[1rem]" />}
+                onClick={openSort}
+              />
+            )}
+            {view.type === "favorites" && (
+              <TvButton
+                label="Filter"
+                icon={<ListFilter className="w-[1rem] h-[1rem]" />}
+                onClick={() => void openFilter()}
+              />
+            )}
+            {filtering && (
+              <TvButton
+                label="Clear"
+                icon={<X className="w-[1rem] h-[1rem]" />}
+                onClick={clearFilter}
+              />
+            )}
+            {artists.length > 1 ? (
+              <TvButton
+                label="Artists"
+                icon={<Users className="w-[1rem] h-[1rem]" />}
+                onClick={() =>
+                  nav.openMenu(artistsMenu("Artists", artists, goToArtist))
+                }
+              />
+            ) : (
+              artists.map((a) => (
+                <TvButton
+                  key={a.id}
+                  label={a.name}
+                  title={`Go to ${a.name}`}
+                  onClick={() => goToArtist(a)}
+                />
+              ))
+            )}
+          </div>
         </div>
       </aside>
       <div
