@@ -15,6 +15,7 @@ import {
   Home,
   Library,
   LogOut,
+  RefreshCw,
   Search,
   Settings,
 } from "lucide-react";
@@ -24,10 +25,12 @@ import { tvModeAtom } from "../../atoms/tv";
 import { feedUnseenCountAtom } from "../../atoms/ui";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { useMiniplayerEmitter } from "../../hooks/useMiniplayerEmitter";
+import { refreshApp } from "../../lib/refreshApp";
 import {
   dockFallback,
   focusElement,
   focusFirstIn,
+  focusRememberedIn,
   isShown,
   moveFocus,
   rememberFocus,
@@ -279,6 +282,13 @@ export default function TvApp() {
     if (screen) focusFirstIn(screen);
   }, [nowPlayingOpen, stack]);
 
+  /** Drop what was kept for a screen leaving the stack. */
+  const forget = useCallback((id: number) => {
+    savedFocus.current.delete(id);
+    returnFocus.current.delete(id);
+    reopenOpener.current.delete(id);
+  }, []);
+
   const goTo = useCallback(
     (type: RootType) => {
       if (type === "nowPlaying") {
@@ -295,28 +305,27 @@ export default function TvApp() {
         }
         return;
       }
-      // The rail closes, and the new screen takes focus once it has loaded
-      // (it leaves focus alone while it is in the rail).
+      // The rail closes. A screen already on the stack is gone back to with
+      // the focus it had; a new one goes on top (so Back returns to where
+      // the rail was opened) and takes focus once it has loaded.
       const active = document.activeElement;
       if (active instanceof HTMLElement && railRef.current?.contains(active)) {
         active.blur();
       }
-      savedFocus.current.clear();
-      returnFocus.current.clear();
-      reopenOpener.current.clear();
       nowPlayingOpener.current = null;
       setNowPlayingOpen(false);
-      setStack([entry({ type })]);
+      const s = stackRef.current;
+      const at = tvStackIndexOf(s, { type });
+      if (at >= 0) {
+        for (const above of s.slice(at + 1)) forget(above.id);
+        pendingRestore.current = s[at].id;
+        setStack(s.slice(0, at + 1));
+      } else {
+        setStack([...s, entry({ type })]);
+      }
     },
-    [openNowPlaying],
+    [openNowPlaying, forget],
   );
-
-  /** Drop what was kept for a screen leaving the stack. */
-  const forget = useCallback((id: number) => {
-    savedFocus.current.delete(id);
-    returnFocus.current.delete(id);
-    reopenOpener.current.delete(id);
-  }, []);
 
   /** Put a screen on the stack, remembering where focus was below it. Opened
    *  from Now Playing, it closes the layer, and Back reopens it. A page
@@ -402,12 +411,12 @@ export default function TvApp() {
           setStack(step.stack);
           return;
         }
+        // A top-level screen goes Home; Home opens the rail.
         case "root":
-          if (!railRef.current?.contains(document.activeElement)) {
-            focusRail();
-            return;
-          }
           if (stack[0].view.type !== "home") goTo("home");
+          else if (!railRef.current?.contains(document.activeElement)) {
+            focusRail();
+          }
           return;
       }
     },
@@ -443,7 +452,14 @@ export default function TvApp() {
     savedFocus.current.delete(id);
     if (el?.isConnected) {
       focusElement(el);
+      return;
     }
+    // Left through the rail: nothing was saved, so the screen's own last
+    // focused item.
+    const screen = rootRef.current?.querySelector<HTMLElement>(
+      ".tv-screen:not(.hidden)",
+    );
+    if (screen) focusRememberedIn(screen);
   }, [stack]);
 
   const tvPlay = useTvPlayback(openNowPlaying);
@@ -577,6 +593,9 @@ export default function TvApp() {
         case "media":
           runMedia(action.command);
           return;
+        case "closeMenu":
+          menuRef.current?.close();
+          return;
         case "openMenu":
           openMenuFor(active);
           return;
@@ -631,6 +650,13 @@ export default function TvApp() {
         case "focusRail":
           focusRail();
           return;
+        case "leaveRail": {
+          const screen = rootRef.current?.querySelector<HTMLElement>(
+            ".tv-screen:not(.hidden)",
+          );
+          if (screen) focusRememberedIn(screen);
+          return;
+        }
         case "editField": {
           const el = e.target;
           if (
@@ -772,7 +798,12 @@ export default function TvApp() {
   }, []);
 
   const top = stack[stack.length - 1];
-  const rootType = nowPlayingOpen ? "nowPlaying" : stack[0].view.type;
+  // The rail marks the latest of its screens on the stack (the pages above
+  // it were opened from there).
+  const rootType = nowPlayingOpen
+    ? "nowPlaying"
+    : ([...stack].reverse().find((e) => ROOTS.has(e.view.type))?.view.type ??
+      stack[0].view.type);
 
   return (
     <TvNavContext.Provider value={nav}>
@@ -817,6 +848,16 @@ export default function TvApp() {
               </button>
             ))}
             <div className="flex-1" />
+            <button
+              data-tv-focusable
+              onClick={() => void refreshApp()}
+              className="tv-rail-item flex items-center gap-[1rem] h-[2.8rem] px-[0.85rem] rounded-[0.7rem] text-left text-th-text-muted"
+            >
+              <RefreshCw className="w-[1.3rem] h-[1.3rem] shrink-0" />
+              <span className="tv-rail-label whitespace-nowrap text-[0.85rem] font-semibold">
+                Refresh app
+              </span>
+            </button>
             <button
               data-tv-focusable
               onClick={() => setTvMode(false)}

@@ -55,6 +55,20 @@ it("repeats a held d-pad, then releases it", () => {
   act(() => vi.advanceTimersByTime(500));
   expect(seen.slice(3)).toEqual([["keyup", "ArrowDown", false]]);
 });
+it("repeats a held trigger's volume step", () => {
+  renderHook(() => useTvGamepad(true));
+  current = padObj([7]);
+  act(() => {
+    window.dispatchEvent(new Event("gamepadconnected"));
+    vi.advanceTimersByTime(20);
+  });
+  act(() => vi.advanceTimersByTime(400 + 120));
+  expect(seen).toEqual([
+    ["keydown", "AudioVolumeUp", false],
+    ["keydown", "AudioVolumeUp", true],
+    ["keydown", "AudioVolumeUp", true],
+  ]);
+});
 it("releases held keys on unmount", () => {
   const { unmount } = renderHook(() => useTvGamepad(true));
   current = padObj([0]);

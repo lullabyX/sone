@@ -131,3 +131,26 @@ describe("a page already on the stack", () => {
     expect(tvPush([...s, search], { ...search, id: 4 }, false)).toHaveLength(4);
   });
 });
+
+describe("rail screens", () => {
+  it("a rail pick goes on top, so Back returns to where the rail was opened", () => {
+    const s = [e(1, "home"), e(2, "collection"), e(3, "favorites")];
+    const picked = tvPush(s, e(4, "settings"), false);
+    expect(picked).toEqual([...s, e(4, "settings")]);
+    expect(tvBackStep(picked, false)).toMatchObject({ kind: "pop", stack: s });
+  });
+  it("picking a rail screen already open goes back to it", () => {
+    const s = [
+      e(1, "home"),
+      e(2, "collection"),
+      e(3, "favorites"),
+      e(4, "settings"),
+    ];
+    expect(tvPush(s, e(5, "home"), false)).toEqual([e(1, "home")]);
+    expect(tvPush(s, e(5, "collection"), false)).toEqual([
+      e(1, "home"),
+      e(2, "collection"),
+    ]);
+    expect(tvStackIndexOf(s, { type: "settings" })).toBe(3);
+  });
+});

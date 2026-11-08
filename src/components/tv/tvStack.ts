@@ -8,9 +8,17 @@ export interface TvStackEntry {
   returnTo?: "nowPlaying";
 }
 
-/** What makes two views the same page, for the pages that show one item. */
+/** What makes two views the same page: the rail's screens, and the pages
+ *  that show one item. */
 function pageIdentity(view: TvView): string | null {
   switch (view.type) {
+    case "home":
+    case "search":
+    case "explore":
+    case "feed":
+    case "collection":
+    case "settings":
+      return `root:${view.type}`;
     case "album":
       return `album:${view.id}`;
     case "playlist":

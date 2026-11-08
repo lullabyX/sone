@@ -3,15 +3,24 @@ import { dispatchTvKey, heldKeys, padKeys, readPads } from "./tvGamepad";
 
 const TV_PAD_REPEAT_DELAY_MS = 400;
 const TV_PAD_REPEAT_MS = 110;
-const ARROWS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+const REPEATS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "AudioVolumeUp",
+  "AudioVolumeDown",
+]);
 
 /**
  * Turns gamepad input into the keys a remote sends. Polls once a frame
- * while a pad is connected; held arrows repeat like a held remote key.
+ * while a pad is connected; held arrows and volume repeat like a held
+ * remote key.
  */
 export function useTvGamepad(enabled: boolean): void {
   const held = useRef(new Set<string>());
   const repeatAt = useRef(new Map<string, number>());
+  const triggerAxes = useRef(new Map<string, Set<number>>());
 
   useEffect(() => {
     if (!enabled || typeof navigator.getGamepads !== "function") return;
@@ -26,7 +35,10 @@ export function useTvGamepad(enabled: boolean): void {
     const tick = () => {
       frame = requestAnimationFrame(tick);
       if (document.hidden) return;
-      const next = heldKeys(readPads(pads()), held.current);
+      const next = heldKeys(
+        readPads(pads(), triggerAxes.current),
+        held.current,
+      );
       const { down, up } = padKeys(held.current, next);
       held.current = next;
       const now = performance.now();
@@ -40,7 +52,7 @@ export function useTvGamepad(enabled: boolean): void {
         dispatchTvKey("keydown", key, true);
       }
       for (const key of down) {
-        if (ARROWS.has(key)) {
+        if (REPEATS.has(key)) {
           repeatAt.current.set(key, now + TV_PAD_REPEAT_DELAY_MS);
         }
         dispatchTvKey("keydown", key);

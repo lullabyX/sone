@@ -5,6 +5,7 @@ import { useContext, useEffect, type ReactNode } from "react";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
 }));
+vi.mock("../../lib/refreshApp", () => ({ refreshApp: vi.fn(async () => {}) }));
 vi.mock("../ProxyNoticeBanner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../ProxyNoticeBanner")>()),
   default: () => null,
@@ -73,6 +74,7 @@ vi.mock(
 );
 
 import { invoke } from "@tauri-apps/api/core";
+import { refreshApp } from "../../lib/refreshApp";
 import { allPlaylistsAtom } from "../../atoms/playlists";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { DISMISS_PRIORITY, registerDismissable } from "../../lib/dismissStack";
@@ -294,6 +296,53 @@ describe("the layers and the rail", () => {
     off();
     document.querySelector("#video")?.remove();
     document.querySelector("#sheet")?.remove();
+  });
+
+  it("the rail's Refresh app clears the cache and reloads", () => {
+    renderTv(<TvApp />, { store: signedIn(42) });
+    press("Refresh app");
+    expect(refreshApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("a rail detour returns to the page it left, with its focus", () => {
+    renderTv(<TvApp />, { store: signedIn(42) });
+    press("My Collection");
+    press("collection: open P");
+    expect(activeScreen()).toBe("playlist:p");
+    const row = screen.getByRole("button", { name: "playlist:p: open album" });
+    act(() => row.focus());
+    press("Settings");
+    expect(activeScreen()).toBe("settings");
+    back();
+    expect(activeScreen()).toBe("playlist:p");
+    expect(document.activeElement).toBe(row);
+    back();
+    expect(activeScreen()).toBe("collection");
+    // Picking Home from the rail goes back to it, not on top.
+    press("Settings");
+    press("Home");
+    expect(activeScreen()).toBe("home");
+    back();
+    expect(activeScreen()).toBe("home");
+  });
+
+  it("Back on a top-level screen goes Home; Back on Home opens the rail", () => {
+    renderTv(<TvApp />, { store: signedIn(42) });
+    expect(activeScreen()).toBe("home");
+    press("Settings");
+    expect(activeScreen()).toBe("settings");
+    back();
+    expect(activeScreen()).toBe("home");
+    back();
+    expect(activeScreen()).toBe("home");
+    expect(document.activeElement?.closest("nav")).not.toBeNull();
+    // Back on the rail closes it, back to the screen.
+    back();
+    expect(activeScreen()).toBe("home");
+    expect(document.activeElement?.closest("nav")).toBeNull();
+    expect(
+      document.activeElement?.closest("[data-testid='home']"),
+    ).not.toBeNull();
   });
 
   it("in More settings, the arrows stay in a confirmation open over the sheet", () => {

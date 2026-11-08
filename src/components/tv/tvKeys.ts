@@ -92,9 +92,11 @@ export type TvKeyAction =
   | { type: "move"; dir: Direction; enterSide: boolean }
   | { type: "focusContent" }
   | { type: "focusRail" }
+  | { type: "leaveRail" }
   | { type: "back" }
   | { type: "nativeEscape" }
   | { type: "openMenu" }
+  | { type: "closeMenu" }
   | { type: "pressStart" }
   | { type: "editField" }
   | { type: "videoToggle" }
@@ -235,7 +237,18 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
   }
   if (f.video) return routeVideoKey(f, f.video);
 
-  if (f.key === "ContextMenu") return { type: "openMenu" };
+  // The Menu key toggles the action menu, as the Home key does the rail.
+  if (f.key === "ContextMenu") {
+    if (f.layer === "menu")
+      return f.repeat ? { type: "swallow" } : { type: "closeMenu" };
+    return { type: "openMenu" };
+  }
+  // A remote's Home key (a controller's Create / View): the rail from
+  // anywhere, and back to the screen from the rail.
+  if (f.key === "BrowserHome") {
+    if (f.layer !== "none" || f.repeat) return { type: "swallow" };
+    return f.focus === "rail" ? { type: "leaveRail" } : { type: "focusRail" };
+  }
   if (f.key === "Enter") {
     // While Enter is held after a long press, its auto-repeat must not
     // activate whatever the menu focused (its first entry).
@@ -275,7 +288,12 @@ export function routeTvKey(f: TvKeyFacts): TvKeyAction {
     if (f.layer === "native" && f.key === "Escape") return { type: "none" };
     // A held Back goes back once.
     if (f.repeat) return { type: "swallow" };
-    return f.layer === "native" ? { type: "nativeEscape" } : { type: "back" };
+    if (f.layer === "native") return { type: "nativeEscape" };
+    // On the rail, Back closes it and returns to the screen.
+    if (f.layer === "none" && f.focus === "rail") {
+      return { type: "leaveRail" };
+    }
+    return { type: "back" };
   }
   return { type: "none" };
 }

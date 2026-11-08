@@ -166,6 +166,17 @@ export function rememberFocus(el: HTMLElement) {
   }
 }
 
+/** Focus `scope`'s last focused child (a `data-tv-remember` group) when it is
+ *  still on screen, else its first item. */
+export function focusRememberedIn(scope: HTMLElement): boolean {
+  const prev = lastFocused.get(scope);
+  if (prev && prev.isConnected && scope.contains(prev) && isShown(prev)) {
+    focusElement(prev);
+    return true;
+  }
+  return focusFirstIn(scope);
+}
+
 /** If `target` sits in a remembering group that `from` is outside of, the
  *  group's last focused child (when it is still on screen) wins. The
  *  outermost such group decides, so re-entering the content area from the

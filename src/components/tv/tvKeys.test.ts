@@ -73,6 +73,12 @@ it("characterizes today's routing", () => {
   expect(r({ key: "Enter" })).toEqual({ type: "none" });
   expect(r({ key: "Enter", repeat: true })).toEqual({ type: "swallow" });
   expect(r({ key: "ContextMenu" })).toEqual({ type: "openMenu" });
+  expect(r({ key: "ContextMenu", layer: "menu" })).toEqual({
+    type: "closeMenu",
+  });
+  expect(r({ key: "ContextMenu", layer: "menu", repeat: true })).toEqual({
+    type: "swallow",
+  });
   expect(r({ key: "MediaPlayPause" })).toEqual({
     type: "media",
     command: { kind: "toggle" },
@@ -308,4 +314,26 @@ it("a layer shown over the video gets the keys, as without the video", () => {
   expect(r({ key: "BrowserBack", layer: "native" })).toEqual({
     type: "nativeEscape",
   });
+});
+
+it("the Home key opens the rail and, from the rail, goes back to the screen", () => {
+  expect(r({ key: "BrowserHome" })).toEqual({ type: "focusRail" });
+  expect(r({ key: "BrowserHome", focus: "lost" })).toEqual({
+    type: "focusRail",
+  });
+  expect(r({ key: "BrowserHome", focus: "rail" })).toEqual({
+    type: "leaveRail",
+  });
+  // Never out of a menu, prompt or desktop dialog.
+  for (const layer of ["menu", "prompt", "native"] as const) {
+    expect(r({ key: "BrowserHome", layer })).toEqual({ type: "swallow" });
+  }
+  expect(r({ key: "BrowserHome", repeat: true })).toEqual({ type: "swallow" });
+});
+
+it("Back closes the rail, back to the screen", () => {
+  for (const key of ["Escape", "Backspace", "BrowserBack"]) {
+    expect(r({ key, focus: "rail" })).toEqual({ type: "leaveRail" });
+  }
+  expect(r({ key: "Escape", focus: "content" })).toEqual({ type: "back" });
 });
