@@ -162,6 +162,19 @@ fn main() {
             }
         }
 
+        // WebKit paints on the CPU on this path, so hardware-decoded video frames
+        // are copied back out of GPU memory anyway: the NVIDIA decoder saved no
+        // CPU (21% vs 20% measured) and cost ~300 MB while playing plus ~100 MB
+        // kept afterwards. Rank it out so GStreamer picks libav; the web process
+        // inherits this environment.
+        if resolution.path == render_mode::EffectivePath::Cpu {
+            let existing = std::env::var("GST_PLUGIN_FEATURE_RANK").ok();
+            std::env::set_var(
+                "GST_PLUGIN_FEATURE_RANK",
+                gst_feature_rank_choice(existing.as_deref()),
+            );
+        }
+
         // libsoup3 over HTTP/2 can hang forever on a connection the CDN dropped
         // while the buffer was full, starving playback with no error to retry on
         // (libsoup#296, sone#252). HTTP/1.1 surfaces the drop and souphttpsrc
@@ -245,9 +258,86 @@ fn gst_plugin_path_choice(
     existing_dirs.first().map(|dir| dir.to_string())
 }
 
+/// Video decoders of GStreamer's `nvcodec` plugin, under the names used by
+/// 1.22 (`*sldec`), 1.24 and 1.26 (`nvautogpu*`). Unknown names are ignored.
+#[cfg(target_os = "linux")]
+const NVCODEC_VIDEO_DECODERS: [&str; 18] = [
+    "nvh264dec",
+    "nvh265dec",
+    "nvav1dec",
+    "nvvp8dec",
+    "nvvp9dec",
+    "nvmpegvideodec",
+    "nvmpeg2videodec",
+    "nvmpeg4videodec",
+    "nvh264sldec",
+    "nvh265sldec",
+    "nvav1sldec",
+    "nvvp8sldec",
+    "nvvp9sldec",
+    "nvautogpuh264dec",
+    "nvautogpuh265dec",
+    "nvautogpuav1dec",
+    "nvautogpuvp8dec",
+    "nvautogpuvp9dec",
+];
+
+/// `GST_PLUGIN_FEATURE_RANK` with the NVIDIA video decoders ranked out, keeping
+/// every entry the user already set; a feature they named is left to them.
+#[cfg(target_os = "linux")]
+fn gst_feature_rank_choice(existing: Option<&str>) -> String {
+    let user: Vec<&str> = existing
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .collect();
+    let named = |feature: &str| {
+        user.iter()
+            .any(|e| e.split(':').next().map(str::trim) == Some(feature))
+    };
+    user.iter()
+        .map(|e| e.to_string())
+        .chain(
+            NVCODEC_VIDEO_DECODERS
+                .iter()
+                .filter(|f| !named(f))
+                .map(|f| format!("{f}:NONE")),
+        )
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::{gst_plugin_path_choice, should_record_launch_bypass, should_scrub_proxy_env};
+    use super::{
+        gst_feature_rank_choice, gst_plugin_path_choice, should_record_launch_bypass,
+        should_scrub_proxy_env, NVCODEC_VIDEO_DECODERS,
+    };
+
+    #[test]
+    fn nvidia_video_decoders_are_ranked_out() {
+        let v = gst_feature_rank_choice(None);
+        for f in NVCODEC_VIDEO_DECODERS {
+            assert!(v.split(',').any(|e| e == format!("{f}:NONE")), "{f}");
+        }
+    }
+
+    #[test]
+    fn user_rank_entries_survive_and_win_for_their_feature() {
+        let v = gst_feature_rank_choice(Some("qtdemux:256, nvh264dec:MAX ,"));
+        let entries: Vec<&str> = v.split(',').collect();
+        assert_eq!(entries[0], "qtdemux:256");
+        assert_eq!(entries[1], "nvh264dec:MAX");
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|e| e.starts_with("nvh264dec:"))
+                .count(),
+            1
+        );
+        assert!(entries.contains(&"nvh265dec:NONE"));
+    }
 
     #[test]
     fn a_recorded_enabled_proxy_scrubs_whatever_its_type() {
