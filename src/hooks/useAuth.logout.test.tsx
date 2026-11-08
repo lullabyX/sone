@@ -11,6 +11,10 @@ vi.mock("../api/tidal", () => ({
   getPlaylistFolders: vi.fn(),
   normalizePlaylistFolders: vi.fn(),
 }));
+vi.mock("./useHomeFeed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./useHomeFeed")>()),
+  resetHomeFeed: vi.fn(),
+}));
 
 import { useAuth } from "./useAuth";
 import { usePlaySource } from "./usePlaySource";
@@ -22,6 +26,8 @@ import { userNameAtom, currentUserAvatarAtom } from "../atoms/auth";
 import { favoriteAlbumIdsAtom, favoriteMixIdsAtom } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
 import { allFoldersFetchedAtom } from "../atoms/playlists";
+import { tvSearchQueryAtom } from "../atoms/tv";
+import { resetHomeFeed } from "./useHomeFeed";
 
 describe("useAuth logout", () => {
   beforeEach(() => {
@@ -54,6 +60,23 @@ describe("useAuth logout", () => {
     expect(store.get(currentViewAtom)).toEqual({ type: "home" });
     expect(store.get(allFoldersFetchedAtom)).toBe(false);
     expect(localStorage.getItem("sone.search-history")).toBeNull();
+  });
+
+  it("forgets the Home feed and the TV search on logout", async () => {
+    const store = createStore();
+    store.set(tvSearchQueryAtom, "queen");
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    vi.mocked(resetHomeFeed).mockClear();
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(resetHomeFeed).toHaveBeenCalledTimes(1);
+    expect(store.get(tvSearchQueryAtom)).toBe("");
   });
 
   it("stops a paged source from appending after logout", async () => {

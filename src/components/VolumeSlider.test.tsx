@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { cleanup, render, fireEvent, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import type { PropsWithChildren } from "react";
 
@@ -10,15 +10,35 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import VolumeSlider from "./VolumeSlider";
-import { volumeAtom, bitPerfectAtom } from "../atoms/playback";
+import {
+  volumeAtom,
+  bitPerfectAtom,
+  preMuteVolumeAtom,
+} from "../atoms/playback";
+import { currentVideoAtom } from "../atoms/video";
+import type { TidalVideo } from "../types";
 // usePlaybackActions (used by VolumeSlider) calls useToast(), which throws
 // outside a ToastProvider — so the rendered tree must be wrapped in it.
 import { ToastProvider } from "../contexts/ToastContext";
 
-function setup(initial: { volume?: number; bitPerfect?: boolean } = {}) {
+afterEach(cleanup);
+
+function setup(
+  initial: {
+    volume?: number;
+    bitPerfect?: boolean;
+    currentVideo?: boolean;
+  } = {},
+) {
   const store = createStore();
   store.set(volumeAtom, initial.volume ?? 0.5);
   store.set(bitPerfectAtom, initial.bitPerfect ?? false);
+  if (initial.currentVideo)
+    store.set(currentVideoAtom, {
+      id: 9,
+      title: "V",
+      duration: 100,
+    } as TidalVideo);
   const wrapper = ({ children }: PropsWithChildren) => (
     <Provider store={store}>
       <ToastProvider>{children}</ToastProvider>
@@ -61,6 +81,16 @@ describe("VolumeSlider scroll-to-adjust", () => {
     expect(store.get(volumeAtom)).toBe(0.5);
   });
 
+  it("scrolling adjusts video volume while bit-perfect is on", () => {
+    const { store, el } = setup({
+      volume: 0.5,
+      bitPerfect: true,
+      currentVideo: true,
+    });
+    fireEvent.wheel(el, { deltaY: -100 });
+    expect(store.get(volumeAtom)).toBeCloseTo(0.55, 5);
+  });
+
   it("reads the latest volume across successive scrolls (no stale closure)", () => {
     const { store, el } = setup({ volume: 0.5 });
     fireEvent.wheel(el, { deltaY: -100 });
@@ -76,5 +106,47 @@ describe("VolumeSlider scroll-to-adjust", () => {
   it("does not prevent default while bit-perfect is active", () => {
     const { el } = setup({ volume: 0.5, bitPerfect: true });
     expect(fireEvent.wheel(el, { deltaY: -100 })).toBe(true);
+  });
+});
+
+it("names its slider", () => {
+  setup();
+  expect(screen.getByRole("slider", { name: "Volume" })).toBeTruthy();
+});
+
+describe("VolumeSlider mute button", () => {
+  it("unmutes to the level from before mute", () => {
+    const { store } = setup({ volume: 0.6 });
+    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
+    expect(store.get(volumeAtom)).toBe(0);
+    expect(store.get(preMuteVolumeAtom)).toBe(0.6);
+    fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+    expect(store.get(volumeAtom)).toBe(0.6);
+  });
+
+  it("unmutes to half volume when no level was saved", () => {
+    const { store } = setup({ volume: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+    expect(store.get(volumeAtom)).toBe(0.5);
+  });
+
+  it("does nothing while bit-perfect locks the volume", () => {
+    const { store } = setup({ volume: 0.6, bitPerfect: true });
+    const button = screen.getByRole("button", { name: "Mute" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    expect(store.get(volumeAtom)).toBe(0.6);
+    expect(store.get(preMuteVolumeAtom)).toBe(0);
+  });
+
+  it("mutes a video while bit-perfect is on", () => {
+    const { store } = setup({
+      volume: 0.6,
+      bitPerfect: true,
+      currentVideo: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
+    expect(store.get(volumeAtom)).toBe(0);
+    expect(store.get(preMuteVolumeAtom)).toBe(0.6);
   });
 });

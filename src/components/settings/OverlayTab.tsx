@@ -221,6 +221,7 @@ export default function OverlayTab() {
         <div className="flex items-center gap-2 mb-1">
           <input
             type="text"
+            aria-label="Network interface"
             value={hostInput}
             placeholder="127.0.0.1"
             onChange={(e) => setHostInput(e.target.value)}
@@ -250,6 +251,7 @@ export default function OverlayTab() {
         <div className="flex items-center gap-2">
           <input
             type="number"
+            aria-label="Port"
             min={1024}
             max={65535}
             value={portInput}

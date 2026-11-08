@@ -32,6 +32,7 @@ import {
   consecutiveFailCountAtom,
   userPausedAtom,
   queueEpochAtom,
+  isVolumeLocked,
 } from "../atoms/playback";
 import {
   currentVideoAtom,
@@ -39,6 +40,7 @@ import {
   videoPlayingAtom,
   videoExpandedAtom,
 } from "../atoms/video";
+import { tvVolumeLockedPingAtom } from "../atoms/tv";
 import { getMixItems, checkNetworkError } from "../api/tidal";
 import { useToast } from "../contexts/ToastContext";
 import { stampQid, stampQids, ensureQid } from "../lib/qid";
@@ -53,7 +55,7 @@ import {
   isUnplayableError,
   retryAfterSecs,
 } from "../lib/trackAvailability";
-import { getProxyBlockedReason } from "../lib/errorUtils";
+import { getProxyBlockedReason, isNetworkError } from "../lib/errorUtils";
 import {
   blockedMessage,
   contentBlockReason,
@@ -153,16 +155,6 @@ function extractPlaybackError(error: unknown): string {
 /** Check if an error is a device_busy error from exclusive ALSA mode. */
 function isDeviceBusy(error: unknown): boolean {
   return extractPlaybackError(error) === "device_busy";
-}
-
-/** Check if an error is a network error (SoneError::Network). */
-function isNetworkError(error: unknown): boolean {
-  try {
-    const parsed = typeof error === "string" ? JSON.parse(error) : error;
-    return parsed?.kind === "Network";
-  } catch {
-    return false;
-  }
 }
 
 function fisherYatesShuffle<T>(arr: T[]): T[] {
@@ -663,15 +655,14 @@ export function usePlaybackActions() {
 
   const setVolume = useCallback(
     async (level: number) => {
-      const bitPerfect = store.get(bitPerfectAtom);
-      const isVideo = !!store.get(currentVideoAtom);
-      // Bit-perfect audio stays locked at unity; video audio is lossy, so the
-      // slider must still work for it.
-      if (bitPerfect && !isVideo) return;
+      if (isVolumeLocked(store)) {
+        store.set(tvVolumeLockedPingAtom, (n) => n + 1);
+        return;
+      }
       store.set(volumeAtom, level); // the <video> element reads this atom
       // Never push a non-unity level to the GStreamer pipeline while bit-perfect
       // is on — that would attenuate (and un-bit-perfect) audio playback.
-      if (bitPerfect) return;
+      if (store.get(bitPerfectAtom)) return;
       try {
         await invoke("set_volume", { level });
       } catch (error) {

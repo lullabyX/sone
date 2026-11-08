@@ -1,6 +1,9 @@
-import { atom } from "jotai";
+import { atom, type createStore } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Track, StreamInfo, PlaybackSource } from "../types";
+import { currentVideoAtom } from "./video";
+
+type Store = ReturnType<typeof createStore>;
 
 export interface DacHwParams {
   cardIndex: number;
@@ -76,6 +79,22 @@ export const queueAtom = atom<Track[]>([]);
 export const historyAtom = atom<Track[]>([]);
 export const streamInfoAtom = atom<StreamInfo | null>(null);
 export const preMuteVolumeAtom = atom<number>(0);
+
+/** Mute keeps the level to come back to; unmute returns to it (or half
+ *  volume when none was kept). Every mute control goes through this. */
+export function toggleMute(
+  store: Store,
+  setVolume: (level: number) => unknown,
+): void {
+  const volume = store.get(volumeAtom);
+  if (volume > 0) {
+    store.set(preMuteVolumeAtom, volume);
+    void setVolume(0);
+  } else {
+    void setVolume(store.get(preMuteVolumeAtom) || 0.5);
+  }
+}
+
 export const autoplayAtom = atomWithStorage("sone.autoplay.v1", false);
 
 /** true = use track replay gain (shuffle/mixed queue), false = use album replay gain (album in order) */
@@ -102,6 +121,13 @@ export const allowAiAtom = atomWithStorage("sone.allowAi.v1", true, undefined, {
 
 export const exclusiveModeAtom = atom(false);
 export const bitPerfectAtom = atom(false);
+
+/** Bit-perfect locks volume at unity, but only for audio: video audio is
+ *  lossy and plays through the <video> element, so it stays adjustable. */
+export const volumeLockedAtom = atom(
+  (get) => get(bitPerfectAtom) && !get(currentVideoAtom),
+);
+export const isVolumeLocked = (store: Store) => store.get(volumeLockedAtom);
 
 /** Gapless playback kill-switch (Normal mode only). Default ON. */
 export const gaplessAtom = atom(true);

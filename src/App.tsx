@@ -18,19 +18,28 @@ import ExploreSubPage from "./components/ExploreSubPage";
 import FeedPage from "./components/FeedPage";
 import LibraryViewAll from "./components/LibraryViewAll";
 import Login from "./components/Login";
+import TvApp from "./components/tv/TvApp";
 import { AppInitializer } from "./components/AppInitializer";
 import ProxyNoticeBanner from "./components/ProxyNoticeBanner";
 import RenderTrialDialog from "./components/RenderTrialDialog";
 import TooltipLayer from "./components/TooltipLayer";
+import VideoPlayer from "./components/VideoPlayer";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigation } from "./hooks/useNavigation";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { currentViewAtom } from "./atoms/navigation";
-import { isAuthCheckingAtom } from "./atoms/auth";
+import { isAuthCheckingAtom, isAuthenticatedAtom } from "./atoms/auth";
+import { currentVideoAtom } from "./atoms/video";
 import { decorationsAtom, hideTitleBarAtom } from "./atoms/ui";
+import { tvModeAtom } from "./atoms/tv";
 import { ToastProvider } from "./contexts/ToastContext";
 import { useTheme } from "./hooks/useTheme";
 import { useZoom } from "./hooks/useZoom";
+import { useTvLaunch } from "./hooks/useTvLaunch";
+import TvLogin from "./components/tv/TvLogin";
+import TvShell from "./components/tv/TvShell";
+import TvCrashScreen from "./components/tv/TvCrashScreen";
+import { TvSpinner } from "./components/tv/TvParts";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./App.css";
 
@@ -56,6 +65,40 @@ function AppContent() {
   const isAuthChecking = useAtomValue(isAuthCheckingAtom);
   const { navigateHome, navigateToExplore } = useNavigation();
   const currentView = useAtomValue(currentViewAtom);
+  const tvMode = useAtomValue(tvModeAtom);
+  const setTvMode = useSetAtom(tvModeAtom);
+
+  // Every TV branch has TvShell as its root, so it stays mounted across
+  // sign-in and sign-out. "Exit TV mode" on the crash screen leaves TV mode.
+  if (tvMode) {
+    return (
+      <TvShell>
+        {isAuthChecking ? (
+          <TvSpinner />
+        ) : !isAuthenticated ? (
+          <ErrorBoundary
+            key="tv-login"
+            onGoHome={() => setTvMode(false)}
+            fallback={(a) => (
+              <TvCrashScreen onReload={a.reload} onExit={a.goHome} />
+            )}
+          >
+            <TvLogin />
+          </ErrorBoundary>
+        ) : (
+          <ErrorBoundary
+            key="tv-app"
+            onGoHome={() => setTvMode(false)}
+            fallback={(a) => (
+              <TvCrashScreen onReload={a.reload} onExit={a.goHome} />
+            )}
+          >
+            <TvApp />
+          </ErrorBoundary>
+        )}
+      </TvShell>
+    );
+  }
 
   if (isAuthChecking) {
     return (
@@ -190,9 +233,18 @@ function AppContent() {
   );
 }
 
+// One player for both layouts, so turning TV mode on or off never remounts
+// it and the video carries on where it was.
+function AppVideo() {
+  const isAuthenticated = useAtomValue(isAuthenticatedAtom);
+  const currentVideo = useAtomValue(currentVideoAtom);
+  return isAuthenticated && currentVideo ? <VideoPlayer /> : null;
+}
+
 function App() {
   useZoom();
   useTheme();
+  useTvLaunch();
 
   // Disable the default browser/webview context menu globally
   useEffect(() => {
@@ -208,6 +260,7 @@ function App() {
       {/* Outside AppContent so the login screen and the app share one mount. */}
       <RenderTrialDialog />
       <AppContent />
+      <AppVideo />
     </ToastProvider>
   );
 }

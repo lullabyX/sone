@@ -1,0 +1,299 @@
+/* TV interface. Sizes are in rem and the root font size follows the screen
+   size, so the layout looks the same from 720p to 4K at couch distance:
+   1920x1080 → 24px per rem. Whichever of width and height is relatively
+   smaller wins, so an ultrawide screen gets the size of a 16:9 screen of
+   the same height (plus more cards per row) instead of oversized UI. */
+html.tv-mode {
+  font-size: clamp(14px, min(1.25vw, 2.2222vh), 72px);
+}
+
+.tv-cursor-hidden,
+.tv-cursor-hidden * {
+  cursor: none !important;
+}
+
+.tv-screen,
+.tv-scroll {
+  scrollbar-width: none;
+}
+.tv-screen::-webkit-scrollbar,
+.tv-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.tv-row {
+  scrollbar-width: none;
+}
+.tv-row::-webkit-scrollbar {
+  display: none;
+}
+
+/* Keep focused items clear of the screen edges when scrolled into view. */
+.tv-root [data-tv-focusable] {
+  scroll-margin: 2.5rem 3rem 3.5rem 3rem;
+  outline: none;
+}
+
+/* ── Focus treatment ─────────────────────────────────────────────── */
+
+.tv-card {
+  transition: transform 140ms ease-out;
+}
+.tv-card-art {
+  transition: box-shadow 140ms ease-out;
+}
+.tv-card:focus {
+  transform: scale(1.07);
+}
+.tv-card:focus .tv-card-art {
+  box-shadow:
+    0 0 0 0.2rem var(--th-accent),
+    0 0.8rem 2rem rgba(0, 0, 0, 0.5);
+}
+
+.tv-button,
+.tv-key,
+.tv-input {
+  transition:
+    transform 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+/* A light ring, so it also shows on accent-filled buttons. */
+.tv-button:focus,
+.tv-key:focus {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 0.15rem var(--th-text-primary);
+}
+.tv-key:focus {
+  background: var(--th-accent);
+  color: var(--th-on-accent);
+}
+.tv-input:focus-within {
+  box-shadow: 0 0 0 0.15rem var(--th-accent);
+}
+
+.tv-track:focus {
+  background: var(--th-hl-med);
+  box-shadow: inset 0 0 0 0.12rem var(--th-accent);
+}
+
+/* A cut-off title ends in an ellipsis; when its item is focused it glides
+   to its end and back once (armed by armMarquee, which sets the shift and
+   re-arms it on every focus). */
+.tv-marquee {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@keyframes tv-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--tv-marquee-shift));
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-tv-focusable]:focus
+    .tv-marquee[data-overflow]:not([data-marquee-done]) {
+    text-overflow: clip;
+  }
+  [data-tv-focusable]:focus
+    .tv-marquee[data-overflow]:not([data-marquee-done])
+    > span {
+    display: inline-block;
+    animation: tv-marquee var(--tv-marquee-duration) linear 1s 2 alternate;
+  }
+}
+
+.tv-progress:focus {
+  box-shadow: 0 0 0 0.15rem var(--th-accent);
+}
+.tv-progress:focus .tv-progress-thumb {
+  opacity: 1;
+}
+
+/* ── Nav rail: hidden off-screen, slides in while it has focus ──────
+   It stays laid out (only translated away), so Left from the leftmost
+   item and Back can still move focus into it. */
+
+.tv-rail {
+  width: 15rem;
+  transform: translateX(-100%);
+  transition:
+    transform 180ms ease-out,
+    box-shadow 180ms ease-out;
+}
+.tv-rail:focus-within {
+  transform: translateX(0);
+  box-shadow: 1rem 0 3rem rgba(0, 0, 0, 0.45);
+}
+.tv-rail-item:focus {
+  background: var(--th-hl-med);
+  color: var(--th-text-primary);
+}
+
+/* The action menu slides in from the right like the rail from the left,
+   and out again (TvMenuHost keeps it drawn for MENU_SLIDE_MS). Its own
+   layer, so the slide moves it instead of repainting it. */
+.tv-menu-panel {
+  animation: tv-menu-in 180ms ease-out;
+  will-change: transform;
+}
+.tv-menu-panel[data-closing] {
+  animation: tv-menu-out 180ms ease-in forwards;
+}
+@keyframes tv-menu-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes tv-menu-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Focus and the rail change at once, without the zoom or the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .tv-card,
+  .tv-card-art,
+  .tv-button,
+  .tv-key,
+  .tv-input,
+  .tv-rail {
+    transition: none;
+  }
+  .tv-menu-panel {
+    animation: none;
+  }
+  .tv-menu-panel[data-closing] {
+    visibility: hidden;
+  }
+}
+
+/* The desktop settings sheet opened from TV mode: give its controls the
+   same visible focus ring as the TV screens. */
+.tv-mode [data-tv-native] :focus {
+  outline: 3px solid var(--th-text-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--th-accent) 45%, transparent);
+  border-radius: 8px;
+}
+
+/* Hosted desktop dialogs fit the screen height inside the margin, in the
+   layer's own (unzoomed) px. */
+.tv-mode [data-tv-native] [data-tv-sheet] {
+  height: min(var(--tv-native-fit-h), 740px);
+}
+.tv-mode [data-tv-native] [data-tv-fit] {
+  max-height: var(--tv-native-fit-h);
+  overflow-y: auto;
+}
+
+/* Toasts are sized in px for the desktop; scale them up on a TV. */
+.tv-mode .sone-toasts {
+  zoom: var(--tv-px-scale, 1);
+}
+
+/* The proxy notice is sized in px for the desktop; scale it up on a TV.
+   12px (not its 11.5px) so the text stays at 0.75rem once zoomed. */
+.tv-mode .sone-proxy-banner {
+  zoom: var(--tv-px-scale, 1);
+}
+.tv-mode .sone-proxy-banner :is(span, button) {
+  font-size: 12px;
+}
+.tv-mode .sone-proxy-banner button:focus {
+  box-shadow: 0 0 0 3px var(--th-text-primary);
+  outline: none;
+}
+
+/* Overlays outside the TV shell (menu, prompt) keep their content inside
+   the screen margin; their backdrop still covers the whole screen. */
+.tv-mode .tv-overlay {
+  padding: var(--tv-safe-y, 0px) var(--tv-safe-x, 0px);
+}
+
+/* The full-screen video sits inside the screen margin, black around it. */
+.tv-mode [data-tv-video]:not(.hidden):not([data-tv-video-mini]) {
+  inset: var(--tv-safe-y, 0px) var(--tv-safe-x, 0px);
+  box-shadow: 0 0 0 100vmax #000;
+}
+
+/* The video player's control bars are sized in px for the desktop; scale
+   them up on a TV (marked by TvApp when the player mounts). */
+.tv-mode [data-tv-video] > .z-20 {
+  zoom: var(--tv-px-scale, 1);
+}
+/* On the TV the app is always full screen, and a track's actions are in the
+   Now Playing menu; the player's own fullscreen and "More options" buttons
+   (a desktop context menu) are left out. */
+.tv-mode [data-tv-video] button[title="Fullscreen"],
+.tv-mode [data-tv-video] button[title="Exit fullscreen"],
+.tv-mode [data-tv-video] button[title="More options"] {
+  display: none;
+}
+
+/* The full-screen video keeps only what a remote needs: like, previous,
+   play/pause, next, quality and volume. Shuffle, repeat and the rest live in
+   Now Playing; Back minimizes. */
+.tv-mode [data-tv-video] button[title="Shuffle"],
+.tv-mode [data-tv-video] button[title="Repeat"],
+.tv-mode [data-tv-video] button[title="Minimize video"] {
+  display: none;
+}
+
+/* The volume slider is the last control, so Left/Right on it (which change
+   the volume) never cut the remote off from another button. Its range input
+   is transparent: the group shows the focus ring and the thumb while the
+   slider has focus (the speaker button keeps its own ring). */
+.tv-mode [data-tv-video] .group\/vol {
+  order: 1;
+}
+.tv-mode [data-tv-video] .group\/vol:has(input:focus) {
+  outline: 3px solid var(--th-text-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--th-accent) 45%, transparent);
+  border-radius: 8px;
+}
+.tv-mode [data-tv-video] .group\/vol:has(input:focus) .shadow-sm {
+  opacity: 1;
+}
+
+/* Minimized, the video plays on in Now Playing where the cover would be
+   (placed by useTvMiniVideo), without its controls. */
+.tv-mode [data-tv-video][data-tv-video-mini] {
+  display: flex !important;
+  inset: auto;
+  left: var(--tv-mini-x);
+  top: var(--tv-mini-y);
+  width: var(--tv-mini-w);
+  height: var(--tv-mini-h);
+  z-index: 10;
+  border-radius: 1rem;
+  overflow: hidden;
+  pointer-events: none;
+}
+.tv-mode [data-tv-video][data-tv-video-mini] > :not(video) {
+  display: none !important;
+}
+
+/* Minimized and not shown in Now Playing, the player stays rendered (a
+   tiny, transparent box behind the interface) instead of display:none.
+   WebKitGTK stops drawing video frames for a hidden element and does not
+   always pick up again when it is shown, which froze the picture in Now
+   Playing while the sound played on. */
+.tv-mode [data-tv-video].hidden:not([data-tv-video-mini]) {
+  display: flex !important;
+  inset: auto;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 4px;
+  opacity: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}

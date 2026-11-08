@@ -192,6 +192,7 @@ export default function ColorPicker({
           }}
         />
         <input
+          aria-label="Hex color"
           value={hexText}
           onChange={(e) => onHexChange(e.target.value)}
           spellCheck={false}

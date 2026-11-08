@@ -28,6 +28,7 @@ import { authTokensAtom } from "../atoms/auth";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 import { useProgressScrub } from "../hooks/useProgressScrub";
 import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
+import { useHideMiniplayer } from "../hooks/useMiniplayerWindow";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { getTidalImageUrl, getTrackDisplayTitle } from "../types";
 import ExplicitBadge from "./ExplicitBadge";
@@ -38,7 +39,6 @@ import { TiltCover } from "./TiltCover";
 
 import TrackContextMenu from "./TrackContextMenu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { formatTime } from "../lib/format";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
@@ -799,26 +799,7 @@ export default function MaximizedPlayer() {
     };
   }, []);
 
-  // Hide miniplayer during fullscreen to avoid always-on-top conflict
-  useEffect(() => {
-    const wasOpenRef = { current: false };
-
-    (async () => {
-      const win = await WebviewWindow.getByLabel("miniplayer");
-      if (win) {
-        wasOpenRef.current = true;
-        await win.hide();
-      }
-    })();
-
-    return () => {
-      if (wasOpenRef.current) {
-        WebviewWindow.getByLabel("miniplayer").then((win) => {
-          if (win) win.show();
-        });
-      }
-    };
-  }, []);
+  useHideMiniplayer();
 
   // Trackless (MPRIS set-fullscreen with nothing playing) renders nothing, so
   // registering would swallow an Escape for an invisible layer.

@@ -49,6 +49,30 @@ async function saveGeometry(win: WebviewWindow) {
   }
 }
 
+/** Hides an open miniplayer while the caller is mounted (it is always on
+ *  top) and shows it again afterwards. */
+export function useHideMiniplayer(): void {
+  useEffect(() => {
+    const wasOpenRef = { current: false };
+
+    (async () => {
+      const win = await WebviewWindow.getByLabel("miniplayer");
+      if (win) {
+        wasOpenRef.current = true;
+        await win.hide();
+      }
+    })();
+
+    return () => {
+      if (wasOpenRef.current) {
+        WebviewWindow.getByLabel("miniplayer").then((win) => {
+          if (win) win.show();
+        });
+      }
+    };
+  }, []);
+}
+
 export function useMiniplayerWindow() {
   const [miniplayerOpen, setMiniplayerOpen] = useAtom(miniplayerOpenAtom);
   const currentTrack = useAtomValue(currentTrackAtom);

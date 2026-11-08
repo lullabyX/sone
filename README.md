@@ -77,6 +77,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Lyrics** — synced lyrics display for supported tracks; click any line to jump to it
 - **Miniplayer** — compact floating window with album art, playback controls, and resizable-adaptive layout
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
+- **TV mode** — a fullscreen 10-foot interface for a TV or media PC, driven entirely by arrow keys, Enter and Back (a remote, a gamepad or a keyboard)
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, shuffle, repeat, seek, and desktop widget support
 - **System tray** with playback controls and minimize-to-tray
@@ -427,6 +428,24 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
 On WebKitGTK 2.54 and newer, `WEBKIT_DISABLE_COMPOSITING_MODE=1` gives a black window on NVIDIA, so prefer the **Settings → General → Rendering** choice.
 
 </details>
+
+## TV mode
+
+For a media PC hooked up to a TV, SONE has a separate fullscreen interface built for the couch: large covers, a focus highlight you can see from across the room, and nothing that needs a mouse.
+
+- **Turn it on** from the user menu (**TV mode**) or **Settings → General → TV mode**. **Exit TV mode** at the bottom of the side rail (or in TV settings) goes back to the desktop layout.
+- **Start straight into it** with `sone --tv` (or `SONE_TV_MODE=1 sone`), handy for an autostart entry. Either one applies to that run only and leaves your saved choice unchanged; **Exit TV mode** ends it. Running `sone --tv` while SONE is already open switches that window over; `SONE_TV_MODE=1` is read only by the first instance, so use `sone --tv` to switch a SONE that is already running.
+- **Controls:** the arrow keys move the focus, **Enter** opens or plays, **Back / Escape / Backspace** goes back, **Home** jumps to the side rail (and back), and the media keys play/pause, skip, seek and change the volume. Holding **Enter** (or pressing the **Menu** key) on a track, album, playlist, mix or artist opens its action menu; the **⋯** buttons do the same. Long titles scroll while focused.
+- **Gamepads** move the focus too (A opens, B goes back, LT / RT turn the volume down / up, View / Create opens the side rail). They need a WebKitGTK built with gamepad support and a native, AUR, `.deb` or AppImage install, or the snap after `snap connect sone:joystick`; the Flatpak has no access to input devices.
+- **Screens:** Home (with its tabs, quick access and **Load more**), Search, Explore, Feed, My Collection (playlists with folders and the ones you liked, albums, artists, mixes and videos, each with "View all", **Sort** and **Filter**), album / playlist / mix / artist pages, Now Playing and Settings (audio quality, exclusive / bit-perfect output, playback and content options, themes, screen margin for TVs that cut off the edges, account). **More settings** opens the full desktop settings, navigable with the arrow keys; **Enter** on one of their text fields opens the on-screen keyboard.
+- **Search:** type with the on-screen keyboard (with **Shift** and a **Symbols** layer) or a real one. Results start with Top hits, and each row has "View all". Recent searches are shared with the desktop search box; TV adds one when you open a result, press the keyboard's **Search** key or press **Enter** in the search box.
+- **Now Playing** opens over the screen you're on (from the rail, the mini bar, or when you start playback), and Back returns you there. Going to an album or artist from it and pressing Back brings Now Playing back. Its tabs (Up next, Suggested, History, Credits) switch as you move across them, and the last one used stays selected for the session.
+- **Volume:** the volume keys change SONE's volume, and an indicator shows the level after any change. With bit-perfect output on, the volume stays fixed and the indicator says so.
+- **Action menu:** play next, add to the queue or a playlist (or a **New playlist…**, private or public), add to Loved Tracks or your collection, track radio, credits, go to album / artist; remove from the queue or from your own playlist; move a playlist into a folder; **Edit details** (name, description) or delete your own playlists.
+- **Videos** play full screen with remote controls (Enter pauses, ← / → skip 10 s, ↑ / ↓ reach the buttons; on the volume slider ← / → change the volume, and Enter on the speaker icon mutes, then restores the earlier level). Back minimises the video and keeps it playing in Now Playing, where **Close video** sits next to **Full screen**.
+- **Signing in:** signed out in TV mode, SONE offers to sign in on the TV (TIDAL's sign-in page, scaled for the screen; needs a keyboard, full quality) or with a phone by scanning a QR code (nothing to type, but TIDAL limits that kind of sign-in to High quality).
+
+The interface scales with the screen, so it looks the same at 720p, 1080p and 4K. Most remotes that show up as a keyboard (IR receivers, HDMI-CEC adapters, Bluetooth remotes) work out of the box; if yours sends other keys, map them to the arrows, Enter and Escape.
 
 ## Custom theme file
 

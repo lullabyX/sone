@@ -42,6 +42,18 @@ function parseBio(raw: string): BioSegment[][] {
     .map((paragraph) => parseSegments(paragraph.trim()));
 }
 
+/** One plain-text string per paragraph; artist links keep their text. */
+export function bioParagraphs(raw: string): string[] {
+  return parseBio(raw)
+    .map((segments) =>
+      segments
+        .map((s) => s.text)
+        .join("")
+        .trim(),
+    )
+    .filter((p) => p);
+}
+
 export function stripBio(raw: string): string {
   return raw
     .replace(/\[wimpLink[^\]]*\]/g, "")

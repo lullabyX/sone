@@ -33,21 +33,22 @@ export function getTidalPromoImageUrl(imageId: string | undefined): string {
 }
 
 /**
- * Artist pictures use a different size set than album covers — valid squares are
- * 160 / 320 / 480 / 750 (there is no 640 or 1280, which 403). Snap accordingly.
+ * Artist pictures use a different size set than album covers: 160 / 320 / 480 /
+ * 750 squares, no 640 or 1280. Only 160 and 320 exist for every artist; 480 is
+ * missing for many (lesser-known ones especially) and 750 for some, and a missing
+ * size 403s. So anything up to 480 snaps to 320; only an explicit request above
+ * 480 gets 750, for callers that step down on error.
  */
 export function getTidalArtistImageUrl(
   uuid: string | undefined,
-  size: number = 480,
+  size: number = 320,
 ): string {
   if (!uuid) return "";
   if (uuid.startsWith("http")) return uuid;
   const path = uuid.replace(/-/g, "/");
-  let validSize = 480;
+  let validSize = 750;
   if (size <= 160) validSize = 160;
-  else if (size <= 320) validSize = 320;
-  else if (size <= 480) validSize = 480;
-  else validSize = 750;
+  else if (size <= 480) validSize = 320;
   return `https://resources.tidal.com/images/${path}/${validSize}x${validSize}.jpg`;
 }
 

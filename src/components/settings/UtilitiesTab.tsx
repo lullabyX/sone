@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useAtomValue } from "jotai";
 import { Folder } from "lucide-react";
+import { tvModeAtom } from "../../atoms/tv";
 import { refreshApp } from "../../lib/refreshApp";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
 
 export default function UtilitiesTab() {
   const [enableLogging, setEnableLogging] = useState(true);
+  // A file manager is no use with a remote.
+  const tvMode = useAtomValue(tvModeAtom);
 
   useEffect(() => {
     invoke<boolean>("get_enable_logging")
@@ -53,13 +57,15 @@ export default function UtilitiesTab() {
             <code className="flex-1 min-w-0 px-[11px] py-2 rounded-[9px] bg-th-inset border border-th-border-subtle font-mono text-[11px] text-th-text-secondary whitespace-nowrap overflow-hidden text-ellipsis">
               ~/.config/sone/logs
             </code>
-            <button
-              onClick={openLogFolder}
-              className="flex items-center gap-1.5 shrink-0 px-3 py-2 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
-            >
-              <Folder className="w-3.5 h-3.5" />
-              Open folder
-            </button>
+            {!tvMode && (
+              <button
+                onClick={openLogFolder}
+                className="flex items-center gap-1.5 shrink-0 px-3 py-2 text-[12px] border border-th-border-subtle rounded-md text-th-text-secondary hover:text-th-text-primary hover:border-th-accent/50 transition-colors"
+              >
+                <Folder className="w-3.5 h-3.5" />
+                Open folder
+              </button>
+            )}
           </div>
         </div>
       )}

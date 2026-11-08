@@ -110,7 +110,7 @@ export default function PlaybackTab() {
             !gaplessDisabled
               ? undefined
               : !gaplessSupported
-                ? "Requires GStreamer 1.24 or newer"
+                ? "Not available with this GStreamer installation"
                 : "Available in normal mode only"
           }
         >
