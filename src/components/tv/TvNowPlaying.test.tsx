@@ -44,6 +44,7 @@ setupTvTest();
 
 beforeEach(() => {
   for (const m of Object.values(api)) m.mockReset();
+  vi.mocked(getInterpolatedPosition).mockReturnValue(0);
   mockInvoke({
     seek_track: () => undefined,
     play_tidal_track: () => ({ url: "u" }),
@@ -69,6 +70,22 @@ describe("TvNowPlaying progress", () => {
     expect(
       vi.mocked(getInterpolatedPosition).mock.calls.length,
     ).toBeGreaterThan(before);
+  });
+
+  it("updates the bar twice a second, gliding between samples", () => {
+    vi.useFakeTimers();
+    const store = playing();
+    store.set(isPlayingAtom, true);
+    renderTv(<TvNowPlaying />, { store });
+    const slider = screen.getByRole("slider", { name: "Seek" });
+    vi.mocked(getInterpolatedPosition).mockReturnValue(61);
+    act(() => vi.advanceTimersByTime(250));
+    expect(slider.getAttribute("aria-valuenow")).toBe("0");
+    act(() => vi.advanceTimersByTime(250));
+    expect(slider.getAttribute("aria-valuenow")).toBe("61");
+    expect(screen.getByText("1:01")).toBeTruthy();
+    for (const el of slider.querySelectorAll<HTMLElement>("div"))
+      expect(el.style.transition).toMatch(/ 500ms linear$/);
   });
 
   it("drops a pending seek when the track changes", () => {
@@ -159,6 +176,39 @@ describe("TvNowPlaying source", () => {
     renderTv(<TvNowPlaying />, { store });
     expect(screen.getByText("Playing from Row")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Playing from/ })).toBeNull();
+  });
+});
+
+describe("TvNowPlaying artists", () => {
+  it("opens a single artist straight away", () => {
+    const store = playing(
+      mkTrack(1, { artists: [{ id: 4, name: "Solo" }] } as Partial<Track>),
+    );
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    fireEvent.click(screen.getByRole("button", { name: "Artist" }));
+    expect(nav.push).toHaveBeenCalledWith({
+      type: "artist",
+      id: 4,
+      name: "Solo",
+    });
+  });
+
+  it("lists several artists to pick from", () => {
+    const store = playing(
+      mkTrack(1, {
+        artists: [
+          { id: 4, name: "A" },
+          { id: 5, name: "B" },
+        ],
+      } as Partial<Track>),
+    );
+    const { nav } = renderTv(<TvNowPlaying />, { store });
+    fireEvent.click(screen.getByRole("button", { name: "Artists" }));
+    expect(nav.push).not.toHaveBeenCalled();
+    const menu = vi.mocked(nav.openMenu).mock.lastCall![0];
+    expect(menu.items.map((i) => i.label)).toEqual(["A", "B"]);
+    void menu.items[1].onSelect!();
+    expect(nav.push).toHaveBeenCalledWith({ type: "artist", id: 5, name: "B" });
   });
 });
 

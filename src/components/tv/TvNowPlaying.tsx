@@ -82,7 +82,7 @@ import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import { useToast } from "../../contexts/ToastContext";
 import { TvButton, TvSpinner, TvTrackRow } from "./TvParts";
-import type { TvMenuItem } from "./tvMenu";
+import { artistsMenu, tvMenuRef, type TvMenuItem } from "./tvMenu";
 import { moveInQueue, queueIndexOf } from "./tvQueue";
 import { useTvPlayback } from "./useTvPlayback";
 import { viewForSource } from "./tvItems";
@@ -100,9 +100,11 @@ function videoElement(): HTMLVideoElement | null {
   return document.querySelector<HTMLVideoElement>("[role='dialog'] video");
 }
 
-/** Re-reads the playback position a few times a second while the screen is
+/** Re-reads the playback position twice a second while the screen is
  *  shown: the audio player's interpolated one, or a video's from its own
  *  element. */
+const POSITION_POLL_MS = 500;
+
 function usePosition(video: boolean, active: boolean): number {
   const read = useCallback(
     () =>
@@ -117,7 +119,7 @@ function usePosition(video: boolean, active: boolean): number {
   }
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => setPos(read()), 250);
+    const id = setInterval(() => setPos(read()), POSITION_POLL_MS);
     return () => clearInterval(id);
   }, [read, active]);
   return pos;
@@ -249,7 +251,10 @@ function Progress({
   };
 
   // Between position samples the bar glides instead of stepping.
-  const glide = target === null && isPlaying ? "250ms linear" : "0ms linear";
+  const glide =
+    target === null && isPlaying
+      ? `${POSITION_POLL_MS}ms linear`
+      : "0ms linear";
 
   return (
     <div className="w-full">
@@ -541,13 +546,7 @@ function CreditsPanel() {
     if (linked.length === 0) return undefined;
     if (linked.length === 1) return () => openArtist(linked[0]);
     return () =>
-      nav.openMenu({
-        title: credit.creditType,
-        items: linked.map((c) => ({
-          label: c.name,
-          onSelect: () => openArtist(c),
-        })),
-      });
+      nav.openMenu(artistsMenu(credit.creditType, linked, openArtist));
   };
 
   return (
@@ -775,7 +774,24 @@ export default function TvNowPlaying() {
     : favoriteTrackIds.has(track.id);
   const playing = isVideo && currentVideo ? videoPlaying : isPlaying;
   const nextUp = manualQueue[0] ?? queue[0];
-  const artist = track.artist ?? track.artists?.[0];
+  const artists = [
+    ...new Map(
+      (track.artists?.length
+        ? track.artists
+        : track.artist
+          ? [track.artist]
+          : []
+      ).map((a) => [a.id, a]),
+    ).values(),
+  ];
+  const openArtist = (a: { id: number; name: string }) =>
+    nav.push({ type: "artist", id: a.id, name: a.name });
+  // The More button's menu; the Menu key opens it from the player's buttons
+  // (not the volume control, whose Enter is its own).
+  const withTrackMenu = {
+    "data-tv-has-menu": true,
+    ref: tvMenuRef(() => nav.trackMenu(track)),
+  };
   const quality = isVideo ? "" : formatStreamQuality(streamInfo);
   const icon = "w-[1.2rem] h-[1.2rem]";
   const showLyrics = lyricsOn && !!lyrics;
@@ -871,12 +887,12 @@ export default function TvNowPlaying() {
               <button
                 data-tv-focusable
                 onClick={() => nav.push(sourceView)}
-                className="tv-button mt-[0.6rem] block max-w-full origin-left truncate rounded-[0.3rem] px-[0.4rem] text-left text-[0.8rem] text-th-text-secondary"
+                className="tv-button mt-[0.6rem] -ml-[0.4rem] block max-w-[calc(100%+0.4rem)] origin-left truncate rounded-[0.3rem] px-[0.4rem] text-left text-[0.8rem] text-th-text-secondary"
               >
                 Playing from {source.name}
               </button>
             ) : (
-              <p className="mt-[0.6rem] px-[0.4rem] text-[0.8rem] text-th-text-muted truncate">
+              <p className="mt-[0.6rem] text-[0.8rem] text-th-text-muted truncate">
                 Playing from {source.name}
               </p>
             ))}
@@ -907,7 +923,10 @@ export default function TvNowPlaying() {
             />
           </div>
 
-          <div className="mt-[1.4rem] flex flex-wrap items-center gap-[0.8rem]">
+          <div
+            {...withTrackMenu}
+            className="mt-[1.4rem] flex flex-wrap items-center gap-[0.8rem]"
+          >
             <TvButton
               title="Shuffle"
               active={shuffle}
@@ -957,7 +976,10 @@ export default function TvNowPlaying() {
             />
           </div>
 
-          <div className="mt-[1rem] flex flex-wrap items-center gap-[0.8rem]">
+          <div
+            {...withTrackMenu}
+            className="mt-[1rem] flex flex-wrap items-center gap-[0.8rem]"
+          >
             <TvButton
               title={
                 isVideo
@@ -965,8 +987,8 @@ export default function TvNowPlaying() {
                     ? "Remove from favorites"
                     : "Add to favorites"
                   : liked
-                    ? "Remove from My Tracks"
-                    : "Add to My Tracks"
+                    ? "Remove from Loved Tracks"
+                    : "Add to Loved Tracks"
               }
               active={liked}
               icon={
@@ -1013,11 +1035,13 @@ export default function TvNowPlaying() {
                 }}
               />
             )}
-            {!isVideo && artist && (
+            {!isVideo && artists.length > 0 && (
               <TvButton
-                label="Artist"
+                label={artists.length > 1 ? "Artists" : "Artist"}
                 onClick={() =>
-                  nav.push({ type: "artist", id: artist.id, name: artist.name })
+                  artists.length > 1
+                    ? nav.openMenu(artistsMenu("Artists", artists, openArtist))
+                    : openArtist(artists[0])
                 }
               />
             )}

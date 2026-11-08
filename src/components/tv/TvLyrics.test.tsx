@@ -148,6 +148,42 @@ it("plain lyrics are not focusable", () => {
   expect(container.querySelector("[data-tv-focusable]")).toBeNull();
 });
 
+it("plain lyrics step along with the track instead of smooth-scrolling", () => {
+  fakeFrames();
+  const store = createStore();
+  store.set(isPlayingAtom, true);
+  const { container } = renderTv(
+    <TvLyricsPanel
+      lyrics={{ kind: "plain", text: "Hello", rtl: false }}
+      duration={100}
+    />,
+    { store },
+  );
+  const el = container.querySelector<HTMLElement>(".tv-lyrics")!;
+  Object.defineProperty(el, "scrollHeight", { value: 1000 });
+  Object.defineProperty(el, "clientHeight", { value: 200 });
+  const scrollTo = vi.spyOn(el, "scrollTo");
+  pos.value = 50;
+  act(() => vi.advanceTimersByTime(1000));
+  expect(el.scrollTop).toBe(0);
+  act(() => vi.advanceTimersByTime(500));
+  expect(el.scrollTop).toBe(400);
+  expect(scrollTo).not.toHaveBeenCalled();
+});
+
+it("past lines are muted by colour, not opacity", () => {
+  fakeFrames();
+  const store = createStore();
+  store.set(isPlayingAtom, true);
+  pos.value = 9.5;
+  renderTv(<TvLyricsPanel lyrics={synced} duration={100} />, { store });
+  act(() => vi.advanceTimersByTime(20));
+  const past = screen.getByText("One");
+  expect(past.className).not.toMatch(/opacity-/);
+  expect(past.className).toMatch(/text-th-text-disabled/);
+  expect(past.className).not.toBe(screen.getByText("Three").className);
+});
+
 it("credits the provider", () => {
   renderTv(
     <TvLyricsPanel

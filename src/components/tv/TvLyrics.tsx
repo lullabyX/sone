@@ -78,17 +78,15 @@ export function TvLyricsPanel({
     ) {
       return;
     }
+    // Small steps now and then rather than a scroll that never stops.
     const tick = () => {
       const el = containerRef.current;
       if (!el) return;
       const max = el.scrollHeight - el.clientHeight;
       const progress = getInterpolatedPosition() / duration;
-      el.scrollTo({
-        top: Math.max(0, Math.min(1, progress)) * max,
-        behavior: "smooth",
-      });
+      el.scrollTop = Math.round(Math.max(0, Math.min(1, progress)) * max);
     };
-    const id = setInterval(tick, 250);
+    const id = setInterval(tick, 1500);
     return () => clearInterval(id);
   }, [lyrics, duration, shown, isPlaying, stale]);
 
@@ -152,11 +150,11 @@ export function TvLyricsPanel({
                 }}
                 onClick={() => void seekTo(line.time)}
                 aria-current={i === active ? "true" : undefined}
-                className={`tv-track block w-full rounded-[0.6rem] px-[0.75rem] py-[0.35rem] text-start text-[1.5rem] font-bold leading-snug transition-[color,opacity] duration-300 ${
+                className={`tv-track block w-full rounded-[0.6rem] px-[0.75rem] py-[0.35rem] text-start text-[1.5rem] font-bold leading-snug transition-[color] duration-300 ${
                   i === active
                     ? "text-th-text-primary"
                     : i < active
-                      ? "text-th-text-muted opacity-60"
+                      ? "text-th-text-disabled"
                       : "text-th-text-muted"
                 }`}
               >
