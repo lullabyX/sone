@@ -62,6 +62,94 @@ pub struct LinkPlayClient {
 /// rule with headroom for the drift-prone post-load receiver clock).
 const NATURAL_END_MARGIN_MS: f64 = 2400.0;
 
+/// A receiver-side seek moves the device clock; an operator stop leaves it
+/// where it was playing. Two consecutive `curpos` samples further apart than
+/// this are treated as a seek (a normal poll advances the clock by ~1000 ms).
+const SEEK_JUMP_MS: f64 = 2000.0;
+
+/// Normalize a stop-time `curpos` sample to milliseconds local to the push
+/// that is playing now, or `None` when the value cannot be one.
+///
+/// The firmware reports `curpos` in three incompatible scales depending on
+/// history: entry-local milliseconds normally, CUMULATIVE milliseconds across
+/// a native playlist (2026-11-01: 172 s -> 784 s over five entries), and
+/// microseconds after a `setPlayerCmd:seek` (2026-10-23: target x 1000, then
+/// frozen).
+///
+/// A value past the entry is one of the last two, and the previous poll
+/// separates them: a microsecond sample only appears right after the seek, so
+/// the sample before it was a plausible millisecond value; a clock that was
+/// already out of range was cumulative all along. Cumulative samples are
+/// never usable as a trim offset.
+fn normalize_stop_curpos(curpos: u64, prev_curpos: u64, len_ms: f64) -> Option<f64> {
+    if curpos == 0 || len_ms <= 0.0 {
+        return None;
+    }
+    let raw = curpos as f64;
+    if raw <= len_ms + SEEK_JUMP_MS {
+        return Some(raw);
+    }
+    let prev_local = prev_curpos > 0 && (prev_curpos as f64) <= len_ms + SEEK_JUMP_MS;
+    let micros = raw / 1000.0;
+    if prev_local && micros <= len_ms + SEEK_JUMP_MS {
+        return Some(micros);
+    }
+    None
+}
+
+/// What the receiver clock says about a play-to-stop (or play-to-pause)
+/// transition.
+enum StopCause {
+    /// The engine stopped/paused where it was playing: an operator action.
+    Operator,
+    /// A receiver-side seek with a usable target (entry-local milliseconds).
+    Seek(f64),
+    /// A receiver-side seek whose reported target is not usable for this push
+    /// (cumulative clock, unknown length): resume where playback had reached.
+    SeekUnreadable,
+}
+
+/// Classify a stop/pause transition from two consecutive receiver clock
+/// samples.
+///
+/// A companion-app or remote seek halts the engine with the clock moved to the
+/// target; an operator stop/pause leaves the clock where playback was. Absolute
+/// `curpos` values are meaningless across a playlist, but a JUMP between two
+/// consecutive samples is not, whatever the scale (entry-local ms, cumulative
+/// ms, or the microseconds the firmware reports after a seek).
+fn classify_stop(prev_curpos: u64, curpos: u64, end_pos: f64, len_ms: f64) -> StopCause {
+    if prev_curpos == 0 {
+        return StopCause::Operator;
+    }
+    let jumped = (curpos as f64 - prev_curpos as f64).abs() > SEEK_JUMP_MS;
+    if !jumped {
+        return StopCause::Operator;
+    }
+    // A zero clock is either a seek back to the very start or the restart at an
+    // entry boundary; the position playback had reached separates them.
+    if curpos == 0 {
+        return if end_pos > 5000.0 {
+            StopCause::Seek(0.0)
+        } else {
+            StopCause::Operator
+        };
+    }
+    // A clock that wrapped at the end of the entry (the receiver's own loop
+    // mode restarting the same entry) is a boundary, not a seek.
+    let wrapped =
+        len_ms > 0.0 && end_pos >= len_ms - NATURAL_END_MARGIN_MS && curpos < 5000;
+    if wrapped {
+        return StopCause::Operator;
+    }
+    match normalize_stop_curpos(curpos, prev_curpos, len_ms) {
+        Some(local) if (local - end_pos).abs() > SEEK_JUMP_MS => StopCause::Seek(local),
+        // A "jump" that lands back near where playback already was is not a
+        // seek (entry transition, duplicate sample).
+        Some(_) => StopCause::Operator,
+        None => StopCause::SeekUnreadable,
+    }
+}
+
 fn any_u64<'de, D>(d: D) -> Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -165,6 +253,12 @@ pub struct CastStatus {
     /// Device-reported duration of the current entry (`totlen`); 0 until the
     /// receiver has loaded it. A change is the entry-transition signal.
     pub queue_entry_totlen_ms: u64,
+    /// Receiver `curpos` from the previous poll, in whatever scale the
+    /// firmware used for it. Kept ONLY to tell a receiver-side seek (the
+    /// clock jumps) from an operator stop (the clock stays where it was):
+    /// absolute values are not comparable across a playlist, but two
+    /// consecutive samples are. Never used as a position.
+    pub last_raw_curpos: u64,
 }
 
 /// One poll's worth of receiver observations.
@@ -213,6 +307,7 @@ impl CastStatus {
             queue_entry_anchor_ms: 0.0,
             queue_entry_anchor_at: None,
             queue_entry_totlen_ms: 0,
+            last_raw_curpos: 0,
         }
     }
 
@@ -470,18 +565,31 @@ impl LinkPlayClient {
         let mut slot_guard = slot.write().await;
         let mut volume = None;
         let mut advanced = None;
+        // True on the poll that confirmed a fresh push. The receiver's clock
+        // legitimately restarts then, so it must not be mistaken for a
+        // receiver-side skip below.
+        let mut just_started = false;
         if let Some(cur) = slot_guard.as_mut() {
+            // Previous receiver clock sample, for the seek-vs-stop decision
+            // below (`SEEK_JUMP_MS`). Sampled before any branch so every path
+            // leaves it current.
+            let prev_curpos = cur.last_raw_curpos;
+            cur.last_raw_curpos = raw.curpos;
             let new_status = raw.status.clone();
             if cur.status != new_status {
                 if new_status == "play" {
                     // Clock restart: extrapolation resumes from anchor_ms.
                     cur.anchor_at = Some(Instant::now());
+                    // A playlist entry carries its own clock: it starts at
+                    // zero for a NEW push (push, jam re-push, advance re-push)
+                    // and resumes from the frozen anchor after a pause or an
+                    // operator stop. `play_confirmed` is the discriminator:
+                    // every push path clears it, and only a real start sets it.
+                    let fresh_push = !cur.play_confirmed;
                     cur.play_confirmed = true;
-                    // A playlist entry carries its own clock: start it at zero
-                    // when playback begins (push or jam re-push) and resume it
-                    // from the frozen anchor after a pause.
+                    just_started = fresh_push;
                     if cur.is_queue() {
-                        if cur.status == "stop" || cur.status == "load" {
+                        if (cur.status == "stop" || cur.status == "load") && fresh_push {
                             cur.queue_entry_anchor_ms = 0.0;
                             cur.pos_ms = 0.0;
                         }
@@ -505,13 +613,49 @@ impl LinkPlayClient {
                         let elapsed = started.elapsed().as_secs_f64() * 1000.0;
                         cur.anchor_ms += elapsed;
                     }
+                    let end_pos = cur.live_pos_ms();
                     // A playlist entry's position rides its own wall anchor, so
                     // freeze that one instead of the single-track anchor.
                     if cur.is_queue() {
-                        let frozen = cur.live_pos_ms();
-                        cur.queue_entry_anchor_ms = frozen;
+                        cur.queue_entry_anchor_ms = end_pos;
                         cur.queue_entry_anchor_at = None;
-                        cur.pos_ms = frozen;
+                        cur.pos_ms = end_pos;
+                    }
+                    // A companion-app seek lands in "pause" on this firmware as
+                    // readily as in "stop" (2026-11-08: mobile-app seek paused
+                    // the engine, nothing recovered it, and the operator's play
+                    // restarted the track). Same jump signal as the stop paths;
+                    // an ordinary pause does not move the device clock.
+                    let len_ms = if cur.is_queue() {
+                        cur.queue_entry_totlen_ms as f64
+                    } else {
+                        cur.full_len_ms()
+                    };
+                    let target = match classify_stop(prev_curpos, raw.curpos, end_pos, len_ms) {
+                        // An explicit target may legitimately be 0 (a seek back
+                        // to the start); only the fallback position is rejected
+                        // when unknown.
+                        StopCause::Seek(local) => Some(cur.start_offset_ms + local),
+                        StopCause::SeekUnreadable => {
+                            Some(cur.start_offset_ms + end_pos).filter(|t| *t > 0.0)
+                        }
+                        StopCause::Operator => None,
+                    };
+                    if let Some(target_pos) = target {
+                        log::info!(
+                            "[cast-poller] receiver paused at a seek target {:.1}s; recovering",
+                            target_pos / 1000.0
+                        );
+                        // Record the transition so a failed recovery does not
+                        // re-enter this branch on every poll.
+                        cur.status = new_status;
+                        return Ok(PollOutcome {
+                            raw,
+                            track_ended: false,
+                            volume,
+                            advanced: None,
+                            seek_recovery_ms: Some(target_pos),
+                        });
                     }
                 } else if new_status == "stop" && cur.status == "play" {
                     if cur.stop_commanded {
@@ -538,28 +682,59 @@ impl LinkPlayClient {
                         // Freeze the entry clock at the stop position.
                         cur.queue_entry_anchor_ms = end_pos;
                         cur.queue_entry_anchor_at = None;
+                        // Seek or operator stop? A companion-app seek halts
+                        // the engine in "stop" with the clock moved to the
+                        // target; an operator stop halts it where it was
+                        // playing. Absolute values cannot separate them
+                        // (`curpos` may be entry-local or cumulative), but a
+                        // JUMP between two consecutive samples can, whatever
+                        // the scale.
+                        let entry_len = cur.queue_entry_totlen_ms as f64;
+                        let cause =
+                            classify_stop(prev_curpos, raw.curpos, end_pos, entry_len);
+                        if let StopCause::SeekUnreadable = cause {
+                            log::warn!(
+                                "[cast-poller] seek target {}ms is not local to entry {}/{} ({:.0}ms); resuming at the wall position",
+                                raw.curpos,
+                                cur.queue_index + 1,
+                                cur.queue.len(),
+                                entry_len
+                            );
+                        }
+                        let target = match cause {
+                            StopCause::Seek(local) => Some(cur.start_offset_ms + local),
+                            StopCause::SeekUnreadable => {
+                                Some(cur.start_offset_ms + end_pos).filter(|t| *t > 0.0)
+                            }
+                            StopCause::Operator => None,
+                        };
                         log::debug!(
-                            "[cast-poller] mid-playlist stop at entry {}/{} ({:.1}/{:.1}s, raw.curpos={})",
+                            "[cast-poller] mid-playlist stop at entry {}/{} ({:.1}/{:.1}s, curpos={} prev={}, {})",
                             cur.queue_index + 1,
                             cur.queue.len(),
                             end_pos / 1000.0,
                             cur.totlen_ms as f64 / 1000.0,
-                            raw.curpos
+                            raw.curpos,
+                            prev_curpos,
+                            if target.is_some() { "receiver seek" } else { "operator stop" }
                         );
-                        // When seeking via companion app or receiver remote, the receiver
-                        // halts in "stop" with raw.curpos at the target position.
-                        let target_pos = if raw.curpos > 0 && (raw.curpos as f64 - end_pos).abs() > 2000.0 {
-                            raw.curpos as f64
-                        } else {
-                            end_pos
-                        };
-                        return Ok(PollOutcome {
-                            raw,
-                            track_ended: false,
-                            volume,
-                            advanced: None,
-                            seek_recovery_ms: Some(target_pos),
-                        });
+                        if let Some(target_pos) = target {
+                            // Record the transition: if the recovery push fails
+                            // the engine stays stopped, and a stale "play" here
+                            // would re-fire this edge on every poll.
+                            cur.status = new_status;
+                            return Ok(PollOutcome {
+                                raw,
+                                track_ended: false,
+                                volume,
+                                advanced: None,
+                                seek_recovery_ms: Some(target_pos),
+                            });
+                        }
+                        // Operator stop: leave the engine stopped and fall
+                        // through so `status` records "stop" (pre-2026-11-08
+                        // behaviour). Returning here would leave a stale
+                        // "play" status re-firing this edge on every poll.
                     } else if cur.full_len_ms() > 0.0
                         && cur.wall_pos_ms() >= cur.full_len_ms() - NATURAL_END_MARGIN_MS
                     {
@@ -578,26 +753,43 @@ impl LinkPlayClient {
                     } else {
                         // Stop far from the track boundary: an operator stop
                         // on the receiver itself, or an external seek stop on
-                        // single track casts.
+                        // single track casts. Same seek signal as the playlist
+                        // branch: a jump in the receiver's own clock.
                         let end_pos = cur.pos_ms;
-                        let target_pos = if raw.curpos > 0 && (raw.curpos as f64 - end_pos).abs() > 2000.0 {
-                            raw.curpos as f64
-                        } else {
-                            end_pos
+                        let full_len = cur.full_len_ms();
+                        let cause = classify_stop(prev_curpos, raw.curpos, end_pos, full_len);
+                        if let StopCause::SeekUnreadable = cause {
+                            log::warn!(
+                                "[cast-poller] seek target {}ms is not local to the track ({:.0}ms); resuming at the wall position",
+                                raw.curpos,
+                                full_len
+                            );
+                        }
+                        let target = match cause {
+                            StopCause::Seek(local) => Some(cur.start_offset_ms + local),
+                            StopCause::SeekUnreadable => {
+                                Some(cur.start_offset_ms + end_pos).filter(|t| *t > 0.0)
+                            }
+                            StopCause::Operator => None,
                         };
                         log::debug!(
-                            "[cast-poller] mid-track stop at {:.1}/{:.1}s (curpos={})",
+                            "[cast-poller] mid-track stop at {:.1}/{:.1}s (curpos={} prev={}, {})",
                             cur.wall_pos_ms() / 1000.0,
-                            cur.full_len_ms() / 1000.0,
-                            raw.curpos
+                            full_len / 1000.0,
+                            raw.curpos,
+                            prev_curpos,
+                            if target.is_some() { "receiver seek" } else { "operator stop" }
                         );
-                        return Ok(PollOutcome {
-                            raw,
-                            track_ended: false,
-                            volume,
-                            advanced: None,
-                            seek_recovery_ms: Some(target_pos),
-                        });
+                        if let Some(target_pos) = target {
+                            cur.status = new_status;
+                            return Ok(PollOutcome {
+                                raw,
+                                track_ended: false,
+                                volume,
+                                advanced: None,
+                                seek_recovery_ms: Some(target_pos),
+                            });
+                        }
                     }
                 }
                 cur.status = new_status;
@@ -634,10 +826,23 @@ impl LinkPlayClient {
                     // clock that has plainly run past the entry proves the
                     // change on its own.
                     let overran = entry_len > 0.0 && pos >= entry_len + 2000.0;
-                    // When skipping from receiver (WiiM Home next or hardware remote),
-                    // totlen swaps immediately while curpos starts low (< 5000ms),
-                    // even if the entry was not yet used up.
-                    let manual_skip = swapped && (raw.curpos as f64) < 5000.0 && entry_len > 0.0;
+                    // A skip from the receiver's own UI (WiiM Home next, or the
+                    // hardware remote) restarts the entry clock; a `totlen`
+                    // swap alone is only a hint (equal-duration neighbours never
+                    // produce one, and a seek re-push produces one with a fresh
+                    // clock too), so the clock restart is the signal. Guarded
+                    // against a fresh push (its clock legitimately restarts),
+                    // against the first seconds of an entry, and against a wrap
+                    // at the entry's own end (receiver loop mode), which is a
+                    // boundary, not a skip.
+                    let clock_restart = prev_curpos > 5000
+                        && (raw.curpos as f64) + SEEK_JUMP_MS < prev_curpos as f64;
+                    let at_entry_end =
+                        entry_len > 0.0 && pos >= entry_len - NATURAL_END_MARGIN_MS;
+                    let manual_skip = !just_started
+                        && pos > 3000.0
+                        && !at_entry_end
+                        && clock_restart;
                     if !cur.on_last_entry() && ((swapped && used_up) || manual_skip || overran) {
                         let previous_len = cur.queue_entry_totlen_ms;
                         cur.queue_index += 1;
@@ -679,6 +884,16 @@ impl LinkPlayClient {
                 } else {
                     cur.pos_ms = raw.curpos as f64;
                 }
+            } else if cur.is_queue() {
+                // Queue cast: `anchor_ms` belongs to the single-track path and
+                // is never maintained here, so using it would snap the reported
+                // position back to zero on every pause or operator stop. Freeze
+                // the entry clock where the engine actually stopped (a commanded
+                // stop does not freeze it earlier) and report that.
+                let frozen = cur.live_pos_ms();
+                cur.queue_entry_anchor_ms = frozen;
+                cur.queue_entry_anchor_at = None;
+                cur.pos_ms = frozen;
             } else {
                 cur.pos_ms = cur.anchor_ms;
             }
@@ -706,5 +921,86 @@ impl LinkPlayClient {
             advanced,
             seek_recovery_ms: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_stop, normalize_stop_curpos, StopCause};
+
+    /// Receiver clocks arrive in three scales; only the two that are local to
+    /// the current push may become a trim offset (2026-11-01 cumulative clock,
+    /// 2026-10-23 microseconds-after-seek).
+    #[test]
+    fn normalizes_stop_curpos_scales() {
+        // Entry-local milliseconds: the normal case.
+        assert_eq!(
+            normalize_stop_curpos(36_000, 35_000, 196_000.0),
+            Some(36_000.0)
+        );
+        // Microseconds after a firmware seek (target x 1000): the previous
+        // sample was still a plausible millisecond value.
+        assert_eq!(
+            normalize_stop_curpos(30_000_000, 29_000, 196_000.0),
+            Some(30_000.0)
+        );
+        // Cumulative across a playlist: out of range before AND after, so it
+        // is never mistaken for a microsecond sample.
+        assert_eq!(normalize_stop_curpos(784_000, 783_000, 196_000.0), None);
+        assert_eq!(normalize_stop_curpos(600_000, 599_000, 196_000.0), None);
+        // No sample, or no known length.
+        assert_eq!(normalize_stop_curpos(0, 35_000, 196_000.0), None);
+        assert_eq!(normalize_stop_curpos(36_000, 35_000, 0.0), None);
+        // A target inside the poll-skew margin is still local.
+        assert_eq!(
+            normalize_stop_curpos(197_000, 196_000, 196_000.0),
+            Some(197_000.0)
+        );
+    }
+
+    /// The seek-vs-operator decision that drives recovery (2026-11-08).
+    #[test]
+    fn classifies_stop_and_pause_causes() {
+        // Operator stop mid-entry: the clock did not move.
+        assert!(matches!(
+            classify_stop(60_000, 60_400, 60_000.0, 196_000.0),
+            StopCause::Operator
+        ));
+        // Companion-app seek backward: the firmware reports the target in
+        // microseconds, so the sample jumps by orders of magnitude.
+        match classify_stop(120_000, 30_000_000, 120_000.0, 196_000.0) {
+            StopCause::Seek(local) => assert_eq!(local, 30_000.0),
+            _ => panic!("expected a usable seek target"),
+        }
+        // Seek forward, reported in milliseconds.
+        match classify_stop(30_000, 120_000, 30_000.0, 196_000.0) {
+            StopCause::Seek(local) => assert_eq!(local, 120_000.0),
+            _ => panic!("expected a usable seek target"),
+        }
+        // Cumulative clock after a seek: a jump, but no usable local target.
+        assert!(matches!(
+            classify_stop(120_000, 784_000_000, 120_000.0, 196_000.0),
+            StopCause::SeekUnreadable
+        ));
+        // Clock wrap at the entry's own end (receiver loop mode): a boundary.
+        assert!(matches!(
+            classify_stop(76_000, 800, 76_000.0, 77_000.0),
+            StopCause::Operator
+        ));
+        // A seek back to the very start reports a zero clock; far from the
+        // entry start it is a seek, near it, it is a boundary restart.
+        match classify_stop(60_000, 0, 60_000.0, 196_000.0) {
+            StopCause::Seek(local) => assert_eq!(local, 0.0),
+            _ => panic!("expected a seek to the start"),
+        }
+        assert!(matches!(
+            classify_stop(76_000, 0, 1_200.0, 196_000.0),
+            StopCause::Operator
+        ));
+        // First sample of a push: nothing to compare against.
+        assert!(matches!(
+            classify_stop(0, 30_000_000, 0.0, 196_000.0),
+            StopCause::Operator
+        ));
     }
 }

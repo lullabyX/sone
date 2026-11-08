@@ -192,15 +192,22 @@ impl ManifestServer {
                                 }
                             }
                             Served::Entry(idx) => {
+                                // Read-only on purpose: `set_queue*` takes
+                                // `body` then `queue`, so a request that held
+                                // `queue` while asking for `body` would
+                                // deadlock against an in-flight playlist
+                                // install (the receiver fetches entries
+                                // exactly while an advance re-push or seek
+                                // rebuild runs). The body cache is only ever
+                                // read by `Served::Single`, and every seek
+                                // path installs it through `set`/`set_queue`
+                                // before pushing.
                                 let guard = inner.queue.read().await;
                                 let body = guard
                                     .as_ref()
                                     .and_then(|q| q.entries.get(idx))
                                     .and_then(|e| e.manifest())
                                     .map(|xml| xml.as_bytes().to_vec());
-                                if let Some(ref b) = body {
-                                    *inner.body.write().await = b.clone();
-                                }
                                 (body, "application/dash+xml")
                             }
                             Served::Single => (
@@ -264,18 +271,6 @@ impl ManifestServer {
         name: &str,
         entries: Vec<QueueEntry>,
     ) -> Result<String, String> {
-        self.set_queue_with_titles(name, entries, Vec::new()).await
-    }
-
-    /// Install a playlist and serve every entry body, returning the playlist
-    /// URL to push. Generates standard #EXTM3U and #EXTINF tags so companion
-    /// apps and receivers have clean metadata.
-    pub async fn set_queue_with_titles(
-        &self,
-        name: &str,
-        entries: Vec<QueueEntry>,
-        titles: Vec<String>,
-    ) -> Result<String, String> {
         let base = {
             let guard = self.inner.base_url.read().await;
             guard.clone()
@@ -285,28 +280,27 @@ impl ManifestServer {
             return Err("playlist has no entries".into());
         }
         let generation = self.inner.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut playlist = String::with_capacity(entries.len() * 128);
-        playlist.push_str("#EXTM3U\n#EXT-X-VERSION:3\n");
+        // BARE URL LINES ONLY. Do not add `#EXTM3U`, `#EXT-X-VERSION`, or
+        // `#EXTINF` tags, and do not put titles into the entry paths.
+        //
+        // The A98 firmware silently refuses a playlist that carries them: it
+        // fetches the `.m3u8` (repeatedly), never fetches a single entry, and
+        // leaves the engine in `stop` with `totlen=0` - the push answers `OK`
+        // and nothing plays. Verified 2026-11-08 by bisecting a static
+        // playlist against the receiver: the same 11 entries play as bare URL
+        // lines and fail with any header line present, including a two-line
+        // `#EXTM3U` + `#EXT-X-VERSION` prefix. Long entry paths break it too
+        // (a roughly 1 KB read limit: a 1068-byte list of titled paths failed
+        // while the same 11 entries as short paths, ~490 bytes, played), so
+        // paths stay `/q<gen>-<i>.mpd` and per-track titles ride
+        // `CastStatus::queue_titles` for the app and MPRIS instead.
+        let mut playlist = String::with_capacity(entries.len() * 64);
         for (idx, entry) in entries.iter().enumerate() {
-            let title_opt = titles.get(idx).map(|s| s.as_str());
             match entry {
                 QueueEntry::Manifest(_) => {
-                    let path = match title_opt {
-                        Some(t) => {
-                            let clean = t.replace('/', "-");
-                            format!("{}/q{}-{}-{}.mpd\n", base, generation, idx, clean)
-                        }
-                        None => format!("{}/q{}-{}.mpd\n", base, generation, idx),
-                    };
-                    if let Some(t) = title_opt {
-                        playlist.push_str(&format!("#EXTINF:-1,{}\n", t));
-                    }
-                    playlist.push_str(&path);
+                    playlist.push_str(&format!("{}/q{}-{}.mpd\n", base, generation, idx));
                 }
                 QueueEntry::Direct(url) => {
-                    if let Some(t) = title_opt {
-                        playlist.push_str(&format!("#EXTINF:-1,{}\n", t));
-                    }
                     playlist.push_str(url);
                     playlist.push('\n');
                 }
@@ -668,20 +662,22 @@ mod tests {
         assert_eq!(route("/q3-x.mpd"), Served::Single);
     }
 
+    /// The A98 refuses any playlist that carries metadata tags or long entry
+    /// paths (2026-11-08): it fetches the `.m3u8` and nothing else, leaving the
+    /// engine stopped. Guard the one shape it plays - bare URL lines, short
+    /// paths - so a future "nicer playlist" change fails here instead of on
+    /// hardware.
     #[tokio::test]
-    async fn set_queue_with_titles_generates_extinf_and_named_paths() {
+    async fn set_queue_emits_bare_url_lines_only() {
         let server = ManifestServer::new();
         *server.inner.base_url.write().await = Some("http://127.0.0.1:35443".to_string());
         let entries = vec![
             QueueEntry::Manifest("<MPD>1</MPD>".into()),
             QueueEntry::Direct("https://tidal.com/stream2.mp4".into()),
-        ];
-        let titles = vec![
-            "Ariana Grande - hate that i made you love me".to_string(),
-            "Ariana Grande - petal".to_string(),
+            QueueEntry::Manifest("<MPD>3</MPD>".into()),
         ];
         let playlist_url = server
-            .set_queue_with_titles("Ariana Grande - Album", entries, titles)
+            .set_queue("Ariana Grande - Album", entries)
             .await
             .unwrap();
         assert_eq!(
@@ -692,9 +688,12 @@ mod tests {
         let queue_guard = server.inner.queue.read().await;
         let queue = queue_guard.as_ref().unwrap();
         let body = String::from_utf8(queue.playlist.clone()).unwrap();
-        assert!(body.starts_with("#EXTM3U\n#EXT-X-VERSION:3\n"));
-        assert!(body.contains("#EXTINF:-1,Ariana Grande - hate that i made you love me\n"));
-        assert!(body.contains("http://127.0.0.1:35443/q1-0-Ariana Grande - hate that i made you love me.mpd\n"));
-        assert!(body.contains("#EXTINF:-1,Ariana Grande - petal\nhttps://tidal.com/stream2.mp4\n"));
+        assert_eq!(
+            body,
+            "http://127.0.0.1:35443/q1-0.mpd\n\
+             https://tidal.com/stream2.mp4\n\
+             http://127.0.0.1:35443/q1-2.mpd\n"
+        );
+        assert!(!body.contains("#EXT"));
     }
 }

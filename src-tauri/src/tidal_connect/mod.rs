@@ -70,6 +70,14 @@ pub fn encode_display_name(name: &str) -> String {
     out
 }
 
+/// A98 settle window before ANY push that follows a stop (2026-10-24,
+/// deterministic 4/4): a push that lands while the engine has just left
+/// "play" wedges it in pause/load with no play at all, and only the 12 s jam
+/// watchdog brings it back. Skips, seek recovery and jam recovery all wait
+/// this long; `play_tidal_track` uses the remainder of the same window when
+/// the stop is already older than this.
+pub const SETTLE_BEFORE_PUSH_S: f64 = 3.0;
+
 /// Payload of `tidal-connect:track-advanced`: the receiver moved to the next
 /// entry of the native playlist (`.m3u8` queue) by itself, with no push and no
 /// audible gap. The renderer only updates its own bookkeeping - it must not
@@ -255,7 +263,7 @@ pub async fn ensure_cast_poller(
                                 .first()
                                 .and_then(|e| e.manifest())
                                 .map(|xml| xml.to_string());
-                            Some((track_id, stream_info, new_title, rem_entries, rem_titles))
+                            Some((track_id, stream_info, new_title, rem_entries))
                         } else {
                             None
                         }
@@ -264,7 +272,7 @@ pub async fn ensure_cast_poller(
                     }
                 };
 
-                if let Some((Some(track_id), stream_info, new_title, entries, titles)) = advance_info {
+                if let Some((Some(track_id), stream_info, new_title, entries)) = advance_info {
                     log::info!(
                         "[cast-poller] native playlist advance to track {} ({}); updating receiver metadata",
                         track_id,
@@ -273,7 +281,7 @@ pub async fn ensure_cast_poller(
                     let encoded_name = encode_display_name(&new_title);
                     match cast_ref
                         .manifest_server
-                        .set_queue_with_titles(&encoded_name, entries, titles)
+                        .set_queue(&encoded_name, entries)
                         .await
                     {
                         Ok(new_url) => {
@@ -281,9 +289,19 @@ pub async fn ensure_cast_poller(
                                 log::warn!("[cast-poller] advance title push failed: {}", e);
                             } else if let Ok(mut guard) = cast_ref.cast_status.try_write() {
                                 if let Some(s) = guard.as_mut() {
+                                    // Re-arm exactly like `push_url` does: the
+                                    // push replaces the receiver's source, so
+                                    // it is a NEW unconfirmed push, not a
+                                    // confirmed play. Declaring it confirmed
+                                    // here disarmed the jam watchdog, leaving
+                                    // a wedged advance with no recovery at all.
                                     s.cast_url = Some(new_url);
                                     s.pushed_at = Instant::now();
-                                    s.play_confirmed = true;
+                                    s.play_confirmed = false;
+                                    s.repushes = 0;
+                                    s.status = "load".into();
+                                    s.anchor_at = None;
+                                    s.queue_entry_totlen_ms = 0;
                                 }
                             }
                         }
@@ -333,9 +351,19 @@ pub async fn ensure_cast_poller(
                     )
                 };
                 if let (Some(xml), Some(base_url)) = (manifest_xml.as_ref(), cast_url.as_ref()) {
-                    if let Some((trimmed_xml, _)) =
-                        crate::tidal_connect::manifest_server::trim_mpd(xml, position_secs)
-                    {
+                    let queue_cast = cast_queue.is_some();
+                    let trimmed = crate::tidal_connect::manifest_server::trim_mpd(xml, position_secs);
+                    if trimmed.is_none() {
+                        // The one failure mode that used to be invisible: a
+                        // manifest without a usable SegmentTimeline, or a
+                        // target past the end, leaves the receiver stopped
+                        // with nothing in the log to say why.
+                        log::warn!(
+                            "[cast-poller] seek recovery could not trim the manifest at {:.1}s; receiver left stopped",
+                            position_secs
+                        );
+                    }
+                    if let Some((trimmed_xml, _)) = trimmed {
                         let _ = cast_ref.manifest_server.ensure_started(&host).await;
                         let mut rebuilt_queue = None;
                         let seek_url = match cast_queue.as_ref() {
@@ -363,7 +391,7 @@ pub async fn ensure_cast_poller(
                                     let name = format!("{}-s{}", stem, position_secs as u64);
                                     match cast_ref
                                         .manifest_server
-                                        .set_queue_with_titles(&name, all.clone(), remaining_titles.clone())
+                                        .set_queue(&name, all.clone())
                                         .await
                                     {
                                         Ok(url) => {
@@ -396,7 +424,24 @@ pub async fn ensure_cast_poller(
                             }
                         };
                         if let Some(seek_url) = seek_url {
-                            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                            // A recovery may be starting from "pause" (a
+                            // companion-app seek can pause the engine), so stop
+                            // explicitly first; the settle below is not
+                            // negotiable either way (2026-10-24).
+                            if let Err(e) = cast_ref
+                                .linkplay
+                                .stop_verified(&host, &cast_ref.cast_status)
+                                .await
+                            {
+                                log::debug!(
+                                    "[cast-poller] seek recovery pre-push stop not accepted: {}",
+                                    e
+                                );
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs_f64(
+                                SETTLE_BEFORE_PUSH_S,
+                            ))
+                            .await;
                             if let Ok(()) = cast_ref
                                 .linkplay
                                 .push_url(&host, &seek_url, &cast_ref.cast_status)
@@ -406,7 +451,10 @@ pub async fn ensure_cast_poller(
                                 if let Some(cur) = slot.as_mut() {
                                     cur.manifest_xml = manifest_xml.clone();
                                     cur.start_offset_ms = target_ms;
-                                    if orig_len_ms > 0 {
+                                    // `orig_totlen_ms` is the FULL track length
+                                    // for a single cast; a playlist reports
+                                    // per-entry lengths, which would poison it.
+                                    if orig_len_ms > 0 && !queue_cast {
                                         cur.orig_totlen_ms = orig_len_ms;
                                     }
                                     if let Some((entries, ids, streams, q_titles)) = rebuilt_queue {
@@ -476,7 +524,7 @@ pub async fn ensure_cast_poller(
                 if let Err(e) = cast_ref.linkplay.expect_ok(&host, "setPlayerCmd%3Astop").await {
                     log::debug!("[cast-poller] jam-recovery stop not accepted: {}", e);
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                tokio::time::sleep(std::time::Duration::from_secs_f64(SETTLE_BEFORE_PUSH_S)).await;
                 match cast_ref.linkplay.push_play(&host, &url).await {
                     Ok(()) => {
                         if let Ok(mut slot) = cast_ref.cast_status.try_write() {

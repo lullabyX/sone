@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::tidal_api::{StreamInfo, TidalVideo, VideoStreamInfo};
 use crate::tidal_connect::manifest_server::QueueEntry;
-use crate::tidal_connect::{encode_display_name, PrefetchedStream};
+use crate::tidal_connect::{encode_display_name, PrefetchedStream, SETTLE_BEFORE_PUSH_S};
 use crate::AppState;
 use crate::SoneError;
 
@@ -532,7 +532,7 @@ pub async fn play_tidal_track(
                     let url = state
                         .tidal_connect
                         .manifest_server
-                        .set_queue_with_titles(&encode_display_name(&display_name), all.clone(), all_titles.clone())
+                        .set_queue(&encode_display_name(&display_name), all.clone())
                         .await
                         .map_err(SoneError::Audio)?;
                     log::info!(
@@ -606,19 +606,29 @@ pub async fn play_tidal_track(
             guard.map(|t| t.elapsed().as_secs_f64())
         };
         const FRESH_STOP_WINDOW_S: f64 = 15.0;
-        let settle_time = if commanded_stop_age.is_some() { 3.0 } else { 0.8 };
+        // One uniform settle. A 2026-11-08 attempt shaved this to 0.8 s for
+        // every stop that Sone did not command itself, which also covered the
+        // natural-end advance - the exact case the 3 s window was introduced
+        // for (4/4 deterministic jams on album advances, 2026-10-24). The
+        // native playlist already removed the per-boundary push, so there is
+        // no dead air left to win here, and 2.2 s is not worth a 28 s jam
+        // cycle on every lookahead boundary.
         let fresh_stop = commanded_stop_age
-            .map(|age| age <= settle_time)
+            .map(|age| age <= SETTLE_BEFORE_PUSH_S)
             .unwrap_or(false)
             || last_engine_status.as_deref() == Some("stop")
             || natural_end_age
                 .map(|age| age <= FRESH_STOP_WINDOW_S)
                 .unwrap_or(false);
         if fresh_stop {
+            // Settle only the REMAINDER of the window when a timestamp says
+            // the engine already left play a while ago; a fresh signal (no age
+            // information) pays the whole window.
             let remaining_s = commanded_stop_age
-                .filter(|age| *age <= settle_time)
-                .map(|age| settle_time - age)
-                .unwrap_or(settle_time);
+                .filter(|age| *age <= SETTLE_BEFORE_PUSH_S)
+                .or_else(|| natural_end_age.filter(|age| *age <= SETTLE_BEFORE_PUSH_S))
+                .map(|age| SETTLE_BEFORE_PUSH_S - age)
+                .unwrap_or(SETTLE_BEFORE_PUSH_S);
             log::info!(
                 "[play_tidal_track] engine freshly stopped ({}, last_cast_stop {:?}); settling {:.1}s before push (A98 fresh-stop jam rule)",
                 natural_end_age
@@ -1203,7 +1213,7 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                             let url = state
                                 .tidal_connect
                                 .manifest_server
-                                .set_queue_with_titles(&name, all.clone(), titles.clone())
+                                .set_queue(&name, all.clone())
                                 .await
                                 .map_err(SoneError::Audio)?;
                             rebuilt_queue = Some((all, ids, streams, titles));
@@ -1268,7 +1278,10 @@ pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Resul
                             if let Some(cur) = slot.as_mut() {
                                 cur.manifest_xml = manifest_xml.clone();
                                 cur.start_offset_ms = position_secs as f64 * 1000.0;
-                                if orig_len_ms > 0 {
+                                // Full-length reference for natural-end detection:
+                                // a playlist reports per-entry lengths, which would
+                                // poison it, so only a plain cast stamps it.
+                                if orig_len_ms > 0 && cast_queue.is_none() {
                                     cur.orig_totlen_ms = orig_len_ms;
                                 }
                                 if let Some((entries, ids, streams, titles)) = rebuilt_queue.take() {
