@@ -66,6 +66,14 @@ export default function MediaCard({
       : aspect === "promo"
         ? "aspect-[11/8]"
         : "aspect-square";
+  // Hover zoom by layout, centred: vertical margin percentages resolve
+  // against the width, so they're scaled by the box's aspect ratio.
+  const zoomMargin =
+    aspect === "video"
+      ? "group-hover:-mx-[2.5%] group-hover:-my-[1.40625%]"
+      : aspect === "promo"
+        ? "group-hover:-mx-[2.5%] group-hover:-my-[1.8182%]"
+        : "group-hover:-m-[2.5%]";
   const image = isVideo ? getTidalImageUrl(item.imageId, 640) : getItemImage(item);
   const title = titleOverride || getItemTitle(item);
   const subtitle = subtitleOverride ?? getItemSubtitle(item, userId);
@@ -90,7 +98,7 @@ export default function MediaCard({
     >
       {/* Image */}
       <div
-        className={`w-full ${aspectClass} mb-3 relative overflow-hidden shadow-lg bg-th-surface-hover ${
+        className={`w-full ${aspectClass} mb-3 relative overflow-hidden ring-1 ring-th-card-edge bg-th-surface-hover ${
           isArtist ? "rounded-full" : "rounded-md"
         }`}
       >
@@ -100,7 +108,7 @@ export default function MediaCard({
           <img
             src={image}
             alt={title}
-            className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500 ease-out"
+            className={`w-full h-full object-cover transition-[width,height,margin] duration-500 ease-out group-hover:w-[105%] group-hover:h-[105%] ${zoomMargin}`}
             loading="lazy"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = "none";

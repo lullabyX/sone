@@ -39,6 +39,7 @@ export interface DerivedTheme {
   borderPopover: string;
   scrollbar: string;
   scrollbarHover: string;
+  cardEdge: string;
 
   // Highlights (adaptive overlays)
   hlFaint: string;
@@ -211,6 +212,7 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
   const borderPopover = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.12)";
   const scrollbar = bgButton;
   const scrollbarHover = bgButtonHover;
+  const cardEdge = isDark ? "rgba(0,0,0,0)" : "rgba(0,0,0,0.12)";
 
   // Adaptive highlight overlays
   const hlFaint = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)";
@@ -245,6 +247,7 @@ export function deriveTheme(accent: string, bgBase: string): DerivedTheme {
     borderPopover,
     scrollbar,
     scrollbarHover,
+    cardEdge,
     hlFaint,
     hlMed,
     hlStrong,
@@ -285,6 +288,7 @@ export function themeToCssVars(dt: DerivedTheme): Record<string, string> {
     "--th-border-popover": dt.borderPopover,
     "--th-scrollbar": dt.scrollbar,
     "--th-scrollbar-hover": dt.scrollbarHover,
+    "--th-card-edge": dt.cardEdge,
     "--th-hl-faint": dt.hlFaint,
     "--th-hl-med": dt.hlMed,
     "--th-hl-strong": dt.hlStrong,

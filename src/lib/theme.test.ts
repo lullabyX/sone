@@ -3,6 +3,8 @@ import { describe, it, expect } from "vitest";
 import themeConfigRs from "../../src-tauri/src/theme_config.rs?raw";
 import {
   PRESET_THEMES,
+  deriveTheme,
+  themeToCssVars,
   normalizeHex,
   resolveThemeFile,
   themeToFile,
@@ -248,5 +250,15 @@ describe("preset names stay in sync with the Rust validator", () => {
     expect([...rustNames].sort()).toEqual(
       PRESET_THEMES.map((p) => p.name).sort(),
     );
+  });
+});
+
+describe("card edge", () => {
+  it("is a faint dark line on light themes and invisible on dark ones", () => {
+    expect(deriveTheme("#111111", "#F5F3EE").cardEdge).toBe("rgba(0,0,0,0.12)");
+    expect(deriveTheme("#3B82F6", "#0E1118").cardEdge).toBe("rgba(0,0,0,0)");
+    expect(
+      themeToCssVars(deriveTheme("#111111", "#F5F3EE"))["--th-card-edge"],
+    ).toBe("rgba(0,0,0,0.12)");
   });
 });

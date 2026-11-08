@@ -25,6 +25,7 @@ export default {
           "text-disabled": "var(--th-text-disabled)",
           "border-subtle": "var(--th-border-subtle)",
           "border-popover": "var(--th-border-popover)",
+          "card-edge": "var(--th-card-edge)",
           success: "var(--th-success)",
           error: "var(--th-error)",
           warning: "var(--th-warning)",
