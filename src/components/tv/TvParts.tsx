@@ -20,6 +20,7 @@ import { type TvNav, useTvNav } from "./TvNavContext";
 import { entryState, type TvEntry, type TvView } from "./tvItems";
 import { tvMenuRef, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
 import { armMarquee } from "./tvMarquee";
+import { useTvLike } from "./useTvLike";
 
 const BADGE =
   "inline-block px-[0.25rem] rounded-[0.15rem] bg-th-button text-[0.75rem] font-bold leading-[0.66rem]";
@@ -48,10 +49,13 @@ function TvCard({
   showExplicit,
   index,
   autoFocus,
+  fill,
 }: {
   entry: TvEntry;
   onSelect: () => void;
   wide?: boolean;
+  /** Takes its grid column's width instead of the row card's fixed one. */
+  fill?: boolean;
   /** Action menu, opened by holding Enter or the Menu key. */
   menu?: () => TvMenuSpec;
   /** Badge explicit media, where the desktop's cards do. */
@@ -77,7 +81,7 @@ function TvCard({
       ref={menu ? tvMenuRef(menu) : undefined}
       onClick={onSelect}
       onFocus={(e) => armMarquee(e.currentTarget)}
-      className={`tv-card shrink-0 text-left ${wide ? "w-[15rem]" : "w-[9.5rem]"}${
+      className={`tv-card shrink-0 text-left ${fill ? "w-full" : wide ? "w-[15rem]" : "w-[9.5rem]"}${
         dimmed ? " opacity-50" : ""
       }`}
     >
@@ -246,9 +250,13 @@ export function TvGrid({
   const nav = useTvNav();
   const wide = entries.every((e) => e.key.startsWith("promo:"));
   return (
+    // Columns stretch to fill the width, at least a row card's size each.
     <div
       data-tv-remember
-      className="flex flex-wrap gap-x-[1.1rem] gap-y-[1.4rem] px-[3rem] py-[0.8rem]"
+      className="grid gap-x-[1.1rem] gap-y-[1.4rem] px-[3rem] py-[0.8rem]"
+      style={{
+        gridTemplateColumns: `repeat(auto-fill, minmax(${wide ? "15rem" : "9.5rem"}, 1fr))`,
+      }}
     >
       {entries.map((entry, i) => (
         <TvCard
@@ -257,6 +265,7 @@ export function TvGrid({
           autoFocus={autoFocusFirst && i === 0}
           entry={entry}
           wide={wide}
+          fill
           menu={cardMenu(nav, entry, menuContext)}
           showExplicit={showExplicit}
           onSelect={() => {
@@ -512,6 +521,7 @@ export function TvTrackRow({
           {track.duration ? formatTime(track.duration) : ""}
         </span>
       </button>
+      <RowLike track={track} />
       {hasMenu ? (
         <button
           data-tv-focusable
@@ -529,7 +539,39 @@ export function TvTrackRow({
   );
 }
 
-export function TvSpinner() {
+/** A track row's heart: adds it to Loved Tracks (a video to the collection)
+ *  or takes it out. */
+function RowLike({ track }: { track: Track }) {
+  const { liked, label, toggle } = useTvLike(track);
+  return (
+    <button
+      data-tv-focusable
+      aria-label={label}
+      title={label}
+      aria-pressed={liked}
+      onClick={toggle}
+      className={`tv-track shrink-0 w-[2.4rem] h-[2.4rem] flex items-center justify-center rounded-full ${
+        liked ? "text-th-accent" : "text-th-text-muted"
+      }`}
+    >
+      <Heart
+        className="w-[1.1rem] h-[1.1rem]"
+        fill={liked ? "currentColor" : "none"}
+      />
+    </button>
+  );
+}
+
+/** `screen`: a whole screen is loading, so the spinner is larger and sits in
+ *  the middle of the screen rather than at the top of its block. */
+export function TvSpinner({ screen }: { screen?: boolean }) {
+  if (screen) {
+    return (
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="h-[3.6rem] w-[3.6rem] animate-spin rounded-full border-[0.28rem] border-th-accent border-t-transparent" />
+      </div>
+    );
+  }
   return (
     <div className="flex h-full w-full items-center justify-center py-[4rem]">
       <div className="h-[2.4rem] w-[2.4rem] animate-spin rounded-full border-[0.2rem] border-th-accent border-t-transparent" />
@@ -561,6 +603,7 @@ export function TvHeader({
   title,
   subtitle,
   children,
+  menu,
 }: {
   image?: string;
   round?: boolean;
@@ -568,9 +611,15 @@ export function TvHeader({
   title: string;
   subtitle?: string;
   children?: ReactNode;
+  /** The page's action menu, opened by the Menu key on its buttons. */
+  menu?: () => TvMenuSpec;
 }) {
   return (
-    <div className="flex items-end gap-[2rem] px-[3rem] pt-[2.5rem] pb-[1.5rem]">
+    <div
+      data-tv-has-menu={menu ? true : undefined}
+      ref={menu ? tvMenuRef(menu) : undefined}
+      className="flex items-end gap-[2rem] px-[3rem] pt-[2.5rem] pb-[1.5rem]"
+    >
       <div
         className={`w-[12rem] h-[12rem] shrink-0 overflow-hidden bg-th-surface shadow-2xl ${
           round ? "rounded-full" : "rounded-[0.8rem]"

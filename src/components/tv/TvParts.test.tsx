@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { createStore } from "jotai";
+import { favoriteTrackIdsAtom } from "../../atoms/favorites";
 import { allowExplicitAtom } from "../../atoms/playback";
 import { TvGrid, TvRow, TvTile, TvTrackRow } from "./TvParts";
 import { armMarquee, marqueeShift } from "./tvMarquee";
@@ -55,6 +56,34 @@ it("indexes a row by position and shows its number", () => {
     "12",
   );
   expect(within(row).getByText("3")).toBeTruthy();
+});
+
+it("puts a heart on each row: Loved Tracks for a track, the collection for a video", () => {
+  const store = createStore();
+  store.set(favoriteTrackIdsAtom, new Set([1]));
+  renderTv(
+    <>
+      <TvTrackRow track={mkTrack(1)} index={0} onSelect={() => {}} />
+      <TvTrackRow track={mkTrack(2)} index={1} onSelect={() => {}} />
+      <TvTrackRow
+        track={mkTrack(3, { itemType: "video" })}
+        index={2}
+        onSelect={() => {}}
+      />
+    </>,
+    { store },
+  );
+  const loved = screen.getByRole("button", {
+    name: "Remove from Loved Tracks",
+  });
+  expect(loved.getAttribute("aria-pressed")).toBe("true");
+  expect(loved.hasAttribute("data-tv-focusable")).toBe(true);
+  expect(
+    screen.getByRole("button", { name: "Add to Loved Tracks" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Add to collection" }),
+  ).toBeTruthy();
 });
 
 it("keeps the menu on a blocked row unless asked to drop it", () => {
@@ -229,6 +258,21 @@ it("clears a title that no longer overflows", () => {
   expect(el.dataset.overflow).toBeUndefined();
   expect(el.style.getPropertyValue("--tv-marquee-shift")).toBe("");
   expect(el.style.getPropertyValue("--tv-marquee-duration")).toBe("");
+});
+it("a title glides once per focus, then settles back to its ellipsis", () => {
+  const root = document.createElement("div");
+  root.innerHTML = '<span class="tv-marquee"><span>t</span></span>';
+  const el = root.firstElementChild as HTMLElement;
+  Object.defineProperty(el, "clientWidth", { value: 200 });
+  Object.defineProperty(el, "scrollWidth", { value: 300 });
+  armMarquee(root);
+  expect(el.dataset.marqueeDone).toBeUndefined();
+  el.firstElementChild!.dispatchEvent(
+    new Event("animationend", { bubbles: true }),
+  );
+  expect(el.dataset.marqueeDone).toBeDefined();
+  armMarquee(root);
+  expect(el.dataset.marqueeDone).toBeUndefined();
 });
 it("focusing a card, tile or track row arms its title", () => {
   const entries = sectionEntries(

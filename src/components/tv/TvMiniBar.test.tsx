@@ -1,6 +1,8 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { createStore } from "jotai";
 import { beforeEach, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { favoriteTrackIdsAtom } from "../../atoms/favorites";
 import { isPlayingAtom } from "../../atoms/playback";
 import { currentVideoAtom, videoPlayingAtom } from "../../atoms/video";
 import type { TidalVideo } from "../../types";
@@ -10,6 +12,7 @@ import {
   mockInvoke,
   renderTv,
   setupTvTest,
+  signedIn,
   withQueue,
 } from "./tvTestUtils";
 
@@ -59,4 +62,25 @@ it("sends transport commands", () => {
 it("renders nothing without a track", () => {
   const { container } = renderTv(<TvMiniBar />, { store: createStore() });
   expect(container.firstChild).toBeNull();
+});
+
+it("loves the playing track and takes it out again", async () => {
+  mockInvoke({
+    add_favorite_track: () => undefined,
+    remove_favorite_track: () => undefined,
+  });
+  const store = signedIn(7, withQueue([], mkTrack(3)));
+  renderTv(<TvMiniBar />, { store });
+  fireEvent.click(screen.getByRole("button", { name: "Add to Loved Tracks" }));
+  expect(store.get(favoriteTrackIdsAtom).has(3)).toBe(true);
+  expect(invoke).toHaveBeenCalledWith("add_favorite_track", {
+    userId: 7,
+    trackId: 3,
+  });
+  const remove = await screen.findByRole("button", {
+    name: "Remove from Loved Tracks",
+  });
+  expect(remove.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(remove);
+  expect(store.get(favoriteTrackIdsAtom).has(3)).toBe(false);
 });
