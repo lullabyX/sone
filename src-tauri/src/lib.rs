@@ -2,6 +2,8 @@ mod audio;
 pub mod cache;
 mod commands;
 mod crypto;
+#[cfg(target_os = "linux")]
+mod device_reserve;
 mod discord;
 mod discord_ipc;
 mod embedded_config;
