@@ -1,4 +1,16 @@
-import TidalImage from "./TidalImage";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { bakeCover, BLUR_OPTIONS, SHARP_OPTIONS } from "../lib/coverBlur";
+import {
+  alphaStops,
+  fadeBottom,
+  fillLinear,
+  sizeCanvasToBox,
+  withAlpha,
+} from "../lib/bannerCanvas";
+import { useElementSize } from "../hooks/useElementSize";
+import { useDerivedTheme } from "../hooks/useDerivedTheme";
+
+type Variant = "blur" | "dark";
 
 interface CoverBannerProps {
   /** Resolved image URL (UUID already run through getTidalImageUrl, or a direct URL). */
@@ -7,14 +19,70 @@ interface CoverBannerProps {
    * "blur" — heavily blurred, faint backdrop (playlists, mixes).
    * "dark" — sharp art, darkened, TIDAL album-page style.
    */
-  variant?: "blur" | "dark";
+  variant?: Variant;
 }
 
-// Fade applied to the unscaled outer box so it dissolves at the true bottom edge.
-const FADE = "linear-gradient(to bottom, #000 0%, #000 50%, transparent 100%)";
-// Sharp art (dark variant) is more present, so start dissolving sooner.
-const DARK_FADE =
-  "linear-gradient(to bottom, #000 0%, #000 22%, transparent 100%)";
+// Where the bottom fade starts, as a fraction of the banner height. Sharp art
+// is more present, so it starts dissolving sooner.
+const FADE_START: Record<Variant, number> = { blur: 0.5, dark: 0.22 };
+
+// Horizontal base-tone tint (offset, alpha). Blur keeps the right side calm;
+// dark tints the left where the title sits and reveals the art on the right.
+const TINT: Record<Variant, [number, number][]> = {
+  blur: [
+    [0, 0],
+    [0.5, 0.1],
+    [1, 0.6],
+  ],
+  dark: [
+    [0, 0.3],
+    [0.5, 0.7],
+    [1, 0],
+  ],
+};
+
+/**
+ * Paints the art, a 50% base-tone wash (darkens on dark themes, lightens on
+ * light ones), the horizontal tint and the bottom fade into a canvas the size
+ * of the banner box. Blur art spans the width anchored to the top; sharp art
+ * is centre-cropped to cover the box.
+ */
+function paintCoverBanner(
+  target: HTMLCanvasElement,
+  art: HTMLCanvasElement,
+  boxW: number,
+  boxH: number,
+  variant: Variant,
+  base: string,
+) {
+  if (!boxW || !boxH) return;
+  const { w, h } = sizeCanvasToBox(target, boxW, boxH);
+  const ctx = target.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, w, h);
+  if (variant === "blur") {
+    ctx.drawImage(art, 0, 0, w, (w * art.height) / art.width);
+  } else {
+    const scale = Math.max(w / art.width, h / art.height);
+    const dw = art.width * scale;
+    const dh = art.height * scale;
+    ctx.drawImage(art, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }
+  const wash = withAlpha(base, 0.5);
+  const tint = alphaStops(base, TINT[variant]);
+  if (wash && tint) {
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, w, h);
+    fillLinear(ctx, "right", w, h, tint);
+  }
+  fadeBottom(ctx, w, h, FADE_START[variant]);
+}
+
+interface Baked {
+  key: string;
+  variant: Variant;
+  canvas: HTMLCanvasElement;
+}
 
 /**
  * Album/playlist/mix art rendered as a banner behind the page header. The crisp
@@ -25,48 +93,46 @@ export default function CoverBanner({
   src,
   variant = "blur",
 }: CoverBannerProps) {
-  if (!src) return null;
+  const [boxRef, box] = useElementSize<HTMLDivElement>();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { bgBase } = useDerivedTheme();
+  const [baked, setBaked] = useState<Baked | null>(null);
+  const key = src ? `${variant}:${src}` : null;
+  const ready = baked !== null && baked.key === key;
 
-  const fade = variant === "dark" ? DARK_FADE : FADE;
+  useEffect(() => {
+    if (!src || !key) return;
+    let cancelled = false;
+    bakeCover(src, variant === "blur" ? BLUR_OPTIONS : SHARP_OPTIONS).then(
+      (canvas) => {
+        if (!cancelled && canvas) setBaked({ key, variant, canvas });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [src, variant, key]);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !baked || !ready) return;
+    paintCoverBanner(canvas, baked.canvas, box.w, box.h, baked.variant, bgBase);
+  }, [baked, ready, box, bgBase]);
+
+  if (!src) return null;
 
   return (
     <div
+      ref={boxRef}
       className="pointer-events-none absolute inset-0 overflow-hidden select-none"
-      style={{ maskImage: fade, WebkitMaskImage: fade }}
     >
-      {variant === "blur" ? (
-        <>
-          <div className="absolute inset-0 blur-[48px] saturate-[1.2]">
-            <TidalImage
-              src={src}
-              alt=""
-              className="w-full"
-              objectFit="object-top"
-            />
-          </div>
-          {/* Semitransparent base-tone layer: darkens on dark themes, lightens on
-              light themes, so the bright blur reads as TIDAL's deep tone either way. */}
-          <div className="absolute inset-0 bg-th-base/50" />
-          {/* Keep the title/metadata side readable, like TIDAL. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-th-base/10 to-th-base/60" />
-        </>
-      ) : (
-        <>
-          <div className="absolute inset-0">
-            <TidalImage
-              src={src}
-              alt=""
-              className="w-full h-full"
-              objectFit="object-cover"
-            />
-          </div>
-          {/* Semitransparent base-tone layer: darkens on dark themes, lightens on
-              light themes, so the bright blur reads as TIDAL's deep tone either way. */}
-          <div className="absolute inset-0 bg-th-base/50" />
-          {/* Tint the left where the title/metadata sit (theme base), reveal art on the right. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-th-base/30 via-th-base/70 to-transparent" />
-        </>
-      )}
+      <canvas
+        ref={canvasRef}
+        aria-hidden
+        data-testid="cover-banner-canvas"
+        className="w-full h-full block transition-opacity duration-300"
+        style={{ opacity: ready ? 1 : 0 }}
+      />
     </div>
   );
 }

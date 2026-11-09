@@ -12,7 +12,7 @@ function Pulse({ className }: { className: string }) {
 /** Skeleton for artist pages — tall hero banner, title/fans/bio + controls, tracks, discography */
 export function ArtistPageSkeleton() {
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
+    <div className="flex-1 page-gradient overflow-hidden">
       {/* Hero banner — full-bleed, content anchored bottom-left */}
       <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
         <div className="absolute inset-0 animate-pulse bg-th-hl-faint" />
@@ -96,7 +96,7 @@ export function ArtistPageSkeleton() {
 /** Skeleton for the profile page — hero with name/handle/fans + add-bio + edit/share, then a public-playlists grid */
 export function ProfilePageSkeleton() {
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
+    <div className="flex-1 page-gradient overflow-hidden">
       {/* Hero banner — content anchored bottom-left */}
       <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
         <div className="absolute inset-0 animate-pulse bg-th-hl-faint" />
@@ -155,7 +155,7 @@ export function ProfilePageSkeleton() {
 /** Skeleton for the search results page — tab bar + tracks section + grid cards */
 export function SearchPageSkeleton() {
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base min-h-full">
+    <div className="flex-1 page-gradient min-h-full">
       <PageContainer className="px-6 py-6">
         {/* Tab pills */}
         <div className="pb-6 flex items-center gap-2">
@@ -225,7 +225,7 @@ export function DetailPageSkeleton({
   const showFilter = type === "playlist" || type === "favorites";
 
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-hidden">
+    <div className="flex-1 page-gradient overflow-hidden">
       <PageContainer>
         {/* Header area */}
         <div className="px-8 pb-8 pt-8 flex items-end gap-7">

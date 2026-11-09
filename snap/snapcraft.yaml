@@ -82,7 +82,6 @@ apps:
     extensions: [gnome]
     environment:
       GST_PLUGIN_SYSTEM_PATH: $SNAP/usr/lib/x86_64-linux-gnu/gstreamer-1.0
-      WEBKIT_DISABLE_DMABUF_RENDERER: 1
     plugs:
       - home
       - network

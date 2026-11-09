@@ -33,6 +33,7 @@ import {
 import MediaContextMenu from "./MediaContextMenu";
 import TrackContextMenu from "./TrackContextMenu";
 import { fetchCachedImageUrl } from "./TidalImage";
+import ArtistHeroCanvas from "./ArtistHeroCanvas";
 import TrackList from "./TrackList";
 import SourcePlayButton from "./SourcePlayButton";
 import { artistTopTracksPager, type PlayableSource } from "../lib/trackSources";
@@ -47,10 +48,6 @@ import {
 import BioText, { stripBio } from "./BioText";
 import CardScrollSection from "./CardScrollSection";
 import PageContainer from "./PageContainer";
-
-// Fades the stitched banner into the page background at its bottom edge.
-const HERO_FADE =
-  "linear-gradient(to bottom, #000 0%, #000 60%, transparent 100%)";
 
 function HeaderAction({
   icon,
@@ -215,7 +212,6 @@ export default function ArtistPage({
     s.kind === "artist"
       ? getTidalArtistImageUrl(s.uuid, hi ? 750 : 160)
       : getTidalImageUrl(s.uuid, hi ? 1280 : 320);
-  const heroDisplay = showHi || showLow;
   // Small avatars reuse the hero's resolved source — same URL, already cached,
   // and already advanced past any source that failed to fetch.
   const avatarSrc = heroSources[heroSrcIdx]
@@ -455,7 +451,7 @@ export default function ArtistPage({
 
   if (error) {
     return (
-      <div className="flex-1 bg-linear-to-b from-th-surface to-th-base flex items-center justify-center">
+      <div className="flex-1 page-gradient flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center px-8">
           <User size={48} className="text-th-text-disabled" />
           <p className="text-th-text-primary font-semibold text-lg">
@@ -474,7 +470,7 @@ export default function ArtistPage({
   }
 
   return (
-    <div className="flex-1 bg-linear-to-b from-th-surface to-th-base overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
+    <div className="flex-1 page-gradient overflow-y-auto scrollbar-thin scrollbar-thumb-th-button scrollbar-track-transparent">
       {/* Artist Hero — full-bleed banner */}
       <div className="relative w-full h-[480px] overflow-hidden flex items-end mb-8">
         {/* Low-res blob: confirm it decodes (else step source). Rendered opacity-0
@@ -499,31 +495,12 @@ export default function ArtistPage({
             src={hiBlob}
             className="pointer-events-none absolute inset-0 opacity-0"
             onLoad={() => setShowHi(hiBlob)}
+            onError={() =>
+              setHeroSrcIdx((i) => (i + 1 < heroSources.length ? i + 1 : i))
+            }
           />
         )}
-        {heroDisplay && (
-          <div
-            className={`absolute inset-0 flex justify-center overflow-hidden ${!hiBlob ? "blur-2xl" : ""}`}
-            style={{ maskImage: HERO_FADE, WebkitMaskImage: HERO_FADE }}
-          >
-            {/* Square copies stitched edge-to-edge; the centre one stays bright,
-                the flanking copies are darkened. */}
-            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-              <img
-                key={i}
-                src={heroDisplay}
-                alt=""
-                draggable={false}
-                className={`h-full w-auto shrink-0 select-none object-cover ${
-                  i === 3 ? "" : "brightness-[0.32]"
-                }`}
-              />
-            ))}
-          </div>
-        )}
-        {/* Legibility scrims — tinted to the theme base so they track any theme */}
-        <div className="absolute inset-0 bg-gradient-to-t from-th-base/85 via-th-base/25 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-th-base/50 to-transparent" />
+        <ArtistHeroCanvas low={showLow} hi={showHi} />
 
         {/* Foreground content */}
         <PageContainer className="relative z-10 w-full">
@@ -562,7 +539,7 @@ export default function ArtistPage({
                 />
                 <button
                   onClick={handleShuffle}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 backdrop-blur-md text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-th-button/40 text-th-text-primary font-bold text-sm rounded-full hover:bg-th-button/60 hover:scale-[1.03] transition-[transform,filter,background-color] duration-150"
                 >
                   <Shuffle size={18} />
                   Shuffle

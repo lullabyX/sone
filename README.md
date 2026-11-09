@@ -389,11 +389,7 @@ Output goes to `dist/<format>/`. Pass `--no-cache` to force a clean Docker build
 3. Your library loads automatically — browse and play!
 
 > [!NOTE]
-> **NVIDIA GPU users:** If you see a blank window, rendering glitches, or a Wayland protocol error on launch, start the app with:
->
-> ```bash
-> WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
-> ```
+> **Rendering:** SONE picks its rendering path automatically. If you see a blank window, rendering glitches, or high CPU use, change it under **Settings → General → Rendering** (Auto / GPU / CPU). After the restart, a 40-second keep-or-revert prompt switches back to the previous mode on its own if you can't confirm the new one, so a blank window recovers without any action.
 
 <details>
 <summary>Troubleshooting</summary>
@@ -414,22 +410,21 @@ If it's missing, install the GStreamer "bad" plugin set and restart SONE — `gs
 SONE automatically detects your DAC's supported formats and sample rates, but if playback still fails, your hardware may not support the source format at all. Try a lower quality tier or switch to normal output mode.
 
 **"Error 71 (Protocol error) dispatching to Wayland display" on launch?**
-This is a known WebKitGTK/Wayland issue affecting Tauri apps on systems with NVIDIA GPUs ([tauri-apps/tauri#10702](https://github.com/tauri-apps/tauri/issues/10702)). As a workaround, launch SONE with the DMA-BUF renderer disabled:
-
-```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 sone
-```
+This is a known WebKitGTK/Wayland issue affecting Tauri apps on systems with NVIDIA GPUs ([tauri-apps/tauri#10702](https://github.com/tauri-apps/tauri/issues/10702)). On **Auto**, SONE already disables the DMA-BUF renderer when it detects an NVIDIA GPU. If you see the error after switching **Settings → General → Rendering** to **GPU**, the next launch reverts to the previous mode; if you see it on **Auto**, set the mode to **CPU** or use the advanced override below.
 
 If you're using X11 or don't have an NVIDIA GPU but still see this error, try updating your WebKitGTK and graphics drivers to the latest versions.
 
-**Blank window or rendering glitches on NVIDIA?**
-If the app launches but shows a blank/white window or has visual artifacts, try disabling WebKit's compositing mode:
+**Blank window, rendering glitches or high CPU use?**
+Try the other modes under **Settings → General → Rendering**: **GPU** keeps hardware acceleration on (lower CPU use), **CPU** renders in software (most compatible). If the window stays blank after switching, wait for the 40-second trial to revert the change.
+
+**Advanced override:** the WebKitGTK environment variables still work. A variable set in the environment wins over **Auto**:
 
 ```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 sone
 WEBKIT_DISABLE_COMPOSITING_MODE=1 sone
 ```
 
-This is a known issue with NVIDIA's proprietary drivers and WebKitGTK hardware acceleration.
+On WebKitGTK 2.54 and newer, `WEBKIT_DISABLE_COMPOSITING_MODE=1` gives a black window on NVIDIA, so prefer the **Settings → General → Rendering** choice.
 
 </details>
 

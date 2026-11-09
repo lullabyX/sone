@@ -339,6 +339,14 @@ fn the_startup_proxy_scrub_stays_gated_on_the_launch_sidecar() {
     // defeated through. It also removes the only text `block_of` could have
     // miscounted braces in.
     let body = without_comments(&fs::read_to_string("src/main.rs").expect("src/main.rs"));
+    // The render mode's own two WebKit removals are not proxy scrubs; each is
+    // excused exactly once, so any further removal is still counted.
+    let body = [
+        "env::remove_var(\"WEBKIT_DISABLE_DMABUF_RENDERER\")",
+        "env::remove_var(\"WEBKIT_DISABLE_COMPOSITING_MODE\")",
+    ]
+    .into_iter()
+    .fold(body, |b, excused| b.replacen(excused, "", 1));
     let body = body.as_str();
 
     let removals = body.match_indices("env::remove_var").count();
