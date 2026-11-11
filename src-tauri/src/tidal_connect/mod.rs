@@ -143,6 +143,14 @@ pub struct TidalConnectState {
     /// 12 s"), and only the poller's 22 s jam recovery plays again
     /// (soak-observed 2026-11-03: every skip, deterministic).
     pub last_cast_stop: RwLock<Option<Instant>>,
+    /// Last time the cast path saw real intent or real playback: a cast
+    /// command from the UI, a device selection, or a poll that observed the
+    /// receiver actually playing. The idle watchdog uses it to hand the
+    /// receiver back (see `spawn_cast_idle_watchdog`). Deliberately NOT
+    /// stamped by the poller's own recovery pushes: a receiver that refuses
+    /// every push would otherwise keep itself selected forever, and each push
+    /// yanks the amp off whatever input the user is actually watching.
+    pub last_cast_activity: RwLock<Instant>,
 }
 
 pub fn new_state(device_http: reqwest::Client) -> TidalConnectStateRef {
@@ -158,7 +166,98 @@ pub fn new_state(device_http: reqwest::Client) -> TidalConnectStateRef {
         prefetch_stream: RwLock::new(None),
         last_natural_end: RwLock::new(None),
         last_cast_stop: RwLock::new(None),
+        last_cast_activity: RwLock::new(Instant::now()),
     })
+}
+
+/// How long a selected receiver may sit without cast activity before Sone
+/// lets go of it.
+///
+/// A selected receiver is not passive: every push Sone issues (including the
+/// poller's jam/advance recovery) switches the amp to its network input, so an
+/// idle-but-selected Sone fights the user for the amplifier. Real-world report
+/// (2026-11-11): the PC kept flipping a WiiM Amp off HDMI ARC while a show was
+/// playing, because a stale cast from the previous night kept the poller
+/// advancing and re-pushing. Ten minutes is well past any track-to-track gap
+/// and short enough that the amp stays put for a whole sitting.
+pub const CAST_IDLE_RELEASE_S: u64 = 600;
+
+/// Stamp cast activity. Called from user-facing cast commands (play, pause,
+/// resume, stop, seek, volume, device select) and from the poller when the
+/// receiver reports a real `play`. The poller's own recovery pushes must not
+/// call this.
+pub async fn touch_cast_activity(state: &TidalConnectState) {
+    *state.last_cast_activity.write().await = Instant::now();
+}
+
+/// Idle window, overridable for tests and soak runs
+/// (`SONE_CAST_IDLE_RELEASE_S`, seconds).
+fn idle_release_window() -> std::time::Duration {
+    std::env::var("SONE_CAST_IDLE_RELEASE_S")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(std::time::Duration::from_secs(CAST_IDLE_RELEASE_S))
+}
+
+/// Release the receiver once the cast path has been idle for the release
+/// window, so Sone stops competing with the amp's own input selection.
+///
+/// Checks every 15 s. The release is a full hand-back: abort the poller, drop
+/// the cast context, clear the selection and end the WS session. Clearing
+/// `active_device` first is what makes the renderer's disconnect re-query fall
+/// back to local (see AppInitializer); `client.disconnect()` then tells it to
+/// re-query (it holds the app handle from `connect`).
+pub fn spawn_cast_idle_watchdog(state: TidalConnectStateRef) {
+    // `tauri::async_runtime::spawn`, not `tokio::spawn`: this is called from
+    // `setup`, which is not guaranteed to run inside a Tokio task context.
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let window = idle_release_window();
+            if state.last_cast_activity.read().await.elapsed() < window {
+                continue;
+            }
+            // A cast that is actually playing is not idle, even if the UI has
+            // been quiet for longer than the window.
+            let playing = state
+                .cast_status
+                .read()
+                .await
+                .as_ref()
+                .map(|s| s.status == "play")
+                .unwrap_or(false);
+            if playing {
+                continue;
+            }
+            let name = {
+                let guard = state.active_device.read().await;
+                match guard.as_ref() {
+                    Some(dev) => dev.name.clone(),
+                    None => continue,
+                }
+            };
+            // Re-check right before the hand-back: a play that started while
+            // the checks above ran must win over the release.
+            let idle = state.last_cast_activity.read().await.elapsed();
+            if idle < window {
+                continue;
+            }
+            let idle_s = idle.as_secs();
+            teardown_cast(&state).await;
+            *state.prefetch_stream.write().await = None;
+            *state.active_device.write().await = None;
+            state.client.disconnect().await;
+            log::info!(
+                "[cast-idle] released {} after {}s without cast activity; the receiver follows its own input again",
+                name,
+                idle_s
+            );
+        }
+    });
 }
 
 /// Spawn (or replace) the 1 s receiver status poller. Emits:
@@ -227,6 +326,13 @@ pub async fn ensure_cast_poller(
             } else {
                 std::time::Duration::from_secs(1)
             };
+            // Real audio is cast activity, so the idle watchdog never releases
+            // a receiver that is genuinely playing an album. A transient
+            // "play" from a receiver that is really on another input does not
+            // keep the cast alive: the 10-minute window needs sustained play.
+            if raw.status == "play" {
+                touch_cast_activity(&cast_ref).await;
+            }
             if let Some(vol) = outcome.volume {
                 use tauri::Emitter;
                 let normalized = (vol as f64 / 100.0).clamp(0.0, 1.0);

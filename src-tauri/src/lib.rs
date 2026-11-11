@@ -710,6 +710,15 @@ pub fn run() {
 
             app.manage(AppState::new(app.handle().clone()));
 
+            // Hand the receiver back after a long quiet spell: a selected but
+            // idle receiver is not passive (every push, including poller
+            // recovery, switches the amp to its network input), so this is
+            // what keeps Sone from fighting the TV's HDMI ARC input.
+            {
+                let state = app.state::<AppState>();
+                crate::tidal_connect::spawn_cast_idle_watchdog(state.tidal_connect.clone());
+            }
+
             #[cfg(target_os = "linux")]
             webview_proxy_auth::install(app.handle());
 

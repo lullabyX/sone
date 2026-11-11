@@ -378,6 +378,10 @@ pub async fn play_tidal_track(
     // first; an `if let` scrutinee clone would hold the guard across the
     // awaits below (standing rule, AGENTS 5.3).
     let device_early = state.tidal_connect.active_device.read().await.clone();
+    if device_early.is_some() {
+        // A play intent restarts the idle-release countdown.
+        crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
+    }
     let prefetched = if device_early.is_some() {
         take_prefetched(state.inner(), track_id, use_track_gain).await
     } else {
@@ -864,6 +868,7 @@ pub async fn get_video_metadata(
 pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[pause_track]");
     if state.tidal_connect.active_device.read().await.is_some() {
+        crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
         // Hoisted clone: an `if let` scrutinee keeps the read guard alive
         // for the whole block, so the LinkPlay command await below would
         // hold cast_host.read() for seconds and (tokio RwLock is
@@ -888,6 +893,7 @@ pub async fn pause_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), SoneError> {
     log::debug!("[resume_track]");
     if state.tidal_connect.active_device.read().await.is_some() {
+        crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
         // Hoisted clone (same guard-lifetime rule as pause_track): the read
         // guard must not span the LinkPlay command await.
         let cast_host = state.tidal_connect.cast_host.read().await.clone();
@@ -928,6 +934,9 @@ pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> 
 /// `stop_track` command and `logout`.
 pub(crate) async fn stop_playback(state: &AppState) -> Result<(), SoneError> {
     if state.tidal_connect.active_device.read().await.is_some() {
+        // A stop is user intent: the idle-release countdown starts here, not
+        // from the last play.
+        crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
         // Hoist the clone out of the `if let` scrutinee: Rust keeps if-let
         // temporaries (here the cast_host read guard) alive for the whole
         // block, so writing cast_host inside that block would hold readers
@@ -986,6 +995,7 @@ pub async fn stop_track(state: State<'_, AppState>) -> Result<(), SoneError> {
 pub async fn set_volume(state: State<'_, AppState>, level: f32) -> Result<(), SoneError> {
     let active_opt = state.tidal_connect.active_device.read().await.clone();
     if let Some(dev) = active_opt {
+        crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
         // Preferred channel: LinkPlay httpapi (device DAC). The TIDAL
         // Connect WS setVolume command acks with resultCode 0 but does not
         // move the hardware volume on A98 firmware, so it is only a
@@ -1115,6 +1125,7 @@ pub async fn get_playback_position(state: State<'_, AppState>) -> Result<f32, So
 pub async fn seek_track(state: State<'_, AppState>, position_secs: f32) -> Result<(), SoneError> {
     log::debug!("[seek_track]: position_secs={:.1}", position_secs);
     if state.tidal_connect.active_device.read().await.is_some() {
+        crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
         // Hoisted clone: this block spans the trim, the stop-verify, the 3 s
         // settle and a bounded push - holding the read guard across all of
         // it starves the remaining cast_host writers (tokio RwLock is

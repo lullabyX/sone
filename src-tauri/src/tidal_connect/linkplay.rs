@@ -67,6 +67,19 @@ const NATURAL_END_MARGIN_MS: f64 = 2400.0;
 /// this are treated as a seek (a normal poll advances the clock by ~1000 ms).
 const SEEK_JUMP_MS: f64 = 2000.0;
 
+/// How far past an entry's own length the wall clock may run while still
+/// being read as "the receiver moved on without swapping `totlen`".
+///
+/// `overran` exists only for equal-duration neighbours, which never produce a
+/// `totlen` swap, so a genuine overrun is caught within a poll or two of the
+/// boundary. A cast state left behind by a receiver that switched to another
+/// input keeps its entry anchor forever, and the wall clock then runs hours
+/// past the entry; reading that as an advance re-pushes the playlist every
+/// time the receiver reports a transient `play`, which yanks the amp off the
+/// input the user is actually watching (2026-11-11: an 8.7-hour-old cast
+/// advanced and re-pushed about once a minute during a movie).
+const OVERRUN_MARGIN_MS: f64 = 5000.0;
+
 /// Normalize a stop-time `curpos` sample to milliseconds local to the push
 /// that is playing now, or `None` when the value cannot be one.
 ///
@@ -81,9 +94,23 @@ const SEEK_JUMP_MS: f64 = 2000.0;
 /// the sample before it was a plausible millisecond value; a clock that was
 /// already out of range was cumulative all along. Cumulative samples are
 /// never usable as a trim offset.
+/// True when the entry clock has run past the entry by a plausible boundary
+/// margin, but not by hours.
+///
+/// `overran` exists only for equal-duration neighbours, which never produce a
+/// `totlen` swap, so a genuine overrun is caught within a poll or two of the
+/// boundary. An abandoned cast state (the receiver switched to another input)
+/// keeps its entry anchor forever, so the wall clock can run hours past the
+/// entry; reading that as an advance re-pushes the playlist and yanks the amp
+/// off the input the user is watching (2026-11-11).
+fn entry_overran(pos: f64, entry_len: f64) -> bool {
+    entry_len > 0.0 && pos >= entry_len + 2000.0 && pos <= entry_len + OVERRUN_MARGIN_MS
+}
+
 fn normalize_stop_curpos(curpos: u64, prev_curpos: u64, len_ms: f64) -> Option<f64> {
     if curpos == 0 || len_ms <= 0.0 {
         return None;
+
     }
     let raw = curpos as f64;
     if raw <= len_ms + SEEK_JUMP_MS {
@@ -824,8 +851,11 @@ impl LinkPlayClient {
                     let used_up = entry_len > 0.0 && pos >= entry_len - 500.0;
                     // Equal-duration neighbours never change `totlen`, so a
                     // clock that has plainly run past the entry proves the
-                    // change on its own.
-                    let overran = entry_len > 0.0 && pos >= entry_len + 2000.0;
+                    // change on its own. Bounded: a clock that ran HOURS past
+                    // the entry is not a boundary, it is a cast state the
+                    // receiver abandoned when it switched inputs (see
+                    // OVERRUN_MARGIN_MS and `entry_overran`).
+                    let overran = entry_overran(pos, entry_len);
                     // A skip from the receiver's own UI (WiiM Home next, or the
                     // hardware remote) restarts the entry clock; a `totlen`
                     // swap alone is only a hint (equal-duration neighbours never
@@ -926,7 +956,7 @@ impl LinkPlayClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_stop, normalize_stop_curpos, StopCause};
+    use super::{classify_stop, entry_overran, normalize_stop_curpos, StopCause};
 
     /// Receiver clocks arrive in three scales; only the two that are local to
     /// the current push may become a trim offset (2026-11-01 cumulative clock,
@@ -1002,5 +1032,22 @@ mod tests {
             classify_stop(0, 30_000_000, 0.0, 196_000.0),
             StopCause::Operator
         ));
+    }
+
+    /// `overran` catches an equal-duration neighbour boundary, not a receiver
+    /// that abandoned the cast hours ago (2026-11-11: an 8.7-hour-old entry
+    /// clock advanced and re-pushed about once a minute during a movie).
+    #[test]
+    fn overrun_only_counts_near_the_boundary() {
+        let len = 196_000.0;
+        assert!(!entry_overran(len - 1_000.0, len), "before the boundary");
+        assert!(entry_overran(len + 2_500.0, len), "just past the boundary");
+        assert!(entry_overran(len + 4_900.0, len), "still inside the margin");
+        assert!(!entry_overran(len + 6_000.0, len), "past the margin");
+        assert!(
+            !entry_overran(31_176_000.0, len),
+            "a cast abandoned hours ago is not an advance"
+        );
+        assert!(!entry_overran(5_000.0, 0.0), "unknown entry length");
     }
 }

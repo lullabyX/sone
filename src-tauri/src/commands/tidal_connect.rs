@@ -61,6 +61,8 @@ pub async fn tidal_connect_select_device(
             let mut active = state.tidal_connect.active_device.write().await;
             *active = Some(dev);
             drop(active);
+            // A deliberate selection starts the idle countdown fresh.
+            crate::tidal_connect::touch_cast_activity(&state.tidal_connect).await;
 
             // Notify the renderer so activeDeviceAtom mirrors backend-driven
             // selection (SONE_CAST_DEVICE autoselect, or any future backend
