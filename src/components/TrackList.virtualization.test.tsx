@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import type { PropsWithChildren } from "react";
 import { PageScrollProvider } from "../contexts/PageScrollContext";
@@ -21,6 +27,21 @@ vi.mock("../hooks/useFavorites", () => ({
     favoriteTrackIds: new Set<number>(),
     addFavoriteTrack: vi.fn(),
     removeFavoriteTrack: vi.fn(),
+  }),
+}));
+
+const { removeTrackFromPlaylist } = vi.hoisted(() => ({
+  removeTrackFromPlaylist: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("../hooks/usePlaylists", () => ({
+  usePlaylists: () => ({ removeTrackFromPlaylist }),
+}));
+
+vi.mock("../hooks/usePlaybackActions", () => ({
+  usePlaybackActions: () => ({
+    addToQueue: vi.fn(),
+    playNextInQueue: vi.fn(),
   }),
 }));
 
@@ -74,6 +95,7 @@ function track(id: number): Track {
 
 describe("TrackList virtualization", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     observers.length = 0;
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
     // No per-row offsetHeight stub: rows are deliberately unmeasured, so jsdom's
@@ -83,6 +105,79 @@ describe("TrackList virtualization", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { virtualize: false, displayNumbers: [3, 8], expectedIndex: 7 },
+    { virtualize: true, displayNumbers: [3, 8], expectedIndex: 7 },
+    { virtualize: false, displayNumbers: undefined, expectedIndex: 1 },
+    { virtualize: true, displayNumbers: undefined, expectedIndex: 1 },
+  ])(
+    "removes playlist index $expectedIndex with virtualize=$virtualize",
+    async ({ virtualize, displayNumbers, expectedIndex }) => {
+      const scroller = document.createElement("div");
+      document.body.appendChild(scroller);
+      fakeViewport(scroller, 480);
+      const onTrackRemoved = vi.fn();
+      const onPlay = vi.fn();
+      const tracks = [track(20), track(30)];
+
+      const { getAllByTitle, getByText } = render(
+        <Provider store={createStore()}>
+          <PageScrollProvider element={scroller}>
+            <TrackList
+              tracks={tracks}
+              onPlay={onPlay}
+              trackDisplayNumbers={displayNumbers}
+              playlistId="playlist"
+              isUserPlaylist
+              onTrackRemoved={onTrackRemoved}
+              virtualize={virtualize}
+            />
+          </PageScrollProvider>
+        </Provider>,
+      );
+
+      fireEvent.click(getByText("Track 30"));
+      expect(onPlay).toHaveBeenCalledWith(tracks[1], 1);
+      fireEvent.click(getAllByTitle("More options")[1]);
+      fireEvent.click(getByText("Remove from playlist"));
+
+      await waitFor(() => {
+        expect(removeTrackFromPlaylist).toHaveBeenCalledWith(
+          "playlist",
+          expectedIndex,
+        );
+        expect(onTrackRemoved).toHaveBeenCalledWith(expectedIndex);
+      });
+      scroller.remove();
+    },
+  );
+
+  it("renders separate virtual rows for repeated songs", () => {
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    fakeViewport(scroller, 480);
+
+    const { container, getAllByText } = render(
+      <Provider store={createStore()}>
+        <PageScrollProvider element={scroller}>
+          <TrackList
+            tracks={[track(1), track(2), track(1)]}
+            onPlay={vi.fn()}
+            virtualize
+          />
+        </PageScrollProvider>
+      </Provider>,
+    );
+
+    expect(getAllByText("Track 1")).toHaveLength(2);
+    expect(
+      [...container.querySelectorAll("[data-index]")].map((row) =>
+        row.getAttribute("data-index"),
+      ),
+    ).toEqual(["0", "1", "2"]);
+    scroller.remove();
   });
 
   it("windows the rows against the provided scroll element", () => {

@@ -75,6 +75,8 @@ export default function PlaylistView({
   onBack,
 }: PlaylistViewProps) {
   const [trackSortPrefs, setTrackSortPrefs] = useAtom(trackSortPrefsAtom);
+  const trackSortPrefsRef = useRef(trackSortPrefs);
+  trackSortPrefsRef.current = trackSortPrefs;
   const userName = useAtomValue(userNameAtom);
   const userId = useAtomValue(authTokensAtom)?.user_id;
   const [allTracks, setAllTracks] = useState<Track[]>([]);
@@ -258,16 +260,11 @@ export default function PlaylistView({
       setNotFound(false);
       setAllTracks([]);
       // Load saved sort preference for the new playlist
-      const newSort = trackSortPrefs[playlistId];
+      const newSort = trackSortPrefsRef.current[playlistId];
       const newCol = newSort?.order ?? null;
       const newDir = (newSort?.direction as "ASC" | "DESC") ?? null;
-      if (sortColumn !== newCol) setSortColumn(newCol);
-      if (sortDirection !== newDir) setSortDirection(newDir);
-      // If sort state changed, skip this fetch — the state update will trigger a new effect run
-      if (sortColumn !== newCol || sortDirection !== newDir) return;
-    } else {
-      // Track-list skeleton for sort change
-      setSortLoading(true);
+      setSortColumn(newCol);
+      setSortDirection(newDir);
     }
 
     offsetRef.current = 0;
@@ -280,8 +277,6 @@ export default function PlaylistView({
           playlistId,
           0,
           PLAYLIST_PAGE_SIZE,
-          sortColumn ?? undefined,
-          sortDirection ?? undefined,
         );
         if (generationRef.current !== gen) return;
 
@@ -300,14 +295,15 @@ export default function PlaylistView({
           setError(safeErrorMessage(err, "Failed to load playlist"));
         }
       } finally {
-        if (generationRef.current !== gen) return;
-        setLoading(false);
-        setSortLoading(false);
+        if (generationRef.current === gen) {
+          setLoading(false);
+          setSortLoading(false);
+        }
       }
     };
 
     loadFirstPage();
-  }, [playlistId, sortColumn, sortDirection]);
+  }, [playlistId]);
 
   // Fetch initial batch of recommendations when playlist changes
   useEffect(() => {
@@ -321,7 +317,7 @@ export default function PlaylistView({
 
   // Fetch all remaining pages in the background
   const fetchRemaining = useCallback(async () => {
-    if (bgFetchingRef.current || !hasMoreRef.current) return;
+    if (loadingMore || bgFetchingRef.current || !hasMoreRef.current) return;
     const gen = generationRef.current;
 
     bgFetchingRef.current = true;
@@ -331,17 +327,13 @@ export default function PlaylistView({
           playlistId,
           offsetRef.current,
           PLAYLIST_PAGE_SIZE,
-          sortColumn ?? undefined,
-          sortDirection ?? undefined,
         );
         if (generationRef.current !== gen) return;
 
         const newItems = page.items;
         startTransition(() => {
-          setAllTracks((prev) => {
-            const seen = new Set(prev.map((t) => t.id));
-            return [...prev, ...newItems.filter((t) => !seen.has(t.id))];
-          });
+          // Playlist positions identify entries; repeated song IDs are valid.
+          setAllTracks((prev) => [...prev, ...newItems]);
           setTotalTracks(page.totalNumberOfItems);
         });
         offsetRef.current += newItems.length;
@@ -353,7 +345,7 @@ export default function PlaylistView({
     } finally {
       bgFetchingRef.current = false;
     }
-  }, [playlistId, sortColumn, sortDirection]);
+  }, [playlistId, loadingMore]);
 
   // Manual load-more for infinite scroll
   const loadMore = useCallback(async () => {
@@ -366,15 +358,10 @@ export default function PlaylistView({
         playlistId,
         offsetRef.current,
         PLAYLIST_PAGE_SIZE,
-        sortColumn ?? undefined,
-        sortDirection ?? undefined,
       );
       if (generationRef.current !== gen) return;
 
-      setAllTracks((prev) => {
-        const seen = new Set(prev.map((t) => t.id));
-        return [...prev, ...page.items.filter((t) => !seen.has(t.id))];
-      });
+      setAllTracks((prev) => [...prev, ...page.items]);
       setTotalTracks(page.totalNumberOfItems);
       offsetRef.current += page.items.length;
       rawTracksRef.current = [...rawTracksRef.current, ...page.items];
@@ -384,7 +371,7 @@ export default function PlaylistView({
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, playlistId, sortColumn, sortDirection]);
+  }, [loadingMore, playlistId]);
 
   const tracks = allTracks;
   const hasMore = allTracks.length < totalTracks;
@@ -397,24 +384,73 @@ export default function PlaylistView({
   const [searchQuery, setSearchQuery] = useState("");
   const isFiltering = searchQuery.trim().length > 0;
 
+  // Keep entry positions in canonical playlist order, independently of the view.
+  const sortedEntries = useMemo(() => {
+    const entries = tracks.map((track, index) => ({ track, index }));
+    if (!sortColumn || !sortDirection) return entries;
+    const direction = sortDirection === "ASC" ? 1 : -1;
+    const value = (track: Track): string | number => {
+      switch (sortColumn) {
+        case "NAME":
+          return track.title;
+        case "ARTIST":
+          return track.artist?.name ?? track.artists?.[0]?.name ?? "";
+        case "ALBUM":
+          return track.album?.title ?? "";
+        case "DATE":
+          return track.dateAdded ?? "";
+        case "LENGTH":
+          return track.duration;
+        default:
+          return "";
+      }
+    };
+    return entries.sort((a, b) => {
+      const left = value(a.track);
+      const right = value(b.track);
+      const comparison =
+        typeof left === "number" && typeof right === "number"
+          ? left - right
+          : String(left).localeCompare(String(right), undefined, {
+              sensitivity: "base",
+              numeric: true,
+            });
+      return direction * comparison || a.index - b.index;
+    });
+  }, [tracks, sortColumn, sortDirection]);
+
   const { filteredTracks, displayNumbers } = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return { filteredTracks: tracks, displayNumbers: undefined };
-    const filtered: Track[] = [];
-    const numbers: number[] = [];
-    tracks.forEach((t, i) => {
-      if (
+    const entries = sortedEntries.filter(
+      ({ track: t }) =>
+        !q ||
         t.title.toLowerCase().includes(q) ||
         t.artist?.name?.toLowerCase().includes(q) ||
         t.artists?.some((a) => a.name?.toLowerCase().includes(q)) ||
-        t.album?.title?.toLowerCase().includes(q)
-      ) {
-        filtered.push(t);
-        numbers.push(i + 1);
-      }
+        t.album?.title?.toLowerCase().includes(q),
+    );
+    return {
+      filteredTracks: entries.map(({ track }) => track),
+      displayNumbers: entries.map(({ index }) => index + 1),
+    };
+  }, [sortedEntries, searchQuery]);
+
+  // Sorting must include every page, but must never change API entry positions.
+  useEffect(() => {
+    if (!sortColumn || loading) {
+      setSortLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSortLoading(true);
+    if (loadingMore) return;
+    void fetchRemaining().finally(() => {
+      if (!cancelled) setSortLoading(false);
     });
-    return { filteredTracks: filtered, displayNumbers: numbers };
-  }, [tracks, searchQuery]);
+    return () => {
+      cancelled = true;
+    };
+  }, [sortColumn, loading, loadingMore, fetchRemaining]);
 
   const handleSearchFocus = useCallback(() => {
     if (hasMoreRef.current && !bgFetchingRef.current) {
@@ -449,21 +485,19 @@ export default function PlaylistView({
         name: effectiveInfo?.title || "Playlist",
         image: effectiveInfo?.image,
       },
-      loaded: rawTracksRef.current,
+      loaded: sortColumn
+        ? sortedEntries.map(({ track }) => track)
+        : rawTracksRef.current,
       nextOffset: offsetRef.current,
       hasMore: hasMoreRef.current,
-      fetchPage: playlistTracksPager(
-        playlistId,
-        sortColumn ?? undefined,
-        sortDirection ?? undefined,
-      ),
+      fetchPage: playlistTracksPager(playlistId),
     }),
     [
       playlistId,
       effectiveInfo?.title,
       effectiveInfo?.image,
       sortColumn,
-      sortDirection,
+      sortedEntries,
     ],
   );
 
@@ -828,15 +862,12 @@ export default function PlaylistView({
             onSort={handleSort}
             sortLoading={sortLoading}
             onTrackRemoved={(index) => {
-              const removed = filteredTracks[index];
-              setAllTracks((prev) => prev.filter((_, i) => i !== index));
+              const removed = tracks[index];
               if (!removed) return;
-              const rawIdx = rawTracksRef.current.findIndex(
-                (t) => t.id === removed.id,
-              );
-              if (rawIdx === -1) return;
+              setAllTracks((prev) => prev.filter((_, i) => i !== index));
+              setTotalTracks((prev) => Math.max(0, prev - 1));
               rawTracksRef.current = rawTracksRef.current.filter(
-                (_, i) => i !== rawIdx,
+                (_, i) => i !== index,
               );
               offsetRef.current -= 1;
             }}
