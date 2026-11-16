@@ -747,8 +747,12 @@ export default memo(function TrackList({
   const handleHeaderClick = (column: string) => {
     if (!onSort) return;
     if (sortColumn === column) {
-      // Toggle direction
-      onSort(column, sortDirection === "ASC" ? "DESC" : "ASC");
+      // Cycle ASC -> DESC -> unsorted (the playlist's saved/custom order)
+      if (sortDirection === "DESC") {
+        onSort(null, null);
+      } else {
+        onSort(column, "DESC");
+      }
     } else {
       onSort(column, "ASC");
     }
