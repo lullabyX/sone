@@ -42,11 +42,10 @@ const withScheme = (uri: string) =>
 
 /**
  * Sign-in for TV mode, two ways:
+ * - With a phone (default): TIDAL's device login as a QR code (or a code to
+ *   enter at the address shown); nothing to type.
  * - On this TV (the desktop's PKCE sign-in, in a maximized window scaled for
- *   the TV): full quality, but e-mail and password need a keyboard.
- * - With a phone: TIDAL's device login as a QR code (or a code to enter at
- *   the address shown); nothing to type, but TIDAL caps streams from this
- *   kind of sign-in below lossless.
+ *   the TV): e-mail and password need a keyboard.
  * Either way the TV interface takes over once signed in. The desktop login
  * (other methods) is one button away.
  */
@@ -212,30 +211,29 @@ export default function TvLogin() {
                   <TvButton
                     primary
                     autoFocus
+                    icon={<Smartphone className="w-[1rem] h-[1rem]" />}
+                    label="Sign in with your phone"
+                    onClick={choosePhone}
+                  />
+                  <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
+                    Scan a QR code. No typing needed.
+                  </p>
+                </div>
+                <div className="mt-[2rem]">
+                  <TvButton
                     icon={<Tv className="w-[1rem] h-[1rem]" />}
                     label="Sign in on this TV"
                     onClick={signInOnTv}
                   />
                   <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
-                    Full quality, up to Hi-Res. Opens TIDAL&apos;s sign-in page;
-                    e-mail and password need a keyboard.
+                    Opens TIDAL&apos;s sign-in page here. You&apos;ll need a
+                    keyboard to type.
                   </p>
                   {tvError && (
                     <p className="mt-[0.6rem] text-[0.85rem] text-red-400">
                       {tvError}
                     </p>
                   )}
-                </div>
-                <div className="mt-[2rem]">
-                  <TvButton
-                    icon={<Smartphone className="w-[1rem] h-[1rem]" />}
-                    label="Sign in with your phone"
-                    onClick={choosePhone}
-                  />
-                  <p className="mt-[0.6rem] text-[0.85rem] text-th-text-secondary">
-                    Scan a QR code, nothing to type. TIDAL limits this kind of
-                    sign-in to High quality (AAC, 320 kbps).
-                  </p>
                 </div>
                 <div className="mt-[2rem]">
                   <TvButton
@@ -254,7 +252,10 @@ export default function TvLogin() {
   }
 
   // Default focus stays off the proxy notice, whose OK turns the proxy off.
-  const canRetry = state.step === "code" || state.step === "error";
+  const canRetry =
+    state.step === "code" ||
+    state.step === "starting" ||
+    state.step === "error";
   return (
     <div
       ref={rootRef}
@@ -266,30 +267,35 @@ export default function TvLogin() {
           <h1 className="text-[2.4rem] font-extrabold leading-tight">
             Sign in to TIDAL
           </h1>
-          {state.step === "code" && (
+          {(state.step === "code" || state.step === "starting") && (
             <>
+              {state.step === "starting" && (
+                <span className="sr-only">Getting a sign-in code…</span>
+              )}
               <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-                Scan the code with your phone and sign in there. Or open
+                Scan the QR code with your phone and sign in there.
+              </p>
+              <p className="mt-[0.8rem] text-[1rem] text-th-text-secondary">
+                Or go to
               </p>
               <p className="mt-[0.3rem] text-[1.1rem] font-semibold text-th-accent break-all">
-                {state.verificationUri.replace(/^https?:\/\//, "")}
+                {state.step === "code" ? (
+                  state.verificationUri.replace(/^https?:\/\//, "")
+                ) : (
+                  <span className="inline-block h-[1em] w-[11em] align-middle rounded bg-th-surface-hover animate-pulse" />
+                )}
               </p>
               <p className="mt-[0.3rem] text-[1rem] text-th-text-secondary">
                 and enter this code:
               </p>
               <p className="mt-[0.8rem] text-[2.6rem] font-extrabold tracking-[0.2em] tabular-nums">
-                {state.userCode}
-              </p>
-              <p className="mt-[0.8rem] text-[0.8rem] text-th-text-muted">
-                TIDAL limits this kind of sign-in to High quality (AAC, 320
-                kbps).
+                {state.step === "code" ? (
+                  state.userCode
+                ) : (
+                  <span className="inline-block h-[1em] w-[4.5em] align-middle rounded-[0.3rem] bg-th-surface-hover animate-pulse" />
+                )}
               </p>
             </>
-          )}
-          {state.step === "starting" && (
-            <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-              Getting a sign-in code…
-            </p>
           )}
           {state.step === "signing-in" && (
             <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
@@ -303,8 +309,8 @@ export default function TvLogin() {
           )}
           {state.step === "no-credentials" && (
             <p className="mt-[1rem] text-[1rem] text-th-text-secondary">
-              This build has no built-in sign-in code. Sign in once in the
-              desktop layout; TV mode picks up from there.
+              Phone sign-in isn&apos;t available in this build. Sign in once
+              from the desktop layout and TV mode will use that account.
             </p>
           )}
           <div className="mt-[2rem] flex flex-wrap gap-[0.8rem]">
@@ -340,6 +346,12 @@ export default function TvLogin() {
             value={state.qrUrl}
             label="Phone sign-in code"
             className="w-[16rem] h-[16rem]"
+          />
+        )}
+        {state.step === "starting" && (
+          <div
+            aria-hidden
+            className="shrink-0 w-[18.4rem] h-[18.4rem] rounded-[1.2rem] bg-th-surface-hover animate-pulse"
           />
         )}
       </div>
