@@ -14,13 +14,34 @@ import {
 } from "../atoms/playback";
 import FlowDiagramBody from "./signal-path/FlowDiagramBody";
 import {
-  amplitudeToSliderPercent,
   dacDisplayName,
   deriveAlterations,
-  displayFormat,
-  formatRate,
-  gainFactorToDb,
+  signalSourceSummary,
 } from "./signal-path/types";
+import { signalSummary } from "./signal-path/flow";
+
+/** Green when every source bit reaches the DAC, red when bits are lost,
+ *  amber when the audio is changed without losing bits. */
+const VERDICT = {
+  pristine: {
+    word: "PRISTINE",
+    ringColor: "border-green-400",
+    wordColor: "text-green-400",
+    dotColor: "bg-green-400",
+  },
+  lossy: {
+    word: "LOSSY",
+    ringColor: "border-red-400",
+    wordColor: "text-red-400",
+    dotColor: "bg-red-400",
+  },
+  modified: {
+    word: "MODIFIED",
+    ringColor: "border-amber-400",
+    wordColor: "text-amber-300",
+    dotColor: "bg-amber-400",
+  },
+} as const;
 import { useSignalPathRefresh } from "../hooks/useSignalPathRefresh";
 import { useEscapeDismiss } from "../hooks/useEscapeDismiss";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
@@ -63,66 +84,13 @@ export default function SignalPathPanel({
 
   if (!open) return null;
 
-  const {
-    userVol,
-    normFactor,
-    userVolAltered,
-    normAltered,
-    isDirectAlsa,
-    isPristine,
-    lossyFormatChange,
-    losslessPromotion,
-  } = deriveAlterations(sp);
+  const { isDirectAlsa } = deriveAlterations(sp);
 
-  const sourceBits = streamInfo?.bitDepth;
-  const sourceRate = streamInfo?.sampleRate;
-  const sourceCodec = streamInfo?.codec;
-  const sourceSummary = [
-    sourceCodec?.toUpperCase(),
-    sourceBits && sourceRate
-      ? `${sourceBits}/${(sourceRate / 1000).toFixed(sourceRate % 1000 === 0 ? 0 : 1)}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const sourceSummary = signalSourceSummary(streamInfo);
+  const { verdict, headline } = signalSummary(sp, streamInfo, currentTrack);
 
-  let headline: string;
-  if (!sp || !sp.backend) {
-    headline = "Idle — no track playing";
-  } else if (!sp.dac && !sp.outputFormat) {
-    headline = "Pipeline starting…";
-  } else if (sp.dac?.state === "Closed") {
-    headline = "DAC inactive — output may be routed elsewhere";
-  } else if (isPristine) {
-    headline = losslessPromotion
-      ? `${displayFormat(sp?.decodedFormat)} → ${displayFormat(sp?.outputFormat)} — lossless promotion, every source bit preserved`
-      : sourceSummary
-        ? `${sourceSummary} reaches your DAC untouched`
-        : "Source PCM reaches your DAC untouched";
-  } else if (sp?.resampledFrom && sp?.resampledTo) {
-    headline = `Resampled ${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`;
-  } else if (sp?.formatFallbackFrom && sp?.formatFallbackTo) {
-    headline = `DAC refused ${sp.formatFallbackFrom} — fell back to ${sp.formatFallbackTo}`;
-  } else if (lossyFormatChange) {
-    headline = `Bit-depth reduced ${displayFormat(sp?.decodedFormat)} → ${displayFormat(sp?.outputFormat)}`;
-  } else if (normAltered && userVolAltered) {
-    headline = "Samples scaled by volume slider and ReplayGain";
-  } else if (normAltered) {
-    headline = `ReplayGain applied · ${gainFactorToDb(normFactor)}`;
-  } else if (userVolAltered) {
-    headline = `Volume slider scaling samples · ${amplitudeToSliderPercent(userVol)}%`;
-  } else if (sp?.osMixer && !isDirectAlsa) {
-    headline = `Routed through ${sp.osMixer.server}`;
-  } else if (sp && !sp.bitPerfect) {
-    headline = "Bit-perfect mode off — pipeline at unity, not guaranteed";
-  } else {
-    headline = "Pipeline pass-through";
-  }
-
-  const verdictWord = isPristine ? "PRISTINE" : "MODIFIED";
-  const ringColor = isPristine ? "border-green-400" : "border-amber-400";
-  const wordColor = isPristine ? "text-green-400" : "text-amber-300";
-  const dotColor = isPristine ? "bg-green-400" : "bg-amber-400";
+  const verdictWord = VERDICT[verdict].word;
+  const { ringColor, wordColor, dotColor } = VERDICT[verdict];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
