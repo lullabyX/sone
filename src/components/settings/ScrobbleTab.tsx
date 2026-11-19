@@ -1,9 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useAtomValue } from "jotai";
 import { Loader2, ExternalLink } from "lucide-react";
 import Toggle from "../Toggle";
 import SettingRow from "./SettingRow";
+import { tvModeAtom } from "../../atoms/tv";
+import { focusElement } from "../../lib/spatialNav";
+import { TvQrCode } from "../tv/TvQrCode";
 
 interface ProviderStatus {
   name: string;
@@ -16,6 +20,7 @@ type AuthStep = "idle" | "waiting" | "authorized" | "submitting";
 interface AudioscrobblerState {
   step: AuthStep;
   token: string;
+  url: string | null;
   error: string | null;
 }
 
@@ -30,6 +35,8 @@ const CONNECT_BTN =
 
 const ACCENT_TINT =
   "linear-gradient(90deg, color-mix(in srgb, var(--th-accent) 10%, transparent), transparent 72%)";
+
+const LISTENBRAINZ_SETTINGS_URL = "https://listenbrainz.org/settings/";
 
 const LASTFM_GLYPH = (
   <svg
@@ -94,7 +101,20 @@ const LISTENBRAINZ_GLYPH = (
   </svg>
 );
 
+/** In TV mode the Connect button unmounts once the sign-in link is ready, so
+ *  focus moves to "I've authorized" instead of dropping out of the row. */
+function useFocusWhenAuthorized(step: AuthStep, tvMode: boolean) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (tvMode && step === "authorized" && ref.current) {
+      focusElement(ref.current);
+    }
+  }, [tvMode, step]);
+  return ref;
+}
+
 export default function ScrobbleTab() {
+  const tvMode = useAtomValue(tvModeAtom);
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [queueSize, setQueueSize] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -103,11 +123,13 @@ export default function ScrobbleTab() {
   const [lastfm, setLastfm] = useState<AudioscrobblerState>({
     step: "idle",
     token: "",
+    url: null,
     error: null,
   });
   const [librefm, setLibrefm] = useState<AudioscrobblerState>({
     step: "idle",
     token: "",
+    url: null,
     error: null,
   });
   const [listenbrainz, setListenBrainz] = useState<ListenBrainzState>({
@@ -115,6 +137,8 @@ export default function ScrobbleTab() {
     token: "",
     error: null,
   });
+  const lastfmAuthorizedRef = useFocusWhenAuthorized(lastfm.step, tvMode);
+  const librefmAuthorizedRef = useFocusWhenAuthorized(librefm.step, tvMode);
 
   const fetchStatus = async () => {
     try {
@@ -134,8 +158,8 @@ export default function ScrobbleTab() {
   // Fetch status on mount
   useEffect(() => {
     setLoading(true);
-    setLastfm({ step: "idle", token: "", error: null });
-    setLibrefm({ step: "idle", token: "", error: null });
+    setLastfm({ step: "idle", token: "", url: null, error: null });
+    setLibrefm({ step: "idle", token: "", url: null, error: null });
     setListenBrainz({ step: "idle", token: "", error: null });
     fetchStatus();
     invoke<boolean>("get_report_plays")
@@ -157,8 +181,8 @@ export default function ScrobbleTab() {
       const { url, token } = await invoke<{ url: string; token: string }>(
         command,
       );
-      await openUrl(url);
-      setState((s) => ({ ...s, step: "authorized", token }));
+      if (!tvMode) await openUrl(url);
+      setState((s) => ({ ...s, step: "authorized", token, url }));
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Failed to start auth flow";
@@ -178,7 +202,7 @@ export default function ScrobbleTab() {
         providerName: provider,
         token: state.token,
       });
-      setState({ step: "idle", token: "", error: null });
+      setState({ step: "idle", token: "", url: null, error: null });
       await fetchStatus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Authentication failed";
@@ -220,6 +244,7 @@ export default function ScrobbleTab() {
     provider: "lastfm" | "librefm",
     state: AudioscrobblerState,
     setState: React.Dispatch<React.SetStateAction<AudioscrobblerState>>,
+    authorizedRef: React.RefObject<HTMLButtonElement | null>,
   ) => {
     const status = getStatus(name);
     const connected = status?.connected ?? false;
@@ -251,7 +276,7 @@ export default function ScrobbleTab() {
             ) : state.step === "waiting" ? (
               <div className="flex items-center gap-2 mt-0.5 text-[11.5px] text-th-text-secondary">
                 <Loader2 size={12} className="animate-spin" />
-                Opening browser…
+                {tvMode ? "Getting a sign-in link…" : "Opening browser…"}
               </div>
             ) : (
               <div className="text-[11.5px] text-th-text-muted mt-0.5">
@@ -280,10 +305,27 @@ export default function ScrobbleTab() {
         {!connected &&
           (state.step === "authorized" || state.step === "submitting") && (
             <div className="mt-3 space-y-2">
-              <p className="text-[11.5px] text-th-text-muted">
-                Authorize in the browser, then come back and click below.
-              </p>
+              {tvMode && state.url ? (
+                <>
+                  <div className="flex">
+                    <TvQrCode
+                      value={state.url}
+                      label={`${displayName} sign-in`}
+                      className="w-[176px] h-[176px]"
+                    />
+                  </div>
+                  <p className="text-[11.5px] text-th-text-muted">
+                    Scan with your phone and allow access, then choose I've
+                    authorized.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11.5px] text-th-text-muted">
+                  Authorize in the browser, then come back and click below.
+                </p>
+              )}
               <button
+                ref={authorizedRef}
                 onClick={() =>
                   handleAudioscrobblerSubmit(provider, state, setState)
                 }
@@ -357,6 +399,7 @@ export default function ScrobbleTab() {
             "lastfm",
             lastfm,
             setLastfm,
+            lastfmAuthorizedRef,
           )}
           {renderProviderRow(
             "librefm",
@@ -365,6 +408,7 @@ export default function ScrobbleTab() {
             "librefm",
             librefm,
             setLibrefm,
+            librefmAuthorizedRef,
           )}
 
           {/* ListenBrainz */}
@@ -408,6 +452,21 @@ export default function ScrobbleTab() {
 
             {!lbConnected && (
               <div className="mt-3 space-y-2">
+                {tvMode && (
+                  <>
+                    <div className="flex">
+                      <TvQrCode
+                        value={LISTENBRAINZ_SETTINGS_URL}
+                        label="ListenBrainz settings"
+                        className="w-[176px] h-[176px]"
+                      />
+                    </div>
+                    <p className="text-[11.5px] text-th-text-muted">
+                      Scan with your phone to get your token from
+                      listenbrainz.org/settings, then enter it below.
+                    </p>
+                  </>
+                )}
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -436,18 +495,18 @@ export default function ScrobbleTab() {
                     Connect
                   </button>
                 </div>
-                <p className="text-[11px] text-th-text-muted">
-                  Get your token from{" "}
-                  <button
-                    onClick={() =>
-                      openUrl("https://listenbrainz.org/settings/")
-                    }
-                    className="text-th-accent hover:underline inline-flex items-center gap-0.5"
-                  >
-                    listenbrainz.org/settings
-                    <ExternalLink size={10} />
-                  </button>
-                </p>
+                {!tvMode && (
+                  <p className="text-[11px] text-th-text-muted">
+                    Get your token from{" "}
+                    <button
+                      onClick={() => openUrl(LISTENBRAINZ_SETTINGS_URL)}
+                      className="text-th-accent hover:underline inline-flex items-center gap-0.5"
+                    >
+                      listenbrainz.org/settings
+                      <ExternalLink size={10} />
+                    </button>
+                  </p>
+                )}
                 {listenbrainz.error && (
                   <p className="text-[11.5px] text-red-400">
                     {listenbrainz.error}

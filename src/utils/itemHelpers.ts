@@ -111,8 +111,9 @@ export function getItemImage(item: any, size: number = 320): string {
   if (item.cover) return getTidalImageUrl(item.cover, size);
   if (item.squareImage) return getTidalImageUrl(item.squareImage, size);
   if (item.image) return getTidalImageUrl(item.image, size);
-  // Artist artwork / picture / album-cover fallback
-  const artistImage = getArtistImage(item, size);
+  // Artist artwork / picture / album-cover fallback (320: the artist size
+  // every picture has)
+  const artistImage = getArtistImage(item, Math.min(size, 320));
   if (artistImage) return artistImage;
   // Nested album cover
   if (item.album?.cover) return getTidalImageUrl(item.album.cover, size);

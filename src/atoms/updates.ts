@@ -1,5 +1,6 @@
+import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import type { SeenUpdate } from "../lib/updateToast";
+import type { SeenUpdate, UpdateInfo } from "../lib/updateToast";
 
 // Tracks how many times the update toast has been shown for a given version.
 // getOnInit reads the persisted value synchronously at startup so the one-shot
@@ -10,3 +11,6 @@ export const updateToastSeenAtom = atomWithStorage<SeenUpdate>(
   undefined,
   { getOnInit: true },
 );
+
+// The launch update check's answer, shown in TV Settings → About.
+export const updateInfoAtom = atom<UpdateInfo | null>(null);

@@ -1,6 +1,6 @@
 use tauri::{Manager, State};
 
-use crate::cache::{CacheResult, CacheTier};
+use crate::cache::{CacheResult, CacheTier, DiskCache};
 use crate::tidal_api::{
     AllFavoriteIds, PaginatedTracks, TidalAlbumDetail, TidalArtistDetail, TidalPlaylist, TidalTrack,
     TidalVideo,
@@ -614,6 +614,19 @@ pub async fn update_playlist(
     Ok(playlist)
 }
 
+/// Drops a playlist's cached pages after a write to it. A write that failed
+/// may still have reached the server, so they go either way.
+pub(crate) async fn after_playlist_write<T>(
+    cache: &DiskCache,
+    playlist_id: &str,
+    result: Result<T, SoneError>,
+) -> Result<T, SoneError> {
+    cache
+        .invalidate_tag(&format!("playlist:{}", playlist_id))
+        .await;
+    result
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn add_track_to_playlist(
     state: State<'_, AppState>,
@@ -626,12 +639,9 @@ pub async fn add_track_to_playlist(
         track_id
     );
     let client = state.tidal_client.lock().await;
-    client.add_track_to_playlist(&playlist_id, track_id).await?;
+    let result = client.add_track_to_playlist(&playlist_id, track_id).await;
     drop(client);
-    state
-        .disk_cache
-        .invalidate_tag(&format!("playlist:{}", playlist_id))
-        .await;
+    after_playlist_write(&state.disk_cache, &playlist_id, result).await?;
     state.disk_cache.invalidate_tag("folders").await;
     Ok(())
 }
@@ -648,15 +658,9 @@ pub async fn remove_track_from_playlist(
         index
     );
     let client = state.tidal_client.lock().await;
-    client
-        .remove_track_from_playlist(&playlist_id, index)
-        .await?;
+    let result = client.remove_track_from_playlist(&playlist_id, index).await;
     drop(client);
-    state
-        .disk_cache
-        .invalidate_tag(&format!("playlist:{}", playlist_id))
-        .await;
-    Ok(())
+    after_playlist_write(&state.disk_cache, &playlist_id, result).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1189,14 +1193,11 @@ pub async fn add_tracks_to_playlist(
         on_dupes
     );
     let client = state.tidal_client.lock().await;
-    let added = client
+    let result = client
         .add_tracks_to_playlist(&playlist_id, &track_ids, on_dupes)
-        .await?;
-    drop(client);
-    state
-        .disk_cache
-        .invalidate_tag(&format!("playlist:{}", playlist_id))
         .await;
+    drop(client);
+    let added = after_playlist_write(&state.disk_cache, &playlist_id, result).await?;
     state.disk_cache.invalidate_tag("folders").await;
     Ok(added)
 }
@@ -1520,4 +1521,37 @@ pub async fn get_playlist_recommendations(
     client
         .get_playlist_recommendations(&playlist_id, offset, limit)
         .await
+}
+
+#[cfg(test)]
+mod playlist_write_tests {
+    use super::*;
+    use crate::crypto::Crypto;
+    use std::sync::Arc;
+
+    async fn cached(cache: &DiskCache, key: &str) -> bool {
+        !matches!(
+            cache.get(key, CacheTier::UserContent).await,
+            CacheResult::Miss
+        )
+    }
+
+    #[tokio::test]
+    async fn a_failed_playlist_write_still_drops_that_playlists_cached_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DiskCache::new(dir.path(), Arc::new(Crypto::for_tests()));
+        for (key, tag) in [("page:p", "playlist:p"), ("page:q", "playlist:q")] {
+            cache
+                .put(key, b"[]", CacheTier::UserContent, &[tag])
+                .await
+                .unwrap();
+        }
+        let failed: Result<(), SoneError> = Err(SoneError::Network("timeout".into()));
+        assert!(after_playlist_write(&cache, "p", failed).await.is_err());
+        assert!(!cached(&cache, "page:p").await);
+        assert!(cached(&cache, "page:q").await);
+
+        assert!(after_playlist_write(&cache, "q", Ok(())).await.is_ok());
+        assert!(!cached(&cache, "page:q").await);
+    }
 }

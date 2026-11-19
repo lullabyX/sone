@@ -1214,8 +1214,9 @@ export async function hasPkceDefaults(): Promise<boolean> {
   }
 }
 
-export async function startPkceLoginWindow(): Promise<void> {
-  return invoke("start_pkce_login_window");
+/** `zoom` (TV mode): open the sign-in window maximized, its page scaled. */
+export async function startPkceLoginWindow(zoom?: number): Promise<void> {
+  return invoke("start_pkce_login_window", { zoom: zoom ?? null });
 }
 
 export async function startPkceBrowserLogin(): Promise<

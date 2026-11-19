@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowUpDown } from "lucide-react";
 import { SORT_OPTIONS } from "../constants/sortOptions";
 import type { SortOrder } from "../atoms/favorites";
+import { nextSortOrder } from "../lib/libraryPages";
 
 interface SortDropdownProps {
   libraryType: "playlists" | "albums" | "artists" | "mixes";
@@ -33,14 +34,7 @@ export default function SortDropdown({
     options.find((o) => o.value === currentSort.order)?.label ?? "Date added";
 
   const handleSelect = (order: string) => {
-    if (currentSort.order === order) {
-      onSortChange({
-        order,
-        direction: currentSort.direction === "DESC" ? "ASC" : "DESC",
-      });
-    } else {
-      onSortChange({ order, direction: order === "NAME" ? "ASC" : "DESC" });
-    }
+    onSortChange(nextSortOrder(currentSort, order));
     setOpen(false);
   };
 

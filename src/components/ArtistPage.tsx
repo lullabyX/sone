@@ -313,7 +313,7 @@ export default function ArtistPage({
     if (!radioMixId) return;
     navigateToMix(radioMixId, {
       title: `${displayName} Radio`,
-      image: picture ? getTidalArtistImageUrl(picture, 480) : undefined,
+      image: picture ? getTidalArtistImageUrl(picture, 320) : undefined,
       mixType: "ARTIST_MIX",
     });
   };

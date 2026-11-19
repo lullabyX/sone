@@ -15,7 +15,12 @@ export const optimisticFavoriteMixesAtom = atom<FavoriteMix[]>([]);
 export type SortOrder = { order: string; direction: string };
 
 const makeSortAtom = (key: string, defaultOrder: string = "DATE") =>
-  atomWithStorage<SortOrder>(key, { order: defaultOrder, direction: "DESC" });
+  atomWithStorage<SortOrder>(
+    key,
+    { order: defaultOrder, direction: "DESC" },
+    undefined,
+    { getOnInit: true },
+  );
 
 export const albumSortAtom = makeSortAtom("sone.albumSort.v1");
 export const artistSortAtom = makeSortAtom("sone.artistSort.v1");
@@ -28,4 +33,6 @@ export const playlistSortAtom = makeSortAtom(
 export const trackSortPrefsAtom = atomWithStorage<Record<string, SortOrder>>(
   "sone.trackSortPrefs.v1",
   {},
+  undefined,
+  { getOnInit: true },
 );

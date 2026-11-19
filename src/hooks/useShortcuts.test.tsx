@@ -5,6 +5,7 @@ import type { PropsWithChildren } from "react";
 
 import { useShortcuts } from "./useShortcuts";
 import { shortcutsAtom, DEFAULT_BINDINGS } from "../lib/shortcuts";
+import { claimKey } from "../lib/keyClaim";
 
 function press(init: KeyboardEventInit) {
   window.dispatchEvent(
@@ -137,5 +138,41 @@ describe("useShortcuts", () => {
     press({ code: "KeyQ", ctrlKey: true, repeat: true });
     expect(closeWindow).not.toHaveBeenCalled();
     expect(quitApp).not.toHaveBeenCalled();
+  });
+
+  it("ignores a key an earlier handler already consumed", () => {
+    const muteToggle = vi.fn();
+    mount({ muteToggle });
+    const eat = (e: KeyboardEvent) => e.preventDefault();
+    window.addEventListener("keydown", eat, true);
+    press({ code: "KeyM", cancelable: true });
+    window.removeEventListener("keydown", eat, true);
+    expect(muteToggle).not.toHaveBeenCalled();
+  });
+
+  it("treats focus moved into a text field during the keydown as typing", () => {
+    const likeToggle = vi.fn();
+    mount({ likeToggle });
+    const input = document.createElement("input");
+    const button = document.createElement("button");
+    document.body.append(input, button);
+    button.focus();
+    const redirect = () => input.focus();
+    window.addEventListener("keydown", redirect, true);
+    pressIn(button, { code: "KeyL" });
+    window.removeEventListener("keydown", redirect, true);
+    input.remove();
+    button.remove();
+    expect(likeToggle).not.toHaveBeenCalled();
+  });
+
+  it("ignores a key the TV interface claimed", () => {
+    const muteToggle = vi.fn();
+    mount({ muteToggle });
+    const claim = (e: Event) => claimKey(e);
+    window.addEventListener("keydown", claim, true);
+    press({ code: "KeyM" });
+    window.removeEventListener("keydown", claim, true);
+    expect(muteToggle).not.toHaveBeenCalled();
   });
 });
