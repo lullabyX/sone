@@ -2,9 +2,14 @@
    size, so the layout looks the same from 720p to 4K at couch distance:
    1920x1080 → 24px per rem. Whichever of width and height is relatively
    smaller wins, so an ultrawide screen gets the size of a 16:9 screen of
-   the same height (plus more cards per row) instead of oversized UI. */
+   the same height (plus more cards per row) instead of oversized UI. The
+   text size setting scales it (TvShell sets --tv-text-scale). */
 html.tv-mode {
-  font-size: clamp(14px, min(1.25vw, 2.2222vh), 72px);
+  font-size: clamp(
+    14px,
+    calc(min(1.25vw, 2.2222vh) * var(--tv-text-scale, 1)),
+    86px
+  );
 }
 
 .tv-cursor-hidden,

@@ -9,7 +9,7 @@ import { useAtomValue, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPlayingAtom } from "../../atoms/playback";
-import { tvOverscanAtom } from "../../atoms/tv";
+import { TV_TEXT_SCALE, tvOverscanAtom, tvTextSizeAtom } from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
@@ -48,6 +48,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
   const videoPlaying = useAtomValue(videoPlayingAtom);
   const inhibit = isPlaying || (!!currentVideo && videoPlaying);
   const overscan = useAtomValue(tvOverscanAtom);
+  const textSize = useAtomValue(tvTextSizeAtom);
   useHideMiniplayer();
   useTvGamepad(true);
 
@@ -72,6 +73,15 @@ export default function TvShell({ children }: { children: ReactNode }) {
       html.style.removeProperty("--tv-safe-y");
     };
   }, [overscan]);
+  // The text size setting scales the root size, and with it everything.
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.style.setProperty("--tv-text-scale", String(TV_TEXT_SCALE[textSize]));
+    updateScale();
+    return () => {
+      html.style.removeProperty("--tv-text-scale");
+    };
+  }, [textSize]);
   useEffect(() => {
     window.addEventListener("resize", updateScale);
     return () => window.removeEventListener("resize", updateScale);

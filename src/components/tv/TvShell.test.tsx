@@ -5,7 +5,7 @@ import { useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isPlayingAtom } from "../../atoms/playback";
-import { tvOverscanAtom } from "../../atoms/tv";
+import { tvOverscanAtom, tvTextSizeAtom } from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
@@ -174,6 +174,17 @@ it("hides an open miniplayer while in TV mode and brings it back on exit", async
   r.unmount();
   await flush();
   expect(mini.show).toHaveBeenCalled();
+});
+
+it("scales the whole interface by the text size setting", () => {
+  const scale = () =>
+    document.documentElement.style.getPropertyValue("--tv-text-scale");
+  const { unmount } = shell();
+  expect(scale()).toBe("1");
+  act(() => store.set(tvTextSizeAtom, "large"));
+  expect(scale()).toBe("1.2");
+  unmount();
+  expect(scale()).toBe("");
 });
 
 it("pads the TV surface by the screen margin and publishes it", () => {

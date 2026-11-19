@@ -21,6 +21,7 @@ import {
 import TvSettings from "./TvSettings";
 import type { TvNav } from "./TvNavContext";
 import { videoCoversAtom } from "../../atoms/ui";
+import { tvTextSizeAtom } from "../../atoms/tv";
 import { exclusiveModeAtom } from "../../atoms/playback";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
@@ -108,6 +109,17 @@ it("toggles animated covers", () => {
     screen.getByRole("button", { name: /Animated album covers/ }),
   );
   expect(store.get(videoCoversAtom)).toBe(false);
+});
+
+it("switches the text size between Normal and Large", () => {
+  const { store } = renderTv(<TvSettings />);
+  const row = screen.getByRole("button", { name: /Text size/ });
+  expect(row.textContent).toContain("Normal");
+  fireEvent.click(row);
+  expect(store.get(tvTextSizeAtom)).toBe("large");
+  expect(row.textContent).toContain("Large");
+  fireEvent.click(row);
+  expect(store.get(tvTextSizeAtom)).toBe("normal");
 });
 
 it("says when no device is found and looks again", async () => {

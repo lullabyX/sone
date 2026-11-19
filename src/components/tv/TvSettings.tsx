@@ -23,6 +23,7 @@ import {
   tvLyricsAtom,
   tvModeAtom,
   tvOverscanAtom,
+  tvTextSizeAtom,
 } from "../../atoms/tv";
 import { useToast } from "../../contexts/ToastContext";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
@@ -69,6 +70,7 @@ export default function TvSettings() {
   const [theme, setTheme] = useAtom(themeAtom);
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
   const [overscan, setOverscan] = useAtom(tvOverscanAtom);
+  const [textSize, setTextSize] = useAtom(tvTextSizeAtom);
   const setTvMode = useSetAtom(tvModeAtom);
   const { userName, logout } = useAuth();
   const [gaplessSupported, setGaplessSupported] = useState(false);
@@ -351,6 +353,18 @@ export default function TvSettings() {
           subtitle="When a track has lyrics, show them instead of the cover"
           toggle={lyricsOn}
           onSelect={() => setLyricsOn(!lyricsOn)}
+        />
+        <TvSettingsRow
+          title="Text size"
+          subtitle="Larger text and controls for a small screen or a far couch"
+          value={
+            <span className="text-[0.8rem] text-th-text-muted">
+              {textSize === "large" ? "Large" : "Normal"}
+            </span>
+          }
+          onSelect={() =>
+            setTextSize(textSize === "large" ? "normal" : "large")
+          }
         />
         <TvSettingsRow
           title="Screen margin"

@@ -48,6 +48,21 @@ export function nextTvOverscan(v: TvOverscan): TvOverscan {
   return TV_OVERSCAN_STEPS[(i + 1) % TV_OVERSCAN_STEPS.length];
 }
 
+/** TV text (and with it the whole interface, sized in rem) at the size
+ *  for the screen, or larger for a small screen or a far couch. */
+export type TvTextSize = "normal" | "large";
+export const TV_TEXT_SCALE: Record<TvTextSize, number> = {
+  normal: 1,
+  large: 1.2,
+};
+
+export const tvTextSizeAtom = atomWithStorage<TvTextSize>(
+  "sone.tvTextSize.v1",
+  "normal",
+  undefined,
+  { getOnInit: true },
+);
+
 /** Bumped each time a volume command meets the bit-perfect lock, so the TV
  *  volume indicator can say why nothing changed. */
 export const tvVolumeLockedPingAtom = atom(0);
