@@ -212,6 +212,15 @@ describe("TvNowPlaying artists", () => {
   });
 });
 
+describe("TvNowPlaying backdrop", () => {
+  it("is one baked canvas: no live CSS blur or gradient to redraw", () => {
+    const { container } = renderTv(<TvNowPlaying />, { store: playing() });
+    expect(container.querySelector('[class*="blur-"]')).toBeNull();
+    expect(container.querySelector('[class*="bg-gradient"]')).toBeNull();
+    expect(container.querySelector("canvas[aria-hidden]")).not.toBeNull();
+  });
+});
+
 describe("TvNowPlaying animated cover", () => {
   const motion = () =>
     playing(

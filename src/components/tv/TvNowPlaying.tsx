@@ -35,6 +35,7 @@ import TidalImage from "../TidalImage";
 import TidalVideoCover from "../TidalVideoCover";
 import SignalPathPanel from "../SignalPathPanel";
 import TvNativeLayer from "./TvNativeLayer";
+import TvBackdrop from "./TvBackdrop";
 import {
   contextSourceAtom,
   currentTrackAtom,
@@ -800,17 +801,7 @@ export default function TvNowPlaying() {
     // The player fills the first screen; the Up next / History tabs start
     // below the fold and scroll into view only when focus moves down to them.
     <div ref={setRoot} className="relative h-full">
-      {/* Blurred cover backdrop */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {backdrop && (
-          <TidalImage
-            src={backdrop}
-            alt=""
-            className="absolute inset-0 w-full h-full scale-125 blur-[1.2rem] opacity-35"
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-th-base/60 to-th-base" />
-      </div>
+      <TvBackdrop src={backdrop || undefined} />
 
       <div
         data-tv-scroll-top
