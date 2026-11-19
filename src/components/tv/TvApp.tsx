@@ -627,6 +627,17 @@ export default function TvApp() {
           });
           if (!moved && action.dir === "down" && scope === rootRef.current)
             dockFallback(scope, { repeat: e.repeat });
+          // A read-only menu (the Signal path) has nothing to move to: Up
+          // and Down scroll it instead, so a long path is still reachable.
+          if (
+            !moved &&
+            scope !== rootRef.current &&
+            (action.dir === "up" || action.dir === "down") &&
+            !scope.querySelector("[data-tv-focusable]")
+          ) {
+            const step = scope.clientHeight * 0.4;
+            scope.scrollTop += action.dir === "down" ? step : -step;
+          }
           moveDrawing.current = true;
           requestAnimationFrame(() =>
             window.setTimeout(() => {

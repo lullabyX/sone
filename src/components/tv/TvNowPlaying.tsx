@@ -33,8 +33,7 @@ import {
 } from "lucide-react";
 import TidalImage from "../TidalImage";
 import TidalVideoCover from "../TidalVideoCover";
-import SignalPathPanel from "../SignalPathPanel";
-import TvNativeLayer from "./TvNativeLayer";
+import { invoke } from "@tauri-apps/api/core";
 import TvBackdrop from "./TvBackdrop";
 import {
   contextSourceAtom,
@@ -44,6 +43,8 @@ import {
   manualQueueAtom,
   playbackSourceAtom,
   queueAtom,
+  signalPathAtom,
+  type SignalPath,
   repeatAtom,
   shuffleAtom,
   streamInfoAtom,
@@ -83,7 +84,14 @@ import { TvScreenContext, useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import { useToast } from "../../contexts/ToastContext";
 import { TvButton, TvSpinner, TvTrackRow } from "./TvParts";
-import { artistsMenu, tvMenuRef, type TvMenuItem } from "./tvMenu";
+import {
+  artistsMenu,
+  TONE_DOT,
+  tvMenuRef,
+  type TvMenuItem,
+  type TvMenuSpec,
+} from "./tvMenu";
+import { signalPathMenu, signalTone } from "./tvSignalPath";
 import { moveInQueue, queueIndexOf } from "./tvQueue";
 import { useTvPlayback } from "./useTvPlayback";
 import { viewForSource } from "./tvItems";
@@ -105,6 +113,8 @@ function videoElement(): HTMLVideoElement | null {
  *  shown: the audio player's interpolated one, or a video's from its own
  *  element. */
 const POSITION_POLL_MS = 500;
+/** The Signal path rail's refresh, the desktop dialog's heartbeat. */
+const SIGNAL_PATH_REFRESH_MS = 2000;
 
 function usePosition(video: boolean, active: boolean): number {
   const read = useCallback(
@@ -707,7 +717,9 @@ export default function TvNowPlaying() {
   const currentVideo = useAtomValue(currentVideoAtom);
   const [videoExpanded, setVideoExpanded] = useAtom(videoExpandedAtom);
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
-  const [signalPathOpen, setSignalPathOpen] = useState(false);
+  const signalPath = useAtomValue(signalPathAtom);
+  const tone = signalTone(signalPath);
+  const appStore = useStore();
   const videoCovers = useAtomValue(videoCoversAtom);
   const { lyrics, forId: lyricsFor } = useTvLyrics(
     track && track.itemType !== "video" ? track.id : undefined,
@@ -794,6 +806,28 @@ export default function TvNowPlaying() {
     ref: tvMenuRef(() => nav.trackMenu(track)),
   };
   const quality = isVideo ? "" : formatStreamQuality(streamInfo);
+  // The rail reads the path fresh, then again every 2s while it is shown (as
+  // the desktop dialog does): the mixer's and the DAC's rates are only known
+  // while the output runs, and the track can change under it.
+  const openSignalPath = async () => {
+    const build = async (): Promise<TvMenuSpec> => {
+      const fresh = await invoke<SignalPath>("refresh_signal_path").catch(
+        () => null,
+      );
+      if (fresh) appStore.set(signalPathAtom, fresh);
+      const now = appStore.get(currentTrackAtom) ?? track;
+      return {
+        ...signalPathMenu(
+          fresh ?? appStore.get(signalPathAtom),
+          appStore.get(streamInfoAtom),
+          now,
+          getTidalImageUrl(trackCoverId(now), 160) || undefined,
+        ),
+        poll: { everyMs: SIGNAL_PATH_REFRESH_MS, next: build },
+      };
+    };
+    nav.openMenu(await build());
+  };
   const icon = "w-[1.2rem] h-[1.2rem]";
   const showLyrics = lyricsOn && !!lyrics;
 
@@ -890,20 +924,18 @@ export default function TvNowPlaying() {
           {quality && (
             <button
               data-tv-focusable
-              onClick={() => setSignalPathOpen(true)}
+              onClick={() => void openSignalPath()}
               title="Signal path"
-              className="tv-button mt-[0.8rem] inline-flex items-center gap-[0.5rem] rounded-[0.3rem] border border-th-border-subtle px-[0.5rem] py-0 text-[0.75rem] leading-[1.2rem] font-bold tracking-[0.12em] text-th-accent"
+              aria-label={`Signal path: ${quality}`}
+              className="tv-button mt-[0.8rem] inline-flex items-center gap-[0.5rem] rounded-full border border-th-border-subtle px-[0.65rem] py-0 text-[0.75rem] leading-[1.5rem] font-bold tracking-[0.12em] text-th-accent"
             >
+              <span
+                aria-hidden
+                data-tone={tone}
+                className={`h-[0.55rem] w-[0.55rem] shrink-0 rounded-full ${TONE_DOT[tone]}`}
+              />
               {quality}
-              <span className="font-semibold tracking-normal text-th-text-muted">
-                · Signal path
-              </span>
             </button>
-          )}
-          {signalPathOpen && (
-            <TvNativeLayer width={680}>
-              <SignalPathPanel open onClose={() => setSignalPathOpen(false)} />
-            </TvNativeLayer>
           )}
 
           <div className="mt-[2rem]">

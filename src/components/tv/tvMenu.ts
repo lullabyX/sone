@@ -17,11 +17,53 @@ export interface TvMenuItem {
   multiline?: boolean;
   /** A round avatar before the label: its URL, or a loader for it. */
   avatar?: string | (() => Promise<string | undefined>);
+  /** A coloured dot before the label (a Signal path stage's state). */
+  tone?: TvMenuTone;
+  /** A second line under the label, and a quieter third one; both wrap. */
+  detail?: string;
+  note?: string;
+  /** Read-only information: focusable so a long list scrolls, but not greyed
+   *  out like an entry that can't be chosen. */
+  info?: boolean;
+  /** A Signal path row on the cable: a stage (dot) or a change made to the
+   *  audio (a cross), with the cable's state above and below it. */
+  path?: {
+    kind: "stage" | "change";
+    above?: TvCableState;
+    below?: TvCableState;
+  };
+}
+
+/** Untouched, changed without losing audio bits, or with bits lost. */
+export type TvCableState = "pristine" | "altered" | "lossy";
+
+export type TvMenuTone = "ok" | "warn" | "lossy" | "neutral";
+
+/** The Signal path colours, as the desktop diagram uses them. */
+export const TONE_DOT: Record<TvMenuTone, string> = {
+  ok: "bg-green-400",
+  warn: "bg-amber-400",
+  lossy: "bg-red-400",
+  neutral: "bg-th-text-muted",
+};
+
+/** A verdict under a menu's header (the Signal path): a coloured dot and
+ *  word, a count, a one-line summary and a line of facts. */
+export interface TvMenuVerdict {
+  tone: TvMenuTone;
+  word: string;
+  count?: string;
+  headline: string;
+  facts?: string;
 }
 
 export interface TvMenuSpec {
   title: string;
   subtitle?: string;
+  verdict?: TvMenuVerdict;
+  /** Rebuilt every `everyMs` while it is the menu shown (the Signal path
+   *  follows the playing audio); replaced in place, focus and scroll kept. */
+  poll?: { everyMs: number; next: () => Promise<TvMenuSpec> };
   image?: string;
   round?: boolean;
   /** A wider panel for reading long entries. */
@@ -60,7 +102,8 @@ export function artistsMenu(
       label: a.name,
       avatar: a.picture
         ? getArtistImage(a, 320)
-        : async () => getArtistImage(await getArtistPage(a.id), 320) || undefined,
+        : async () =>
+            getArtistImage(await getArtistPage(a.id), 320) || undefined,
       onSelect: () => open(a),
     })),
   };

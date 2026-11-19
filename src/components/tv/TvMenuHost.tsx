@@ -63,7 +63,15 @@ import { getTidalImageUrl } from "../../types";
 import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
 import { fetchAllFolders, recordFolderCreated } from "./tvFolders";
 import { actionForMedia, type TvView } from "./tvItems";
-import { confirmMenu, type TvMenuItem, type TvMenuSpec } from "./tvMenu";
+import {
+  confirmMenu,
+  TONE_DOT,
+  type TvCableState,
+  type TvMenuItem,
+  type TvMenuSpec,
+  type TvMenuTone,
+  type TvMenuVerdict,
+} from "./tvMenu";
 import { playlistSettled, queuePlaylistEdit } from "./tvPlaylistEdits";
 import type { TvPromptRequest } from "./TvPrompt";
 import { TvQrCode } from "./TvQrCode";
@@ -207,10 +215,38 @@ const TvMenuHost = forwardRef<
     setStack([spec]);
   }, []);
 
+  // A polled menu is replaced by its next version while it is on top.
+  const replacing = useRef(false);
+  const top = stack[stack.length - 1];
+  useEffect(() => {
+    const poll = top?.poll;
+    if (!poll) return;
+    let live = true;
+    const timer = window.setInterval(() => {
+      void poll
+        .next()
+        .then((next) => {
+          if (!live || stackRef.current[stackRef.current.length - 1] !== top)
+            return;
+          replacing.current = true;
+          setStack((s) => [...s.slice(0, -1), next]);
+        })
+        .catch(() => {});
+    }, poll.everyMs);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [top]);
+
   // Focus the first entry whenever a (sub)menu opens, and the entry that
   // opened a submenu when Back leaves it; give focus back to where it was
-  // when the menu closes.
+  // when the menu closes. A polled menu's new version keeps focus as it is.
   useLayoutEffect(() => {
+    if (replacing.current) {
+      replacing.current = false;
+      return;
+    }
     const left = stack.length < shownDepth.current;
     shownDepth.current = stack.length;
     if (stack.length > 0) {
@@ -222,7 +258,9 @@ const TvMenuHost = forwardRef<
           ? undefined
           : panel.querySelectorAll<HTMLElement>("[role='menuitem']")[at];
       if (entry) focusElement(entry);
-      else focusFirstIn(panel);
+      // A menu with nothing to choose (the Signal path) holds focus itself,
+      // so OK can't press what is behind it.
+      else if (!focusFirstIn(panel)) panel.focus();
     } else if (returnFocus.current) {
       const el = returnFocus.current;
       returnFocus.current = null;
@@ -1052,12 +1090,13 @@ const TvMenuHost = forwardRef<
       )}
       <div
         ref={panelRef}
+        tabIndex={-1}
         data-tv-modal={closing ? undefined : true}
         data-closing={closing || undefined}
         inert={closing}
         role={closing ? undefined : "menu"}
         aria-label={spec.title}
-        className={`tv-menu-panel tv-screen relative h-full ${
+        className={`tv-menu-panel tv-screen relative h-full outline-none ${
           spec.wide ? "w-[40rem]" : "w-[28rem]"
         } max-w-full overflow-y-auto bg-th-elevated shadow-2xl px-[1.5rem] py-[2rem]`}
       >
@@ -1083,6 +1122,7 @@ const TvMenuHost = forwardRef<
             )}
           </div>
         </div>
+        {spec.verdict && <MenuVerdict verdict={spec.verdict} />}
         {spec.qr && (
           <div className="flex justify-center mb-[1.4rem]">
             <TvQrCode
@@ -1096,15 +1136,39 @@ const TvMenuHost = forwardRef<
           {spec.items.map((item, i) => {
             const Icon = item.icon;
             const actionable = !!(item.onSelect || item.submenu);
+            const lines = item.detail !== undefined || item.note !== undefined;
+            // Read, not chosen: the path rows take no focus.
+            if (item.path) {
+              return (
+                <div
+                  key={`${item.label}:${i}`}
+                  className={`grid w-full grid-cols-[1.65rem_7rem_minmax(0,1fr)] items-center gap-x-[0.75rem] px-[0.6rem] ${
+                    item.path.kind === "change"
+                      ? "py-[0.3rem]"
+                      : "min-h-[3.2rem] py-[0.6rem]"
+                  }`}
+                >
+                  <PathRow item={item} />
+                </div>
+              );
+            }
             return (
               <button
                 key={`${item.label}:${i}`}
                 data-tv-focusable
                 role="menuitem"
-                aria-disabled={!actionable || undefined}
+                aria-disabled={(!actionable && !item.info) || undefined}
                 onClick={() => void select(item, i)}
-                className="tv-track flex items-center gap-[0.9rem] w-full px-[0.9rem] py-[0.7rem] rounded-[0.6rem] text-left text-[0.85rem] font-semibold text-th-text-primary aria-disabled:text-th-text-muted aria-disabled:font-normal"
+                className={`tv-track flex ${lines ? "items-start" : "items-center"} gap-[0.9rem] w-full px-[0.9rem] py-[0.7rem] rounded-[0.6rem] text-left text-[0.85rem] font-semibold text-th-text-primary aria-disabled:text-th-text-muted aria-disabled:font-normal`}
               >
+                {item.tone && (
+                  <span
+                    aria-hidden
+                    className={`w-[0.7rem] h-[0.7rem] shrink-0 rounded-full ${TONE_DOT[item.tone]} ${
+                      lines ? "mt-[0.35rem]" : ""
+                    }`}
+                  />
+                )}
                 {Icon && (
                   <Icon
                     className={`w-[1.1rem] h-[1.1rem] shrink-0 ${
@@ -1118,15 +1182,31 @@ const TvMenuHost = forwardRef<
                 {item.avatar !== undefined && (
                   <MenuAvatar avatar={item.avatar} alt={item.label} />
                 )}
-                <span
-                  className={`flex-1 min-w-0 ${
-                    item.multiline
-                      ? "whitespace-normal break-words"
-                      : "truncate"
-                  }`}
-                >
-                  {item.label}
-                </span>
+                {lines ? (
+                  <span className="flex-1 min-w-0 flex flex-col gap-[0.15rem]">
+                    <span className="break-words">{item.label}</span>
+                    {item.detail && (
+                      <span className="break-words text-[0.8rem] font-normal text-th-text-secondary">
+                        {item.detail}
+                      </span>
+                    )}
+                    {item.note && (
+                      <span className="break-words text-[0.75rem] font-normal text-th-text-muted">
+                        {item.note}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span
+                    className={`flex-1 min-w-0 ${
+                      item.multiline
+                        ? "whitespace-normal break-words"
+                        : "truncate"
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                )}
                 {item.submenu &&
                   (loadingFor === spec ? (
                     <Loader2 className="w-[1rem] h-[1rem] animate-spin text-th-text-muted" />
@@ -1144,6 +1224,131 @@ const TvMenuHost = forwardRef<
     </div>
   );
 });
+
+const VERDICT_TEXT: Record<TvMenuTone, string> = {
+  ok: "text-green-400",
+  warn: "text-amber-300",
+  lossy: "text-red-400",
+  neutral: "text-th-text-muted",
+};
+
+function MenuVerdict({ verdict }: { verdict: TvMenuVerdict }) {
+  return (
+    <div className="mb-[0.75rem] border-b border-th-border-subtle px-[0.5rem] pb-[1.1rem]">
+      <div
+        className={`flex items-center gap-[0.65rem] text-[1.3rem] font-extrabold tracking-[0.14em] ${VERDICT_TEXT[verdict.tone]}`}
+      >
+        <span
+          aria-hidden
+          className={`h-[0.83rem] w-[0.83rem] shrink-0 rounded-full ${TONE_DOT[verdict.tone]}`}
+        />
+        {verdict.word}
+        {verdict.count && (
+          <span className="ml-auto text-[0.75rem] font-bold tracking-[0.06em]">
+            {verdict.count}
+          </span>
+        )}
+      </div>
+      <div className="mt-[0.5rem] text-[1rem] font-semibold leading-snug text-th-text-primary">
+        {verdict.headline}
+      </div>
+      {verdict.facts && (
+        <div className="mt-[0.33rem] text-[0.8rem] text-th-text-secondary">
+          {verdict.facts}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A cable segment's look: two thin green lines while untouched, one solid
+ *  amber or red line after a change (as on the desktop diagram). */
+const CABLE: Record<TvCableState, string> = {
+  pristine: "w-[0.375rem] border-x-[0.1rem] border-green-400",
+  altered: "w-[0.25rem] bg-amber-400",
+  lossy: "w-[0.25rem] bg-red-400",
+};
+
+/** A Signal path row: the cable with a stage's dot or a change's cross, the
+ *  label, then the values (and, for a change, why it happened). */
+function PathRow({ item }: { item: TvMenuItem }) {
+  const path = item.path!;
+  const change = path.kind === "change";
+  const lossy = item.tone === "lossy";
+  return (
+    <>
+      <span
+        aria-hidden
+        className={`relative flex items-center justify-center self-stretch ${
+          change ? "-my-[0.4rem]" : "-my-[0.7rem]"
+        }`}
+      >
+        {path.above && (
+          <span
+            className={`absolute left-1/2 top-0 h-1/2 -translate-x-1/2 ${CABLE[path.above]}`}
+          />
+        )}
+        {path.below && (
+          <span
+            className={`absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 ${CABLE[path.below]}`}
+          />
+        )}
+        {!change && (
+          <span className="relative h-[0.75rem] w-[0.75rem] rounded-full bg-th-text-secondary" />
+        )}
+      </span>
+      {change ? (
+        // A pill sitting on the cable, its cross on the line: the change and
+        // the numbers it changed, nothing a stage row would show.
+        <span className="relative z-10 col-span-2 -ml-[2.4rem] -mr-[0.6rem] flex min-w-0">
+          <span
+            className={`inline-flex min-w-0 items-center gap-[0.4rem] rounded-full py-[0.25rem] pl-[0.33rem] pr-[0.6rem] ${
+              lossy ? "bg-red-400/15" : "bg-amber-400/15"
+            }`}
+          >
+            <span
+              className={`flex h-[1rem] w-[1rem] shrink-0 items-center justify-center rounded-full text-th-base ${
+                lossy ? "bg-red-400" : "bg-amber-400"
+              }`}
+            >
+              <X className="h-[0.65rem] w-[0.65rem]" strokeWidth={3.4} />
+            </span>
+            <span
+              className={`shrink-0 text-[0.8rem] font-bold tracking-[0.05em] ${
+                lossy ? "text-red-400" : "text-amber-300"
+              }`}
+            >
+              {item.label}
+            </span>
+            {item.detail && (
+              <span className="min-w-0 break-words text-[0.8rem] font-semibold text-th-text-primary">
+                {item.detail}
+              </span>
+            )}
+          </span>
+        </span>
+      ) : (
+        <>
+          <span className="break-words text-[0.8rem] font-bold tracking-[0.1em] text-th-text-muted">
+            {item.label}
+          </span>
+          <span className="flex min-w-0 flex-col gap-[0.1rem]">
+            {item.detail && (
+              <span className="break-words text-[0.9rem] font-semibold text-th-text-primary">
+                {item.detail}
+              </span>
+            )}
+            {item.note && (
+              <span className="break-words text-[0.8rem] text-th-text-muted">
+                {item.note}
+              </span>
+            )}
+          </span>
+        </>
+      )}
+    </>
+  );
+}
 
 /** A row's round avatar; a loader's picture appears once it resolves. */
 function MenuAvatar({

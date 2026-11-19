@@ -23,7 +23,10 @@ import {
   currentTrackAtom,
   isPlayingAtom,
   playbackSourceAtom,
+  signalPathAtom,
+  streamInfoAtom,
   volumeAtom,
+  type SignalPath,
 } from "../../atoms/playback";
 import { tvLyricsAtom } from "../../atoms/tv";
 import { videoCoversAtom } from "../../atoms/ui";
@@ -209,6 +212,50 @@ describe("TvNowPlaying artists", () => {
     expect(menu.items.map((i) => i.label)).toEqual(["A", "B"]);
     void menu.items[1].onSelect!();
     expect(nav.push).toHaveBeenCalledWith({ type: "artist", id: 5, name: "B" });
+  });
+});
+
+describe("TvNowPlaying signal path", () => {
+  const withQuality = () => {
+    const store = playing();
+    store.set(streamInfoAtom, {
+      url: "u",
+      codec: "flac",
+      bitDepth: 24,
+      sampleRate: 96000,
+    });
+    return store;
+  };
+
+  it("shows the quality with a coloured dot, without verdict words", () => {
+    const store = withQuality();
+    store.set(signalPathAtom, {
+      backend: "Normal",
+      outputFormat: "S24LE",
+      dac: null,
+    } as SignalPath);
+    renderTv(<TvNowPlaying />, { store });
+    const badge = screen.getByRole("button", {
+      name: "Signal path: 24-BIT 96KHZ FLAC",
+    });
+    expect(badge.textContent).toBe("24-BIT 96KHZ FLAC");
+    expect(badge.querySelector("[data-tone]")!.getAttribute("data-tone")).toBe(
+      "warn",
+    );
+  });
+
+  it("opens the path in the right rail after a fresh reading", async () => {
+    mockInvoke({ refresh_signal_path: () => null });
+    const { nav } = renderTv(<TvNowPlaying />, { store: withQuality() });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Signal path: 24-BIT 96KHZ FLAC" }),
+    );
+    await waitFor(() =>
+      expect(nav.openMenu).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Signal path" }),
+      ),
+    );
+    expect(invoke).toHaveBeenCalledWith("refresh_signal_path");
   });
 });
 

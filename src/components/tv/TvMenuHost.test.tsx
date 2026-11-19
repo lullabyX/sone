@@ -178,6 +178,112 @@ it("wraps multiline entries and widens reading panels", () => {
   expect(entry.querySelector(".whitespace-normal")).not.toBeNull();
   expect(screen.getByRole("menu").className).toContain("w-[40rem]");
 });
+it("shows read-only rows in full, with their dot, detail and note", () => {
+  const { ref } = renderMenuHost();
+  act(() =>
+    ref.current!.open({
+      title: "Signal path",
+      items: [
+        { label: "DECODE", detail: "S24LE · 96 kHz", info: true },
+        {
+          label: "RESAMPLED",
+          detail: "96 kHz → 48 kHz",
+          note: "DAC does not accept the source rate",
+          tone: "lossy",
+          info: true,
+        },
+        { label: "Nothing to do" },
+      ],
+    }),
+  );
+  const decode = screen.getByRole("menuitem", { name: /DECODE/ });
+  expect(decode.hasAttribute("aria-disabled")).toBe(false);
+  expect(decode.textContent).toContain("S24LE · 96 kHz");
+  const resampled = screen.getByRole("menuitem", { name: /RESAMPLED/ });
+  expect(resampled.querySelector(".bg-red-400")).not.toBeNull();
+  expect(resampled.textContent).toContain(
+    "DAC does not accept the source rate",
+  );
+  expect(
+    screen
+      .getByRole("menuitem", { name: "Nothing to do" })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
+});
+it("refreshes a polled menu in place while it is shown, and stops once closed", async () => {
+  vi.useFakeTimers();
+  try {
+    const { ref } = renderMenuHost();
+    const next = vi.fn(async () => ({
+      title: "Signal path",
+      items: [
+        { label: "MIX · 48 kHz", info: true, path: { kind: "stage" as const } },
+      ],
+    }));
+    act(() =>
+      ref.current!.open({
+        title: "Signal path",
+        poll: { everyMs: 2000, next },
+        items: [{ label: "MIX", info: true, path: { kind: "stage" } }],
+      }),
+    );
+    const panel = screen.getByRole("menu");
+    expect(document.activeElement).toBe(panel);
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("MIX · 48 kHz")).toBeTruthy();
+    expect(screen.getByRole("menu")).toBe(panel);
+    expect(document.activeElement).toBe(panel);
+    act(() => ref.current!.close());
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(next).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("draws the Signal path as read-only rows on a cable, focus on the panel", () => {
+  const { ref } = renderMenuHost();
+  act(() =>
+    ref.current!.open({
+      title: "Signal path",
+      items: [
+        {
+          label: "DECODE",
+          detail: "S16LE · 44.1 kHz",
+          info: true,
+          path: { kind: "stage", above: "pristine", below: "lossy" },
+        },
+        {
+          label: "MIX CONVERSION",
+          detail: "S16LE/44.1 kHz → S32LE/48 kHz",
+          note: "PipeWire resampled the stream",
+          tone: "lossy",
+          info: true,
+          path: { kind: "change", above: "lossy", below: "lossy" },
+        },
+      ],
+    }),
+  );
+  const menu = screen.getByRole("menu");
+  expect(menu.querySelectorAll("[data-tv-focusable]")).toHaveLength(0);
+  expect(document.activeElement).toBe(menu);
+  const decode = screen.getByText("DECODE").parentElement!;
+  expect(decode.querySelector(".border-green-400")).not.toBeNull();
+  expect(decode.querySelector(".bg-red-400")).not.toBeNull();
+  expect(screen.getByText("MIX CONVERSION").className).toContain(
+    "text-red-400",
+  );
+  // A change is a pill on the cable: its numbers, without the reason.
+  const pill = screen.getByText("MIX CONVERSION").parentElement!;
+  expect(pill.className).toContain("rounded-full");
+  expect(pill.className).toContain("bg-red-400/15");
+  expect(pill.textContent).toContain("S16LE/44.1 kHz → S32LE/48 kHz");
+  expect(screen.queryByText("PipeWire resampled the stream")).toBeNull();
+});
 it("shows credits as wrapping lines in a wide panel", async () => {
   api.getTrackCredits.mockResolvedValue([
     { creditType: "Producer", contributors: [{ name: "A" }] },

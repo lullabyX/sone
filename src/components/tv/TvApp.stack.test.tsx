@@ -414,6 +414,35 @@ describe("the layers and the rail", () => {
     expect(videoClose).not.toHaveBeenCalled();
   });
 
+  it("Up and Down scroll a read-only menu (the Signal path)", () => {
+    renderTv(<TvApp />, { store: signedIn(42) });
+    act(() =>
+      seen.nav!.openMenu({
+        title: "Signal path",
+        items: [
+          { label: "DECODE", info: true, path: { kind: "stage" } },
+          { label: "DAC", info: true, path: { kind: "stage" } },
+        ],
+      }),
+    );
+    const panel = screen.getByRole("menu");
+    expect(document.activeElement).toBe(panel);
+    let top = 0;
+    Object.defineProperty(panel, "clientHeight", { value: 500 });
+    Object.defineProperty(panel, "scrollTop", {
+      get: () => top,
+      set: (v: number) => {
+        top = Math.max(0, v);
+      },
+    });
+    pressKey(panel, { key: "ArrowDown" });
+    expect(top).toBe(200);
+    pressKey(panel, { key: "ArrowUp" });
+    expect(top).toBe(0);
+    pressKey(panel, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("the search shortcut does nothing under a menu or a full-screen video", () => {
     const store = signedIn(42);
     renderTv(<TvApp />, { store });
