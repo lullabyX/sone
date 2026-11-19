@@ -443,7 +443,7 @@ For a media PC hooked up to a TV, SONE has a separate fullscreen interface built
 - **Volume:** the volume keys change SONE's volume, and an indicator shows the level after any change. With bit-perfect output on, the volume stays fixed and the indicator says so.
 - **Action menu:** play next, add to the queue or a playlist (or a **New playlist…**, private or public), add to Loved Tracks or your collection, track radio, credits, go to album / artist; remove from the queue or from your own playlist; move a playlist into a folder; **Edit details** (name, description) or delete your own playlists.
 - **Videos** play full screen with remote controls (Enter pauses, ← / → skip 10 s, ↑ / ↓ reach the buttons; on the volume slider ← / → change the volume, and Enter on the speaker icon mutes, then restores the earlier level). Back minimises the video and keeps it playing in Now Playing, where **Close video** sits next to **Full screen**.
-- **Signing in:** signed out in TV mode, SONE offers to sign in with a phone by scanning a QR code (nothing to type) or on the TV (TIDAL's sign-in page, scaled for the screen; needs a keyboard).
+- **Signing in:** signed out in TV mode, SONE offers to sign in on the TV (TIDAL's sign-in page, scaled for the screen; needs a keyboard, full quality) or with a phone by scanning a QR code (nothing to type, but TIDAL limits that kind of sign-in to High quality).
 
 The interface scales with the screen, so it looks the same at 720p, 1080p and 4K. Most remotes that show up as a keyboard (IR receivers, HDMI-CEC adapters, Bluetooth remotes) work out of the box; if yours sends other keys, map them to the arrows, Enter and Escape.
 
