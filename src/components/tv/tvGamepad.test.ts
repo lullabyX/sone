@@ -116,6 +116,11 @@ it("emulates activation for an unhandled Enter, not a handled one", () => {
   b.remove();
 });
 
+it("Y / Triangle (WebKitGTK's 2) plays and pauses, X / Square (its 3) opens the action menu", () => {
+  expect(steps(pad([2]))).toEqual([{ down: ["MediaPlayPause"], up: [] }]);
+  expect(steps(pad([3]))).toEqual([{ down: ["ContextMenu"], up: [] }]);
+});
+
 it("the Create / View button opens the rail", () => {
   expect(steps(pad([8]))).toEqual([{ down: ["BrowserHome"], up: [] }]);
 });

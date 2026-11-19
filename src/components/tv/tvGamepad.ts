@@ -3,10 +3,15 @@ export interface PadInput {
   axes: number[];
 }
 
-// Standard mapping, in button-index order.
+// Standard mapping, in button-index order: A / Cross opens, B / Circle goes
+// back, Y / Triangle plays and pauses, X / Square opens the action menu.
+// WebKitGTK reports the top face button as 2 and the left one as 3, the
+// standard's other way round, for every pad: libmanette sends the top button
+// as BTN_X (the kernel's BTN_NORTH) and WebKit reads BTN_X as the left "X".
 const BUTTON_KEYS: [number, string][] = [
   [0, "Enter"],
   [1, "BrowserBack"],
+  [2, "MediaPlayPause"],
   [3, "ContextMenu"],
   [4, "MediaTrackPrevious"],
   [5, "MediaTrackNext"],
