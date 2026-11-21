@@ -24,6 +24,11 @@ export const localDevice: ConnectDevice = {
 
 export const availableDevicesAtom = atom<ConnectDevice[]>([localDevice]);
 export const activeDeviceAtom = atom<ConnectDevice>(localDevice);
+// Set while a paused handoff cast is loading: the backend emits
+// `tidal-connect:cast-play-confirmed` once the receiver actually plays, and
+// the renderer pauses through its normal path only when this flag is up
+// (a pause sent during priming reads as a jam to the cast watchdog).
+export const pausedHandoffPendingAtom = atom(false);
 /**
  * True whenever playback routes to a TIDAL Connect receiver instead of the
  * local DAC. Derived purely from the selection: with a receiver selected,

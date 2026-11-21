@@ -74,6 +74,7 @@ import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import {
   activeDeviceAtom,
   localDevice,
+  pausedHandoffPendingAtom,
   type ConnectDevice,
 } from "../atoms/tidalConnect";
 import {
@@ -1052,6 +1053,25 @@ export function AppInitializer() {
         .catch(() => store.set(activeDeviceAtom, localDevice));
     });
 
+    // Paused handoff handshake: the backend arms this by waiting for the
+    // receiver's first confirmed play (a pause sent during priming reads as
+    // a jam to the cast watchdog), then emits. Pause through the normal
+    // path so reporters and MPRIS stay in sync. Always clears the flag -
+    // including the fail-open timeout payload - so it can never pause a
+    // later unrelated cast.
+    const unlistenPauseHandoff = listen<boolean>(
+      "tidal-connect:cast-play-confirmed",
+      (e) => {
+        if (!store.get(pausedHandoffPendingAtom)) return;
+        store.set(pausedHandoffPendingAtom, false);
+        if (e.payload) {
+          invoke("pause_track").catch((err) =>
+            console.warn("[cast] paused handoff: pause_track failed", err),
+          );
+        }
+      },
+    );
+
     // 2b. Backend-driven selection (SONE_CAST_DEVICE autoselect): the modal
     // sets the atom locally on RPC select, but a backend select must mirror
     // into the renderer or set_volume keeps targeting the local DAC.
@@ -1123,6 +1143,7 @@ export function AppInitializer() {
       unlistenSel.then((fn) => fn());
       unlistenEnded.then((fn) => fn());
       unlistenAdvanced.then((fn) => fn());
+      unlistenPauseHandoff.then((fn) => fn());
     };
   }, [store, playNext, advanceCastTrack]);
 

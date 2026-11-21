@@ -240,6 +240,9 @@ async function invokePlayWithRetry(
   // Mid-song handoff (native TIDAL Connect parity): the wall position to
   // resume at when a cast begins partway through the playing track.
   startPositionSecs?: number,
+  // Paused handoff (receiver only): start the cast and pause it once the
+  // receiver confirms play. The renderer flips the play state itself.
+  startPaused?: boolean,
 ): Promise<StreamInfo> {
   for (let attempt = 0; attempt <= DEVICE_MAX_RETRIES; attempt++) {
     try {
@@ -247,6 +250,7 @@ async function invokePlayWithRetry(
         startPositionSecs && startPositionSecs > 0
           ? { startPositionSecs }
           : {};
+      const pausedArg = startPaused ? { startPaused: true } : {};
       return await withInvokeTimeout<StreamInfo>({
         cmd: "play_tidal_track",
         // `queueTrackIds` and `queueTrackTitles` ride only a cast push: the backend
@@ -254,8 +258,8 @@ async function invokePlayWithRetry(
         // track to track with no push (and no ~10 s gap) between them.
         payload:
           queueTrackIds && queueTrackIds.length > 0
-            ? { trackId, useTrackGain, queueTrackIds, queueTrackTitles, ...positionArg }
-            : { trackId, useTrackGain, ...positionArg },
+            ? { trackId, useTrackGain, queueTrackIds, queueTrackTitles, ...positionArg, ...pausedArg }
+            : { trackId, useTrackGain, ...positionArg, ...pausedArg },
         timeoutMs: PLAY_ATTEMPT_TIMEOUT_MS,
       });
     } catch (err: unknown) {
@@ -392,8 +396,12 @@ export function usePlaybackActions() {
         contextFirst?: boolean;
         /** Mid-song handoff (native TIDAL Connect parity): resume the cast
          *  at this wall position instead of restarting the track. Only
-         *  meaningful for a cast push; local playback ignores it. */
+         *  meaningful for a cast push; local playback uses it to resume too. */
         startPositionSecs?: number;
+        /** Paused handoff (receiver only): start the cast and pause it once
+         *  the receiver confirms play; the cast-play-confirmed event drives
+         *  the actual pause through the normal path. */
+        startPaused?: boolean;
       },
     ): Promise<PlayResult> => {
       const blocked = contentBlockReason(track, readContentPrefs(store));
@@ -498,6 +506,7 @@ export function usePlaybackActions() {
           lookahead?.ids,
           lookahead?.titles,
           opts?.startPositionSecs,
+          opts?.startPaused,
         );
 
         if (generation !== playGenerationRef.current) {
@@ -513,6 +522,14 @@ export function usePlaybackActions() {
         // when the same track was re-set as current).
         if (opts?.startPositionSecs && opts.startPositionSecs > 0) {
           notifySeek(opts.startPositionSecs);
+        }
+        // Paused handoff: the end state is paused (the backend pauses the
+        // receiver via the cast-play-confirmed event a moment later), so
+        // surface paused intent immediately instead of a play-then-pause
+        // flicker.
+        if (opts?.startPaused) {
+          store.set(isPlayingAtom, false);
+          store.set(userPausedAtom, true);
         }
 
         // Notify backend for scrobbling

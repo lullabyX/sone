@@ -17,8 +17,9 @@ import {
   localDevice,
   type ConnectDevice,
 } from "../atoms/tidalConnect";
-import { currentTrackAtom, isPlayingAtom } from "../atoms/playback";
+import { currentTrackAtom, isPlayingAtom, userPausedAtom } from "../atoms/playback";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
+import { pausedHandoffPendingAtom } from "../atoms/tidalConnect";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 
 export const TidalConnectModal = memo(function TidalConnectModal() {
@@ -28,6 +29,8 @@ export const TidalConnectModal = memo(function TidalConnectModal() {
   const [isScanning, setIsScanning] = useAtom(isScanningDevicesAtom);
   const currentTrack = useAtomValue(currentTrackAtom);
   const isPlaying = useAtomValue(isPlayingAtom);
+  const userPaused = useAtomValue(userPausedAtom);
+  const [, setPausedHandoffPending] = useAtom(pausedHandoffPendingAtom);
   const { playTrack } = usePlaybackActions();
 
   const refreshDevices = async () => {
@@ -60,20 +63,44 @@ export const TidalConnectModal = memo(function TidalConnectModal() {
 
   const handleSelect = async (device: ConnectDevice) => {
     // Mid-song handoff (native TIDAL Connect parity): capture the wall
-    // position BEFORE selecting so the cast resumes where Sone was instead
-    // of restarting the track. Captured first: selecting stops local audio.
-    const handoffPositionSecs = currentTrack && isPlaying ? getInterpolatedPosition() : 0;
+    // position BEFORE selecting so the transfer resumes where Sone was
+    // instead of restarting the track. Captured first: selecting stops
+    // local audio. A paused cast transfers paused (receiver only: the
+    // backend waits for the receiver's first confirmed play before the
+    // pause lands - a pause during priming reads as a jam to the cast
+    // watchdog); switching back to local while paused keeps the plain
+    // replay behavior.
+    const pausedReceiverTransfer = !device.isLocal && !!currentTrack && !isPlaying && userPaused;
+    const transferring = !!currentTrack && (isPlaying || pausedReceiverTransfer);
+    const handoffPositionSecs = transferring ? getInterpolatedPosition() : 0;
     try {
       await invoke("tidal_connect_select_device", {
         deviceId: device.id,
       });
       setActiveDevice(device);
       setIsOpen(false);
-      if (currentTrack && isPlaying) {
-        playTrack(currentTrack, {
-          skipHistoryPush: true,
-          startPositionSecs: handoffPositionSecs,
-        });
+      if (transferring && currentTrack) {
+        if (pausedReceiverTransfer) {
+          // Arming the paused-handoff handshake: the backend waits for the
+          // receiver's first confirmed play and emits; the AppInitializer
+          // listener then pauses through the normal path. Cleared there and
+          // on failure here so a stale flag never pauses a later cast.
+          setPausedHandoffPending(true);
+        }
+        try {
+          const result = await playTrack(currentTrack, {
+            skipHistoryPush: true,
+            startPositionSecs: handoffPositionSecs,
+            startPaused: pausedReceiverTransfer,
+          });
+          // A refused play (filtered/unplayable) never starts the cast, so
+          // the confirmed event will never fire and the flag must not
+          // linger to pause some later unrelated cast.
+          if (pausedReceiverTransfer && !result.ok) setPausedHandoffPending(false);
+        } catch (playErr) {
+          if (pausedReceiverTransfer) setPausedHandoffPending(false);
+          throw playErr;
+        }
       }
     } catch (err) {
       console.error("Failed to select device:", err);

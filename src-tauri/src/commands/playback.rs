@@ -374,8 +374,15 @@ pub async fn play_tidal_track(
     // Connect transfers the playback position to the receiver
     // (loadLocalQueue "position", protocol spec 4.2); on the LinkPlay
     // push-URL path that maps to serving a manifest trimmed to the same
-    // offset the cast seek uses.
+    // offset the cast seek uses. The local path feeds it to
+    // `play_url(start_secs)` so a switch BACK from a cast also resumes at
+    // the wall position instead of restarting.
     start_position_secs: Option<f64>,
+    // camelCase: startPaused. Paused handoff (receiver only): the receiver
+    // starts the push PLAYING and a pause sent during priming reads as a
+    // jam to the watchdog, so the backend waits for the first confirmed
+    // play and hands the pause to the renderer (see the waiter below).
+    start_paused: Option<bool>,
 ) -> Result<StreamInfo, SoneError> {
     let t0 = std::time::Instant::now();
     // Prefetch consumption (cast only): the gapless prefetch resolves the
@@ -784,13 +791,54 @@ pub async fn play_tidal_track(
             track_id,
             target_host
         );
+        // Paused handoff: wait for the receiver's first confirmed play, then
+        // tell the renderer to pause through its normal path (the command
+        // itself stays in `pause_track` so reporters and MPRIS stay in sync).
+        // Pausing during priming instead would leave status pause + totlen 0,
+        // which the jam watchdog re-pushes after 12 s. Timeout fails open to
+        // playing - the end state the user can flip with one tap.
+        if start_paused.unwrap_or(false) {
+            let tc = state.tidal_connect.clone();
+            let app_for_pause = app.clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Emitter;
+                for _ in 0..24 {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let confirmed = tc
+                        .cast_status
+                        .read()
+                        .await
+                        .as_ref()
+                        .map(|s| s.play_confirmed && s.status == "play")
+                        .unwrap_or(false);
+                    if confirmed {
+                        log::info!(
+                            "[play_tidal_track] paused handoff: receiver playing; handing pause to the renderer"
+                        );
+                        let _ = app_for_pause.emit("tidal-connect:cast-play-confirmed", true);
+                        return;
+                    }
+                }
+                log::warn!(
+                    "[play_tidal_track] paused handoff: receiver never confirmed play within 6s; leaving it playing"
+                );
+                let _ = app_for_pause.emit("tidal-connect:cast-play-confirmed", false);
+            });
+        }
     } else {
         // Apply normalization gain BEFORE play_url so the pipeline builds with
         // the correct current_norm_gain — prevents volume spike on track start.
         let player = state.audio_player.clone();
+        // Mid-song handoff both ways: a switch back from a cast resumes local
+        // playback at the wall position the receiver was playing (the
+        // position transfer native TIDAL Connect does; `play_url` seeks after
+        // preroll off-thread).
+        let start_secs = start_position_secs
+            .filter(|s| *s > 0.5)
+            .map(|s| s as f32);
         tokio::task::spawn_blocking(move || {
             player.set_normalization_gain(norm_gain)?;
-            player.play_url(&uri, None)
+            player.play_url(&uri, start_secs)
         })
             .await
             .map_err(|e| SoneError::Audio(e.to_string()))?
@@ -967,7 +1015,7 @@ pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> 
             // rolls back to a stopped UI and the retry is a fresh command.
             match tokio::time::timeout(
                 std::time::Duration::from_secs(25),
-                play_tidal_track(app, state.clone(), track_id, true, None, None, None),
+                play_tidal_track(app, state.clone(), track_id, true, None, None, None, None),
             )
             .await
             {
