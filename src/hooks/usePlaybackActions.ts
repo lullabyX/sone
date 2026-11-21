@@ -237,9 +237,16 @@ async function invokePlayWithRetry(
   onFirstRetry: () => void,
   queueTrackIds?: number[],
   queueTrackTitles?: string[],
+  // Mid-song handoff (native TIDAL Connect parity): the wall position to
+  // resume at when a cast begins partway through the playing track.
+  startPositionSecs?: number,
 ): Promise<StreamInfo> {
   for (let attempt = 0; attempt <= DEVICE_MAX_RETRIES; attempt++) {
     try {
+      const positionArg =
+        startPositionSecs && startPositionSecs > 0
+          ? { startPositionSecs }
+          : {};
       return await withInvokeTimeout<StreamInfo>({
         cmd: "play_tidal_track",
         // `queueTrackIds` and `queueTrackTitles` ride only a cast push: the backend
@@ -247,8 +254,8 @@ async function invokePlayWithRetry(
         // track to track with no push (and no ~10 s gap) between them.
         payload:
           queueTrackIds && queueTrackIds.length > 0
-            ? { trackId, useTrackGain, queueTrackIds, queueTrackTitles }
-            : { trackId, useTrackGain },
+            ? { trackId, useTrackGain, queueTrackIds, queueTrackTitles, ...positionArg }
+            : { trackId, useTrackGain, ...positionArg },
         timeoutMs: PLAY_ATTEMPT_TIMEOUT_MS,
       });
     } catch (err: unknown) {
@@ -383,6 +390,10 @@ export function usePlaybackActions() {
         /** With retryOnRateLimit: a retried track that turns out dead advances
          *  within its own collection, as the clicked-into-a-collection callers do. */
         contextFirst?: boolean;
+        /** Mid-song handoff (native TIDAL Connect parity): resume the cast
+         *  at this wall position instead of restarting the track. Only
+         *  meaningful for a cast push; local playback ignores it. */
+        startPositionSecs?: number;
       },
     ): Promise<PlayResult> => {
       const blocked = contentBlockReason(track, readContentPrefs(store));
@@ -486,6 +497,7 @@ export function usePlaybackActions() {
           },
           lookahead?.ids,
           lookahead?.titles,
+          opts?.startPositionSecs,
         );
 
         if (generation !== playGenerationRef.current) {
@@ -496,6 +508,12 @@ export function usePlaybackActions() {
         store.set(consecutiveFailCountAtom, 0);
         // Playback confirmed — release the load gate and anchor from 0.
         markPlaybackLoading(false);
+        // Mid-song handoff: re-anchor the bar at the transferred position
+        // (the cast carries the wall offset; the interpolator restarted at 0
+        // when the same track was re-set as current).
+        if (opts?.startPositionSecs && opts.startPositionSecs > 0) {
+          notifySeek(opts.startPositionSecs);
+        }
 
         // Notify backend for scrobbling
         invoke("notify_track_started", {

@@ -369,6 +369,13 @@ pub async fn play_tidal_track(
     use_track_gain: bool,
     queue_track_ids: Option<Vec<u64>>,
     queue_track_titles: Option<Vec<String>>,
+    // camelCase: startPositionSecs. Mid-song handoff (selecting a TIDAL
+    // Connect device partway through the playing track): native TIDAL
+    // Connect transfers the playback position to the receiver
+    // (loadLocalQueue "position", protocol spec 4.2); on the LinkPlay
+    // push-URL path that maps to serving a manifest trimmed to the same
+    // offset the cast seek uses.
+    start_position_secs: Option<f64>,
 ) -> Result<StreamInfo, SoneError> {
     let t0 = std::time::Instant::now();
     // Prefetch consumption (cast only): the gapless prefetch resolves the
@@ -465,6 +472,10 @@ pub async fn play_tidal_track(
             .clone();
 
         let mut cast_manifest: Option<String> = None;
+        // Mid-song handoff state, committed into `CastStatus` after the push
+        // (0.0 when the cast starts at the top, i.e. every normal play).
+        let mut handoff_start_ms = 0.0;
+        let mut handoff_orig_len_ms = 0.0;
         // Native playlist state, committed into `CastStatus` after the push:
         // entries (served bodies), parallel track ids, and per-entry stream
         // metadata for UI republishing on a native advance.
@@ -498,16 +509,48 @@ pub async fn play_tidal_track(
                     Err(_) => format!("track-{}", track_id),
                 }
             };
+            // Mid-song handoff: serve the manifest trimmed to the transfer
+            // position so the receiver starts where Sone was (native
+            // TIDAL Connect parity; the receiver's quantized segment grid
+            // rounds slightly earlier). Falls back to start-at-zero when
+            // the shape does not trim or the offset is past the end -
+            // the same fail-open the cast seek uses.
+            let handoff_secs = start_position_secs.unwrap_or(0.0);
+            let handoff = if handoff_secs > 0.5 {
+                crate::tidal_connect::manifest_server::trim_mpd(&mpd_xml, handoff_secs)
+            } else {
+                None
+            };
+            let (served_xml, orig_len_ms) = match &handoff {
+                Some((trimmed, remaining)) => {
+                    (trimmed.clone(), (handoff_secs + remaining) * 1000.0)
+                }
+                None => (mpd_xml.clone(), 0.0),
+            };
+            if handoff.is_some() {
+                handoff_start_ms = handoff_secs * 1000.0;
+                handoff_orig_len_ms = orig_len_ms;
+            }
+            // -sN busts the receiver's by-URL manifest cache, the same
+            // convention as a trimmed cast seek.
+            let pushed_name = match &handoff {
+                Some(_) => format!(
+                    "{}-s{}",
+                    encode_display_name(&display_name),
+                    handoff_secs as u64
+                ),
+                None => encode_display_name(&display_name),
+            };
             let upcoming = queue_track_ids.as_deref().unwrap_or(&[]);
             let upcoming_titles = queue_track_titles.as_deref();
             if upcoming.is_empty() {
                 state
                     .tidal_connect
                     .manifest_server
-                    .set(&mpd_xml)
+                    .set(&served_xml)
                     .await
                     .map_err(SoneError::Audio)?;
-                format!("{}/{}.mpd", base, encode_display_name(&display_name))
+                format!("{}/{}.mpd", base, pushed_name)
             } else {
                 // Native queue: one `.m3u8` the receiver plays through on its
                 // own, entry to entry, with no push and no audible gap
@@ -520,13 +563,13 @@ pub async fn play_tidal_track(
                     state
                         .tidal_connect
                         .manifest_server
-                        .set(&mpd_xml)
+                        .set(&served_xml)
                         .await
                         .map_err(SoneError::Audio)?;
-                    format!("{}/{}.mpd", base, encode_display_name(&display_name))
+                    format!("{}/{}.mpd", base, pushed_name)
                 } else {
                     let mut all = Vec::with_capacity(entries.len() + 1);
-                    all.push(QueueEntry::Manifest(mpd_xml.clone()));
+                    all.push(QueueEntry::Manifest(served_xml.clone()));
                     all.extend(entries);
                     ids.insert(0, track_id);
                     streams.insert(0, strip_stream_manifests(stream_info.clone()));
@@ -536,7 +579,7 @@ pub async fn play_tidal_track(
                     let url = state
                         .tidal_connect
                         .manifest_server
-                        .set_queue(&encode_display_name(&display_name), all.clone())
+                        .set_queue(&pushed_name, all.clone())
                         .await
                         .map_err(SoneError::Audio)?;
                     log::info!(
@@ -592,9 +635,14 @@ pub async fn play_tidal_track(
         // the "stop" status read below only wakes for commanded/operator
         // stops; the stamped `last_natural_end` covers the album-advance
         // case the dedup-free prefetch made common.
-        let last_engine_status = {
+        let (last_engine_status, engine_stop_age) = {
             let guard = state.tidal_connect.cast_status.read().await;
-            guard.as_ref().map(|s| s.status.clone())
+            let s = guard.as_ref();
+            (
+                s.map(|s| s.status.clone()),
+                s.filter(|s| s.status == "stop")
+                    .map(|s| s.status_changed_at.elapsed().as_secs_f64()),
+            )
         };
         let natural_end_age = {
             let guard = state.tidal_connect.last_natural_end.read().await;
@@ -620,7 +668,12 @@ pub async fn play_tidal_track(
         let fresh_stop = commanded_stop_age
             .map(|age| age <= SETTLE_BEFORE_PUSH_S)
             .unwrap_or(false)
-            || last_engine_status.as_deref() == Some("stop")
+            // Bounded: an operator stop observed long ago does not wedge a
+            // push, and paying the full settle for it taxed every cold cast
+            // (nothing preloaded) that followed a stopped receiver.
+            || engine_stop_age
+                .map(|age| age <= FRESH_STOP_WINDOW_S)
+                .unwrap_or(false)
             || natural_end_age
                 .map(|age| age <= FRESH_STOP_WINDOW_S)
                 .unwrap_or(false);
@@ -672,7 +725,16 @@ pub async fn play_tidal_track(
             if let Some(cur) = slot.as_mut() {
                 if let Some(ref xml) = cast_manifest {
                     cur.manifest_xml = Some(xml.clone());
-                    cur.start_offset_ms = 0.0;
+                    // Wall position = start_offset + receiver clock; the
+                    // stashed manifest stays the ORIGINAL untrimmed one so a
+                    // later seek trims from the top of the track. The full
+                    // length reference is captured here for a trimmed push
+                    // (the device reports the remainder); a playlist cast
+                    // keeps its per-entry reference instead.
+                    cur.start_offset_ms = handoff_start_ms;
+                    if handoff_orig_len_ms > 0.0 && cast_queue.is_none() {
+                        cur.orig_totlen_ms = handoff_orig_len_ms as u64;
+                    }
                 }
                 if let Some((entries, ids, streams, titles)) = cast_queue.take() {
                     cur.queue = ids;
@@ -905,7 +967,7 @@ pub async fn resume_track(app: tauri::AppHandle, state: State<'_, AppState>) -> 
             // rolls back to a stopped UI and the retry is a fresh command.
             match tokio::time::timeout(
                 std::time::Duration::from_secs(25),
-                play_tidal_track(app, state.clone(), track_id, true, None, None),
+                play_tidal_track(app, state.clone(), track_id, true, None, None, None),
             )
             .await
             {

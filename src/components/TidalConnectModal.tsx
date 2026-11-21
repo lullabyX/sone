@@ -18,6 +18,7 @@ import {
   type ConnectDevice,
 } from "../atoms/tidalConnect";
 import { currentTrackAtom, isPlayingAtom } from "../atoms/playback";
+import { getInterpolatedPosition } from "../lib/playbackPosition";
 import { usePlaybackActions } from "../hooks/usePlaybackActions";
 
 export const TidalConnectModal = memo(function TidalConnectModal() {
@@ -58,6 +59,10 @@ export const TidalConnectModal = memo(function TidalConnectModal() {
   if (!isOpen) return null;
 
   const handleSelect = async (device: ConnectDevice) => {
+    // Mid-song handoff (native TIDAL Connect parity): capture the wall
+    // position BEFORE selecting so the cast resumes where Sone was instead
+    // of restarting the track. Captured first: selecting stops local audio.
+    const handoffPositionSecs = currentTrack && isPlaying ? getInterpolatedPosition() : 0;
     try {
       await invoke("tidal_connect_select_device", {
         deviceId: device.id,
@@ -65,7 +70,10 @@ export const TidalConnectModal = memo(function TidalConnectModal() {
       setActiveDevice(device);
       setIsOpen(false);
       if (currentTrack && isPlaying) {
-        playTrack(currentTrack, { skipHistoryPush: true });
+        playTrack(currentTrack, {
+          skipHistoryPush: true,
+          startPositionSecs: handoffPositionSecs,
+        });
       }
     } catch (err) {
       console.error("Failed to select device:", err);

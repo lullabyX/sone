@@ -286,6 +286,13 @@ pub struct CastStatus {
     /// absolute values are not comparable across a playlist, but two
     /// consecutive samples are. Never used as a position.
     pub last_raw_curpos: u64,
+    /// When the receiver last changed state ("play"/"pause"/"stop"). The
+    /// A98 fresh-stop jam rule only applies within seconds of the engine
+    /// leaving play; a timestamp keeps a stop observed long ago from taxing
+    /// later pushes with the full settle (2026-11-20: an operator stop
+    /// left a stale "stop" status that settled every subsequent cold cast
+    /// for 3 s).
+    pub status_changed_at: Instant,
 }
 
 /// One poll's worth of receiver observations.
@@ -335,6 +342,7 @@ impl CastStatus {
             queue_entry_anchor_at: None,
             queue_entry_totlen_ms: 0,
             last_raw_curpos: 0,
+            status_changed_at: Instant::now(),
         }
     }
 
@@ -604,6 +612,10 @@ impl LinkPlayClient {
             cur.last_raw_curpos = raw.curpos;
             let new_status = raw.status.clone();
             if cur.status != new_status {
+                // Stamp before any branch: every transition path below
+                // (including the early-return recovery paths) records the
+                // new status, and the age is only meaningful while fresh.
+                cur.status_changed_at = Instant::now();
                 if new_status == "play" {
                     // Clock restart: extrapolation resumes from anchor_ms.
                     cur.anchor_at = Some(Instant::now());
