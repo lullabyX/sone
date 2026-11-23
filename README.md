@@ -43,6 +43,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - [Why SONE?](#why-sone)
 - [Installation](#installation)
 - [Usage](#usage)
+- [TV mode](#tv-mode)
 - [FAQ](#faq)
 - [Tech Stack](#tech-stack)
 - [Contributing](#contributing)
@@ -77,7 +78,7 @@ We went beyond the basics with direct-to-DAC bit-perfect ALSA output, a resizabl
 - **Lyrics** — synced lyrics display for supported tracks; click any line to jump to it
 - **Miniplayer** — compact floating window with album art, playback controls, and resizable-adaptive layout
 - **Full-screen player** — maximized view with album art, lyrics option and auto-hiding controls
-- **TV mode** — a fullscreen 10-foot interface for a TV or media PC, driven entirely by arrow keys, Enter and Back (a remote, a gamepad or a keyboard)
+- **TV mode** — TIDAL on your TV: a fullscreen 10-foot interface for a living-room media PC or HTPC, driven entirely by a TV remote, a gamepad or a keyboard ([details](#tv-mode))
 - **Queue persistence** — picks up where you left off across restarts
 - **MPRIS integration** — media keys, shuffle, repeat, seek, and desktop widget support
 - **System tray** with playback controls and minimize-to-tray
@@ -410,6 +411,9 @@ If it's missing, install the GStreamer "bad" plugin set and restart SONE — `gs
 **Playback errors in exclusive/bit-perfect mode?**
 SONE automatically detects your DAC's supported formats and sample rates, but if playback still fails, your hardware may not support the source format at all. Try a lower quality tier or switch to normal output mode.
 
+**Gamepad d-pad does nothing or the triggers act wrong in TV mode?**
+A controller missing from libmanette's built-in layouts gets a fallback layout with no d-pad and the triggers on the wrong axes. libmanette 0.2.7 (Ubuntu 24.04) has no DualSense layout, for one. Add the controller's `platform:Linux` lines from the [SDL controller database](https://github.com/mdqinc/SDL_GameControllerDB) to `~/.config/libmanette/gamecontrollerdb` and reconnect it.
+
 **"Error 71 (Protocol error) dispatching to Wayland display" on launch?**
 This is a known WebKitGTK/Wayland issue affecting Tauri apps on systems with NVIDIA GPUs ([tauri-apps/tauri#10702](https://github.com/tauri-apps/tauri/issues/10702)). On **Auto**, SONE already disables the DMA-BUF renderer when it detects an NVIDIA GPU. If you see the error after switching **Settings → General → Rendering** to **GPU**, the next launch reverts to the previous mode; if you see it on **Auto**, set the mode to **CPU** or use the advanced override below.
 
@@ -431,21 +435,47 @@ On WebKitGTK 2.54 and newer, `WEBKIT_DISABLE_COMPOSITING_MODE=1` gives a black w
 
 ## TV mode
 
-For a media PC hooked up to a TV, SONE has a separate fullscreen interface built for the couch: large covers, a focus highlight you can see from across the room, and nothing that needs a mouse.
+TIDAL on your TV, from the couch. TV mode is SONE's fullscreen 10-foot interface for a Linux media PC or HTPC in the living room: large covers, a focus highlight you can see from across the room, and nothing that needs a mouse. A TV remote, a gamepad or a keyboard drives all of it, with the same lossless, Hi-Res and bit-perfect playback as the desktop layout.
 
-- **Turn it on** from the user menu (**TV mode**) or **Settings → General → TV mode**. **Exit TV mode** at the bottom of the side rail (or in TV settings) goes back to the desktop layout.
-- **Start straight into it** with `sone --tv` (or `SONE_TV_MODE=1 sone`), handy for an autostart entry. Either one applies to that run only and leaves your saved choice unchanged; **Exit TV mode** ends it. Running `sone --tv` while SONE is already open switches that window over; `SONE_TV_MODE=1` is read only by the first instance, so use `sone --tv` to switch a SONE that is already running.
-- **Controls:** the arrow keys move the focus, **Enter** opens or plays, **Back / Escape / Backspace** goes back, **Home** jumps to the side rail (and back), and the media keys play/pause, skip, seek and change the volume. Holding **Enter** (or pressing the **Menu** key) on a track, album, playlist, mix or artist opens its action menu; the **⋯** buttons do the same. Long titles scroll while focused.
-- **Gamepads** move the focus too (A opens, B goes back, X opens the action menu, Y plays / pauses, LB / RB skip tracks, LT / RT turn the volume down / up, View / Create opens the side rail). They need a WebKitGTK built with gamepad support and a native, AUR, `.deb` or AppImage install, or the snap after `snap connect sone:joystick`; the Flatpak has no access to input devices. A controller missing from libmanette's built-in layouts gets a fallback one with no d-pad and the triggers on the wrong axes — libmanette 0.2.7 (Ubuntu 24.04) has no DualSense layout, for one. Add the controller's `platform:Linux` lines from the [SDL controller database](https://github.com/mdqinc/SDL_GameControllerDB) to `~/.config/libmanette/gamecontrollerdb` and reconnect it.
-- **Screens:** Home (with its tabs, quick access and **Load more**), Search, Explore, Feed, My Collection (playlists with folders and the ones you liked, albums, artists, mixes and videos, each with "View all", **Sort** and **Filter**), album / playlist / mix / artist pages, Now Playing and Settings (audio quality, exclusive / bit-perfect output, playback and content options, themes, screen margin for TVs that cut off the edges, account). **More settings** opens the full desktop settings, navigable with the arrow keys; **Enter** on one of their text fields opens the on-screen keyboard.
-- **Search:** type with the on-screen keyboard (with **Shift** and a **Symbols** layer) or a real one. Results start with Top hits, and each row has "View all". Recent searches are shared with the desktop search box; TV adds one when you open a result, press the keyboard's **Search** key or press **Enter** in the search box.
-- **Now Playing** opens over the screen you're on (from the rail, the mini bar, or when you start playback), and Back returns you there. Going to an album or artist from it and pressing Back brings Now Playing back. Its tabs (Up next, Suggested, History, Credits) switch as you move across them, and the last one used stays selected for the session.
-- **Volume:** the volume keys change SONE's volume, and an indicator shows the level after any change. With bit-perfect output on, the volume stays fixed and the indicator says so.
-- **Action menu:** play next, add to the queue or a playlist (or a **New playlist…**, private or public), add to Loved Tracks or your collection, track radio, credits, go to album / artist; remove from the queue or from your own playlist; move a playlist into a folder; **Edit details** (name, description) or delete your own playlists.
-- **Videos** play full screen with remote controls (Enter pauses, ← / → skip 10 s, ↑ / ↓ reach the buttons; on the volume slider ← / → change the volume, and Enter on the speaker icon mutes, then restores the earlier level). Back minimises the video and keeps it playing in Now Playing, where **Close video** sits next to **Full screen**.
-- **Signing in:** signed out in TV mode, SONE offers to sign in on the TV (TIDAL's sign-in page, scaled for the screen; needs a keyboard, full quality) or with a phone by scanning a QR code (nothing to type, but TIDAL limits that kind of sign-in to High quality).
+### Start it
 
-The interface scales with the screen, so it looks the same at 720p, 1080p and 4K. Most remotes that show up as a keyboard (IR receivers, HDMI-CEC adapters, Bluetooth remotes) work out of the box; if yours sends other keys, map them to the arrows, Enter and Escape.
+- **From the app:** open the user menu and pick **TV mode**, or turn on **Settings → General → TV mode**. The choice is saved, so SONE opens in TV mode next time.
+- **From the command line:** `sone --tv` (or `SONE_TV_MODE=1 sone`) starts straight into TV mode, which suits an autostart entry on a media PC. Both apply to that run only and leave the saved choice unchanged.
+- **If SONE is already running:** `sone --tv` switches the open window to TV mode. `SONE_TV_MODE=1` is read only by the first instance, so it cannot switch a running SONE.
+- **To leave:** **Exit TV mode** at the bottom of the side rail, or in TV **Settings**, returns to the desktop layout.
+
+### Controls
+
+Everything works with the arrow keys, Enter and Back. Most remotes that show up as a keyboard (IR receivers, HDMI-CEC adapters, Bluetooth remotes) work out of the box; if yours sends other keys, map them to the arrows, Enter and Escape.
+
+| Action | Remote or keyboard | Gamepad |
+| --- | --- | --- |
+| Move the focus | Arrow keys | D-pad or left stick |
+| Open or play | **Enter** (OK) | A |
+| Go back | **Back**, **Escape** or **Backspace** | B |
+| Action menu | Hold **Enter**, or the **Menu** key | X, or Menu / Start |
+| Side rail (and back) | The remote's **Home** key | View / Create |
+| Play / pause | Play/pause key | Y |
+| Previous / next | Track keys | LB / RB |
+| Seek 10 seconds | Rewind / fast-forward keys | — |
+| Volume | Volume and mute keys | LT / RT |
+
+The **⋯** buttons also open the action menu, and long titles scroll while focused.
+
+### Set it up for your TV
+
+TV **Settings** holds these next to audio quality, exclusive and bit-perfect output, playback and content options, and themes.
+
+- **Screen margin (overscan):** if your TV cuts off the edges of the picture, open **Screen margin**. Arrows appear in the four corners; press the arrow keys until their tips touch the edges of the screen. Width (← / →) and height (↑ / ↓) adjust separately, and the interface follows live. **Enter** saves, **Back** cancels.
+- **Volume (SONE or TV):** set **Volume** to **TV** when the TV's own remote sets the volume over HDMI-CEC. SONE then plays at 100 %, ignores its volume and mute keys, and hides its volume indicator and volume bar. Left on **SONE**, the volume keys change SONE's volume and an indicator shows the level. With bit-perfect output on, the volume stays fixed and the indicator says so.
+- **Text size:** **Normal** or **Large**, for a small screen or a far couch. The interface scales with the screen resolution, so it looks the same at 720p, 1080p and 4K.
+- **More settings** opens the full desktop settings, navigable with the arrow keys; **Enter** on a text field opens the on-screen keyboard.
+
+### Gamepad setup
+
+- **A gamepad needs** a WebKitGTK built with gamepad support, and a native, AUR, `.deb` or AppImage install of SONE.
+- **Snap:** run `snap connect sone:joystick` first.
+- **Flatpak:** gamepads do not work, because the Flatpak has no access to input devices.
 
 ## Custom theme file
 
