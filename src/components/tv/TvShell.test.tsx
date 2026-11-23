@@ -27,15 +27,25 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 }));
 setupTvTest();
 let store: TvStore;
-beforeEach(() => {
+// Window calls chain one after another, so let every step run.
+const flush = () =>
+  act(async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  });
+beforeEach(async () => {
+  // The last case's exit lands before this one starts counting calls.
+  await flush();
+  win.isFullscreen.mockClear();
+  win.setFullscreen.mockClear();
   store = createStore();
   win.isFullscreen.mockImplementation(() => Promise.resolve(false));
+  win.setFullscreen.mockImplementation(() => Promise.resolve());
   mockInvoke({
     inhibit_idle: () => undefined,
     uninhibit_idle: () => undefined,
   });
 });
-const flush = () => act(async () => {});
+const fullscreenCalls = () => win.setFullscreen.mock.calls.map((c) => c[0]);
 const A = () => <p>A</p>;
 const B = () => <p>B</p>;
 const shell = (child = <A />) =>
@@ -71,6 +81,44 @@ it("leaves a window that was fullscreen before fullscreen on exit", async () => 
   r.unmount();
   await flush();
   expect(win.setFullscreen).not.toHaveBeenCalledWith(false);
+});
+
+// On Linux isFullscreen() answers with the last request, so after a reload
+// inside TV mode it says "fullscreen" because TV mode asked for it.
+it("a reload inside TV mode still restores a windowed window on exit", async () => {
+  const before = shell();
+  await flush();
+  const saved = Object.entries(sessionStorage);
+  expect(saved.length).toBe(1);
+  // The reload: the page goes without running cleanups, sessionStorage stays.
+  before.unmount();
+  await flush();
+  for (const [k, v] of saved) sessionStorage.setItem(k, v);
+  win.isFullscreen.mockResolvedValue(true);
+  win.isFullscreen.mockClear();
+  win.setFullscreen.mockClear();
+
+  const after = shell();
+  await flush();
+  expect(win.isFullscreen).not.toHaveBeenCalled();
+  after.unmount();
+  await flush();
+  expect(fullscreenCalls()).toEqual([true, false]);
+  expect(sessionStorage.length).toBe(0);
+});
+
+it("decides again in the next TV session", async () => {
+  const first = shell();
+  await flush();
+  first.unmount();
+  await flush();
+  win.isFullscreen.mockResolvedValue(true);
+  win.setFullscreen.mockClear();
+  const second = shell();
+  await flush();
+  second.unmount();
+  await flush();
+  expect(fullscreenCalls()).toEqual([true]);
 });
 
 it("restores correctly when it exits before entry finished", async () => {
@@ -110,15 +158,50 @@ it("does not restore fullscreen that belonged to the maximized player or a video
 
 it("puts fullscreen back when the window leaves it", async () => {
   vi.useFakeTimers();
+  // The WM shortcut leaves isFullscreen() saying true.
+  win.isFullscreen.mockResolvedValue(true);
   shell();
   await flush();
   window.dispatchEvent(new Event("resize"));
   await act(async () => {
     vi.advanceTimersByTime(300);
   });
-  expect(win.setFullscreen.mock.calls.filter((c) => c[0] === true).length).toBe(
-    2,
+  await flush();
+  expect(fullscreenCalls()).toEqual([true, true]);
+});
+
+it("puts nothing back once TV mode is left", async () => {
+  vi.useFakeTimers();
+  const r = shell();
+  await flush();
+  window.dispatchEvent(new Event("resize"));
+  r.unmount();
+  await act(async () => {
+    vi.advanceTimersByTime(1000);
+  });
+  await flush();
+  expect(fullscreenCalls()).toEqual([true, false]);
+});
+
+it("leaves fullscreen only after a put-back already on its way", async () => {
+  vi.useFakeTimers();
+  let land!: () => void;
+  const r = shell();
+  await flush();
+  win.setFullscreen.mockImplementationOnce(
+    () => new Promise<void>((res) => (land = res)),
   );
+  window.dispatchEvent(new Event("focus"));
+  await act(async () => {
+    vi.advanceTimersByTime(300);
+  });
+  await flush();
+  r.unmount();
+  await flush();
+  expect(fullscreenCalls()).toEqual([true, true]);
+  await act(async () => land());
+  await flush();
+  expect(fullscreenCalls()).toEqual([true, true, false]);
 });
 
 it("hides the pointer after 2.5 s of no mouse movement", () => {

@@ -22,6 +22,36 @@ import "./tv.css";
 
 const TV_CURSOR_HIDE_MS = 2500;
 const TV_FULLSCREEN_RECHECK_MS = 300;
+/** Whether exit leaves the window fullscreen, decided once per TV session.
+ *  sessionStorage, so a reload inside TV mode keeps it and a restart drops it. */
+const TV_KEEP_FULLSCREEN_KEY = "sone.tvKeepFullscreen.v1";
+
+function readKeep(): boolean | null {
+  try {
+    const v = sessionStorage.getItem(TV_KEEP_FULLSCREEN_KEY);
+    return v === null ? null : v === "1";
+  } catch {
+    return null;
+  }
+}
+
+function writeKeep(keep: boolean | null) {
+  try {
+    if (keep === null) sessionStorage.removeItem(TV_KEEP_FULLSCREEN_KEY);
+    else sessionStorage.setItem(TV_KEEP_FULLSCREEN_KEY, keep ? "1" : "0");
+  } catch {
+    /* storage unavailable: a reload re-reads the window */
+  }
+}
+
+// Window commands run as separate backend tasks, so two in flight can land
+// in either order. TV mode's run one after another, across mounts.
+let windowOps: Promise<unknown> = Promise.resolve();
+function inOrder<T>(op: () => Promise<T>): Promise<T> {
+  const next = windowOps.then(op);
+  windowOps = next.catch(() => {});
+  return next;
+}
 
 function updateScale() {
   const html = document.documentElement;
@@ -89,49 +119,44 @@ export default function TvShell({ children }: { children: ReactNode }) {
 
   // Fullscreen on entry. On exit the window goes back to how the user had
   // it, unless that fullscreen belonged to the maximized player or a video,
-  // which entering TV mode closes.
+  // which entering TV mode closes. On Linux isFullscreen() is the last
+  // fullscreen request, not the window's state: after a reload it would be
+  // TV mode's own, so the first answer is kept for the TV session. For the
+  // same reason anything that drops fullscreen (the WM shortcut, a video
+  // leaving its own) is undone without asking first.
   useEffect(() => {
     const win = getCurrentWindow();
     const blocked =
       store.get(maximizedPlayerAtom) || store.get(videoFullscreenAtom);
     store.set(maximizedPlayerAtom, false);
     store.set(videoFullscreenAtom, false);
-    const restore = win
-      .isFullscreen()
-      .catch(() => false)
-      .then(async (was) => {
-        await win.setFullscreen(true).catch(() => {});
-        return was && !blocked;
-      });
-    return () => {
-      void restore.then((keep) => {
-        if (!keep) win.setFullscreen(false).catch(() => {});
-      });
-    };
-  }, [store]);
-
-  // Anything that drops fullscreen (the WM shortcut, a video leaving its
-  // own fullscreen) is undone.
-  useEffect(() => {
-    const win = getCurrentWindow();
+    const keep = inOrder(async () => {
+      const saved = readKeep();
+      if (saved !== null) return saved;
+      const was = await win.isFullscreen().catch(() => false);
+      writeKeep(was && !blocked);
+      return was && !blocked;
+    });
+    const enter = () =>
+      void inOrder(() => win.setFullscreen(true).catch(() => {}));
+    enter();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let active = true;
     const recheck = () => {
       clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const full = await win.isFullscreen().catch(() => true);
-        if (active && !full) win.setFullscreen(true).catch(() => {});
-      }, TV_FULLSCREEN_RECHECK_MS);
+      timer = setTimeout(enter, TV_FULLSCREEN_RECHECK_MS);
     };
     window.addEventListener("resize", recheck);
     window.addEventListener("focus", recheck);
     return () => {
-      active = false;
       clearTimeout(timer);
       window.removeEventListener("resize", recheck);
       window.removeEventListener("focus", recheck);
+      void inOrder(async () => {
+        writeKeep(null);
+        if (!(await keep)) await win.setFullscreen(false).catch(() => {});
+      });
     };
-  }, []);
+  }, [store]);
 
   // Hide the pointer until the mouse moves. Set on the document, so it also
   // covers the video player, which sits outside the TV interface. Synthetic
