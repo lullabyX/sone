@@ -254,6 +254,33 @@ html.tv-mode {
   opacity: 1;
 }
 
+/* Left/Right seek while none of the player's buttons has focus: the
+   timeline then shows as focused (ring, full bar, thumb), and goes back to
+   normal once Up moves focus into the buttons. */
+.tv-mode
+  [data-tv-video]:not([data-tv-video-mini]):not(:has(button:focus, input:focus))
+  .scrubber {
+  outline: 3px solid var(--th-text-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--th-accent) 45%, transparent);
+  border-radius: 8px;
+}
+.tv-mode
+  [data-tv-video]:not([data-tv-video-mini]):not(:has(button:focus, input:focus))
+  .scrubber
+  > :first-child
+  > :last-child {
+  top: 0;
+  height: 100%;
+  background: var(--th-accent);
+}
+.tv-mode
+  [data-tv-video]:not([data-tv-video-mini]):not(:has(button:focus, input:focus))
+  .scrubber
+  > :last-child {
+  opacity: 1;
+}
+
 /* Minimized, the video plays on in Now Playing where the cover would be
    (placed by useTvMiniVideo), without its controls. */
 .tv-mode [data-tv-video][data-tv-video-mini] {
