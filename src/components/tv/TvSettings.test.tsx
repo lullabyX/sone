@@ -22,7 +22,7 @@ import TvSettings from "./TvSettings";
 import type { TvNav } from "./TvNavContext";
 import { videoCoversAtom } from "../../atoms/ui";
 import { tvTextSizeAtom } from "../../atoms/tv";
-import { exclusiveModeAtom } from "../../atoms/playback";
+import { bitPerfectAtom, exclusiveModeAtom } from "../../atoms/playback";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
 
@@ -194,4 +194,23 @@ it("explains a GStreamer without gapless support without naming a version", () =
   expect(
     screen.getByRole("button", { name: /Gapless playback/ }).textContent,
   ).toContain("Not available with this GStreamer installation");
+});
+
+it.each([
+  [false, "Bit-perfect on — takes effect next track"],
+  [true, "Bit-perfect off — takes effect next track"],
+])("says only when bit-perfect takes effect (on: %s)", async (on, toast) => {
+  mockInvoke({
+    get_gapless_supported: () => false,
+    list_audio_devices: () => [],
+    set_volume: () => undefined,
+    set_volume_normalization: () => undefined,
+    set_bit_perfect: () => undefined,
+  });
+  const store = createStore();
+  store.set(exclusiveModeAtom, true);
+  store.set(bitPerfectAtom, on);
+  renderTv(<TvSettings />, { store });
+  fireEvent.click(screen.getByRole("button", { name: /^Bit-perfect/ }));
+  expect(await screen.findByText(toast)).toBeTruthy();
 });
