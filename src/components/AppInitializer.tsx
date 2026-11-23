@@ -417,6 +417,8 @@ export function AppInitializer() {
   // ================================================================
   useEffect(() => {
     const handler = () => {
+      // Every TV screen says so in place, with its own Try again.
+      if (store.get(tvModeAtom)) return;
       const proxyEnabled = store.get(proxySettingsAtom).enabled;
       showToast(
         proxyEnabled

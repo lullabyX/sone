@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { safeErrorMessage } from "../../lib/errorUtils";
+import { tvErrorText } from "./tvErrorText";
 
 /** Load a screen's data once (and again on `retry`). `load` must be stable,
  *  i.e. wrapped in useCallback by the caller. */
@@ -18,7 +18,7 @@ export function useTvLoader<T>(load: () => Promise<T>, failure: string) {
       },
       (e) => {
         if (!cancelled)
-          setState({ data: null, error: safeErrorMessage(e, failure) });
+          setState({ data: null, error: tvErrorText(e, failure) });
       },
     );
     return () => {

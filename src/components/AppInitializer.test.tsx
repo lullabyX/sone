@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -44,7 +44,7 @@ import {
   preMuteVolumeAtom,
   volumeAtom,
 } from "../atoms/playback";
-import { tvVolumeLockedPingAtom } from "../atoms/tv";
+import { tvModeAtom, tvVolumeLockedPingAtom } from "../atoms/tv";
 
 afterEach(() => {
   cleanup();
@@ -135,5 +135,31 @@ describe("M mutes and unmutes", () => {
     expect(store.get(volumeAtom)).toBe(0.6);
     expect(store.get(tvVolumeLockedPingAtom)).toBe(1);
     expect(invoke).not.toHaveBeenCalledWith("set_volume", expect.anything());
+  });
+});
+
+describe("network error toast", () => {
+  const raise = async (tv: boolean) => {
+    const store = createStore();
+    store.set(tvModeAtom, tv);
+    render(
+      <Provider store={store}>
+        <ToastProvider>
+          <AppInitializer />
+        </ToastProvider>
+      </Provider>,
+    );
+    await act(async () => {});
+    act(() => void window.dispatchEvent(new Event("network-error")));
+  };
+
+  it("shows on the desktop", async () => {
+    await raise(false);
+    expect(screen.getByText(/check your internet connection/)).toBeTruthy();
+  });
+
+  it("stays away in TV mode, where each screen says so itself", async () => {
+    await raise(true);
+    expect(screen.queryByText(/Network error/)).toBeNull();
   });
 });

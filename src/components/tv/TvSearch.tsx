@@ -1,9 +1,8 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAtom, useStore } from "jotai";
 import { History, Search, Trash2, X } from "lucide-react";
 import { searchTidal } from "../../api/tidal";
 import { tvSearchQueryAtom } from "../../atoms/tv";
-import { safeErrorMessage } from "../../lib/errorUtils";
 import {
   addToSearchHistory,
   clearSearchHistory,
@@ -23,6 +22,7 @@ import {
   type TvEntry,
   type TvView,
 } from "./tvItems";
+import { tvErrorText } from "./tvErrorText";
 import { confirmMenu, tvMenuRef } from "./tvMenu";
 import { videoHasKeys } from "./useTvKeyRouter";
 
@@ -37,6 +37,12 @@ const KINDS: { what: SearchKind; title: string }[] = [
   { what: "videos", title: "Videos" },
 ];
 
+interface Outcome {
+  q: string;
+  results: SearchResults | null;
+  error: string | null;
+}
+
 export default function TvSearch() {
   const { active } = useContext(TvScreenContext);
   const store = useStore();
@@ -45,11 +51,7 @@ export default function TvSearch() {
   const [query, setQuery] = useAtom(tvSearchQueryAtom);
   const [history, setHistory] = useState(loadSearchHistory);
   // Latest finished search; kept on screen while the next one is pending.
-  const [outcome, setOutcome] = useState<{
-    q: string;
-    results: SearchResults | null;
-    error: string | null;
-  } | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const keysRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -57,8 +59,15 @@ export default function TvSearch() {
   // Results to move focus to once they arrive, unless focus moved on from
   // where it was when the search was submitted.
   const pendingFocus = useRef<{ q: string; from: Element | null } | null>(null);
-  // Bumped to ask again for a search that failed.
-  const [attempt, setAttempt] = useState(0);
+  // The failed outcome that Try again is asking again for.
+  const [retryOf, setRetryOf] = useState<Outcome | null>(null);
+  // One search at a time: each waits on the same client lock, and offline
+  // one can take the whole request timeout. `next` is the latest query asked
+  // for meanwhile, the only one asked once the running one is done.
+  const flight = useRef<{ running: boolean; next: string | null }>({
+    running: false,
+    next: null,
+  });
   // After a recent search is removed: the row to focus in its place.
   const refocusRecent = useRef<number | null>(null);
   const q = query.trim();
@@ -92,34 +101,47 @@ export default function TvSearch() {
     }
   }, [history]);
 
+  const ask = useCallback((text: string) => {
+    const f = flight.current;
+    f.next = text;
+    if (f.running) return;
+    const run = (asked: string) => {
+      f.running = true;
+      f.next = null;
+      const settle = (o: Outcome) => {
+        f.running = false;
+        setOutcome(o);
+        if (f.next !== null) run(f.next);
+      };
+      searchTidal(asked, SEARCH_LIMIT).then(
+        (results) => settle({ q: asked, results, error: null }),
+        (e) =>
+          settle({
+            q: asked,
+            results: null,
+            error: tvErrorText(e, "Search failed"),
+          }),
+      );
+    };
+    run(text);
+  }, []);
+
   useEffect(() => {
     if (!q) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      searchTidal(q, SEARCH_LIMIT).then(
-        (results) => {
-          if (!cancelled) setOutcome({ q, results, error: null });
-        },
-        (e) => {
-          if (!cancelled)
-            setOutcome({
-              q,
-              results: null,
-              error: safeErrorMessage(e, "Search failed"),
-            });
-        },
-      );
-    }, DEBOUNCE_MS);
+    const f = flight.current;
+    const timer = setTimeout(() => ask(q), DEBOUNCE_MS);
     return () => {
-      cancelled = true;
       clearTimeout(timer);
+      // Typed on (or left): a query still waiting its turn is out of date.
+      f.next = null;
     };
-  }, [q, attempt]);
+  }, [q, ask]);
 
   const shown = q ? outcome : null;
   const results = shown?.results ?? null;
   const error = shown?.error ?? null;
   const loading = !!q && outcome?.q !== q;
+  const retrying = !!outcome && retryOf === outcome;
 
   // Typing on a real keyboard goes to the search field from anywhere on the
   // screen, so the on-screen keys are only needed with a remote. Not from a
@@ -183,8 +205,10 @@ export default function TvSearch() {
   // Ask again for the search that failed; focus goes to its results once
   // they are in, unless it moved on meanwhile.
   const retry = () => {
+    if (loading || retrying) return;
     pendingFocus.current = { q, from: document.activeElement };
-    setAttempt((n) => n + 1);
+    setRetryOf(outcome);
+    ask(q);
   };
 
   // The Search key, or Enter in the box: record the query and go to the
@@ -192,8 +216,8 @@ export default function TvSearch() {
   const submit = () => {
     if (!q) return;
     record(q);
-    if (error && !loading) retry();
-    else if (loading)
+    if (error && !loading && !retrying) retry();
+    else if (loading || retrying)
       pendingFocus.current = { q, from: document.activeElement };
     else if (resultsRef.current) focusFirstIn(resultsRef.current);
   };
@@ -259,10 +283,10 @@ export default function TvSearch() {
       </div>
 
       <div ref={resultsRef} className="flex-1 min-w-0 pt-[2rem] pb-[2rem]">
-        {loading && !shown ? (
+        {loading && (!shown || error) ? (
           <TvSpinner />
         ) : error ? (
-          <TvError message={error} onRetry={retry} />
+          <TvError message={error} onRetry={retry} busy={retrying} />
         ) : empty ? (
           <p className="px-[3rem] pt-[1rem] text-[0.85rem] text-th-text-secondary">
             Nothing found for “{q}”.

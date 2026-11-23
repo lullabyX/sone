@@ -579,17 +579,37 @@ export function TvSpinner({ screen }: { screen?: boolean }) {
   );
 }
 
+/** `busy`: asking again. A spinner stands in for the message, and Try again
+ *  stays (inert) so the focus on it is not dropped. */
 export function TvError({
   message,
   onRetry,
+  busy,
 }: {
   message: string;
   onRetry: () => void;
+  busy?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-[1rem] py-[4rem] text-center px-[3rem]">
-      <p className="text-[0.9rem] text-th-text-secondary">{message}</p>
-      <TvButton label="Try again" onClick={onRetry} autoFocus />
+      {busy ? (
+        <div
+          role="status"
+          aria-label="Trying again"
+          className="h-[1.6rem] w-[1.6rem] animate-spin rounded-full border-[0.18rem] border-th-accent border-t-transparent"
+        />
+      ) : (
+        <p className="max-w-full wrap-anywhere text-[0.9rem] text-th-text-secondary">
+          {message}
+        </p>
+      )}
+      <div className={busy ? "opacity-50" : undefined}>
+        <TvButton
+          label="Try again"
+          onClick={busy ? () => {} : onRetry}
+          autoFocus
+        />
+      </div>
     </div>
   );
 }

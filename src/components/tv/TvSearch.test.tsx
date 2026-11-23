@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import type { SearchResults, TidalVideo } from "../../types";
 import TvSearch from "./TvSearch";
+import { OFFLINE_TEXT } from "./tvErrorText";
 import { menuForElement } from "./tvMenu";
 import {
   deferred,
@@ -340,4 +341,89 @@ it("the Search key asks again for a failed search", async () => {
   expect(await screen.findByText("T1")).toBeTruthy();
   expect(searchTidal).toHaveBeenCalledTimes(2);
   expect(stored()).toEqual(["abc"]);
+});
+const offline = {
+  kind: "Network",
+  message:
+    "error sending request for url (https://api.tidal.com/v2/search?query=abc)",
+};
+it("offline, says so in plain words and offers Try again", async () => {
+  vi.mocked(searchTidal).mockRejectedValueOnce(offline);
+  renderTv(<TvSearch />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "abc" } });
+  expect(await screen.findByRole("button", { name: "Try again" })).toBeTruthy();
+  expect(screen.getByText(OFFLINE_TEXT)).toBeTruthy();
+  expect(screen.queryByText(/error sending request/)).toBeNull();
+});
+it("asks one search at a time, then only the latest query", async () => {
+  vi.useFakeTimers();
+  const first = deferred<SearchResults>();
+  vi.mocked(searchTidal)
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValueOnce({ ...oneTrack(), tracks: [mkTrack(2)] });
+  renderTv(<TvSearch />);
+  const box = screen.getByRole("textbox");
+  const type = (value: string) => {
+    fireEvent.change(box, { target: { value } });
+    act(() => void vi.advanceTimersByTime(500));
+  };
+  type("ab");
+  type("abc");
+  type("abcd");
+  expect(searchTidal.mock.calls.map(([q]) => q)).toEqual(["ab"]);
+  await act(async () => first.resolve(oneTrack()));
+  await act(async () => {});
+  expect(searchTidal.mock.calls.map(([q]) => q)).toEqual(["ab", "abcd"]);
+  expect(screen.getByText("T2")).toBeTruthy();
+});
+it("a query typed away while another runs is never asked", async () => {
+  vi.useFakeTimers();
+  const first = deferred<SearchResults>();
+  vi.mocked(searchTidal).mockReturnValueOnce(first.promise);
+  renderTv(<TvSearch />);
+  const box = screen.getByRole("textbox");
+  fireEvent.change(box, { target: { value: "ab" } });
+  act(() => void vi.advanceTimersByTime(500));
+  fireEvent.change(box, { target: { value: "abc" } });
+  act(() => void vi.advanceTimersByTime(500));
+  fireEvent.change(box, { target: { value: "" } });
+  await act(async () => first.resolve(oneTrack()));
+  act(() => void vi.advanceTimersByTime(500));
+  expect(searchTidal).toHaveBeenCalledTimes(1);
+});
+it("Try again shows it is asking, and keeps focus until the answer moves it", async () => {
+  const restore = stubLayout();
+  try {
+    const second = deferred<SearchResults>();
+    const third = deferred<SearchResults>();
+    vi.mocked(searchTidal)
+      .mockRejectedValueOnce(offline)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+    renderTv(<TvSearch />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "abc" } });
+    const again = await screen.findByRole("button", { name: "Try again" });
+    again.focus();
+    fireEvent.click(again);
+    expect(screen.getByRole("status", { name: "Trying again" })).toBeTruthy();
+    expect(screen.queryByText(OFFLINE_TEXT)).toBeNull();
+    expect(document.activeElement).toBe(again);
+    // Pressed again while asking: no second request.
+    fireEvent.click(again);
+    expect(searchTidal).toHaveBeenCalledTimes(2);
+
+    await act(async () => second.reject(offline));
+    expect(screen.getByText(OFFLINE_TEXT)).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "Trying again" })).toBeNull();
+    expect(document.activeElement).toBe(again);
+
+    fireEvent.click(again);
+    expect(searchTidal).toHaveBeenCalledTimes(3);
+    await act(async () => third.resolve(oneTrack()));
+    expect(document.activeElement).toBe(
+      screen.getByText("T1").closest("button"),
+    );
+  } finally {
+    restore();
+  }
 });

@@ -3968,13 +3968,14 @@ impl TidalClient {
         query: &str,
         limit: u32,
     ) -> Result<TidalSearchResults, SoneError> {
-        // Try the v2 API first (web app uses this, returns playlists properly)
-        if let Ok(v2) = self.search_v2(query, limit).await {
-            return Ok(v2);
+        // Try the v2 API first (web app uses this, returns playlists properly).
+        // Unreachable is not retried on v1: it would only fail again after its
+        // own timeout, with every other request waiting on the client lock.
+        match self.search_v2(query, limit).await {
+            Ok(v2) => Ok(v2),
+            Err(e) if e.is_network() => Err(e),
+            Err(_) => self.search_v1(query, limit).await,
         }
-
-        // Fallback to v1 API
-        self.search_v1(query, limit).await
     }
 
     async fn search_v2(
@@ -7441,5 +7442,55 @@ mod view_all_tests {
         let full = serde_json::json!({"items": [{"type": "TRACK", "data": {}}]});
         assert!(!TidalClient::has_no_items(&full));
         assert!(!TidalClient::has_no_items(&serde_json::json!({"rows": []})));
+    }
+}
+
+#[cfg(test)]
+mod search_fallback_tests {
+    use super::*;
+    use crate::proxy::{plan, HostCaps};
+    use crate::proxy_http::ProxiedHttp;
+    use crate::{ProxySettings, ProxyType};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Offline, v1 would only fail the same way after a wait of its own, while
+    /// every other request queues behind the client lock.
+    #[tokio::test]
+    async fn a_network_failure_on_v2_is_not_asked_again_on_v1() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let dials = Arc::new(AtomicUsize::new(0));
+        let counted = dials.clone();
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = l.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
+                drop(sock);
+            }
+        });
+        let caps = HostCaps::assume_all_present();
+        let p = plan(
+            &ProxySettings {
+                enabled: true,
+                proxy_type: ProxyType::Http,
+                host: "127.0.0.1".into(),
+                port,
+                username: None,
+                password: None,
+            },
+            &caps,
+        )
+        .unwrap();
+        let mut tc = TidalClient::new(ProxiedHttp::from_plan(&p, &caps));
+        tc.tokens = Some(AuthTokens {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            expires_in: 3600,
+            token_type: "Bearer".into(),
+            user_id: None,
+        });
+
+        let e = tc.search("x", 5).await.unwrap_err();
+        assert!(e.is_network(), "{e}");
+        assert_eq!(dials.load(Ordering::SeqCst), 1);
     }
 }
