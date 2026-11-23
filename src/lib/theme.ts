@@ -306,11 +306,11 @@ export function themeToCssVars(dt: DerivedTheme): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 export const PRESET_THEMES: Theme[] = [
+  { name: "Midnight Cyan", accent: "#00FFFF", bgBase: "#020202" },
   { name: "Violet Night", accent: "#A855F7", bgBase: "#130F1A" },
   { name: "Cyberpunk", accent: "#FCE300", bgBase: "#18180C" },
   { name: "Forest", accent: "#22C55E", bgBase: "#0E1410" },
   { name: "Ocean", accent: "#3B82F6", bgBase: "#0E1118" },
-  { name: "Midnight Cyan", accent: "#00FFFF", bgBase: "#121212" },
   { name: "Sakura", accent: "#F9A8D4", bgBase: "#140F12" },
   { name: "Rose", accent: "#F43F5E", bgBase: "#140E0F" },
   { name: "Ember", accent: "#F97316", bgBase: "#151010" },
@@ -322,6 +322,13 @@ export const PRESET_THEMES: Theme[] = [
   { name: "Meadow", accent: "#16A34A", bgBase: "#F2F6EE" },
   { name: "Blossom", accent: "#E11D48", bgBase: "#FEF3F2" },
 ];
+
+export const DEFAULT_THEME: Theme = PRESET_THEMES[0];
+
+/** The default before Midnight Cyan, migrated once by `bootstrapThemeFile`. */
+export const LEGACY_DEFAULT_THEME: Theme = PRESET_THEMES.find(
+  (p) => p.name === "Violet Night",
+)!;
 
 export interface ThemeCustom {
   accent: string;

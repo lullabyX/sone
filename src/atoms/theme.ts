@@ -5,7 +5,7 @@ import {
 } from "jotai/utils";
 import {
   type Theme,
-  PRESET_THEMES,
+  DEFAULT_THEME,
   THEME_STORAGE_KEY,
   isTheme,
 } from "../lib/theme";
@@ -19,7 +19,7 @@ const themeStorage =
 
 export const themeAtom = atomWithStorage<Theme>(
   THEME_STORAGE_KEY,
-  PRESET_THEMES[0],
+  DEFAULT_THEME,
   themeStorage,
   { getOnInit: true },
 );

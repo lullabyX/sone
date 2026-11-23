@@ -19,7 +19,7 @@
   font-weight: 400;
 
   color: var(--th-text-primary, rgba(255, 255, 255, 0.87));
-  background-color: var(--th-bg-base, #121212);
+  background-color: var(--th-bg-base, #020202);
 
   font-synthesis: none;
   text-rendering: geometricPrecision;
@@ -38,7 +38,7 @@ body {
 
 body {
   min-width: 320px;
-  background-color: var(--th-bg-base, #121212);
+  background-color: var(--th-bg-base, #020202);
   user-select: none;
   -webkit-user-select: none;
 }

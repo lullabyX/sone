@@ -47,24 +47,24 @@ impl OverlayHandle {
 
 // ---------------------------------------------------------------------------
 // Default theme CSS — used before the frontend pushes the real theme.
-// Uses Violet Night values so the overlay looks reasonable out of the box.
+// Uses Midnight Cyan values so the overlay looks reasonable out of the box.
 // ---------------------------------------------------------------------------
 const DEFAULT_THEME_CSS: &str = "\
 :root {
-  --th-bg-base: #130F1A;
-  --th-bg-surface: #1A1525;
-  --th-bg-elevated: #231C30;
-  --th-bg-inset: #1E1829;
-  --th-accent: #A855F7;
-  --th-accent-hover: #B97AF7;
-  --th-on-accent: #ffffff;
-  --th-text-primary: #F5F0FF;
-  --th-text-secondary: rgba(245,240,255,0.72);
-  --th-text-muted: rgba(245,240,255,0.45);
-  --th-text-faint: rgba(245,240,255,0.28);
-  --th-border-subtle: rgba(245,240,255,0.08);
-  --th-slider-fill: #A855F7;
-  --th-slider-track: rgba(245,240,255,0.14);
+  --th-bg-base: #020202;
+  --th-bg-surface: #0C0C0C;
+  --th-bg-elevated: #080808;
+  --th-bg-inset: #141414;
+  --th-accent: #00FFFF;
+  --th-accent-hover: #00E0E0;
+  --th-on-accent: #000000;
+  --th-text-primary: #FFFFFF;
+  --th-text-secondary: rgba(255,255,255,0.72);
+  --th-text-muted: rgba(255,255,255,0.45);
+  --th-text-faint: rgba(255,255,255,0.28);
+  --th-border-subtle: rgba(255,255,255,0.08);
+  --th-slider-fill: #00FFFF;
+  --th-slider-track: rgba(255,255,255,0.14);
 }";
 
 const OVERLAY_HTML: &str = r#"<!DOCTYPE html>

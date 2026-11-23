@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAtom } from "jotai";
 import { themeAtom } from "../../atoms/theme";
-import { PRESET_THEMES, deriveTheme, type Theme } from "../../lib/theme";
+import { DEFAULT_THEME, PRESET_THEMES, deriveTheme, type Theme } from "../../lib/theme";
 import { Check, RotateCcw } from "lucide-react";
 import ColorPicker from "./ColorPicker";
 import ThemeMiniPreview from "./ThemeMiniPreview";
@@ -85,7 +85,7 @@ export default function ThemesTab() {
   };
 
   const handleReset = () => {
-    const defaultTheme = PRESET_THEMES[0];
+    const defaultTheme = DEFAULT_THEME;
     setLocalAccent(defaultTheme.accent);
     setLocalBg(defaultTheme.bgBase);
     setActivePreset(defaultTheme.name);

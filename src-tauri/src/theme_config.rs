@@ -24,11 +24,11 @@ pub const CUSTOM_PRESET: &str = "custom";
 /// Canonical preset names. Must stay in sync with `PRESET_THEMES`
 /// in `src/lib/theme.ts`(case-sensitive, order irrelevant).
 pub const PRESET_NAMES: &[&str] = &[
+    "Midnight Cyan",
     "Violet Night",
     "Cyberpunk",
     "Forest",
     "Ocean",
-    "Midnight Cyan",
     "Sakura",
     "Rose",
     "Ember",

@@ -97,6 +97,94 @@ describe("bootstrapThemeFile (pre-render, §4)", () => {
   });
 });
 
+describe("bootstrapThemeFile: one-time move off the old default", () => {
+  const VIOLET = { name: "Violet Night", accent: "#A855F7", bgBase: "#130F1A" };
+  const MIDNIGHT = {
+    name: "Midnight Cyan",
+    accent: "#00FFFF",
+    bgBase: "#020202",
+  };
+  const VIOLET_FILE = {
+    version: 1,
+    preset: "Violet Night",
+    custom: { accent: "#A855F7", background: "#130F1A" },
+  };
+  const MIDNIGHT_FILE = {
+    version: 1,
+    preset: "Midnight Cyan",
+    custom: { accent: "#00FFFF", background: "#020202" },
+  };
+
+  async function bootWith(stored: unknown, file: unknown) {
+    if (stored) localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    invokeMock.mockResolvedValueOnce(file).mockResolvedValue(undefined);
+    const mod = await freshThemeFile();
+    const { themeAtom } = await import("../atoms/theme");
+    const { getDefaultStore } = await import("jotai");
+    await mod.bootstrapThemeFile();
+    return getDefaultStore().get(themeAtom);
+  }
+
+  it("moves a Violet Night user to Midnight Cyan and rewrites the file", async () => {
+    const theme = await bootWith(VIOLET, VIOLET_FILE);
+    expect(theme).toEqual(MIDNIGHT);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(MIDNIGHT);
+    expect(invokeMock).toHaveBeenCalledWith("theme_file_set", {
+      file: MIDNIGHT_FILE,
+    });
+  });
+
+  it("creates a missing file with Midnight Cyan for a Violet Night user", async () => {
+    const theme = await bootWith(VIOLET, null);
+    expect(theme).toEqual(MIDNIGHT);
+    expect(invokeMock).toHaveBeenCalledWith("theme_file_set", {
+      file: MIDNIGHT_FILE,
+    });
+  });
+
+  it("runs only once: Violet Night picked afterwards is kept", async () => {
+    await bootWith(VIOLET, VIOLET_FILE);
+    invokeMock.mockReset();
+    const theme = await bootWith(VIOLET, VIOLET_FILE);
+    expect(theme).toEqual(VIOLET);
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "theme_file_set",
+      expect.anything(),
+    );
+  });
+
+  it("leaves other presets alone", async () => {
+    const theme = await bootWith(OCEAN, {
+      version: 1,
+      preset: "Ocean",
+      custom: { accent: "#3B82F6", background: "#0E1118" },
+    });
+    expect(theme).toEqual(OCEAN);
+  });
+
+  it("leaves a custom theme with Violet Night's colors alone", async () => {
+    const violetCustom = { ...VIOLET, name: "Custom" };
+    const theme = await bootWith(violetCustom, {
+      version: 1,
+      preset: "custom",
+      custom: { accent: "#A855F7", background: "#130F1A" },
+    });
+    expect(theme).toEqual(violetCustom);
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "theme_file_set",
+      expect.anything(),
+    );
+  });
+
+  it("fresh install starts on Midnight Cyan", async () => {
+    const theme = await bootWith(null, null);
+    expect(theme).toEqual(MIDNIGHT);
+    expect(invokeMock).toHaveBeenCalledWith("theme_file_set", {
+      file: MIDNIGHT_FILE,
+    });
+  });
+});
+
 describe("syncThemeToFile (write-through, §5)", () => {
   it("persists a theme change", async () => {
     invokeMock.mockResolvedValueOnce(undefined);

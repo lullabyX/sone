@@ -16,7 +16,7 @@ export function useMiniplayerBridge() {
     volume: 1,
     playbackSourceLabel: null,
     bitPerfect: false,
-    accentColor: "#A855F7",
+    accentColor: "#00FFFF",
   });
 
   // Local position interpolation
