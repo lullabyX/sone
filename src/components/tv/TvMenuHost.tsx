@@ -29,6 +29,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Share,
   Users,
   X,
 } from "lucide-react";
@@ -66,7 +67,13 @@ import {
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import type { Folder, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
-import { getTrackArtistDisplay, trackCoverId } from "../../utils/itemHelpers";
+import {
+  getShareUrl,
+  getTrackArtistDisplay,
+  getTrackShareUrl,
+  getVideoShareUrl,
+  trackCoverId,
+} from "../../utils/itemHelpers";
 import { fetchAllFolders, recordFolderCreated } from "./tvFolders";
 import { actionForMedia, type TvView } from "./tvItems";
 import {
@@ -77,6 +84,7 @@ import {
   type TvMenuSpec,
   type TvMenuTone,
   type TvMenuVerdict,
+  shareMenu,
 } from "./tvMenu";
 import { menuLabel as label, useTvPlaylistAdd } from "./tvPlaylistAdd";
 import { playlistSettled, queuePlaylistEdit } from "./tvPlaylistEdits";
@@ -665,6 +673,15 @@ const TvMenuHost = forwardRef<
           });
         }
       }
+      items.push({
+        label: "Share",
+        icon: Share,
+        submenu: () =>
+          shareMenu(
+            isVideo ? getVideoShareUrl(track.id) : getTrackShareUrl(track.id),
+            track.title,
+          ),
+      });
       return {
         title: track.title,
         subtitle: getTrackArtistDisplay(track),
@@ -836,6 +853,11 @@ const TvMenuHost = forwardRef<
             showToast("Couldn't update your collection", "error");
           }
         },
+      });
+      items.push({
+        label: "Share",
+        icon: Share,
+        submenu: () => shareMenu(getShareUrl(item), name),
       });
       // The user's own playlists can be edited and deleted (same ownership
       // rule as the desktop: they are its creator), as listed in their

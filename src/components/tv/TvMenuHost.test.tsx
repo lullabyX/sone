@@ -388,6 +388,25 @@ it("a failed video like is undone and reported", async () => {
   ).toBeTruthy();
   error.mockRestore();
 });
+it("shares tracks, videos and collections as a QR code of their link", async () => {
+  const { ref } = renderMenuHost();
+  const share = (spec: TvMenuSpec) =>
+    spec.items.find((i) => i.label === "Share")!.submenu!();
+  const host = ref.current!;
+  expect((await share(host.trackMenu(mkTrack(7)))).qr).toBe(
+    "https://tidal.com/track/7/u",
+  );
+  expect(
+    (await share(host.trackMenu(mkTrack(8, { itemType: "video" })))).qr,
+  ).toBe("https://tidal.com/video/8");
+  expect(
+    (await share(host.mediaMenu({ type: "album", id: 5, title: "A" }))).qr,
+  ).toBe("https://tidal.com/album/5");
+  expect(
+    (await share(host.mediaMenu({ type: "playlist", uuid: "p1", title: "P" })))
+      .qr,
+  ).toBe("https://tidal.com/playlist/p1");
+});
 it("shows a QR code for a link panel", () => {
   const { ref } = renderMenuHost();
   act(() => ref.current!.open(linkMenu("https://x.io/a", "Read")));

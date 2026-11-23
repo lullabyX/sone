@@ -90,6 +90,16 @@ export function linkMenu(url: string, title: string): TvMenuSpec {
   };
 }
 
+/** Sharing on a TV: the item's link as a QR code to open on a phone. */
+export function shareMenu(url: string, name: string): TvMenuSpec {
+  return {
+    title: name || "Share",
+    subtitle: "Scan with your phone to share it",
+    qr: url,
+    items: [{ label: url, multiline: true }],
+  };
+}
+
 export interface TvMenuArtist {
   id: number;
   name: string;
