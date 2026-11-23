@@ -113,6 +113,41 @@ describe("TvNowPlaying progress", () => {
   });
 });
 
+describe("TvNowPlaying video progress", () => {
+  it("seeks a video listed without a length, by the length of its element", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const el = document.createElement("video");
+    Object.defineProperty(el, "duration", { value: 200 });
+    Object.defineProperty(el, "currentTime", { value: 30, writable: true });
+    dialog.appendChild(el);
+    document.body.appendChild(dialog);
+    try {
+      const store = playing(mkTrack(9, { itemType: "video", duration: 0 }));
+      store.set(currentVideoAtom, { id: 9, title: "V" } as TidalVideo);
+      renderTv(<TvNowPlaying />, { store });
+      act(() => vi.advanceTimersByTime(500));
+      const seek = screen.getByRole("slider", { name: "Seek" });
+      expect(seek.getAttribute("aria-valuemax")).toBe("200");
+      fireEvent.keyDown(seek, { key: "ArrowRight" });
+      act(() => vi.advanceTimersByTime(400));
+      expect(el.currentTime).toBe(40);
+    } finally {
+      dialog.remove();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("TvNowPlaying volume", () => {
   it("lets the remote change video volume while bit-perfect is on", () => {
     const store = playing(mkTrack(9, { itemType: "video" }));

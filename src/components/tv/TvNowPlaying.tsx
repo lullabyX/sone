@@ -196,8 +196,23 @@ const SEEK_SETTLE_MS = 350;
  *  position catches up, so the bar does not snap back and forth. */
 const SEEK_HOLD_MS = 700;
 
+/** The playing video's length from its element, 0 until it is known. */
+function useVideoDuration(video: boolean, active: boolean): number {
+  const read = useCallback(() => {
+    const d = video ? videoElement()?.duration : undefined;
+    return d && Number.isFinite(d) ? d : 0;
+  }, [video]);
+  const [length, setLength] = useState(read);
+  useEffect(() => {
+    if (!video || !active) return;
+    const id = setInterval(() => setLength(read()), POSITION_POLL_MS);
+    return () => clearInterval(id);
+  }, [read, video, active]);
+  return length;
+}
+
 function Progress({
-  duration,
+  duration: listed,
   video,
 }: {
   duration: number;
@@ -205,6 +220,10 @@ function Progress({
   video: boolean;
 }) {
   const { active } = useContext(TvScreenContext);
+  // A video's own length wins: some arrive without one listed, which left
+  // the bar at the start and seeking ignored.
+  const own = useVideoDuration(video, active);
+  const duration = video && own > 0 ? own : listed;
   const live = Math.min(usePosition(video, active), duration || Infinity);
   const audioPlaying = useAtomValue(isPlayingAtom);
   const videoPlaying = useAtomValue(videoPlayingAtom);
