@@ -23,6 +23,7 @@ import {
 } from "../../atoms/video";
 import { useHideMiniplayer } from "../../hooks/useMiniplayerWindow";
 import { useTvGamepad } from "./useTvGamepad";
+import { windowIsFullscreen } from "../../lib/windowFullscreen";
 import "./tv.css";
 
 const TV_CURSOR_HIDE_MS = 2500;
@@ -132,11 +133,10 @@ export default function TvShell({ children }: { children: ReactNode }) {
 
   // Fullscreen on entry. On exit the window goes back to how the user had
   // it, unless that fullscreen belonged to the maximized player or a video,
-  // which entering TV mode closes. On Linux isFullscreen() is the last
-  // fullscreen request, not the window's state: after a reload it would be
-  // TV mode's own, so the first answer is kept for the TV session. For the
-  // same reason anything that drops fullscreen (the WM shortcut, a video
-  // leaving its own) is undone without asking first.
+  // which entering TV mode closes. After a reload the window is in TV mode's
+  // own fullscreen, so the first answer is kept for the TV session. Anything
+  // that drops fullscreen (the WM shortcut, a video leaving its own) is
+  // undone without asking first.
   useEffect(() => {
     const win = getCurrentWindow();
     const blocked =
@@ -146,7 +146,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
     const keep = inOrder(async () => {
       const saved = readKeep();
       if (saved !== null) return saved;
-      const was = await win.isFullscreen().catch(() => false);
+      const was = await windowIsFullscreen();
       writeKeep(was && !blocked);
       return was && !blocked;
     });

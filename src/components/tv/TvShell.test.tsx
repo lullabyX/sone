@@ -20,6 +20,9 @@ import type { TidalVideo } from "../../types";
 import TvShell from "./TvShell";
 import { mockInvoke, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
 
+// What the window manager says (`is_window_fullscreen`), apart from the
+// window API's isFullscreen(), which on Linux is only the last request.
+const wmFullscreen = vi.hoisted(() => vi.fn(() => Promise.resolve(false)));
 const win = vi.hoisted(() => ({
   isFullscreen: vi.fn(() => Promise.resolve(false)),
   setFullscreen: vi.fn((_on: boolean) => Promise.resolve()),
@@ -39,14 +42,16 @@ const flush = () =>
 beforeEach(async () => {
   // The last case's exit lands before this one starts counting calls.
   await flush();
-  win.isFullscreen.mockClear();
+  wmFullscreen.mockClear();
   win.setFullscreen.mockClear();
   store = createStore();
+  wmFullscreen.mockImplementation(() => Promise.resolve(false));
   win.isFullscreen.mockImplementation(() => Promise.resolve(false));
   win.setFullscreen.mockImplementation(() => Promise.resolve());
   mockInvoke({
     inhibit_idle: () => undefined,
     uninhibit_idle: () => undefined,
+    is_window_fullscreen: () => wmFullscreen(),
   });
 });
 const fullscreenCalls = () => win.setFullscreen.mock.calls.map((c) => c[0]);
@@ -79,7 +84,7 @@ it("goes fullscreen and restores a windowed window on exit", async () => {
 });
 
 it("leaves a window that was fullscreen before fullscreen on exit", async () => {
-  win.isFullscreen.mockResolvedValue(true);
+  wmFullscreen.mockResolvedValue(true);
   const r = shell();
   await flush();
   r.unmount();
@@ -87,8 +92,17 @@ it("leaves a window that was fullscreen before fullscreen on exit", async () => 
   expect(win.setFullscreen).not.toHaveBeenCalledWith(false);
 });
 
-// On Linux isFullscreen() answers with the last request, so after a reload
-// inside TV mode it says "fullscreen" because TV mode asked for it.
+// After a reload inside TV mode the window is in TV mode's own fullscreen.
+it("goes by the window manager, not an earlier fullscreen request", async () => {
+  // A player asked for fullscreen, then the window left it without a request.
+  win.isFullscreen.mockResolvedValue(true);
+  const r = shell();
+  await flush();
+  r.unmount();
+  await flush();
+  expect(win.setFullscreen).toHaveBeenLastCalledWith(false);
+});
+
 it("a reload inside TV mode still restores a windowed window on exit", async () => {
   const before = shell();
   await flush();
@@ -98,13 +112,13 @@ it("a reload inside TV mode still restores a windowed window on exit", async () 
   before.unmount();
   await flush();
   for (const [k, v] of saved) sessionStorage.setItem(k, v);
-  win.isFullscreen.mockResolvedValue(true);
-  win.isFullscreen.mockClear();
+  wmFullscreen.mockResolvedValue(true);
+  wmFullscreen.mockClear();
   win.setFullscreen.mockClear();
 
   const after = shell();
   await flush();
-  expect(win.isFullscreen).not.toHaveBeenCalled();
+  expect(wmFullscreen).not.toHaveBeenCalled();
   after.unmount();
   await flush();
   expect(fullscreenCalls()).toEqual([true, false]);
@@ -116,7 +130,7 @@ it("decides again in the next TV session", async () => {
   await flush();
   first.unmount();
   await flush();
-  win.isFullscreen.mockResolvedValue(true);
+  wmFullscreen.mockResolvedValue(true);
   win.setFullscreen.mockClear();
   const second = shell();
   await flush();
@@ -127,7 +141,7 @@ it("decides again in the next TV session", async () => {
 
 it("restores correctly when it exits before entry finished", async () => {
   let res!: (v: boolean) => void;
-  win.isFullscreen.mockReturnValue(new Promise<boolean>((r) => (res = r)));
+  wmFullscreen.mockReturnValue(new Promise<boolean>((r) => (res = r)));
   const r = shell();
   r.unmount();
   await act(async () => res(false));
@@ -150,7 +164,7 @@ it("swapping the TV surface (login <-> app) never touches fullscreen", async () 
 it("does not restore fullscreen that belonged to the maximized player or a video", async () => {
   store.set(maximizedPlayerAtom, true);
   store.set(videoFullscreenAtom, true);
-  win.isFullscreen.mockResolvedValue(true);
+  wmFullscreen.mockResolvedValue(true);
   const r = shell();
   await flush();
   expect(store.get(maximizedPlayerAtom)).toBe(false);

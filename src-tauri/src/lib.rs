@@ -19,6 +19,8 @@ mod pipeline_probe;
 mod theme_config;
 #[cfg(target_os = "linux")]
 mod tray;
+#[cfg(target_os = "linux")]
+mod window_state;
 mod tidal_api;
 mod tidal_report;
 pub mod mcp;
@@ -915,6 +917,9 @@ pub fn run() {
                     window.set_decorations(true).ok();
                 }
 
+                #[cfg(target_os = "linux")]
+                window_state::watch(&window);
+
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -1156,6 +1161,8 @@ pub fn run() {
             commands::utility::get_decorations,
             commands::utility::get_launch_tv_mode,
             commands::utility::set_decorations,
+            #[cfg(target_os = "linux")]
+            window_state::is_window_fullscreen,
             commands::utility::get_volume_normalization,
             commands::utility::set_volume_normalization,
             commands::utility::update_tray_tooltip,

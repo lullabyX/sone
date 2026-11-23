@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useWindowFullscreen } from "../hooks/useWindowFullscreen";
 
 type ResizeDir =
   | "North"
@@ -71,16 +72,18 @@ function buildZones(top: number, bottom: number, left: number, right: number) {
 // Maximized / fullscreen windows can't be edge-resized, and these strips sit on
 // top of the content scrollbars — so don't render them at all in those states.
 function useWindowFills() {
-  const [fills, setFills] = useState(false);
+  const [maximized, setMaximized] = useState(false);
+  const fullscreen = useWindowFullscreen();
 
   useEffect(() => {
     const win = getCurrentWindow();
     let cancelled = false;
 
     const sync = () => {
-      Promise.all([win.isMaximized(), win.isFullscreen()])
-        .then(([maximized, fullscreen]) => {
-          if (!cancelled) setFills(maximized || fullscreen);
+      win
+        .isMaximized()
+        .then((m) => {
+          if (!cancelled) setMaximized(m);
         })
         .catch(() => {});
     };
@@ -94,7 +97,7 @@ function useWindowFills() {
     };
   }, []);
 
-  return fills;
+  return maximized || fullscreen;
 }
 
 export default function ResizeEdges({
