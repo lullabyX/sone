@@ -19,7 +19,6 @@ import {
   Search,
   Settings,
 } from "lucide-react";
-import ProxyNoticeBanner from "../ProxyNoticeBanner";
 import SettingsSheet from "../settings/SettingsSheet";
 import { tvModeAtom } from "../../atoms/tv";
 import { feedUnseenCountAtom } from "../../atoms/ui";
@@ -50,6 +49,7 @@ import TvProfileScreen from "./TvProfileScreen";
 import TvListScreen from "./TvListScreen";
 import TvSearchResultsScreen from "./TvSearchResultsScreen";
 import TvNativeLayer from "./TvNativeLayer";
+import TvProxyNotice from "./TvProxyNotice";
 import TvPrompt, { type TvPromptRequest } from "./TvPrompt";
 import TvMenuHost, { type TvMenuHostHandle } from "./TvMenuHost";
 import TvVolumeHud from "./TvVolumeHud";
@@ -824,7 +824,15 @@ export default function TvApp() {
           overlayShowing ? "hidden" : ""
         }`}
       >
-        <ProxyNoticeBanner offerSettings />
+        <TvProxyNotice
+          offerSettings
+          onGone={() => {
+            const screen = rootRef.current?.querySelector<HTMLElement>(
+              ".tv-screen:not(.hidden)",
+            );
+            if (screen) focusRememberedIn(screen);
+          }}
+        />
         <div className="relative flex-1 min-h-0">
           <nav
             ref={railRef}

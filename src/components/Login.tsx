@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { useAuth } from "../hooks/useAuth";
 import { isAuthenticatedAtom, authTokensAtom } from "../atoms/auth";
+import { tvModeAtom, tvSignInReturnAtom } from "../atoms/tv";
 import {
   getSavedCredentials,
   getDefaultCredentials,
@@ -82,6 +83,11 @@ export default function Login() {
   } = useAuth();
   const [, setAuthTokens] = useAtom(authTokensAtom);
   const [, setIsAuthenticated] = useAtom(isAuthenticatedAtom);
+  const setTvMode = useSetAtom(tvModeAtom);
+  const [fromTv, setFromTv] = useAtom(tvSignInReturnAtom);
+
+  // Signed in here, or gone back: the way back is no longer needed.
+  useEffect(() => () => setFromTv(false), [setFromTv]);
 
   const [view, setView] = useState<View>("simple");
   const [simpleTab, setSimpleTab] = useState<SimpleTab>("pkce");
@@ -574,7 +580,20 @@ export default function Login() {
   }
 
   return (
-    <div className="flex items-center justify-center h-full w-full bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+    <div className="relative flex items-center justify-center h-full w-full bg-gradient-to-br from-th-overlay via-th-base to-th-overlay">
+      {fromTv && (
+        <button
+          autoFocus
+          onClick={() => {
+            setFromTv(false);
+            setTvMode(true);
+          }}
+          className="absolute top-4 left-4 inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-medium text-th-text-muted bg-th-surface/60 border border-th-border-subtle hover:text-th-text-primary hover:bg-th-surface-hover transition-colors focus-visible:outline-2 focus-visible:outline-th-accent"
+        >
+          <ArrowLeft size={14} />
+          Back to TV sign-in
+        </button>
+      )}
       <div className="text-center p-10 bg-th-surface/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-th-border-subtle max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-center gap-0">

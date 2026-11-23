@@ -31,6 +31,10 @@ export const tvModeAtom = atom(
  *  any). Remembered, so it stays on from track to track. */
 export const tvLyricsAtom = atomWithStorage("sone.tvLyrics.v1", false);
 
+/** Set when the TV sign-in's "Other sign-in options" left TV mode, so the
+ *  desktop sign-in offers the way back. In memory only: gone on restart. */
+export const tvSignInReturnAtom = atom(false);
+
 /** Screen margin (overscan), in percent of the screen on each side, for TVs
  *  that cut off the edges of the picture. */
 export type TvOverscan = 0 | 2.5 | 5;

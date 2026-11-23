@@ -6,10 +6,6 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
 }));
 vi.mock("../../lib/refreshApp", () => ({ refreshApp: vi.fn(async () => {}) }));
-vi.mock("../ProxyNoticeBanner", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../ProxyNoticeBanner")>()),
-  default: () => null,
-}));
 
 // Every screen is a probe: its name, whether it is the active one, and
 // buttons that drive the TV navigation from inside it.
@@ -78,6 +74,8 @@ import { refreshApp } from "../../lib/refreshApp";
 import { allPlaylistsAtom } from "../../atoms/playlists";
 import { currentVideoAtom, videoExpandedAtom } from "../../atoms/video";
 import { DISMISS_PRIORITY, registerDismissable } from "../../lib/dismissStack";
+import { useShortcuts } from "../../hooks/useShortcuts";
+import { DEFAULT_BINDINGS, shortcutsAtom } from "../../lib/shortcuts";
 import type { Playlist } from "../../types";
 import TvApp from "./TvApp";
 import { TvScreenContext, useTvNav, type TvNav } from "./TvNavContext";
@@ -128,6 +126,18 @@ const activeScreen = () =>
 const press = (label: string) =>
   fireEvent.click(screen.getByRole("button", { name: label }));
 const back = () => act(() => fireEvent.keyDown(window, { key: "Escape" }));
+const boxes = (layout: Record<string, string>) => {
+  for (const [name, box] of Object.entries(layout)) {
+    screen.getByRole("button", { name }).setAttribute("data-box", box);
+  }
+};
+
+/** The desktop shortcuts, mounted beside TV mode as in the app. */
+function Shortcuts({ on }: { on: Parameters<typeof useShortcuts>[0] }) {
+  useShortcuts(on);
+  return null;
+}
+const bare = (code: string) => ({ code, mod: false, shift: false, alt: false });
 
 describe("opening a page that is already open", () => {
   it("Playing from goes back to the open playlist; Back then reopens Now Playing", () => {
@@ -454,6 +464,109 @@ describe("the layers and the rail", () => {
     fullScreenVideo(store);
     act(() => window.dispatchEvent(new Event("focus-search")));
     expect(screen.queryByTestId("search")).toBeNull();
+  });
+
+  it("Ctrl+K pressed under a menu or a full-screen video does not open Search", () => {
+    const store = signedIn(42);
+    const focusSearch = vi.fn(() =>
+      window.dispatchEvent(new CustomEvent("focus-search")),
+    );
+    renderTv(<Shortcuts on={{ focusSearch }} />, { store });
+    renderTv(<TvApp />, { store });
+    const ctrlK = (target: EventTarget) => {
+      pressKey(target, { key: "Control", code: "ControlLeft", ctrlKey: true });
+      pressKey(target, { key: "k", code: "KeyK", ctrlKey: true });
+    };
+    act(() => seen.nav!.openMenu(menu));
+    ctrlK(document.activeElement!);
+    expect(focusSearch).toHaveBeenCalledTimes(1);
+    expect(activeScreen()).toBe("home");
+    expect(screen.getByRole("menu")).toBeTruthy();
+    pressKey(document.activeElement!, { key: "Escape" });
+    fullScreenVideo(store);
+    ctrlK(document.body);
+    expect(focusSearch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("search")).toBeNull();
+    expect(activeScreen()).toBe("home");
+  });
+
+  it("desktop shortcuts bound to bare keys stay off the remote's arrows and Enter", () => {
+    const store = signedIn(42);
+    store.set(shortcutsAtom, {
+      ...DEFAULT_BINDINGS,
+      volumeDown: bare("ArrowDown"),
+      nextTrack: bare("Enter"),
+    });
+    const on = { volumeDown: vi.fn(), nextTrack: vi.fn() };
+    renderTv(<Shortcuts on={on} />, { store });
+    renderTv(<TvApp />, { store });
+    boxes({
+      "home: open P": "100,100,100,50",
+      "home: open album": "100,200,100,50",
+      "home: now playing": "100,300,100,50",
+    });
+    const openP = screen.getByRole("button", { name: "home: open P" });
+    const openAlbum = screen.getByRole("button", { name: "home: open album" });
+    act(() => openP.focus());
+    pressKey(openP, { key: "ArrowDown", code: "ArrowDown" });
+    expect(document.activeElement).toBe(openAlbum);
+    // Enter on an item without a menu is the browser's own click, which
+    // jsdom leaves out: it happens only if nothing prevented the keydown.
+    const enter = pressKey(openAlbum, { key: "Enter", code: "Enter" });
+    expect(enter.defaultPrevented).toBe(false);
+    fireEvent.click(openAlbum);
+    pressKey(openAlbum, { key: "Enter", code: "Enter" }, "keyup");
+    expect(activeScreen()).toBe("album:9");
+    act(() => (document.activeElement as HTMLElement).blur());
+    pressKey(document.body, { key: "ArrowDown", code: "ArrowDown" });
+    expect(on.volumeDown).not.toHaveBeenCalled();
+    expect(on.nextTrack).not.toHaveBeenCalled();
+  });
+
+  it("Up from Home's top row reaches the proxy notice; Down comes back", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === "get_proxy_status"
+        ? { state: "blocked", reason: "r" }
+        : undefined,
+    );
+    renderTv(<TvApp />, { store: signedIn(42) });
+    await screen.findByRole("button", { name: "Turn off proxy" });
+    boxes({
+      "home: open P": "100,200,100,50",
+      "home: open album": "250,200,100,50",
+      "home: now playing": "400,200,100,50",
+      "Network settings": "1000,20,150,50",
+      "Turn off proxy": "1170,20,150,50",
+      Dismiss: "1340,20,50,50",
+    });
+    const openAlbum = screen.getByRole("button", { name: "home: open album" });
+    act(() => openAlbum.focus());
+    pressKey(openAlbum, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Network settings" }),
+    );
+    pressKey(document.activeElement!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Turn off proxy" }),
+    );
+    pressKey(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(openAlbum);
+  });
+
+  it("dismissing the proxy notice puts focus back on the screen", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === "get_proxy_status"
+        ? { state: "blocked", reason: "r" }
+        : undefined,
+    );
+    renderTv(<TvApp />, { store: signedIn(42) });
+    const dismiss = await screen.findByRole("button", { name: "Dismiss" });
+    const openAlbum = screen.getByRole("button", { name: "home: open album" });
+    act(() => openAlbum.focus());
+    act(() => dismiss.focus());
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(openAlbum);
   });
 
   it("the rail's Now Playing moves focus into the open layer", () => {

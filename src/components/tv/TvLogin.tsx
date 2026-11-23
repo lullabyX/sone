@@ -8,19 +8,17 @@ import {
   startPkceLoginWindow,
 } from "../../api/tidal";
 import { authTokensAtom, isAuthenticatedAtom } from "../../atoms/auth";
-import { tvModeAtom } from "../../atoms/tv";
+import { tvModeAtom, tvSignInReturnAtom } from "../../atoms/tv";
 import type { AuthTokens } from "../../types";
 import { useAuth } from "../../hooks/useAuth";
 import { formatSoneError, isNetworkError } from "../../lib/errorUtils";
 import { focusFirstIn } from "../../lib/spatialNav";
-import ProxyNoticeBanner from "../ProxyNoticeBanner";
 import { TvButton } from "./TvParts";
+import TvProxyNotice from "./TvProxyNotice";
 import { TvQrCode } from "./TvQrCode";
 import { useTvLocalNav } from "./useTvLocalNav";
+import { OFFLINE_TEXT } from "./tvErrorText";
 import "./tv.css";
-
-const OFFLINE_TEXT =
-  "Can't reach TIDAL. Check the network connection, then try again.";
 
 type State =
   | { step: "starting" }
@@ -53,6 +51,7 @@ const withScheme = (uri: string) =>
 export default function TvLogin() {
   const { startDeviceAuth, pollDeviceAuth, getUserPlaylists } = useAuth();
   const setTvMode = useSetAtom(tvModeAtom);
+  const setSignInReturn = useSetAtom(tvSignInReturnAtom);
   const setAuthTokens = useSetAtom(authTokensAtom);
   const setIsAuthenticated = useSetAtom(isAuthenticatedAtom);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -62,6 +61,8 @@ export default function TvLogin() {
   const [tvError, setTvError] = useState<string | null>(null);
   const [state, setState] = useState<State>({ step: "starting" });
   const [attempt, setAttempt] = useState(0);
+  // "Try again" keeps the error up until a code (or a new error) arrives.
+  const [retrying, setRetrying] = useState(false);
   const phone = pkce === false || usePhone;
 
   useEffect(() => {
@@ -117,11 +118,13 @@ export default function TvLogin() {
         const creds = await getDefaultCredentials();
         if (cancelled) return;
         if (!creds.clientId) {
+          setRetrying(false);
           setState({ step: "no-credentials" });
           return;
         }
         const resp = await startDeviceAuth(creds.clientId, creds.clientSecret);
         if (cancelled) return;
+        setRetrying(false);
         const uri = withScheme(resp.verificationUri);
         setState({
           step: "code",
@@ -166,7 +169,9 @@ export default function TvLogin() {
         };
         timer = window.setTimeout(poll, interval);
       } catch (e) {
-        if (!cancelled) setState({ step: "error", message: phoneErrorText(e) });
+        if (cancelled) return;
+        setRetrying(false);
+        setState({ step: "error", message: phoneErrorText(e) });
       }
     })();
     return () => {
@@ -175,20 +180,31 @@ export default function TvLogin() {
     };
   }, [phone, attempt, startDeviceAuth, pollDeviceAuth, getUserPlaylists]);
 
-  const retry = useCallback(() => {
-    setState({ step: "starting" });
+  const retry = () => {
+    if (retrying) return;
+    if (state.step === "error") setRetrying(true);
+    else setState({ step: "starting" });
     setAttempt((a) => a + 1);
-  }, []);
+  };
 
   // A fresh code each time the phone way is chosen, never the last one.
   const choosePhone = () => {
+    setRetrying(false);
     setState({ step: "starting" });
     setUsePhone(true);
   };
   const back = () => {
+    setRetrying(false);
     setState({ step: "starting" });
     setUsePhone(false);
   };
+  const otherOptions = () => {
+    setSignInReturn(true);
+    setTvMode(false);
+  };
+  const refocus = useCallback(() => {
+    if (rootRef.current) focusFirstIn(rootRef.current);
+  }, []);
 
   useTvLocalNav(rootRef, `${state.step}:${phone}:${pkce}`);
 
@@ -198,7 +214,7 @@ export default function TvLogin() {
         ref={rootRef}
         className="tv-root h-full w-full flex flex-col bg-th-base text-th-text-primary"
       >
-        <ProxyNoticeBanner />
+        <TvProxyNotice onGone={refocus} />
         <div className="flex-1 min-h-0 flex items-center justify-center px-[5rem]">
           <div className="max-w-[40rem]">
             <h1 className="text-[2.4rem] font-extrabold leading-tight">
@@ -242,7 +258,7 @@ export default function TvLogin() {
                     icon={<LogOut className="w-[1rem] h-[1rem]" />}
                     label="Other sign-in options"
                     title="Leave TV mode for the desktop sign-in"
-                    onClick={() => setTvMode(false)}
+                    onClick={otherOptions}
                   />
                 </div>
               </>
@@ -263,7 +279,7 @@ export default function TvLogin() {
       ref={rootRef}
       className="tv-root h-full w-full flex flex-col bg-th-base text-th-text-primary"
     >
-      <ProxyNoticeBanner />
+      <TvProxyNotice onGone={refocus} />
       <div className="flex-1 min-h-0 flex items-center justify-center gap-[5rem] px-[5rem]">
         <div className="max-w-[34rem]">
           <h1 className="text-[2.4rem] font-extrabold leading-tight">
@@ -322,7 +338,13 @@ export default function TvLogin() {
                 primary={state.step === "error"}
                 autoFocus
                 icon={<RefreshCw className="w-[1rem] h-[1rem]" />}
-                label={state.step === "error" ? "Try again" : "New code"}
+                label={
+                  state.step !== "error"
+                    ? "New code"
+                    : retrying
+                      ? "Trying again…"
+                      : "Try again"
+                }
                 onClick={retry}
               />
             )}
@@ -340,7 +362,7 @@ export default function TvLogin() {
               icon={<LogOut className="w-[1rem] h-[1rem]" />}
               label="Other sign-in options"
               title="Leave TV mode for the desktop sign-in"
-              onClick={() => setTvMode(false)}
+              onClick={otherOptions}
             />
           </div>
         </div>

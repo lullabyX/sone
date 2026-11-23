@@ -554,6 +554,8 @@ fn pkce_load_failure_is_offline(failing_uri: &str, benign: bool) -> bool {
     }
 }
 
+/// Back keys, and (top frame only, as the app's own poller does not run in
+/// this window) a gamepad's B / Circle, which WebKitGTK reports as button 1.
 fn pkce_tv_cancel_script() -> String {
     format!(
         r#"window.addEventListener("keydown", function (e) {{
@@ -561,7 +563,53 @@ fn pkce_tv_cancel_script() -> String {
     e.preventDefault();
     location.href = "{PKCE_TV_CANCEL_URL}";
   }}
-}}, true);"#
+}}, true);
+if (window.self === window.top && typeof navigator.getGamepads === "function") {{
+  (function () {{
+    var frame = null;
+    var wasDown = false;
+    function read() {{
+      var pads = [];
+      try {{ pads = navigator.getGamepads() || []; }} catch (e) {{}}
+      var any = false, down = false;
+      for (var i = 0; i < pads.length; i++) {{
+        var p = pads[i];
+        if (!p) continue;
+        any = true;
+        if (p.buttons[1] && p.buttons[1].pressed) down = true;
+      }}
+      return {{ any: any, down: down }};
+    }}
+    function stop() {{
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+      wasDown = false;
+    }}
+    function tick() {{
+      frame = null;
+      var s = read();
+      if (!s.any) return stop();
+      if (s.down && !wasDown) {{
+        stop();
+        location.href = "{PKCE_TV_CANCEL_URL}";
+        return;
+      }}
+      wasDown = s.down;
+      frame = requestAnimationFrame(tick);
+    }}
+    function start() {{
+      if (frame === null) frame = requestAnimationFrame(tick);
+    }}
+    // WebKit shows a page its pads on their first press, so the press that
+    // connects counts; a B already held when the page loads does not.
+    window.addEventListener("gamepadconnected", start);
+    var now = read();
+    if (now.any) {{
+      wasDown = now.down;
+      start();
+    }}
+  }})();
+}}"#
     )
 }
 
@@ -831,6 +879,16 @@ mod pkce_tv_tests {
         }
         assert!(s.contains(PKCE_TV_CANCEL_URL));
         assert!(s.contains("addEventListener(\"keydown\""));
+    }
+
+    #[test]
+    fn script_sends_gamepad_back_to_the_cancel_url_from_the_top_frame() {
+        let s = pkce_tv_cancel_script();
+        assert!(s.contains("window.self === window.top"));
+        assert!(s.contains("\"gamepadconnected\""));
+        assert!(s.contains("buttons[1]"));
+        assert!(s.contains("s.down && !wasDown"));
+        assert_eq!(s.matches(PKCE_TV_CANCEL_URL).count(), 2);
     }
 
     #[test]
