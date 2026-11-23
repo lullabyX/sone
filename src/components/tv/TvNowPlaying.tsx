@@ -688,6 +688,9 @@ function NowPlayingTabs({ isVideo }: { isVideo: boolean }) {
         aria-labelledby={tabId(selected)}
         data-tv-keep-list
         data-tv-keep-fallback={SELECTED_TAB}
+        // At least a screen tall, so a shorter tab (or its spinner) never
+        // shortens the page under the strip and pulls the strip down.
+        className="min-h-[100vh]"
       >
         {selected === "history" ? (
           <HistoryPanel />

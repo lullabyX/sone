@@ -175,6 +175,11 @@ describe("TvNowPlaying tabs", () => {
     ).toBe("true");
     expect(store.get(tvNowPlayingTabAtom)).toBe("history");
   });
+
+  it("the tab panel keeps a screen's height, so a shorter tab never pulls the strip down", () => {
+    renderTv(<TvNowPlaying />, { store: playing(mkTrack(100)) });
+    expect(screen.getByRole("tabpanel").className).toContain("min-h-[100vh]");
+  });
 });
 
 describe("TvNowPlaying suggested tracks", () => {
