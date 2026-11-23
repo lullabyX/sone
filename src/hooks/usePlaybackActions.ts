@@ -1032,11 +1032,18 @@ export function usePlaybackActions() {
         await invoke("stop_track").catch(() => {});
 
         // Skip-loop helpers (issue #71). Counter resets on explicit user skip
-        // so mashing Next across removed tracks never trips the cap.
+        // so mashing Next across removed tracks never trips the cap. Only real
+        // load failures count: a track greyed out by its metadata is dropped
+        // without a try, so a run of them must not stop playback.
         if (options?.explicit) {
           store.set(consecutiveFailCountAtom, 0);
         }
         let toastedSkipThisCall = false;
+        const toastSkipOnce = () => {
+          if (toastedSkipThisCall) return;
+          showToast("Track unavailable — skipping", "info");
+          toastedSkipThisCall = true;
+        };
         const recordUnplayableAndCheckCap = (): boolean => {
           const next = store.get(consecutiveFailCountAtom) + 1;
           store.set(consecutiveFailCountAtom, next);
@@ -1046,10 +1053,7 @@ export function usePlaybackActions() {
             store.set(isPlayingAtom, false);
             return true;
           }
-          if (!toastedSkipThisCall) {
-            showToast("Track unavailable — skipping", "info");
-            toastedSkipThisCall = true;
-          }
+          toastSkipOnce();
           return false;
         };
 
@@ -1078,7 +1082,7 @@ export function usePlaybackActions() {
           // Pre-check: skip via metadata flags, no backend round-trip.
           if (isTrackUnavailable(nextTrack)) {
             store.set(manualQueueAtom, rest);
-            if (recordUnplayableAndCheckCap()) return;
+            toastSkipOnce();
             continue;
           }
 
@@ -1173,7 +1177,7 @@ export function usePlaybackActions() {
                 origPre.filter((t) => t._qid !== nextTrack._qid),
               );
             }
-            if (recordUnplayableAndCheckCap()) return;
+            toastSkipOnce();
             continue;
           }
 
