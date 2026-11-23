@@ -283,6 +283,43 @@ describe("TvNowPlaying signal path", () => {
     );
   });
 
+  it("reads the path again once a track has started, so the dot is current", async () => {
+    vi.useFakeTimers();
+    try {
+      const fresh = {
+        backend: "Normal",
+        outputFormat: "S24LE",
+        dac: { state: "Active" },
+      } as SignalPath;
+      mockInvoke({ refresh_signal_path: () => fresh });
+      const store = withQuality();
+      store.set(isPlayingAtom, true);
+      renderTv(<TvNowPlaying />, { store });
+      expect(invoke).not.toHaveBeenCalledWith("refresh_signal_path");
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(invoke).toHaveBeenCalledWith("refresh_signal_path");
+      expect(store.get(signalPathAtom)).toBe(fresh);
+      // And again for the next track.
+      vi.mocked(invoke).mockClear();
+      act(() => store.set(currentTrackAtom, mkTrack(2)));
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(invoke).toHaveBeenCalledWith("refresh_signal_path");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not read it while paused", () => {
+    vi.useFakeTimers();
+    try {
+      renderTv(<TvNowPlaying />, { store: withQuality() });
+      act(() => vi.advanceTimersByTime(5000));
+      expect(invoke).not.toHaveBeenCalledWith("refresh_signal_path");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("opens the path in the right rail after a fresh reading", async () => {
     mockInvoke({ refresh_signal_path: () => null });
     const { nav } = renderTv(<TvNowPlaying />, { store: withQuality() });

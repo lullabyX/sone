@@ -115,6 +115,31 @@ function videoElement(): HTMLVideoElement | null {
 const POSITION_POLL_MS = 500;
 /** The Signal path rail's refresh, the desktop dialog's heartbeat. */
 const SIGNAL_PATH_REFRESH_MS = 2000;
+/** When the badge's path is read again after a track starts or resumes. */
+const SIGNAL_PATH_SETTLE_MS = [800, 3000];
+
+/** The badge's dot needs the DAC's and the mixer's actual rates, which are
+ *  only known once the output runs and are otherwise read only when the
+ *  Signal path is opened. While the badge is shown, read them again shortly
+ *  after each track starts or playback resumes. */
+function useSignalPathOnPlay(
+  trackId: number | undefined,
+  playing: boolean,
+  shown: boolean,
+) {
+  const store = useStore();
+  useEffect(() => {
+    if (!shown || !playing || trackId === undefined) return;
+    const timers = SIGNAL_PATH_SETTLE_MS.map((ms) =>
+      window.setTimeout(() => {
+        invoke<SignalPath>("refresh_signal_path")
+          .then((sp) => store.set(signalPathAtom, sp))
+          .catch(() => {});
+      }, ms),
+    );
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [trackId, playing, shown, store]);
+}
 
 function usePosition(video: boolean, active: boolean): number {
   const read = useCallback(
@@ -770,6 +795,11 @@ export default function TvNowPlaying() {
   useTvMiniVideo(videoSlotRef, screen.element, showVideoInSlot);
   const videoAspect = useTvVideoAspect(
     track?.itemType === "video" && !!currentVideo,
+  );
+  useSignalPathOnPlay(
+    track && track.itemType !== "video" ? track.id : undefined,
+    isPlaying,
+    screen.active,
   );
   if (!track) {
     return (
