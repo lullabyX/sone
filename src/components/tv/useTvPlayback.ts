@@ -26,8 +26,9 @@ const REFUSED = {
  * The only way TV starts playback. A track that cannot play is refused here
  * with a message saying why (and where to change it), and Now Playing opens
  * only when something actually started — never over a video. Pressing what
- * is already playing (same item, from the same list) opens it instead of
- * restarting it: Now Playing for a track, full screen for an open video.
+ * is already playing opens it instead of restarting it: Now Playing for a
+ * track (from any list, queue untouched), full screen for an open video
+ * from the same list.
  */
 export function useTvPlayback(show: () => void) {
   const store = useStore();
@@ -75,12 +76,12 @@ export function useTvPlayback(show: () => void) {
     async (src, opts) => {
       const startAt = opts?.startAt;
       if (startAt && refuse(startAt)) return false;
-      if (startAt && isPlayingFrom(store, startAt, src.meta)) {
-        if (startAt.itemType !== "video") {
-          show();
+      if (startAt?.itemType === "video") {
+        if (isPlayingFrom(store, startAt, src.meta) && expandVideo(startAt.id))
           return true;
-        }
-        if (expandVideo(startAt.id)) return true;
+      } else if (startAt && isCurrent(store, startAt)) {
+        show();
+        return true;
       }
       const started = await playSourceFn(src, opts ?? {});
       if (started && store.get(currentTrackAtom)?.itemType !== "video") show();
@@ -144,18 +145,26 @@ export function useTvPlayback(show: () => void) {
   );
 }
 
-/** `track` is what plays now (a video and a track can share an id), from
- *  the same list. */
+type Store = ReturnType<typeof useStore>;
+
+/** `track` is what plays now (a video and a track can share an id). */
+function isCurrent(store: Store, track: Track) {
+  const current = store.get(currentTrackAtom);
+  return (
+    current?.id === track.id &&
+    (current.itemType === "video") === (track.itemType === "video")
+  );
+}
+
+/** `track` is what plays now, from the same list. */
 function isPlayingFrom(
-  store: ReturnType<typeof useStore>,
+  store: Store,
   track: Track,
   meta: { type: string; id: string | number },
 ) {
-  const current = store.get(currentTrackAtom);
   const source = store.get(playbackSourceAtom);
   return (
-    current?.id === track.id &&
-    (current.itemType === "video") === (track.itemType === "video") &&
+    isCurrent(store, track) &&
     source?.type === meta.type &&
     String(source.id) === String(meta.id)
   );

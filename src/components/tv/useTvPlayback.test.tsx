@@ -179,23 +179,43 @@ it("opens Now Playing for the playing track in the list it plays from", async ()
   expect(show).toHaveBeenCalledTimes(1);
 });
 
-it("plays the playing track from another list instead of only showing it", async () => {
+it("opens Now Playing for the playing track pressed in another list, without restarting it", async () => {
+  const show = vi.fn();
+  const { result, store } = renderTvHook(() => useTvPlayback(show));
+  const source = playingFrom("playlist", "p1");
+  act(() => {
+    store.set(currentTrackAtom, mkTrack(1));
+    store.set(playbackSourceAtom, source);
+  });
+  expect(
+    await act(() =>
+      result.current.playSource(
+        { meta, loaded: [mkTrack(1), mkTrack(2)] },
+        { startAt: mkTrack(1) },
+      ),
+    ),
+  ).toBe(true);
+  expect(m.playSource).not.toHaveBeenCalled();
+  expect(show).toHaveBeenCalledTimes(1);
+  expect(store.get(playbackSourceAtom)).toBe(source);
+});
+
+it("plays another track of the list the playing track is from", async () => {
   const show = vi.fn();
   const { result, store } = renderTvHook(() => useTvPlayback(show));
   act(() => {
     store.set(currentTrackAtom, mkTrack(1));
-    store.set(playbackSourceAtom, playingFrom("playlist", "p1"));
+    store.set(playbackSourceAtom, playingFrom("album", 9));
   });
   m.playSource.mockResolvedValueOnce(true);
   await act(() =>
     result.current.playSource(
-      { meta, loaded: [mkTrack(1)] },
-      { startAt: mkTrack(1) },
+      { meta, loaded: [mkTrack(1), mkTrack(2)] },
+      { startAt: mkTrack(2) },
     ),
   );
   expect(m.playSource).toHaveBeenCalledTimes(1);
-  expect(m.playSource.mock.lastCall![1]).toEqual({ startAt: mkTrack(1) });
-  expect(show).toHaveBeenCalledTimes(1);
+  expect(m.playSource.mock.lastCall![1]).toEqual({ startAt: mkTrack(2) });
 });
 
 it("a track with the playing video's id is not the playing item", async () => {
