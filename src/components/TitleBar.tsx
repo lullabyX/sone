@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
-import { Minus, X, Square, Copy } from "lucide-react";
+import { Minus, X, Square, Copy, Minimize2 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useWindowFullscreen } from "../hooks/useWindowFullscreen";
 
 export const TITLEBAR_HEIGHT = 32;
 
 function useWindowControls() {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isFocused, setIsFocused] = useState(true);
+  const isFullscreen = useWindowFullscreen();
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -36,17 +38,25 @@ function useWindowControls() {
     };
   }, []);
 
-  const minimize = useCallback(() => {
-    getCurrentWindow()
-      .minimize()
-      .catch(() => {});
-  }, []);
+  // Window managers ignore minimize and maximize on a fullscreen window, so
+  // the buttons leave fullscreen first.
+  const minimize = useCallback(async () => {
+    const win = getCurrentWindow();
+    try {
+      if (isFullscreen) await win.setFullscreen(false);
+      await win.minimize();
+    } catch {
+      /* ignore */
+    }
+  }, [isFullscreen]);
 
   // Explicit branch dodges wry#622 — toggleMaximize is flaky on frameless windows
   const toggleMaximize = useCallback(async () => {
     const win = getCurrentWindow();
     try {
-      if (await win.isMaximized()) {
+      if (isFullscreen) {
+        await win.setFullscreen(false);
+      } else if (await win.isMaximized()) {
         await win.unmaximize();
       } else {
         await win.maximize();
@@ -54,7 +64,7 @@ function useWindowControls() {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [isFullscreen]);
 
   const close = useCallback(() => {
     getCurrentWindow()
@@ -62,12 +72,25 @@ function useWindowControls() {
       .catch(() => {});
   }, []);
 
-  return { isMaximized, isFocused, minimize, toggleMaximize, close };
+  return {
+    isMaximized,
+    isFullscreen,
+    isFocused,
+    minimize,
+    toggleMaximize,
+    close,
+  };
 }
 
 export default function TitleBar() {
-  const { isMaximized, isFocused, minimize, toggleMaximize, close } =
-    useWindowControls();
+  const {
+    isMaximized,
+    isFullscreen,
+    isFocused,
+    minimize,
+    toggleMaximize,
+    close,
+  } = useWindowControls();
 
   // Double-click maximize is handled by Tauri's drag-region script
   return (
@@ -123,10 +146,22 @@ export default function TitleBar() {
         </button>
         <button
           onClick={toggleMaximize}
-          aria-label={isMaximized ? "Restore" : "Maximize"}
+          aria-label={
+            isFullscreen
+              ? "Exit full screen"
+              : isMaximized
+                ? "Restore"
+                : "Maximize"
+          }
           className="w-7 h-7 rounded-full flex items-center justify-center text-th-text-muted hover:bg-th-button-hover hover:text-th-text-primary transition-colors"
         >
-          {isMaximized ? <Copy size={12} /> : <Square size={12} />}
+          {isFullscreen ? (
+            <Minimize2 size={12} />
+          ) : isMaximized ? (
+            <Copy size={12} />
+          ) : (
+            <Square size={12} />
+          )}
         </button>
         <button
           onClick={close}

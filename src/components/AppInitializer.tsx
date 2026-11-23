@@ -94,6 +94,7 @@ import { useShortcuts } from "../hooks/useShortcuts";
 import { useMcpBridge } from "../hooks/useMcpBridge";
 import { useOverlayBridge } from "../hooks/useOverlayBridge";
 import { useMprisFullscreen } from "../hooks/useMprisFullscreen";
+import { useFullscreenEscape } from "../hooks/useFullscreenEscape";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -1343,6 +1344,7 @@ export function AppInitializer() {
   }, [store, setVolume, toggleShuffle, seekTo]);
 
   useMprisFullscreen();
+  useFullscreenEscape();
 
   // ================================================================
   //  KEYBOARD SHORTCUTS

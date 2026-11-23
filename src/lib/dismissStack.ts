@@ -6,6 +6,7 @@ export const DISMISS_PRIORITY = {
   modal: 300,
   overlay: 200,
   drawer: 100,
+  window: 50,
 } as const;
 
 type Entry = { priority: number; onClose: () => void; seq: number };
