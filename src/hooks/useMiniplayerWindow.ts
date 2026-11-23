@@ -50,25 +50,25 @@ async function saveGeometry(win: WebviewWindow) {
 }
 
 /** Hides an open miniplayer while the caller is mounted (it is always on
- *  top) and shows it again afterwards. */
+ *  top) and shows it again afterwards. Nothing else hides it, so one that
+ *  exists was showing before, even when a reload finds it already hidden. */
 export function useHideMiniplayer(): void {
   useEffect(() => {
-    const wasOpenRef = { current: false };
-
-    (async () => {
+    let found = false;
+    const hidden = (async () => {
       const win = await WebviewWindow.getByLabel("miniplayer");
-      if (win) {
-        wasOpenRef.current = true;
-        await win.hide();
-      }
-    })();
+      if (!win) return;
+      found = true;
+      await win.hide();
+    })().catch((e) => console.error("Failed to hide the miniplayer:", e));
 
     return () => {
-      if (wasOpenRef.current) {
-        WebviewWindow.getByLabel("miniplayer").then((win) => {
-          if (win) win.show();
-        });
-      }
+      void hidden
+        .then(async () => {
+          if (!found) return;
+          await (await WebviewWindow.getByLabel("miniplayer"))?.show();
+        })
+        .catch((e) => console.error("Failed to show the miniplayer:", e));
     };
   }, []);
 }
