@@ -137,23 +137,16 @@ function usePosition(video: boolean, active: boolean): number {
 }
 
 /** Volume bar: Left/Right change it in 5% steps, Enter mutes (once per
- *  press). Locked while bit-perfect audio plays, since the DAC must get
- *  unscaled samples; a video's volume stays adjustable. */
+ *  press). While bit-perfect audio plays it shows the unscaled 100% the DAC
+ *  gets, and a press only brings up the "Volume fixed" indicator; a video's
+ *  volume stays adjustable. */
 function VolumeControl() {
   const volume = useAtomValue(volumeAtom);
   const locked = useVolumeLocked();
   const media = useTvMediaCommands();
-  const pct = Math.round(volume * 100);
-  const Icon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
-
-  if (locked) {
-    return (
-      <span className="inline-flex items-center gap-[0.5rem] text-[0.75rem] text-th-text-muted">
-        <Volume2 className="w-[1.1rem] h-[1.1rem]" />
-        Volume fixed (bit-perfect)
-      </span>
-    );
-  }
+  const level = locked ? 1 : volume;
+  const pct = Math.round(level * 100);
+  const Icon = level === 0 ? VolumeX : level < 0.5 ? Volume1 : Volume2;
 
   const toggleMute = () => media({ kind: "mute" });
 

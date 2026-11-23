@@ -28,7 +28,7 @@ import {
   volumeAtom,
   type SignalPath,
 } from "../../atoms/playback";
-import { tvLyricsAtom } from "../../atoms/tv";
+import { tvLyricsAtom, tvVolumeLockedPingAtom } from "../../atoms/tv";
 import { videoCoversAtom } from "../../atoms/ui";
 import { currentVideoAtom } from "../../atoms/video";
 import type { Lyrics, TidalVideo, Track } from "../../types";
@@ -130,12 +130,16 @@ describe("TvNowPlaying volume", () => {
     expect(store.get(volumeAtom)).toBeCloseTo(0.55);
   });
 
-  it("shows the fixed-volume label for audio", () => {
+  it("keeps the volume bar for bit-perfect audio, at 100% and locked", () => {
     const store = playing();
     store.set(bitPerfectAtom, true);
+    store.set(volumeAtom, 0.3);
     renderTv(<TvNowPlaying />, { store });
-    expect(screen.getByText("Volume fixed (bit-perfect)")).toBeTruthy();
-    expect(screen.queryByRole("slider", { name: "Volume" })).toBeNull();
+    const slider = screen.getByRole("slider", { name: "Volume" });
+    expect(slider.getAttribute("aria-valuenow")).toBe("100");
+    fireEvent.keyDown(slider, { key: "ArrowLeft" });
+    expect(store.get(volumeAtom)).toBe(0.3);
+    expect(store.get(tvVolumeLockedPingAtom)).toBe(1);
   });
 
   it("toggles mute once while OK is held", () => {
