@@ -36,7 +36,9 @@ describe("normalizeHex", () => {
 
 describe("themeToFile", () => {
   it("emits the preset name when colors exactly match a preset", () => {
-    const f = themeToFile(PRESET_THEMES[3] as Theme); // Ocean
+    const f = themeToFile(
+      PRESET_THEMES.find((p) => p.name === "Ocean") as Theme,
+    );
     expect(f).toEqual({
       version: 1,
       preset: "Ocean",

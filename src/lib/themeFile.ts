@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getDefaultStore } from "jotai";
 import { themeAtom } from "../atoms/theme";
 import {
+  DEFAULT_THEME,
+  LEGACY_DEFAULT_THEME,
   THEME_STORAGE_KEY,
   resolveThemeFile,
   themeToFile,
@@ -44,12 +46,54 @@ function writeStoredTheme(theme: Theme) {
   } catch {}
 }
 
+const DEFAULT_MIGRATION_KEY = "sone.theme.defaultMigrated.v1";
+
+/**
+ * True exactly once per profile: the first launch since the default moved
+ * from Violet Night to Midnight Cyan. Whoever is on Violet Night then is
+ * moved over -- an untouched default and a deliberate pick look the same on
+ * disk, so both are.
+ */
+function claimDefaultMigration(): boolean {
+  try {
+    if (localStorage.getItem(DEFAULT_MIGRATION_KEY)) return false;
+    localStorage.setItem(DEFAULT_MIGRATION_KEY, "1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isLegacyDefault(theme: Theme): boolean {
+  return (
+    theme.name === LEGACY_DEFAULT_THEME.name &&
+    themesEqual(theme, LEGACY_DEFAULT_THEME)
+  );
+}
+
+function setThemeAtom(theme: Theme) {
+  try {
+    getDefaultStore().set(themeAtom, theme);
+  } catch (err) {
+    // jotai's setItem is not guarded internally; a failing storage write must
+    // not reject bootstrap. The atom is correct for this paint -- if storage
+    // is genuinely broken, onMount re-reads the old value and reverts it, but
+    // persistence is already lost in that case.
+    warnWrite(err);
+  }
+}
+
 /**
  * Pre-render bootstrap. `main.tsx` awaits this before the first render so the
  * file's theme is on screen in the first painted frame -- the atom is created
  * at module-eval, before this runs, so localStorage alone would not reach it.
  */
 export async function bootstrapThemeFile(): Promise<void> {
+  const migrate = claimDefaultMigration();
+  if (migrate && isLegacyDefault(getDefaultStore().get(themeAtom))) {
+    writeStoredTheme(DEFAULT_THEME);
+    setThemeAtom(DEFAULT_THEME);
+  }
   const current = getDefaultStore().get(themeAtom);
   // Arm the write guard BEFORE the first await. The write-through
   // subscription mounts themeAtom and fires a debounced write; without this
@@ -77,7 +121,7 @@ export async function bootstrapThemeFile(): Promise<void> {
     return;
   }
 
-  const resolved = resolveThemeFile(file);
+  let resolved = resolveThemeFile(file);
   if (!resolved) return;
 
   // Promise.race in main.tsx does not cancel this call. If the timeout fired
@@ -89,17 +133,12 @@ export async function bootstrapThemeFile(): Promise<void> {
   // of "Custom" against a file preset of "Ocean" describes the same colors but
   // serializes differently, and that disagreement would surface as a spurious
   // write on the next launch.
+  const migrated = migrate && isLegacyDefault(resolved);
+  if (migrated) resolved = DEFAULT_THEME;
   writeStoredTheme(resolved);
   markPersisted(resolved);
-  try {
-    getDefaultStore().set(themeAtom, resolved);
-  } catch (err) {
-    // jotai's setItem is not guarded internally; a failing storage write must
-    // not reject bootstrap. The atom is correct for this paint -- if storage
-    // is genuinely broken, onMount re-reads the old value and reverts it, but
-    // persistence is already lost in that case.
-    warnWrite(err);
-  }
+  setThemeAtom(resolved);
+  if (migrated) await writeThemeFile(themeToFile(resolved));
 }
 
 async function writeThemeFile(file: ThemeFile): Promise<void> {
