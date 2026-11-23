@@ -109,6 +109,7 @@ import {
   getTrack,
   getProfile,
   getFeed,
+  invalidateCache,
 } from "../api/tidal";
 import { pickProfileAvatarHref } from "./ProfilePage";
 
@@ -871,6 +872,17 @@ export function AppInitializer() {
       void unlisten.then((fn) => fn());
     };
   }, [store]);
+
+  // An outdated mix is re-fetched in the background; drop the in-memory copy
+  // so the next open gets the new one.
+  useEffect(() => {
+    const unlisten = listen<string>("mix-page-refreshed", (event) => {
+      invalidateCache(`mix-page:${event.payload}`);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // ================================================================
   //  VOLUME SYNC to backend (one-time, reads volume from store)

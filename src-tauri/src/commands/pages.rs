@@ -1,6 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::cache::{CacheResult, CacheTier};
 use crate::tidal_api::{
@@ -435,14 +435,50 @@ pub async fn get_page_section(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_mix_items(
     state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
     mix_id: String,
 ) -> Result<MixPageResult, SoneError> {
     log::debug!("[get_mix_items]: mix_id={}", mix_id);
 
     let cache_key = format!("mix-page:{}", mix_id);
     match state.disk_cache.get(&cache_key, CacheTier::Dynamic).await {
-        CacheResult::Fresh(bytes) | CacheResult::Stale(bytes) => {
+        CacheResult::Fresh(bytes) => {
             if let Ok(result) = serde_json::from_slice(&bytes) {
+                return Ok(result);
+            }
+        }
+        CacheResult::Stale(bytes) => {
+            if let Ok(result) = serde_json::from_slice::<MixPageResult>(&bytes) {
+                if state.disk_cache.mark_in_flight(&cache_key).await {
+                    if state.disk_cache.should_retry_refresh(&cache_key, 300).await {
+                        state.disk_cache.mark_refresh_attempt(&cache_key).await;
+                        let handle = app_handle.clone();
+                        let key = cache_key.clone();
+                        let id = mix_id.clone();
+                        tokio::spawn(async move {
+                            let st = handle.state::<AppState>();
+                            let fetched = {
+                                let mut client = st.tidal_client.lock().await;
+                                client.get_mix_items(&id).await
+                            };
+                            if let Ok(fresh) = fetched {
+                                if let Ok(json) = serde_json::to_vec(&fresh) {
+                                    if st
+                                        .disk_cache
+                                        .put(&key, &json, CacheTier::Dynamic, &["mix-page"])
+                                        .await
+                                        .is_ok()
+                                    {
+                                        let _ = handle.emit("mix-page-refreshed", &id);
+                                    }
+                                }
+                            }
+                            st.disk_cache.clear_in_flight(&key).await;
+                        });
+                    } else {
+                        state.disk_cache.clear_in_flight(&cache_key).await;
+                    }
+                }
                 return Ok(result);
             }
         }
