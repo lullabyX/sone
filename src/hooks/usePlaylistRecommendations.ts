@@ -5,7 +5,12 @@ import type { Track } from "../types";
 const RECS_BATCH = 50;
 const RECS_PAGE = 10;
 
-export function usePlaylistRecommendations(playlistId: string) {
+/** `inPlaylist`: ids of the tracks the playlist has, which are not
+ *  recommended. */
+export function usePlaylistRecommendations(
+  playlistId: string,
+  inPlaylist?: ReadonlySet<number>,
+) {
   const [recPool, setRecPool] = useState<Track[]>([]);
   const [recPageIndex, setRecPageIndex] = useState(0);
   const [recApiOffset, setRecApiOffset] = useState(0);
@@ -31,17 +36,26 @@ export function usePlaylistRecommendations(playlistId: string) {
     [playlistId],
   );
 
+  const pool = useMemo(
+    () => (inPlaylist ? recPool.filter((t) => !inPlaylist.has(t.id)) : recPool),
+    [recPool, inPlaylist],
+  );
+  // A page past the end (the pool shrank) shows the last one.
+  const pageIndex = Math.min(
+    recPageIndex,
+    Math.max(0, Math.ceil(pool.length / RECS_PAGE) - 1),
+  );
+
   // Current slice of recommendations to display
   const visibleRecs = useMemo(
-    () =>
-      recPool.slice(recPageIndex * RECS_PAGE, (recPageIndex + 1) * RECS_PAGE),
-    [recPool, recPageIndex],
+    () => pool.slice(pageIndex * RECS_PAGE, (pageIndex + 1) * RECS_PAGE),
+    [pool, pageIndex],
   );
 
   const handleRefreshRecs = useCallback(async () => {
-    const nextPage = recPageIndex + 1;
+    const nextPage = pageIndex + 1;
     const nextStart = nextPage * RECS_PAGE;
-    if (nextStart < recPool.length) {
+    if (nextStart < pool.length) {
       // Still have cached tracks
       setRecPageIndex(nextPage);
     } else {
@@ -61,7 +75,7 @@ export function usePlaylistRecommendations(playlistId: string) {
         setRecPageIndex(0);
       }
     }
-  }, [recPageIndex, recPool.length, recApiOffset, playlistId, fetchRecBatch]);
+  }, [pageIndex, pool.length, recApiOffset, playlistId, fetchRecBatch]);
 
   const removeLocal = useCallback((id: number) => {
     setRecPool((prev) => prev.filter((t) => t.id !== id));

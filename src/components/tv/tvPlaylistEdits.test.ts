@@ -64,6 +64,23 @@ describe("playlist writes", () => {
     expect(await c).toBe(true);
   });
 
+  it("a details write waits its turn but leaves the revision, and its failure drops nothing", async () => {
+    const sent: string[] = [];
+    const rename = deferred<void>();
+    const a = queuePlaylistEdit("p", () => rename.promise, { details: true });
+    const b = queuePlaylistEdit("p", async () => void sent.push("b"), {
+      positional: true,
+    });
+    expect(playlistRevision("p")).toBe(1);
+    expect(playlistBusy("p")).toBe(true);
+    rename.reject(new Error("x"));
+    await expect(a).rejects.toThrow("x");
+    expect(await b).toBe(true);
+    expect(sent).toEqual(["b"]);
+    expect(playlistRevision("p")).toBe(1);
+    expect(api.invalidateCache).not.toHaveBeenCalled();
+  });
+
   it("settles once every queued write has landed, including ones queued meanwhile", async () => {
     const one = deferred<void>();
     const two = deferred<void>();

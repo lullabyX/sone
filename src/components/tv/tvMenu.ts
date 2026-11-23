@@ -3,6 +3,7 @@ import { getArtistPage } from "../../api/tidal";
 import { getArtistImage } from "../../utils/itemHelpers";
 import type { TvMenuHostHandle } from "./TvMenuHost";
 import type { TvNav } from "./TvNavContext";
+import type { TvPromptRequest } from "./TvPrompt";
 
 export interface TvMenuItem {
   label: string;
@@ -11,6 +12,12 @@ export interface TvMenuItem {
   onSelect?: () => void | Promise<void>;
   /** Opens a nested menu instead (Back returns to this one). */
   submenu?: () => TvMenuSpec | Promise<TvMenuSpec>;
+  /** Asks for text first (a search), then opens the nested menu built from
+   *  it; cancelling the prompt stays on this menu. */
+  ask?: {
+    prompt: TvPromptRequest;
+    submenu: (text: string) => TvMenuSpec | Promise<TvMenuSpec>;
+  };
   /** Marks the current choice in a list (e.g. a toggle that is on). */
   checked?: boolean;
   /** The label wraps instead of being cut off (reading text such as credits). */

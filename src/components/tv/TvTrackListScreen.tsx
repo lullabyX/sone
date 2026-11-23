@@ -67,12 +67,14 @@ import TidalImage, { fetchCachedImageUrl } from "../TidalImage";
 import { TvButton, TvError, TvSpinner, TvTrackRow } from "./TvParts";
 import { groupByVolume, type TvView } from "./tvItems";
 import { artistsMenu, tvMenuRef, type TvMenuArtist } from "./tvMenu";
+import { useTvPlaylistAdd } from "./tvPlaylistAdd";
 import {
   playlistBusy,
   playlistRevision,
   playlistSettled,
   queuePlaylistEdit,
   usePlaylistBusy,
+  usePlaylistRevision,
 } from "./tvPlaylistEdits";
 import { useTvGrowOnFocus } from "./useTvGrowOnFocus";
 import { useTvLoader } from "./useTvLoader";
@@ -192,10 +194,13 @@ async function sharpestSquare(id: string): Promise<string> {
   }
 }
 
+/** `rows`: a playlist loads at least that many rows (Infinity: all of
+ *  them), so a reload keeps the rows the page had. */
 async function loadList(
   view: ListView,
   userId: number | undefined,
   sort: SortOrder | null,
+  rows = 0,
 ): Promise<TrackListSpec> {
   switch (view.type) {
     case "album": {
@@ -235,17 +240,27 @@ async function loadList(
       // so the rows match the server.
       await playlistSettled(view.uuid);
       const revision = playlistRevision(view.uuid);
-      // Only the first page here; the rest load as focus nears the end.
-      const [details, page] = await Promise.all([
-        getPlaylistDetails(view.uuid).catch(() => null),
+      const pageAt = (offset: number) =>
         getPlaylistTracksPage(
           view.uuid,
-          0,
+          offset,
           PLAYLIST_PAGE_SIZE,
           sort?.order,
           sort?.direction,
-        ),
+        );
+      // The first page (or `rows`); the rest load as focus nears the end.
+      const [details, page] = await Promise.all([
+        getPlaylistDetails(view.uuid).catch(() => null),
+        pageAt(0),
       ]);
+      const more = [];
+      const upTo = Math.min(rows, page.totalNumberOfItems);
+      for (let at = PLAYLIST_PAGE_SIZE; at < upTo; at += PLAYLIST_PAGE_SIZE) {
+        more.push(pageAt(at));
+      }
+      const first = page.items.concat(
+        ...(await Promise.all(more)).map((p) => p.items),
+      );
       const title = details?.title ?? view.title ?? "Playlist";
       const image =
         (details?.squareImage
@@ -263,7 +278,7 @@ async function loadList(
         subtitle: creator,
         description: details?.description?.trim() || undefined,
         image,
-        first: page.items,
+        first,
         total: page.totalNumberOfItems,
         pager: playlistTracksPager(view.uuid, sort?.order, sort?.direction),
         playlist: details ?? undefined,
@@ -394,17 +409,20 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
     [sortOrder, sortDir],
   );
   const setAllPlaylists = useSetAtom(allPlaylistsAtom);
-  const load = useCallback(async () => {
-    const list = await loadList(view, userId, sort);
-    // The stored playlists were loaded once; these details are newer (an
-    // edit made on another device), so their name and description replace
-    // the stored ones before the page shows.
-    const fresh = list.playlist;
-    if (view.type === "playlist" && fresh) {
-      setAllPlaylists((prev) => refreshListed(prev, view.uuid, fresh));
-    }
-    return list;
-  }, [view, userId, sort, setAllPlaylists]);
+  const load = useCallback(
+    async (rows?: number) => {
+      const list = await loadList(view, userId, sort, rows);
+      // The stored playlists were loaded once; these details are newer (an
+      // edit made on another device), so their name and description replace
+      // the stored ones before the page shows.
+      const fresh = list.playlist;
+      if (view.type === "playlist" && fresh) {
+        setAllPlaylists((prev) => refreshListed(prev, view.uuid, fresh));
+      }
+      return list;
+    },
+    [view, userId, sort, setAllPlaylists],
+  );
   const { data, error, retry, update } = useTvLoader(
     load,
     "Couldn't load tracks",
@@ -419,19 +437,28 @@ export default function TvTrackListScreen({ view }: { view: ListView }) {
     [data, view.type, favoriteTrackIds],
   );
 
-  // Loads again in the background, keeping the page (and focus) until the
-  // new list arrives; a failure shows the error screen. One at a time: a
-  // list that changes again meanwhile is caught by its revision.
+  // Loads again in the background with at least `rows` rows, keeping the
+  // page (and focus) until the new list arrives; a failure shows the error
+  // screen, or, `quiet`, leaves the page as it is. One at a time: a list
+  // that changes again meanwhile is caught by its revision.
   const reloading = useRef(false);
-  const reload = useCallback(() => {
-    if (reloading.current) return;
-    reloading.current = true;
-    load()
-      .then((d) => update(() => d), retry)
-      .finally(() => {
-        reloading.current = false;
-      });
-  }, [load, update, retry]);
+  const reload = useCallback(
+    (rows: number, quiet = false) => {
+      if (reloading.current) return;
+      reloading.current = true;
+      load(rows).then(
+        (d) => {
+          reloading.current = false;
+          update(() => d);
+        },
+        () => {
+          reloading.current = false;
+          if (!quiet) retry();
+        },
+      );
+    },
+    [load, update, retry],
+  );
 
   useTvInitialFocus(data !== null || error !== null);
 
@@ -462,15 +489,14 @@ function TrackListPage({
   userId?: number;
   /** The stored sort; the rows still show `spec.sort` until it reloads. */
   sort: SortOrder | null;
-  reload: () => void;
+  reload: (rows: number, quiet?: boolean) => void;
 }) {
   const nav = useTvNav();
   const fav = useFavorites();
-  const { addTrackToPlaylist, removeTrackFromPlaylist } = usePlaylists();
-  const recs = usePlaylistRecommendations(
-    view.type === "playlist" ? view.uuid : "",
-  );
+  const { removeTrackFromPlaylist } = usePlaylists();
+  const { addOrOffer } = useTvPlaylistAdd(nav.openMenu);
   const listRef = useRef<HTMLDivElement>(null);
+  const recsRef = useRef<HTMLElement>(null);
   const sideRef = useRef<HTMLElement>(null);
   const { showToast } = useToast();
   const { active } = useContext(TvScreenContext);
@@ -479,25 +505,27 @@ function TrackListPage({
   // moment it is chosen; that is only right while these rows are the
   // playlist as the server will have it. They are while its revision is the
   // one they loaded at plus this page's own removals: any other write (from
-  // another page, a menu, a failure) makes the page reload before it
-  // removes anything.
+  // another page, a menu, the MCP server, a recommendation added here)
+  // reloads the rows, quietly while the page is shown, or once it is shown
+  // again; a removal chosen before that reloads first.
   const uuid = view.type === "playlist" ? view.uuid : "";
   const busy = usePlaylistBusy(uuid);
+  const revision = usePlaylistRevision(uuid);
   const rowsRevision = useRef(spec.revision);
-  useLayoutEffect(() => {
-    rowsRevision.current = spec.revision;
-  }, [spec]);
   const outdated = () =>
     uuid !== "" && playlistRevision(uuid) !== rowsRevision.current;
-  const reloadChanged = useCallback(() => {
+  // A reload keeps as many rows as are loaded (all of them once the whole
+  // list is in, with the recommendations under it).
+  const keepRows = useRef(0);
+  const reloadChanged = () => {
     showToast(PLAYLIST_CHANGED);
-    reload();
-  }, [showToast, reload]);
+    reload(keepRows.current);
+  };
   useEffect(() => {
-    if (active && uuid && playlistRevision(uuid) !== rowsRevision.current) {
-      reloadChanged();
+    if (active && uuid && revision !== rowsRevision.current) {
+      reload(keepRows.current, true);
     }
-  }, [active, uuid, reloadChanged]);
+  }, [active, uuid, revision, spec, reload]);
   const [countDelta, setCountDelta] = useState(0);
   const [countSpec, setCountSpec] = useState(spec);
   if (countSpec !== spec) {
@@ -512,6 +540,16 @@ function TrackListPage({
     items: spec.first,
     hasMore: !!spec.pager && (spec.hasMore ?? spec.first.length < spec.total),
   });
+  useLayoutEffect(() => {
+    keepRows.current = paged.hasMore ? paged.items.length : Infinity;
+  });
+  const inPlaylist = useMemo(
+    () => new Set(paged.items.map((t) => t.id)),
+    [paged.items],
+  );
+  // Recommendations show once every row has loaded, so this leaves out
+  // every track the playlist has.
+  const recs = usePlaylistRecommendations(uuid, inPlaylist);
   const rows = useMemo(
     () =>
       spec.include
@@ -530,10 +568,17 @@ function TrackListPage({
   useEffect(() => {
     if (filtering && !paged.moreError) void loadAll();
   }, [filtering, paged.moreError, loadAll, pagedKey, spec.first]);
-  // Filtered rows keep their number in the whole list.
+  // Filtered rows keep their number in the whole list. Each is keyed by its
+  // track and which repeat of it it is, so a row (and the focus on it)
+  // stays when rows before it come or go.
   const listed = useMemo(() => {
     const q = query.toLowerCase();
-    const all = rows.map((track, pos) => ({ track, pos }));
+    const repeats = new Map<number, number>();
+    const all = rows.map((track, pos) => {
+      const n = repeats.get(track.id) ?? 0;
+      repeats.set(track.id, n + 1);
+      return { track, pos, key: `${track.id}:${n}` };
+    });
     return q ? all.filter(({ track }) => matchesTrack(track, q)) : all;
   }, [rows, query]);
   // A multi-disc album lists each disc under its own heading, numbered from
@@ -733,6 +778,40 @@ function TrackListPage({
       list.querySelector<HTMLElement>('[aria-label="Load more"]');
     if (next) focusElement(next);
   }, [paged.loadingMore, listed]);
+  // Where focus last was among the rows. A reload that takes that row away
+  // puts focus on the same track (its nearest copy), else on the row now in
+  // its place.
+  const lastRow = useRef<{ id: string; at: number } | null>(null);
+  const noteRow = (el: EventTarget) => {
+    const row =
+      el instanceof HTMLElement
+        ? el.closest<HTMLElement>("[data-tv-row-id]")
+        : null;
+    lastRow.current = row
+      ? { id: row.dataset.tvRowId!, at: Number(row.dataset.tvIndex) }
+      : null;
+  };
+  const shownSpec = useRef(spec);
+  useLayoutEffect(() => {
+    rowsRevision.current = spec.revision;
+    if (shownSpec.current === spec) return;
+    shownSpec.current = spec;
+    const last = lastRow.current;
+    const current = document.activeElement;
+    if (!last || (current && current !== document.body && current.isConnected))
+      return;
+    const all = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>("[data-tv-row-id]") ?? [],
+    );
+    const gap = (r: HTMLElement) =>
+      Math.abs(Number(r.dataset.tvIndex) - last.at);
+    const same = all
+      .filter((r) => r.dataset.tvRowId === last.id)
+      .sort((a, b) => gap(a) - gap(b))[0];
+    const row = same ?? all[Math.min(last.at, all.length - 1)];
+    const next = row?.querySelector<HTMLElement>("[data-tv-focusable]");
+    if (next) focusElement(next);
+  }, [spec]);
   // The row at `idx` went away while it had focus: move focus to the row
   // that took its place (or the new last one), once the menu has closed and
   // the list has re-rendered. Rows are found by position: blocked rows have
@@ -768,23 +847,37 @@ function TrackListPage({
       },
       () => {
         showToast("Failed to remove track", "error");
-        reload();
+        reload(keepRows.current);
       },
     );
     // This page's own removal: its rows already show it.
     rowsRevision.current = playlistRevision(uuid);
     refocusRowAt(idx);
   };
-  // The added track is not among the rows (where the server puts it is not
-  // assumed), so the next removal reloads first.
-  const addRecommendation = async (track: Track, position: number) => {
+  // Focus moves to the recommendation that took the added one's place (or
+  // the new last one). The rows reload with the added track once it has
+  // landed (where the server puts it is not assumed).
+  const refocusRecAt = (slot: number) =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const all = recsRef.current?.querySelectorAll(".tv-track-row");
+        const next = all?.[
+          Math.min(slot, all.length - 1)
+        ]?.querySelector<HTMLElement>("[data-tv-focusable]");
+        if (next) focusElement(next);
+      }),
+    );
+  const addRecommendation = async (track: Track, slot: number) => {
     if (!uuid) return;
     recs.removeLocal(track.id);
-    refocusRowAt(position);
+    refocusRecAt(slot);
+    const before = shownSpec.current;
     try {
-      await queuePlaylistEdit(uuid, () => addTrackToPlaylist(uuid, track.id));
-      setCountDelta((d) => d + 1);
-      showToast(`Added "${track.title}" to playlist`);
+      if (await addOrOffer({ uuid, title }, track)) {
+        // A reload that already landed counts it.
+        if (shownSpec.current === before) setCountDelta((d) => d + 1);
+        showToast(`Added "${track.title}" to playlist`);
+      }
     } catch {
       recs.restore(track);
       showToast("Failed to add track", "error");
@@ -824,6 +917,7 @@ function TrackListPage({
   ) => (
     <TvTrackRow
       key={key}
+      rowId={String(track.id)}
       track={track}
       index={position}
       position={position}
@@ -1080,6 +1174,7 @@ function TrackListPage({
       </aside>
       <div
         ref={listRef}
+        onFocus={(e) => noteRow(e.target)}
         data-tv-remember
         data-tv-scroll-root
         data-tv-loading={paged.loadingMore || loadingAll || undefined}
@@ -1118,9 +1213,7 @@ function TrackListPage({
         ) : (
           listed
             .slice(0, shown)
-            .map(({ track, pos }, i) =>
-              renderRow(`${track.id}:${pos}`, track, i, pos + 1),
-            )
+            .map(({ track, pos, key }, i) => renderRow(key, track, i, pos + 1))
         )}
         {(paged.loadingMore || loadingAll) && (
           <p className="px-[1rem] py-[1rem] text-[0.85rem] text-th-text-muted">
@@ -1136,7 +1229,7 @@ function TrackListPage({
           </div>
         )}
         {showRecs && (
-          <section className="mt-[2rem]">
+          <section ref={recsRef} className="mt-[2rem]">
             <h2 className="px-[1rem] pb-[0.6rem] text-[1.1rem] font-bold text-th-text-primary">
               Recommended tracks
             </h2>
@@ -1152,8 +1245,7 @@ function TrackListPage({
                         {
                           label: "Add to this playlist",
                           icon: ListPlus,
-                          onSelect: () =>
-                            addRecommendation(track, rows.length + i),
+                          onSelect: () => addRecommendation(track, i),
                         },
                       ]
                     : undefined

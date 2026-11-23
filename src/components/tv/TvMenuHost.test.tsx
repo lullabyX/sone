@@ -1004,7 +1004,7 @@ describe("new playlists and playlist details", () => {
     expect(await screen.findByText('Added to "Old" again')).toBeTruthy();
   });
 
-  it("editing details goes behind the playlist's other writes and marks its pages out of date", async () => {
+  it("editing details goes behind the playlist's other writes and leaves its pages' rows current", async () => {
     const { ref, onPrompt } = renderMenuHost({ store: ownStore() });
     api.getPlaylistDetails.mockResolvedValue({
       uuid: "p",
@@ -1021,12 +1021,245 @@ describe("new playlists and playlist details", () => {
     onPrompt.mockResolvedValueOnce("New name");
     const renaming = sub.items[0].onSelect!();
     await act(async () => {});
-    expect(playlistRevision("p")).toBe(before + 1);
     expect(updated()).toEqual([]);
     removal.resolve();
     await act(async () => {
       await renaming;
     });
     expect(updated()).toHaveLength(1);
+    expect(playlistRevision("p")).toBe(before);
+  });
+
+  it("Description… asks at once from the stored description, loading the details only to save", async () => {
+    const store = signedIn(42);
+    store.set(allPlaylistsAtom, [
+      {
+        uuid: "p",
+        title: "Old",
+        description: "d0",
+        creator: { id: 42 },
+      } as Playlist,
+    ]);
+    const { ref, onPrompt } = renderMenuHost({ store });
+    const details = deferred<Playlist>();
+    api.getPlaylistDetails.mockReturnValue(details.promise);
+    act(() =>
+      ref.current!.open(
+        ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }),
+      ),
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("menuitem", { name: "Edit details" })),
+    );
+    const answer = deferred<string | null>();
+    onPrompt.mockReturnValueOnce(answer.promise);
+    // The prompt is asked for in the same click that closes the menu.
+    act(() =>
+      fireEvent.click(screen.getByRole("menuitem", { name: "Description…" })),
+    );
+    expect(onPrompt.mock.lastCall![0]).toMatchObject({
+      title: "Description",
+      initial: "d0",
+    });
+    expect(api.getPlaylistDetails).not.toHaveBeenCalled();
+    await act(async () => answer.resolve("For the car"));
+    expect(api.getPlaylistDetails).toHaveBeenCalledWith("p");
+    await act(async () =>
+      details.resolve({
+        uuid: "p",
+        title: "Server name",
+        description: "d0",
+        accessType: "PUBLIC",
+      } as Playlist),
+    );
+    expect(updated()).toEqual([
+      [
+        "update_playlist",
+        {
+          playlistId: "p",
+          title: "Server name",
+          description: "For the car",
+          accessType: "PUBLIC",
+        },
+      ],
+    ]);
+    expect(store.get(allPlaylistsAtom)[0].description).toBe("For the car");
+  });
+
+  it("a description whose details can't be loaded on save is reported", async () => {
+    const store = signedIn(42);
+    store.set(allPlaylistsAtom, [
+      {
+        uuid: "p",
+        title: "Old",
+        description: "",
+        creator: { id: 42 },
+      } as Playlist,
+    ]);
+    const { ref, onPrompt } = renderMenuHost({ store });
+    api.getPlaylistDetails.mockRejectedValue(new Error("offline"));
+    const sub = await editDetails(
+      ref.current!.mediaMenu({ type: "playlist", uuid: "p", title: "Old" }),
+    );
+    onPrompt.mockResolvedValueOnce("New");
+    await act(async () => {
+      await sub.items[1].onSelect!();
+    });
+    expect(onPrompt.mock.lastCall![0]).toMatchObject({ initial: "" });
+    expect(updated()).toEqual([]);
+    expect(
+      await screen.findByText("Couldn't save the description"),
+    ).toBeTruthy();
+  });
+});
+
+describe("Add to playlist", () => {
+  const own = (...titles: string[]) =>
+    titles.map(
+      (t) =>
+        ({ uuid: t.toLowerCase(), title: t, creator: { id: 42 } }) as Playlist,
+    );
+  const recentKey = "sone.recent-playlists.v1";
+  beforeEach(() => {
+    mockInvoke({
+      create_playlist: () => ({ uuid: "new", title: "Mix" }),
+      add_tracks_to_playlist: ({ trackIds }: { trackIds: number[] }) =>
+        trackIds,
+      get_playlist_folders: () => ({
+        items: [],
+        totalNumberOfItems: 0,
+        cursor: null,
+      }),
+    });
+    api.getPlaylistFolders.mockResolvedValue({
+      items: [],
+      totalNumberOfItems: 0,
+      cursor: null,
+    });
+  });
+  const storeWith = (playlists: Playlist[]) => {
+    const store = signedIn(42);
+    store.set(allPlaylistsAtom, playlists);
+    return store;
+  };
+  const addMenu = async (ref: RefObject<TvMenuHostHandle | null>) =>
+    (await ref
+      .current!.trackMenu(mkTrack(1))
+      .items.find((i) => i.label === "Add to playlist")!
+      .submenu!()) as TvMenuSpec;
+  const labels = (menu: TvMenuSpec) => menu.items.map((i) => i.label);
+
+  it("lists the playlists last added to first, here or on the desktop", async () => {
+    localStorage.setItem(recentKey, JSON.stringify(["c", "gone", "a"]));
+    const { ref } = renderMenuHost({ store: storeWith(own("A", "B", "C")) });
+    const menu = await addMenu(ref);
+    expect(labels(menu)).toEqual(["New playlist…", "Search…", "C", "A", "B"]);
+    await act(async () => {
+      await menu.items.find((i) => i.label === "B")!.onSelect!();
+    });
+    expect(JSON.parse(localStorage.getItem(recentKey)!)).toEqual([
+      "b",
+      "c",
+      "gone",
+      "a",
+    ]);
+    expect(labels(await addMenu(ref)).slice(2)).toEqual(["B", "C", "A"]);
+  });
+
+  it("a new playlist becomes the most recent", async () => {
+    const { ref, onPrompt } = renderMenuHost({ store: storeWith(own("A")) });
+    onPrompt.mockResolvedValueOnce("Mix");
+    const menu = await addMenu(ref);
+    await act(async () => {
+      await menu.items.find((i) => i.label === "New playlist…")!.onSelect!();
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("menuitem", { name: "Private playlist" }),
+      );
+    });
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(recentKey)!)).toEqual(["new"]),
+    );
+  });
+
+  it("no Search without playlists", async () => {
+    const { ref } = renderMenuHost({ store: storeWith([]) });
+    expect(labels(await addMenu(ref))).toEqual([
+      "New playlist…",
+      "You have no playlists yet",
+    ]);
+  });
+
+  it("Search… asks over the menu and lists the matching playlists; Back returns to the list", async () => {
+    const restore = stubLayout();
+    try {
+      const { ref, onPrompt } = renderMenuHost({
+        store: storeWith(own("Road trip", "Rock", "Jazz")),
+      });
+      act(() => ref.current!.open(ref.current!.trackMenu(mkTrack(1))));
+      await act(async () =>
+        fireEvent.click(
+          screen.getByRole("menuitem", { name: "Add to playlist" }),
+        ),
+      );
+      const answer = deferred<string | null>();
+      onPrompt.mockReturnValueOnce(answer.promise);
+      await act(async () =>
+        fireEvent.click(screen.getByRole("menuitem", { name: "Search…" })),
+      );
+      expect(onPrompt.mock.lastCall![0]).toMatchObject({
+        title: "Search playlists",
+        confirm: "Search",
+      });
+      // Still there under the prompt.
+      expect(
+        screen.getByRole("menu", { name: "Add to playlist" }),
+      ).toBeTruthy();
+      await act(async () => answer.resolve("RO"));
+      expect(
+        screen.getByRole("menu", { name: 'Playlists matching "RO"' }),
+      ).toBeTruthy();
+      const found = screen.getAllByRole("menuitem");
+      expect(found.map((i) => i.textContent)).toEqual(["Road trip", "Rock"]);
+      expect(document.activeElement).toBe(found[0]);
+      act(() => ref.current!.back());
+      expect(document.activeElement).toBe(
+        screen.getByRole("menuitem", { name: "Search…" }),
+      );
+
+      onPrompt.mockResolvedValueOnce("nothing");
+      await act(async () =>
+        fireEvent.click(screen.getByRole("menuitem", { name: "Search…" })),
+      );
+      expect(screen.getByRole("menuitem").textContent).toBe(
+        'No playlists match "nothing"',
+      );
+      act(() => ref.current!.back());
+
+      onPrompt.mockResolvedValueOnce(null);
+      await act(async () =>
+        fireEvent.click(screen.getByRole("menuitem", { name: "Search…" })),
+      );
+      expect(
+        screen.getByRole("menu", { name: "Add to playlist" }),
+      ).toBeTruthy();
+
+      onPrompt.mockResolvedValueOnce("jazz");
+      await act(async () =>
+        fireEvent.click(screen.getByRole("menuitem", { name: "Search…" })),
+      );
+      await act(async () =>
+        fireEvent.click(screen.getByRole("menuitem", { name: "Jazz" })),
+      );
+      expect(invoke).toHaveBeenCalledWith("add_tracks_to_playlist", {
+        playlistId: "jazz",
+        trackIds: [1],
+        onDupes: "SKIP",
+      });
+      expect(await screen.findByText('Added to "Jazz"')).toBeTruthy();
+    } finally {
+      restore();
+    }
   });
 });

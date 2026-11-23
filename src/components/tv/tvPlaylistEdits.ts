@@ -5,9 +5,10 @@ import { invalidateCache } from "../../api/tidal";
  * Writes to one playlist (removals, adds, edits) go out one at a time, in
  * the order they were made, from whichever page or menu made them, and keep
  * going after that page has closed. Removals send a row's position, so a
- * position is only right for the list it was read from: each write bumps
- * the playlist's revision when it is queued, and a page whose rows were
- * loaded at an older revision must reload before it removes anything.
+ * position is only right for the list it was read from: each write to its
+ * tracks bumps the playlist's revision when it is queued, and a page whose
+ * rows were loaded at an older revision must reload before it removes
+ * anything.
  */
 interface PlaylistEdits {
   chain: Promise<void>;
@@ -59,15 +60,17 @@ export async function playlistSettled(uuid: string): Promise<void> {
 /** Queue `send` behind the playlist's other writes. A `positional` write (a
  *  removal by index) is dropped, resolving false, when a write queued
  *  before it failed. A failure rejects and leaves the playlist at a new
- *  revision with its cached pages gone, since it may still have landed. */
+ *  revision with its cached pages gone, since it may still have landed.
+ *  A `details` write (name, description) leaves the tracks alone: it bumps
+ *  no revision, and its failure drops nothing. */
 export function queuePlaylistEdit(
   uuid: string,
   send: () => Promise<void>,
-  opts: { positional?: boolean } = {},
+  opts: { positional?: boolean; details?: boolean } = {},
 ): Promise<boolean> {
   const e = editsOf(uuid);
   const epoch = e.epoch;
-  e.revision++;
+  if (!opts.details) e.revision++;
   e.pending++;
   changed();
   const run = e.chain
@@ -77,9 +80,11 @@ export function queuePlaylistEdit(
         await send();
         return true;
       } catch (err) {
-        e.epoch++;
-        e.revision++;
-        invalidateCache(`playlist:${uuid}`);
+        if (!opts.details) {
+          e.epoch++;
+          e.revision++;
+          invalidateCache(`playlist:${uuid}`);
+        }
         throw err;
       }
     })
@@ -104,6 +109,11 @@ function subscribe(listener: () => void) {
 /** `playlistBusy`, re-rendering when it changes. */
 export function usePlaylistBusy(uuid: string): boolean {
   return useSyncExternalStore(subscribe, () => playlistBusy(uuid));
+}
+
+/** `playlistRevision`, re-rendering when it changes. */
+export function usePlaylistRevision(uuid: string): number {
+  return useSyncExternalStore(subscribe, () => playlistRevision(uuid));
 }
 
 export function __resetPlaylistEditsForTests(): void {

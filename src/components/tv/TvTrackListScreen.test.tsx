@@ -17,7 +17,7 @@ import { allPlaylistsAtom } from "../../atoms/playlists";
 import type { Playlist, Track } from "../../types";
 import TvTrackListScreen from "./TvTrackListScreen";
 import { TvScreenContext, type TvNav } from "./TvNavContext";
-import { markPlaylistChanged } from "./tvPlaylistEdits";
+import { markPlaylistChanged, queuePlaylistEdit } from "./tvPlaylistEdits";
 import { menuForElement } from "./tvMenu";
 import {
   deferred,
@@ -616,7 +616,7 @@ it("shows recommendations once the playlist is fully loaded and adds one", async
     items: range(12).map((i) => mkTrack(i + 1)),
   });
   mockInvoke({
-    add_track_to_playlist: () => undefined,
+    add_tracks_to_playlist: ({ trackIds }: { trackIds: number[] }) => trackIds,
     get_playlist_folders: () => ({
       items: [],
       totalNumberOfItems: 0,
@@ -636,18 +636,32 @@ it("shows recommendations once the playlist is fully loaded and adds one", async
     id: "p",
   });
   fireEvent.click(rowMore("T2"));
+  // Where the server put it is not assumed: the rows reload once it landed.
+  api.getPlaylistTracksPage.mockResolvedValue({
+    items: [mkTrack(900), mkTrack(2)],
+    totalNumberOfItems: 2,
+  });
   await act(async () => {
     await vi
       .mocked(nav.trackMenu)
       .mock.lastCall![1]!.find((i) => i.label === "Add to this playlist")!
       .onSelect!();
   });
-  expect(invoke).toHaveBeenCalledWith("add_track_to_playlist", {
+  expect(invoke).toHaveBeenCalledWith("add_tracks_to_playlist", {
     playlistId: "p",
-    trackId: 2,
+    trackIds: [2],
+    onDupes: "SKIP",
   });
-  expect(screen.queryByText("T2")).toBeNull();
+  await waitFor(() =>
+    expect(rowFor("T2").getAttribute("data-tv-index")).toBe("1"),
+  );
+  expect(
+    within(
+      screen.getByText("Recommended tracks").closest("section")!,
+    ).queryByText("T2"),
+  ).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(rowButton("T3")));
+  expect(screen.queryByText("This playlist changed — reloading")).toBeNull();
 });
 
 describe("recommendations", () => {
@@ -677,7 +691,8 @@ describe("recommendations", () => {
   beforeEach(() => {
     api.getPlaylistRecommendations.mockResolvedValue({ items: [rec] });
     mockInvoke({
-      add_track_to_playlist: () => undefined,
+      add_tracks_to_playlist: ({ trackIds }: { trackIds: number[] }) =>
+        trackIds,
       remove_track_from_playlist: () => undefined,
       get_playlist_folders: () => ({
         items: [],
@@ -722,7 +737,7 @@ describe("recommendations", () => {
   it("a failed add puts the recommendation back", async () => {
     playlist(42, [t1]);
     mockInvoke({
-      add_track_to_playlist: () => {
+      add_tracks_to_playlist: () => {
         throw new Error("x");
       },
       get_playlist_folders: () => ({
@@ -753,7 +768,8 @@ describe("recommendations", () => {
     playlist(42, [t1, t2]);
     const removal = deferred<void>();
     mockInvoke({
-      add_track_to_playlist: () => undefined,
+      add_tracks_to_playlist: ({ trackIds }: { trackIds: number[] }) =>
+        trackIds,
       remove_track_from_playlist: () => removal.promise,
       get_playlist_folders: () => ({
         items: [],
@@ -783,13 +799,96 @@ describe("recommendations", () => {
     });
     expect(sent()).toEqual([
       "remove_track_from_playlist",
-      "add_track_to_playlist",
+      "add_tracks_to_playlist",
     ]);
     expect(screen.getByText(/\b2 Tracks\b/)).toBeTruthy();
   });
 
-  it("after adding one, a removal reloads the list first (where the server put the track is not assumed)", async () => {
+  it("an added one shows among the rows of a long playlist without dropping the loaded pages or the focus, and a removal then goes out at once", async () => {
+    let server = range(250).map((i) => mkTrack(i + 1));
+    const serve = () => {
+      api.getPlaylistDetails.mockResolvedValue({
+        uuid: "p",
+        title: "P",
+        numberOfTracks: server.length,
+        creator: { id: 42 },
+      });
+      api.getPlaylistTracksPage.mockImplementation(
+        async (_uuid: string, offset: number, limit: number) => ({
+          items: server.slice(offset, offset + limit),
+          totalNumberOfItems: server.length,
+        }),
+      );
+    };
+    serve();
+    api.getPlaylistRecommendations.mockResolvedValue({
+      items: [rec, mkTrack(501)],
+    });
+    const { nav } = renderTv(
+      <TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />,
+      { store: signedIn(42) },
+    );
+    await screen.findByText("T1");
+    for (const last of ["T200", "T250"]) {
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name: "Load more" })),
+      );
+      await screen.findByText(last);
+    }
+    await screen.findByText("T500");
+    server = [...server, rec];
+    serve();
+    const loads = api.getPlaylistTracksPage.mock.calls.length;
+    await act(async () => {
+      await addEntry(nav, "T500")!.onSelect!();
+    });
+    await waitFor(() =>
+      expect(rowFor("T500").getAttribute("data-tv-index")).toBe("250"),
+    );
+    // Every page again, not just the first.
+    expect(api.getPlaylistTracksPage.mock.calls.length).toBe(loads + 3);
+    expect(screen.getByText("T250")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(rowButton("T501")));
+    expect(screen.queryByText("This playlist changed — reloading")).toBeNull();
+    expect(screen.getByText(/\b251 Tracks\b/)).toBeTruthy();
+    fireEvent.click(rowMore("T250"));
+    await act(
+      async () =>
+        void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!(),
+    );
+    expect(invoke).toHaveBeenCalledWith("remove_track_from_playlist", {
+      playlistId: "p",
+      index: 249,
+    });
+  });
+
+  it("leave out tracks already in the playlist", async () => {
     playlist(42, [t1, t2]);
+    api.getPlaylistRecommendations.mockResolvedValue({
+      items: [t1, rec, t2],
+    });
+    renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, {
+      store: signedIn(42),
+    });
+    const section = (await screen.findByText("Recommended tracks")).closest(
+      "section",
+    )!;
+    expect(within(section).getByText("T500")).toBeTruthy();
+    expect(within(section).queryByText("T1")).toBeNull();
+    expect(within(section).queryByText("T2")).toBeNull();
+  });
+
+  it("one already in the playlist offers Add anyway, as Add to playlist does", async () => {
+    playlist(42, [t1]);
+    mockInvoke({
+      add_tracks_to_playlist: ({ onDupes }: { onDupes: string }) =>
+        onDupes === "ADD" ? [500] : [],
+      get_playlist_folders: () => ({
+        items: [],
+        totalNumberOfItems: 0,
+        cursor: null,
+      }),
+    });
     const { nav } = renderTv(
       <TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />,
       { store: signedIn(42) },
@@ -798,39 +897,51 @@ describe("recommendations", () => {
     await act(async () => {
       await addEntry(nav, "T500")!.onSelect!();
     });
-    playlist(42, [t1, t2, rec]);
-    fireEvent.click(rowMore("T2"));
-    await act(
-      async () =>
-        void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!(),
-    );
-    expect(
-      vi
-        .mocked(invoke)
-        .mock.calls.some(([c]) => c === "remove_track_from_playlist"),
-    ).toBe(false);
-    expect(screen.getByText("This playlist changed — reloading")).toBeTruthy();
-    await screen.findByText("T500");
-    fireEvent.click(rowMore("T2"));
-    await act(
-      async () =>
-        void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!(),
-    );
-    expect(invoke).toHaveBeenCalledWith("remove_track_from_playlist", {
-      playlistId: "p",
-      index: 1,
+    const offer = vi.mocked(nav.openMenu).mock.lastCall![0];
+    expect(offer.title).toBe('Already in "P"');
+    expect(offer.items.map((i) => i.label)).toEqual(["Add anyway", "Cancel"]);
+    expect(screen.queryByText('Added "T500" to playlist')).toBeNull();
+    await act(async () => {
+      await offer.items[0].onSelect!();
     });
+    expect(invoke).toHaveBeenCalledWith("add_tracks_to_playlist", {
+      playlistId: "p",
+      trackIds: [500],
+      onDupes: "ADD",
+    });
+    expect(await screen.findByText('Added to "P" again')).toBeTruthy();
   });
 
-  it("after the MCP server changed the playlist, a removal reloads the list first", async () => {
+  it("a change made by the MCP server shows at once, focus staying on its track", async () => {
+    const t3 = mkTrack(3);
+    playlist(42, [t1, t2, t3]);
+    renderTv(<TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />, {
+      store: signedIn(42),
+    });
+    await screen.findByText("T500");
+    act(() => rowButton("T2").focus());
+    playlist(42, [t2, t3]);
+    await act(async () => markPlaylistChanged("p"));
+    await waitFor(() => expect(screen.queryByText("T1")).toBeNull());
+    expect(document.activeElement).toBe(rowButton("T2"));
+    expect(screen.queryByText("This playlist changed — reloading")).toBeNull();
+    // Its own track gone, focus goes to the row now in its place.
+    playlist(42, [t3]);
+    await act(async () => markPlaylistChanged("p"));
+    await waitFor(() => expect(screen.queryByText("T2")).toBeNull());
+    expect(document.activeElement).toBe(rowButton("T3"));
+  });
+
+  it("a removal chosen before that reload lands reloads first", async () => {
     playlist(42, [t1, t2]);
     const { nav } = renderTv(
       <TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />,
       { store: signedIn(42) },
     );
     await screen.findByText("T500");
-    act(() => markPlaylistChanged("p"));
-    playlist(42, [t2]);
+    const page = deferred<{ items: Track[]; totalNumberOfItems: number }>();
+    api.getPlaylistTracksPage.mockReturnValueOnce(page.promise);
+    await act(async () => markPlaylistChanged("p"));
     fireEvent.click(rowMore("T2"));
     await act(
       async () =>
@@ -842,6 +953,7 @@ describe("recommendations", () => {
         .mock.calls.some(([c]) => c === "remove_track_from_playlist"),
     ).toBe(false);
     expect(screen.getByText("This playlist changed — reloading")).toBeTruthy();
+    await act(async () => page.resolve({ items: [t2], totalNumberOfItems: 1 }));
     await waitFor(() => expect(screen.queryByText("T1")).toBeNull());
     fireEvent.click(rowMore("T2"));
     await act(
@@ -852,6 +964,29 @@ describe("recommendations", () => {
       playlistId: "p",
       index: 0,
     });
+  });
+
+  it("a name or description edit reloads nothing", async () => {
+    playlist(42, [t1, t2]);
+    const { nav } = renderTv(
+      <TvTrackListScreen view={{ type: "playlist", uuid: "p" }} />,
+      { store: signedIn(42) },
+    );
+    await screen.findByText("T500");
+    const loads = api.getPlaylistTracksPage.mock.calls.length;
+    await act(async () => {
+      await queuePlaylistEdit("p", async () => {}, { details: true });
+    });
+    fireEvent.click(rowMore("T2"));
+    await act(
+      async () =>
+        void vi.mocked(nav.trackMenu).mock.lastCall![1]![0].onSelect!(),
+    );
+    expect(invoke).toHaveBeenCalledWith("remove_track_from_playlist", {
+      playlistId: "p",
+      index: 1,
+    });
+    expect(api.getPlaylistTracksPage.mock.calls.length).toBe(loads);
   });
 
   it("a Refresh that leaves none moves focus to the last row", async () => {
@@ -1358,10 +1493,9 @@ describe("playlist removals", () => {
       serverHas([a, c, d]);
       await act(async () => pending[0].resolve());
       const before = loads();
+      // Not while it is not shown.
+      expect(before).toBe(2);
       rerender(<TwoCopies firstActive />);
-      expect(
-        screen.getByText("This playlist changed — reloading"),
-      ).toBeTruthy();
       await waitFor(() =>
         expect(
           within(screen.getByTestId("copy1")).queryByText("T2"),

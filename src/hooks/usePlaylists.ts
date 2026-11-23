@@ -17,6 +17,28 @@ import type { Playlist, PlaylistOrFolder } from "../types";
 
 export type OnDupes = "FAIL" | "SKIP" | "ADD";
 
+/** Playlists last added to, newest first; "Add to playlist" lists them
+ *  first (desktop and TV). */
+const RECENT_PLAYLISTS_KEY = "sone.recent-playlists.v1";
+export const MAX_RECENT_PLAYLISTS = 8;
+
+export function getRecentPlaylistIds(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_PLAYLISTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+
+export function pushRecentPlaylistId(playlistId: string) {
+  const ids = getRecentPlaylistIds().filter((id) => id !== playlistId);
+  ids.unshift(playlistId);
+  if (ids.length > MAX_RECENT_PLAYLISTS) ids.length = MAX_RECENT_PLAYLISTS;
+  try {
+    localStorage.setItem(RECENT_PLAYLISTS_KEY, JSON.stringify(ids));
+  } catch {}
+}
+
 export function usePlaylists() {
   const [userPlaylists, setUserPlaylists] = useAtom(userPlaylistsAtom);
   const setDeletedPlaylistIds = useSetAtom(deletedPlaylistIdsAtom);

@@ -16,6 +16,7 @@ import {
   FolderOpen,
   Globe,
   Heart,
+  History,
   ListEnd,
   ListPlus,
   ListStart,
@@ -23,6 +24,7 @@ import {
   Lock,
   Play,
   Radio,
+  Search,
   User,
   Pencil,
   Plus,
@@ -56,7 +58,11 @@ import { useToast } from "../../contexts/ToastContext";
 import { useFavorites } from "../../hooks/useFavorites";
 import { getRecentFolderIds, useFolders } from "../../hooks/useFolders";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
-import { type OnDupes, usePlaylists } from "../../hooks/usePlaylists";
+import {
+  getRecentPlaylistIds,
+  pushRecentPlaylistId,
+  usePlaylists,
+} from "../../hooks/usePlaylists";
 import { focusElement, focusFirstIn } from "../../lib/spatialNav";
 import type { Folder, MediaItemType, Playlist, Track } from "../../types";
 import { getTidalImageUrl } from "../../types";
@@ -72,6 +78,7 @@ import {
   type TvMenuTone,
   type TvMenuVerdict,
 } from "./tvMenu";
+import { menuLabel as label, useTvPlaylistAdd } from "./tvPlaylistAdd";
 import { playlistSettled, queuePlaylistEdit } from "./tvPlaylistEdits";
 import type { TvPromptRequest } from "./TvPrompt";
 import { TvQrCode } from "./TvQrCode";
@@ -143,31 +150,17 @@ const TvMenuHost = forwardRef<
   const { addToQueue, playNextInQueue } = usePlaybackActions();
   const { playMedia } = useTvPlayback(onPlayed);
   const fav = useFavorites();
-  const {
-    addTracksToPlaylist,
-    createPlaylist,
-    updatePlaylist,
-    deletePlaylist,
-  } = usePlaylists();
-  // Playlist writes wait behind the ones already going to that playlist
-  // (an open page's removals) and mark its pages out of date. As on the
-  // desktop, a track already in the playlist is skipped unless `onDupes`
-  // is "ADD"; false when it was skipped.
-  const addToPlaylist = useCallback(
-    async (uuid: string, trackId: number, onDupes: OnDupes = "SKIP") => {
-      let added: number[] = [];
-      await queuePlaylistEdit(uuid, async () => {
-        added = await addTracksToPlaylist(uuid, [trackId], onDupes);
-      });
-      return added.length > 0;
-    },
-    [addTracksToPlaylist],
-  );
+  const { createPlaylist, updatePlaylist, deletePlaylist } = usePlaylists();
+  // Behind the playlist's other writes; its rows stay as they are.
   const editPlaylist = useCallback(
     (uuid: string, title: string, description: string, access: string) =>
-      queuePlaylistEdit(uuid, async () => {
-        await updatePlaylist(uuid, title, description, access);
-      }),
+      queuePlaylistEdit(
+        uuid,
+        async () => {
+          await updatePlaylist(uuid, title, description, access);
+        },
+        { details: true },
+      ),
     [updatePlaylist],
   );
   const { createFolder, movePlaylistTo } = useFolders();
@@ -214,6 +207,7 @@ const TvMenuHost = forwardRef<
     openers.current = [];
     setStack([spec]);
   }, []);
+  const { addToPlaylist, addOrOffer } = useTvPlaylistAdd(openMenu);
 
   // A polled menu is replaced by its next version while it is on top.
   const replacing = useRef(false);
@@ -267,9 +261,6 @@ const TvMenuHost = forwardRef<
       if (el.isConnected) focusElement(el);
     }
   }, [stack]);
-
-  const label = (text: string) =>
-    text.length > 32 ? `${text.slice(0, 30)}…` : text;
 
   const folderMenu = useCallback(
     async (
@@ -391,10 +382,29 @@ const TvMenuHost = forwardRef<
       if (!loaded && playlists.length === 0) {
         throw new Error("Couldn't load your playlists");
       }
-      // Only playlists the user can edit.
+      // Only playlists the user can edit; the ones last added to (here or
+      // on the desktop) first.
       const own = playlists.filter(
         (p) => p.creator?.id == null || p.creator.id === userId,
       );
+      const recent = getRecentPlaylistIds()
+        .map((id) => own.find((p) => p.uuid === id))
+        .filter((p): p is Playlist => !!p);
+      const ordered = [...recent, ...own.filter((p) => !recent.includes(p))];
+      const entry = (p: Playlist): TvMenuItem => ({
+        label: p.title,
+        icon: recent.includes(p) ? History : ListPlus,
+        onSelect: async () => {
+          try {
+            if (await addOrOffer(p, track)) {
+              showToast(`Added to "${label(p.title)}"`);
+            }
+            pushRecentPlaylistId(p.uuid);
+          } catch {
+            showToast("Couldn't add to playlist", "error");
+          }
+        },
+      });
       const newPlaylist: TvMenuItem = {
         label: "New playlist…",
         icon: Plus,
@@ -413,6 +423,7 @@ const TvMenuHost = forwardRef<
               return;
             }
             setAllPlaylists((prev) => [created, ...prev]);
+            pushRecentPlaylistId(created.uuid);
             try {
               await addToPlaylist(created.uuid, track.id);
               showToast(`Added to new playlist "${label(title)}"`);
@@ -442,48 +453,38 @@ const TvMenuHost = forwardRef<
           });
         },
       };
+      const search: TvMenuItem = {
+        label: "Search…",
+        icon: Search,
+        ask: {
+          prompt: {
+            title: "Search playlists",
+            confirm: "Search",
+            placeholder: "Playlist name",
+          },
+          submenu: (text) => {
+            const q = text.toLowerCase();
+            const found = ordered.filter((p) =>
+              p.title.toLowerCase().includes(q),
+            );
+            return {
+              title: `Playlists matching "${label(text)}"`,
+              subtitle: track.title,
+              items:
+                found.length > 0
+                  ? found.map(entry)
+                  : [{ label: `No playlists match "${label(text)}"` }],
+            };
+          },
+        },
+      };
       return {
         title: "Add to playlist",
         subtitle: track.title,
         items: [
           newPlaylist,
-          ...(own.length > 0
-            ? own.map((p) => ({
-                label: p.title,
-                icon: ListPlus,
-                onSelect: async () => {
-                  try {
-                    // A track already in the playlist is skipped; the choice
-                    // to add it anyway is a menu, since a toast's button
-                    // can't be reached by remote.
-                    if (await addToPlaylist(p.uuid, track.id)) {
-                      showToast(`Added to "${label(p.title)}"`);
-                      return;
-                    }
-                    openMenu({
-                      title: `Already in "${label(p.title)}"`,
-                      subtitle: track.title,
-                      items: [
-                        {
-                          label: "Add anyway",
-                          icon: ListPlus,
-                          onSelect: async () => {
-                            try {
-                              await addToPlaylist(p.uuid, track.id, "ADD");
-                              showToast(`Added to "${label(p.title)}" again`);
-                            } catch {
-                              showToast("Couldn't add to playlist", "error");
-                            }
-                          },
-                        },
-                        { label: "Cancel", icon: X, onSelect: () => {} },
-                      ],
-                    });
-                  } catch {
-                    showToast("Couldn't add to playlist", "error");
-                  }
-                },
-              }))
+          ...(ordered.length > 0
+            ? [search, ...ordered.map(entry)]
             : [{ label: "You have no playlists yet" }]),
         ],
       };
@@ -494,6 +495,7 @@ const TvMenuHost = forwardRef<
       loadPlaylists,
       setAllPlaylists,
       addToPlaylist,
+      addOrOffer,
       createPlaylist,
       onPrompt,
       openMenu,
@@ -889,14 +891,24 @@ const TvMenuHost = forwardRef<
                 {
                   label: "Description…",
                   onSelect: async () => {
-                    let details: Playlist;
-                    try {
-                      details = await getPlaylistDetails(item.uuid);
-                    } catch {
-                      showToast("Couldn't load the playlist", "error");
-                      return;
+                    // Asked at once from the stored description (its page
+                    // refreshes it as it loads), so the prompt takes over
+                    // from the menu without a pause; one not stored yet is
+                    // loaded first.
+                    const stored = store
+                      .get(allPlaylistsAtom)
+                      .find((p) => p.uuid === item.uuid)?.description;
+                    let details: Playlist | undefined;
+                    if (stored === undefined) {
+                      try {
+                        details = await getPlaylistDetails(item.uuid);
+                      } catch {
+                        showToast("Couldn't load the playlist", "error");
+                        return;
+                      }
                     }
-                    const before = details.description ?? "";
+                    const before =
+                      (details ? details.description : stored) ?? "";
                     // Multi-line and untrimmed, so its line breaks and an
                     // untouched text come back exactly as they were.
                     const description = await onPrompt({
@@ -913,6 +925,7 @@ const TvMenuHost = forwardRef<
                     }
                     try {
                       // Keep its name and visibility as they are.
+                      details ??= await getPlaylistDetails(item.uuid);
                       await editPlaylist(
                         item.uuid,
                         details.title || current,
@@ -1047,23 +1060,35 @@ const TvMenuHost = forwardRef<
     [openMenu, close, trackMenu, mediaMenu],
   );
 
+  const openSubmenu = async (
+    from: TvMenuSpec,
+    index: number,
+    build: () => TvMenuSpec | Promise<TvMenuSpec>,
+  ) => {
+    setLoadingFor(from);
+    try {
+      const next = await build();
+      // Dropped if its menu was closed or replaced meanwhile.
+      if (stackRef.current[stackRef.current.length - 1] !== from) return;
+      openers.current[stackRef.current.length - 1] = index;
+      setStack((s) => [...s, next]);
+    } catch {
+      showToast("Couldn't load", "error");
+    } finally {
+      setLoadingFor((cur) => (cur === from ? null : cur));
+    }
+  };
+
   const select = async (item: TvMenuItem, index: number) => {
     const from = stackRef.current[stackRef.current.length - 1];
     if (loadingFor === from) return;
-    if (item.submenu) {
-      setLoadingFor(from);
-      try {
-        const next = await item.submenu();
-        // Dropped if its menu was closed or replaced meanwhile.
-        if (stackRef.current[stackRef.current.length - 1] !== from) return;
-        openers.current[stackRef.current.length - 1] = index;
-        setStack((s) => [...s, next]);
-      } catch {
-        showToast("Couldn't load", "error");
-      } finally {
-        setLoadingFor((cur) => (cur === from ? null : cur));
-      }
-      return;
+    if (item.submenu) return openSubmenu(from, index, item.submenu);
+    if (item.ask) {
+      // The prompt opens over the menu, which stays for Back.
+      const { prompt, submenu } = item.ask;
+      const text = await onPrompt(prompt);
+      if (text === null) return;
+      return openSubmenu(from, index, () => submenu(text));
     }
     if (!item.onSelect) return;
     // Run with focus back on the opener, so a screen the action opens
@@ -1135,7 +1160,7 @@ const TvMenuHost = forwardRef<
         <div className="flex flex-col gap-[0.2rem]">
           {spec.items.map((item, i) => {
             const Icon = item.icon;
-            const actionable = !!(item.onSelect || item.submenu);
+            const actionable = !!(item.onSelect || item.submenu || item.ask);
             const lines = item.detail !== undefined || item.note !== undefined;
             // Read, not chosen: the path rows take no focus.
             if (item.path) {

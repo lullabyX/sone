@@ -23,17 +23,20 @@ vi.mock("../api/tidal", async (importOriginal) => ({
 }));
 
 import { useMcpBridge } from "./useMcpBridge";
+import { allPlaylistsAtom } from "../atoms/playlists";
 import {
   playlistRevision,
   __resetPlaylistEditsForTests,
 } from "../components/tv/tvPlaylistEdits";
 
+let store: ReturnType<typeof createStore>;
 const wrapper = ({ children }: { children: ReactNode }) => (
-  <Provider store={createStore()}>{children}</Provider>
+  <Provider store={store}>{children}</Provider>
 );
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  store = createStore();
   renderHook(() => useMcpBridge(), { wrapper });
 });
 afterEach(() => {
@@ -50,9 +53,25 @@ it("tracks added or removed by the MCP server mark the playlist changed", () => 
   expect(playlistRevision("q")).toBe(0);
 });
 
-it("details edited by the MCP server mark the playlist changed", () => {
+it("details edited by the MCP server show in the listed playlists, its rows still current", () => {
+  store.set(allPlaylistsAtom, [
+    { uuid: "p", title: "Old", description: "d0" },
+    { uuid: "q", title: "Q" },
+  ]);
   handlers["mcp:playlist-updated"]({
     payload: { uuid: "p", title: "New", description: null },
   });
-  expect(playlistRevision("p")).toBe(1);
+  expect(store.get(allPlaylistsAtom)).toEqual([
+    { uuid: "p", title: "New", description: "d0" },
+    { uuid: "q", title: "Q" },
+  ]);
+  handlers["mcp:playlist-updated"]({
+    payload: { uuid: "p", title: null, description: "" },
+  });
+  expect(store.get(allPlaylistsAtom)[0]).toEqual({
+    uuid: "p",
+    title: "New",
+    description: "",
+  });
+  expect(playlistRevision("p")).toBe(0);
 });
