@@ -6,7 +6,11 @@ import {
   toggleMute,
   volumeAtom,
 } from "../../atoms/playback";
-import { tvVolumeLimitPingAtom, tvVolumeLockedPingAtom } from "../../atoms/tv";
+import {
+  tvVolumeLimitPingAtom,
+  tvVolumeLockedPingAtom,
+  tvVolumeOnTvAtom,
+} from "../../atoms/tv";
 import { currentVideoAtom } from "../../atoms/video";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
@@ -32,10 +36,10 @@ export function useTvMediaCommands(): (cmd: TvMediaCommand) => void {
 
   return useCallback(
     (cmd: TvMediaCommand) => {
-      if (
-        (cmd.kind === "volume" || cmd.kind === "mute") &&
-        isVolumeLocked(store)
-      ) {
+      const volumeCmd = cmd.kind === "volume" || cmd.kind === "mute";
+      // The TV's remote sets the volume; SONE stays at its level.
+      if (volumeCmd && store.get(tvVolumeOnTvAtom)) return;
+      if (volumeCmd && isVolumeLocked(store)) {
         store.set(tvVolumeLockedPingAtom, (n) => n + 1);
         return;
       }

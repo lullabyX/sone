@@ -21,8 +21,16 @@ import {
 import TvSettings from "./TvSettings";
 import type { TvNav } from "./TvNavContext";
 import { videoCoversAtom } from "../../atoms/ui";
-import { tvOverscanAtom, tvTextSizeAtom } from "../../atoms/tv";
-import { bitPerfectAtom, exclusiveModeAtom } from "../../atoms/playback";
+import {
+  tvOverscanAtom,
+  tvTextSizeAtom,
+  tvVolumeOnTvAtom,
+} from "../../atoms/tv";
+import {
+  bitPerfectAtom,
+  exclusiveModeAtom,
+  volumeAtom,
+} from "../../atoms/playback";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
 
@@ -153,6 +161,29 @@ it("Back leaves calibration with the old margin, which stays within 0–10 %", (
   fireEvent.keyDown(frame, { key: "BrowserBack" });
   expect(screen.queryByLabelText(/^Screen margin:/)).toBeNull();
   expect(store.get(tvOverscanAtom)).toEqual({ x: 9.5, y: 0 });
+});
+
+it("hands the volume to the TV: SONE goes to 100 % and says so", async () => {
+  mockInvoke({
+    get_gapless_supported: () => false,
+    set_volume: () => undefined,
+  });
+  const store = createStore();
+  store.set(volumeAtom, 0.3);
+  renderTv(<TvSettings />, { store });
+  const row = screen.getByRole("button", { name: /^Volume/ });
+  expect(row.textContent).toContain("SONE");
+  fireEvent.click(row);
+  expect(store.get(tvVolumeOnTvAtom)).toBe(true);
+  expect(
+    await screen.findByText(
+      "Volume is now set on your TV; SONE plays at 100 %",
+    ),
+  ).toBeTruthy();
+  expect(store.get(volumeAtom)).toBe(1);
+  expect(row.textContent).toContain("TV");
+  fireEvent.click(row);
+  expect(store.get(tvVolumeOnTvAtom)).toBe(false);
 });
 
 it("says when no device is found and looks again", async () => {

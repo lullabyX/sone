@@ -5,7 +5,7 @@ import {
   preMuteVolumeAtom,
   volumeAtom,
 } from "../../atoms/playback";
-import { tvVolumeLockedPingAtom } from "../../atoms/tv";
+import { tvVolumeLockedPingAtom, tvVolumeOnTvAtom } from "../../atoms/tv";
 import { currentVideoAtom } from "../../atoms/video";
 import { getInterpolatedPosition } from "../../lib/playbackPosition";
 import { videoElementRef } from "../../lib/videoElement";
@@ -70,6 +70,15 @@ it("maps transport commands", () => {
   expect(actions.playNext).toHaveBeenCalledWith({ explicit: true });
   expect(actions.resumeTrack).toHaveBeenCalledTimes(1);
   expect(actions.pauseTrack).toHaveBeenCalledTimes(1);
+});
+it("leaves the volume alone when the TV's remote sets it", () => {
+  const { result, store } = renderTvHook(() => useTvMediaCommands());
+  store.set(tvVolumeOnTvAtom, true);
+  store.set(bitPerfectAtom, true);
+  result.current({ kind: "volume", by: 0.05 });
+  result.current({ kind: "mute" });
+  expect(actions.setVolume).not.toHaveBeenCalled();
+  expect(store.get(tvVolumeLockedPingAtom)).toBe(0);
 });
 it("a locked volume changes nothing and says so", () => {
   const { result, store } = renderTvHook(() => useTvMediaCommands());

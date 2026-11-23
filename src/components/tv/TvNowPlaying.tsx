@@ -59,6 +59,7 @@ import {
 import {
   tvLyricsAtom,
   tvNowPlayingTabAtom,
+  tvVolumeOnTvAtom,
   type TvNowPlayingTab,
 } from "../../atoms/tv";
 import { useFavorites } from "../../hooks/useFavorites";
@@ -757,6 +758,7 @@ export default function TvNowPlaying() {
   const currentVideo = useAtomValue(currentVideoAtom);
   const [videoExpanded, setVideoExpanded] = useAtom(videoExpandedAtom);
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
+  const volumeOnTv = useAtomValue(tvVolumeOnTvAtom);
   const signalPath = useAtomValue(signalPathAtom);
   const tone = signalTone(signalPath);
   const appStore = useStore();
@@ -1132,9 +1134,11 @@ export default function TvNowPlaying() {
             />
           </div>
 
-          <div className="mt-[1rem] flex items-center">
-            <VolumeControl />
-          </div>
+          {!volumeOnTv && (
+            <div className="mt-[1rem] flex items-center">
+              <VolumeControl />
+            </div>
+          )}
         </div>
 
         {nextUp && (

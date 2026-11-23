@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { volumeAtom } from "../../atoms/playback";
-import { tvVolumeLockedPingAtom } from "../../atoms/tv";
+import { tvVolumeLockedPingAtom, tvVolumeOnTvAtom } from "../../atoms/tv";
 import TvVolumeHud from "./TvVolumeHud";
 import { mockInvoke, renderTv, renderTvHook, setupTvTest } from "./tvTestUtils";
 import { useTvMediaCommands } from "./useTvMediaCommands";
@@ -25,6 +25,14 @@ it("stays hidden at mount and shows each later change for 2 s", () => {
   act(() => vi.advanceTimersByTime(1500));
   expect(screen.getByRole("status").textContent).toContain("60%");
   act(() => vi.advanceTimersByTime(600));
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("stays hidden when the TV shows its own volume", () => {
+  const { store } = renderTv(<TvVolumeHud />);
+  act(() => store.set(tvVolumeOnTvAtom, true));
+  act(() => store.set(volumeAtom, 0.3));
+  act(() => store.set(tvVolumeLockedPingAtom, 1));
   expect(screen.queryByRole("status")).toBeNull();
 });
 

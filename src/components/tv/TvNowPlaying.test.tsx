@@ -28,7 +28,11 @@ import {
   volumeAtom,
   type SignalPath,
 } from "../../atoms/playback";
-import { tvLyricsAtom, tvVolumeLockedPingAtom } from "../../atoms/tv";
+import {
+  tvLyricsAtom,
+  tvVolumeLockedPingAtom,
+  tvVolumeOnTvAtom,
+} from "../../atoms/tv";
 import { videoCoversAtom } from "../../atoms/ui";
 import { currentVideoAtom } from "../../atoms/video";
 import type { Lyrics, TidalVideo, Track } from "../../types";
@@ -175,6 +179,13 @@ describe("TvNowPlaying volume", () => {
     fireEvent.keyDown(slider, { key: "ArrowLeft" });
     expect(store.get(volumeAtom)).toBe(0.3);
     expect(store.get(tvVolumeLockedPingAtom)).toBe(1);
+  });
+
+  it("has no volume bar when the TV's remote sets the volume", () => {
+    const store = playing();
+    store.set(tvVolumeOnTvAtom, true);
+    renderTv(<TvNowPlaying />, { store });
+    expect(screen.queryByRole("slider", { name: "Volume" })).toBeNull();
   });
 
   it("toggles mute once while OK is held", () => {

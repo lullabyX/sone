@@ -70,7 +70,7 @@ import {
   maximizedPlayerAtom,
 } from "../atoms/ui";
 import { themeAtom } from "../atoms/theme";
-import { tvModeAtom } from "../atoms/tv";
+import { tvModeAtom, tvVolumeOnTvAtom } from "../atoms/tv";
 import { TV_VOLUME_STEP } from "./tv/tvKeys";
 import { proxySettingsAtom, type ProxySettings } from "../atoms/proxy";
 import {
@@ -1338,7 +1338,10 @@ export function AppInitializer() {
   //  Action callbacks are stable; store.get() reads at call-time.
   // ================================================================
   // TV mode steps finer, like its remote volume keys.
+  // In TV mode with the TV's remote setting the volume, SONE's stays put.
+  const volumeOnTv = () => store.get(tvModeAtom) && store.get(tvVolumeOnTvAtom);
   const stepVolume = (dir: 1 | -1) => {
+    if (volumeOnTv()) return;
     const step = store.get(tvModeAtom) ? TV_VOLUME_STEP : 0.1;
     const next = Math.round((store.get(volumeAtom) + dir * step) * 100) / 100;
     setVolume(Math.min(1, Math.max(0, next)));
@@ -1351,7 +1354,9 @@ export function AppInitializer() {
     prevTrack: () => playPrevious(),
     volumeUp: () => stepVolume(1),
     volumeDown: () => stepVolume(-1),
-    muteToggle: () => toggleMute(store, setVolume),
+    muteToggle: () => {
+      if (!volumeOnTv()) toggleMute(store, setVolume);
+    },
     likeToggle: () => {
       const track = store.get(currentTrackAtom);
       if (!track) return;

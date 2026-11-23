@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { useAtomValue, useStore } from "jotai";
 import { Lock, Volume1, Volume2, VolumeX } from "lucide-react";
 import { volumeAtom } from "../../atoms/playback";
-import { tvVolumeLimitPingAtom, tvVolumeLockedPingAtom } from "../../atoms/tv";
+import {
+  tvVolumeLimitPingAtom,
+  tvVolumeLockedPingAtom,
+  tvVolumeOnTvAtom,
+} from "../../atoms/tv";
 
 const HUD_MS = 2000;
 
@@ -11,6 +15,7 @@ const HUD_MS = 2000;
 export default function TvVolumeHud() {
   const store = useStore();
   const volume = useAtomValue(volumeAtom);
+  const onTv = useAtomValue(tvVolumeOnTvAtom);
   const [mode, setMode] = useState<"level" | "locked" | null>(null);
 
   useEffect(() => {
@@ -31,7 +36,8 @@ export default function TvVolumeHud() {
     };
   }, [store]);
 
-  if (!mode) return null;
+  // The TV shows its own volume.
+  if (!mode || onTv) return null;
   const pct = Math.round(volume * 100);
   const muted = mode === "level" && volume === 0;
   const Icon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;

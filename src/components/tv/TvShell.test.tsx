@@ -5,7 +5,11 @@ import { useLayoutEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isPlayingAtom } from "../../atoms/playback";
-import { tvOverscanAtom, tvTextSizeAtom } from "../../atoms/tv";
+import {
+  tvOverscanAtom,
+  tvTextSizeAtom,
+  tvVolumeOnTvAtom,
+} from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
@@ -268,6 +272,16 @@ it("scales the whole interface by the text size setting", () => {
   expect(scale()).toBe("1.2");
   unmount();
   expect(scale()).toBe("");
+});
+
+it("marks the page while the TV's remote sets the volume", () => {
+  const html = document.documentElement;
+  const { unmount } = shell();
+  expect(html.hasAttribute("data-tv-volume-on-tv")).toBe(false);
+  act(() => store.set(tvVolumeOnTvAtom, true));
+  expect(html.hasAttribute("data-tv-volume-on-tv")).toBe(true);
+  unmount();
+  expect(html.hasAttribute("data-tv-volume-on-tv")).toBe(false);
 });
 
 it("pads the TV surface by the screen margin and publishes it", () => {

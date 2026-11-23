@@ -23,6 +23,7 @@ import {
   tvModeAtom,
   tvOverscanAtom,
   tvTextSizeAtom,
+  tvVolumeOnTvAtom,
 } from "../../atoms/tv";
 import { useToast } from "../../contexts/ToastContext";
 import { usePlaybackActions } from "../../hooks/usePlaybackActions";
@@ -56,7 +57,7 @@ export default function TvSettings() {
   const nav = useTvNav();
   const store = useStore();
   const { showToast } = useToast();
-  const { setBitPerfect } = usePlaybackActions();
+  const { setBitPerfect, setVolume } = usePlaybackActions();
   const [maxQuality, setMaxQuality] = useAtom(maxQualityAtom);
   const [autoplay, setAutoplay] = useAtom(autoplayAtom);
   const [gapless, setGapless] = useAtom(gaplessAtom);
@@ -71,6 +72,7 @@ export default function TvSettings() {
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
   const overscan = useAtomValue(tvOverscanAtom);
   const [calibrating, setCalibrating] = useState(false);
+  const [volumeOnTv, setVolumeOnTv] = useAtom(tvVolumeOnTvAtom);
   const [textSize, setTextSize] = useAtom(tvTextSizeAtom);
   const setTvMode = useSetAtom(tvModeAtom);
   const { userName, logout } = useAuth();
@@ -380,6 +382,24 @@ export default function TvSettings() {
         {calibrating && (
           <TvMarginCalibration onClose={() => setCalibrating(false)} />
         )}
+        <TvSettingsRow
+          title="Volume"
+          subtitle="Choose TV when the TV's remote sets the volume (HDMI-CEC)"
+          value={
+            <span className="text-[0.8rem] text-th-text-muted">
+              {volumeOnTv ? "TV" : "SONE"}
+            </span>
+          }
+          onSelect={() => {
+            const on = !volumeOnTv;
+            setVolumeOnTv(on);
+            if (!on) return;
+            // Full level, so the TV's volume has the whole range. Under
+            // bit-perfect output it already is.
+            if (!bitPerfect) void setVolume(1);
+            showToast("Volume is now set on your TV; SONE plays at 100 %");
+          }}
+        />
         <TvSettingsRow
           title="More settings"
           subtitle="Scrobbling, Discord, network, custom colors and everything else"

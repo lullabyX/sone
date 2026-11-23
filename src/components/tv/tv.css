@@ -244,6 +244,10 @@ html.tv-mode {
 .tv-mode [data-tv-video] .group\/vol {
   order: 1;
 }
+/* The TV's remote sets the volume (Settings → Volume: TV). */
+html[data-tv-volume-on-tv].tv-mode [data-tv-video] .group\/vol {
+  display: none;
+}
 .tv-mode [data-tv-video] .group\/vol:has(input:focus) {
   outline: 3px solid var(--th-text-primary);
   outline-offset: 3px;

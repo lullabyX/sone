@@ -66,6 +66,15 @@ export const tvOverscanAtom = atomWithStorage<TvOverscan>(
   { getOnInit: true },
 );
 
+/** The TV's own remote sets the volume (over HDMI-CEC): SONE plays at full
+ *  level, without volume controls or the volume indicator in TV mode. */
+export const tvVolumeOnTvAtom = atomWithStorage(
+  "sone.tvVolumeOnTv.v1",
+  false,
+  undefined,
+  { getOnInit: true },
+);
+
 /** TV text (and with it the whole interface, sized in rem) at the size
  *  for the screen, or larger for a small screen or a far couch. */
 export type TvTextSize = "normal" | "large";

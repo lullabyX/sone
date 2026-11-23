@@ -9,7 +9,12 @@ import { useAtomValue, useStore } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPlayingAtom } from "../../atoms/playback";
-import { TV_TEXT_SCALE, tvOverscanAtom, tvTextSizeAtom } from "../../atoms/tv";
+import {
+  TV_TEXT_SCALE,
+  tvOverscanAtom,
+  tvTextSizeAtom,
+  tvVolumeOnTvAtom,
+} from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
 import {
   currentVideoAtom,
@@ -79,6 +84,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
   const inhibit = isPlaying || (!!currentVideo && videoPlaying);
   const overscan = useAtomValue(tvOverscanAtom);
   const textSize = useAtomValue(tvTextSizeAtom);
+  const volumeOnTv = useAtomValue(tvVolumeOnTvAtom);
   useHideMiniplayer();
   useTvGamepad(true);
 
@@ -103,6 +109,13 @@ export default function TvShell({ children }: { children: ReactNode }) {
       html.style.removeProperty("--tv-safe-y");
     };
   }, [overscan]);
+  // The TV's remote sets the volume: the video player's volume control is
+  // hidden (tv.css).
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.toggleAttribute("data-tv-volume-on-tv", volumeOnTv);
+    return () => html.removeAttribute("data-tv-volume-on-tv");
+  }, [volumeOnTv]);
   // The text size setting scales the root size, and with it everything.
   useLayoutEffect(() => {
     const html = document.documentElement;
