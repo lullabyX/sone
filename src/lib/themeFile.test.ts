@@ -331,6 +331,40 @@ describe("applyExternalThemeFile (watcher push)", () => {
     );
     expect(live).toEqual(FOREST);
   });
+
+  it("applies a hand edit back to an earlier own write", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(FOREST);
+    await syncThemeToFile(OCEAN);
+
+    let live = OCEAN;
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    expect(live).toEqual(FOREST);
+  });
+
+  it("does not write back a hand edit that matches an earlier own write", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const { syncThemeToFile, applyExternalThemeFile } = await freshThemeFile();
+    await syncThemeToFile(FOREST);
+    await syncThemeToFile(OCEAN);
+
+    let live = OCEAN;
+    applyExternalThemeFile(
+      FOREST_FILE,
+      () => live,
+      (t) => (live = t),
+    );
+    await syncThemeToFile(live);
+    expect(setCalls()).toHaveLength(2);
+
+    await syncThemeToFile(OCEAN);
+    expect(setCalls()).toHaveLength(3);
+  });
 });
 
 // The write-through subscription in AppInitializer fires once on mount, when

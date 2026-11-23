@@ -18,6 +18,8 @@
     "core:window:allow-start-dragging",
     "core:window:allow-start-resize-dragging",
     "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-position",
     "core:window:allow-set-focus",
     "opener:default",
     "global-shortcut:allow-register",

@@ -1,20 +1,10 @@
 import { Play, Heart } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigation } from "../hooks/useNavigation";
-import {
-  getHomePage,
-  refreshHomePage,
-  getHomePageMore,
-  invalidateCache,
-} from "../api/tidal";
-import {
-  type HomeSection as HomeSectionType,
-  type HomeTab as HomeTabType,
-  type MediaItemType,
-} from "../types";
+import { useHomeFeed, slugOf } from "../hooks/useHomeFeed";
+import { type MediaItemType } from "../types";
 import HomeSection from "./HomeSection";
 import MediaContextMenu from "./MediaContextMenu";
-import { safeErrorMessage } from "../lib/errorUtils";
 import {
   getItemImage,
   getItemTitle,
@@ -27,18 +17,6 @@ import {
 import PageContainer from "./PageContainer";
 import AiBadge from "./AiBadge";
 
-// Per-tab in-memory cache to prevent skeleton flash on navigation and to keep
-// each tab's sections/cursor/pagination state independent across switches.
-type TabCacheEntry = {
-  sections: HomeSectionType[];
-  cursor: string | null;
-  hasPaginated: boolean;
-};
-const tabCache = new Map<string, TabCacheEntry>();
-let cachedTabs: HomeTabType[] = [];
-let lastActiveType: string | null = null;
-const slugOf = (feedType: string) => feedType.toLowerCase();
-
 export default function Home() {
   const {
     navigateToPlaylist,
@@ -48,27 +26,18 @@ export default function Home() {
     navigateToMix,
   } = useNavigation();
 
-  const [tabs, setTabs] = useState<HomeTabType[]>(cachedTabs);
-  const [activeType, setActiveType] = useState<string>(
-    lastActiveType ?? cachedTabs[0]?.tabType ?? "STATIC",
-  );
-  const activeEntry = tabCache.get(slugOf(activeType));
-  const sections = activeEntry?.sections ?? [];
-  const cursor = activeEntry?.cursor ?? null;
-  const [loading, setLoading] = useState<boolean>(!activeEntry);
-  const [error, setError] = useState<string | null>(null);
-  const [, forceRender] = useState(0); // bump to re-render after async cache writes
-  const activeTypeRef = useRef(activeType);
-  useEffect(() => {
-    activeTypeRef.current = activeType;
-    lastActiveType = activeType;
-  }, [activeType]);
-
-  const lastLoadedAtRef = useRef<number>(Date.now());
-  const revalidatingRef = useRef(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const {
+    tabs,
+    activeType,
+    selectTab: handleTabClick,
+    sections,
+    loading,
+    loadingMore,
+    error,
+    retry: handleRetry,
+    loadMore,
+  } = useHomeFeed("desktop");
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const failedCursorRef = useRef<string | null>(null);
 
   // Context menu state for quick-access shortcut cards
   const [contextMenu, setContextMenu] = useState<{
@@ -188,123 +157,6 @@ export default function Home() {
     ],
   );
 
-  const loadTab = useCallback(
-    async (feedType: string, isRevalidation: boolean) => {
-      const slug = slugOf(feedType);
-      if (isRevalidation) {
-        if (revalidatingRef.current) return;
-        revalidatingRef.current = true;
-        // Drop the frontend in-memory cache so getHomePage actually re-consults
-        // the Rust backend — otherwise the 2h TTL on the cached() wrapper short-
-        // circuits the revalidation entirely.
-        invalidateCache("home");
-      }
-
-      try {
-        const result = await getHomePage(feedType);
-        const prev = tabCache.get(slug);
-        if (!prev?.hasPaginated) {
-          tabCache.set(slug, {
-            sections: result.home.sections,
-            cursor: result.home.cursor ?? null,
-            hasPaginated: false,
-          });
-        }
-        if (result.home.tabs.length) {
-          cachedTabs = result.home.tabs;
-          setTabs(result.home.tabs);
-        }
-        forceRender((n) => n + 1);
-
-        if (result.isStale) {
-          refreshHomePage(feedType)
-            .then((fresh) => {
-              const cur = tabCache.get(slug);
-              if (cur && !cur.hasPaginated) {
-                tabCache.set(slug, {
-                  sections: fresh.sections,
-                  cursor: fresh.cursor ?? null,
-                  hasPaginated: false,
-                });
-                forceRender((n) => n + 1);
-              }
-            })
-            .catch((e) => console.error("home refresh failed", e));
-        }
-
-        lastLoadedAtRef.current = Date.now();
-        if (slugOf(activeTypeRef.current) === slug) setError(null);
-      } catch (e) {
-        console.error("Failed to load home tab", feedType, e);
-        // Only the tab on screen gets to set the error — background prefetches
-        // of the other tabs must not paint over a feed that loaded fine.
-        if (slugOf(activeTypeRef.current) === slug) {
-          setError(safeErrorMessage(e, "Failed to load home"));
-        }
-      } finally {
-        if (isRevalidation) revalidatingRef.current = false;
-        if (slugOf(activeTypeRef.current) === slug) setLoading(false);
-      }
-    },
-    [],
-  );
-
-  const hasLoadedRef = useRef(false);
-  useEffect(() => {
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
-    const first = cachedTabs[0]?.tabType ?? "STATIC";
-    loadTab(first, false).then(() => {
-      for (const t of cachedTabs) {
-        const s = slugOf(t.tabType);
-        if (s !== slugOf(first) && !tabCache.has(s)) loadTab(t.tabType, false);
-      }
-    });
-  }, [loadTab]);
-
-  const handleTabClick = useCallback(
-    (feedType: string) => {
-      setActiveType(feedType);
-      setError(null);
-      if (!tabCache.has(slugOf(feedType))) {
-        setLoading(true);
-        loadTab(feedType, false);
-      } else {
-        setLoading(false);
-      }
-    },
-    [loadTab],
-  );
-
-  const handleRetry = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    loadTab(activeTypeRef.current, false);
-  }, [loadTab]);
-
-  // Revalidate on window focus / tab visibility — covers the case where the
-  // app stays open past the cache TTL and nothing else triggers a re-fetch.
-  useEffect(() => {
-    const REVALIDATE_MIN_INTERVAL_MS = 5 * 60 * 1000;
-
-    const revalidate = () => {
-      if (document.visibilityState !== "visible") return;
-      const active = activeTypeRef.current;
-      if (tabCache.get(slugOf(active))?.hasPaginated) return;
-      if (revalidatingRef.current) return;
-      if (Date.now() - lastLoadedAtRef.current < REVALIDATE_MIN_INTERVAL_MS)
-        return;
-      loadTab(active, true);
-    };
-
-    document.addEventListener("visibilitychange", revalidate);
-    window.addEventListener("focus", revalidate);
-    return () => {
-      document.removeEventListener("visibilitychange", revalidate);
-      window.removeEventListener("focus", revalidate);
-    };
-  }, [loadTab]);
-
   // Infinite scroll: load more sections when sentinel becomes visible
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -312,45 +164,14 @@ export default function Home() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          cursor &&
-          !loadingMore &&
-          cursor !== failedCursorRef.current
-        ) {
-          setLoadingMore(true);
-          getHomePageMore(cursor, activeType)
-            .then((result) => {
-              failedCursorRef.current = null;
-              const slug = slugOf(activeType);
-              const prev = tabCache.get(slug);
-              if (prev) {
-                tabCache.set(slug, {
-                  sections: [...prev.sections, ...result.sections],
-                  cursor: result.cursor ?? null,
-                  hasPaginated: true,
-                });
-                forceRender((n) => n + 1);
-              }
-            })
-            .catch((err) => {
-              // The sentinel is still on screen, so without remembering which
-              // cursor failed the observer would re-fire the same doomed
-              // request as soon as loadingMore flips back to false.
-              failedCursorRef.current = cursor;
-              console.error("Failed to load more home sections:", err);
-            })
-            .finally(() => {
-              setLoadingMore(false);
-            });
-        }
+        if (entries[0].isIntersecting) loadMore();
       },
       { rootMargin: "200px" },
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [cursor, loadingMore, activeType]);
+  }, [loadMore]);
 
   // Extract SHORTCUT_LIST section for the quick-access grid, pass the rest to HomeSection
   const shortcutSection = sections.find(

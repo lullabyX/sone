@@ -27,15 +27,13 @@ import {
   playlistSortAtom,
   type SortOrder,
 } from "../atoms/favorites";
+import { getItemKey, getFlattenedPlaylists } from "../api/tidal";
 import {
-  getPlaylistFolders,
-  normalizePlaylistFolders,
-  getItemKey,
-  getFavoriteAlbums,
-  getFavoriteArtists,
-  getFavoriteMixes,
-  getFlattenedPlaylists,
-} from "../api/tidal";
+  applyLocalPlaylistEdits,
+  fetchLibraryPage,
+  filterLibraryItems,
+  type LibraryType,
+} from "../lib/libraryPages";
 import MediaGrid, { MediaGridSkeleton, MediaGridEmpty } from "./MediaGrid";
 import MediaCard from "./MediaCard";
 import MediaContextMenu from "./MediaContextMenu";
@@ -46,8 +44,6 @@ import PageContainer from "./PageContainer";
 import { buildMediaItem, folderSubtitle } from "../utils/itemHelpers";
 import { FolderOpen, MoreHorizontal } from "lucide-react";
 import type { MediaItemType, PlaylistOrFolder } from "../types";
-
-type LibraryType = "playlists" | "albums" | "artists" | "mixes";
 
 interface LibraryViewAllProps {
   libraryType: LibraryType;
@@ -155,58 +151,21 @@ export default function LibraryViewAll({
       offset: number,
       limit: number,
     ): Promise<{ items: any[]; totalNumberOfItems: number }> => {
-      switch (libraryType) {
-        case "playlists": {
-          const cursor =
-            offset === 0 ? undefined : (playlistCursorRef.current ?? undefined);
-          if (offset === 0) playlistCursorRef.current = null;
-          const response = await getPlaylistFolders(
-            folderId ?? "root",
-            offset,
-            limit,
-            currentSort?.order ?? "DATE_UPDATED",
-            currentSort?.direction ?? "DESC",
-            undefined,
-            cursor,
-          );
-          const normalized = normalizePlaylistFolders(response);
-          playlistCursorRef.current = normalized.cursor;
-          playlistApiTotalRef.current = normalized.totalNumberOfItems;
-          const total =
-            normalized.cursor && normalized.items.length > 0
-              ? offset + normalized.items.length + 1
-              : offset + normalized.items.length;
-          return { items: normalized.items, totalNumberOfItems: total };
-        }
-        case "albums": {
-          if (!userId) return { items: [], totalNumberOfItems: 0 };
-          return getFavoriteAlbums(
-            userId,
-            offset,
-            limit,
-            currentSort?.order ?? "DATE",
-            currentSort?.direction ?? "DESC",
-          );
-        }
-        case "artists": {
-          if (!userId) return { items: [], totalNumberOfItems: 0 };
-          return getFavoriteArtists(
-            userId,
-            offset,
-            limit,
-            currentSort?.order ?? "DATE",
-            currentSort?.direction ?? "DESC",
-          );
-        }
-        case "mixes": {
-          return getFavoriteMixes(
-            offset,
-            limit,
-            currentSort?.order ?? "DATE",
-            currentSort?.direction ?? "DESC",
-          );
-        }
+      if (libraryType === "playlists" && offset === 0)
+        playlistCursorRef.current = null;
+      const page = await fetchLibraryPage(libraryType, {
+        userId,
+        folderId,
+        sort: { order: currentSort?.order, direction: currentSort?.direction },
+        offset,
+        limit,
+        cursor: playlistCursorRef.current,
+      });
+      if (libraryType === "playlists") {
+        playlistCursorRef.current = page.cursor;
+        playlistApiTotalRef.current = page.apiTotal;
       }
+      return { items: page.items, totalNumberOfItems: page.totalNumberOfItems };
     },
     [libraryType, userId, currentSort?.order, currentSort?.direction, folderId],
   );
@@ -332,33 +291,11 @@ export default function LibraryViewAll({
 
   const displayItems = useMemo(() => {
     if (libraryType !== "playlists") return items;
-    const currentFolder = folderId ?? "root";
-    const filtered = (items as PlaylistOrFolder[]).filter((entry) => {
-      if (entry.kind === "folder") return !deletedFolderIds.has(entry.data.id);
-      if (deletedPlaylistIds.has(entry.data.uuid)) return false;
-      if (movedPlaylists.get(entry.data.uuid) === currentFolder) return false;
-      return true;
-    });
-    // Prepend optimistically added playlists to this folder
-    const added = addedToFolder.get(currentFolder) ?? [];
-    if (added.length === 0) return filtered;
-    const existingFolderIds = new Set(
-      filtered.filter((e) => e.kind === "folder").map((e) => e.data.id),
+    return applyLocalPlaylistEdits(
+      items as PlaylistOrFolder[],
+      folderId ?? "root",
+      { deletedPlaylistIds, deletedFolderIds, movedPlaylists, addedToFolder },
     );
-    const existingPlaylistUuids = new Set(
-      filtered.filter((e) => e.kind === "playlist").map((e) => e.data.uuid),
-    );
-    const newFolders = added.filter(
-      (e) => e.kind === "folder" && !existingFolderIds.has(e.data.id),
-    );
-    const newPlaylists = added.filter(
-      (e) =>
-        e.kind === "playlist" &&
-        !existingPlaylistUuids.has(e.data.uuid) &&
-        movedPlaylists.get(e.data.uuid) !== currentFolder,
-    );
-    if (newFolders.length === 0 && newPlaylists.length === 0) return filtered;
-    return [...newFolders, ...newPlaylists, ...filtered];
   }, [
     items,
     deletedPlaylistIds,
@@ -394,58 +331,20 @@ export default function LibraryViewAll({
     if (isFiltering) loadFlattenedPlaylists();
   }, [isFiltering, loadFlattenedPlaylists]);
 
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return displayItems;
-    if (libraryType === "playlists") {
-      const rootEntries = displayItems as PlaylistOrFolder[];
-      const rootUuids = new Set(
-        rootEntries.flatMap((e) =>
-          e.kind === "playlist" ? [e.data.uuid] : [],
-        ),
-      );
-      // Union: root folders + root playlists + nested playlists (deduped by uuid)
-      const searchSet: PlaylistOrFolder[] = [
-        ...rootEntries,
-        ...flattenedPlaylists.filter(
-          (p) => p.kind === "playlist" && !rootUuids.has(p.data.uuid),
-        ),
-      ];
-      return searchSet.filter((entry) => {
-        if (entry.kind === "folder") {
-          const name = renamedFolders.get(entry.data.id) ?? entry.data.name;
-          return name.toLowerCase().includes(q);
-        }
-        return (
-          entry.data.title?.toLowerCase().includes(q) ||
-          entry.data.description?.toLowerCase().includes(q) ||
-          entry.data.creator?.name?.toLowerCase().includes(q)
-        );
-      }) as any;
-    }
-    return displayItems.filter((item) => {
-      switch (libraryType) {
-        case "albums":
-          return (
-            item.title?.toLowerCase().includes(q) ||
-            item.artist?.name?.toLowerCase().includes(q)
-          );
-        case "artists":
-          return item.name?.toLowerCase().includes(q);
-        case "mixes":
-          return (
-            item.title?.toLowerCase().includes(q) ||
-            item.subTitle?.toLowerCase().includes(q)
-          );
-      }
-    });
-  }, [
-    displayItems,
-    searchQuery,
-    libraryType,
-    renamedFolders,
-    flattenedPlaylists,
-  ]);
+  const filteredItems = useMemo(
+    () =>
+      filterLibraryItems(libraryType, displayItems, searchQuery, {
+        flattened: flattenedPlaylists,
+        renamedFolders,
+      }),
+    [
+      displayItems,
+      searchQuery,
+      libraryType,
+      renamedFolders,
+      flattenedPlaylists,
+    ],
+  );
 
   const handleSearchFocus = useCallback(() => {
     loadFlattenedPlaylists();

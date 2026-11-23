@@ -8,6 +8,8 @@ mod dbus;
 mod wayland;
 mod x11;
 
+use std::collections::HashSet;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayServer {
     Wayland,
@@ -36,8 +38,32 @@ impl DisplayServer {
     }
 }
 
+/// Who currently wants the screen kept awake; the inhibition is held while
+/// any holder remains.
+#[derive(Default)]
+pub struct IdleHolders(HashSet<String>);
+
+impl IdleHolders {
+    /// True when this is the first holder.
+    fn add(&mut self, h: &str) -> bool {
+        let was_empty = self.0.is_empty();
+        self.0.insert(h.to_string());
+        was_empty
+    }
+
+    /// True when this was the last holder.
+    fn remove(&mut self, h: &str) -> bool {
+        self.0.remove(h) && self.0.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
 pub struct IdleInhibitor {
     active: bool,
+    holders: IdleHolders,
     dbus: dbus::DbusInhibitor,
     x11: Option<x11::X11Inhibitor>,
     wayland: Option<wayland::WaylandInhibitor>,
@@ -47,6 +73,7 @@ impl IdleInhibitor {
     pub fn new() -> Self {
         Self {
             active: false,
+            holders: IdleHolders::default(),
             dbus: dbus::DbusInhibitor::new(),
             x11: None,
             wayland: None,
@@ -90,7 +117,21 @@ impl IdleInhibitor {
         }
     }
 
+    pub async fn acquire(&mut self, holder: &str, window: &tauri::WebviewWindow) {
+        if self.holders.add(holder) {
+            self.inhibit(window).await;
+        }
+    }
+
+    pub async fn release(&mut self, holder: &str) {
+        if self.holders.remove(holder) {
+            self.uninhibit().await;
+        }
+    }
+
+    /// Releases for every holder (logout, exit).
     pub async fn uninhibit(&mut self) {
+        self.holders.clear();
         if !self.active {
             return;
         }
@@ -109,7 +150,7 @@ impl IdleInhibitor {
 
 #[cfg(test)]
 mod tests {
-    use super::DisplayServer;
+    use super::{DisplayServer, IdleHolders};
 
     #[test]
     fn wayland_wins_when_both_set() {
@@ -129,5 +170,25 @@ mod tests {
     #[test]
     fn unknown_when_neither_set() {
         assert_eq!(DisplayServer::detect_from(false, false), DisplayServer::Unknown);
+    }
+
+    #[test]
+    fn first_holder_starts_and_last_holder_stops() {
+        let mut h = IdleHolders::default();
+        assert!(h.add("tv"));
+        assert!(!h.add("default"));
+        assert!(!h.add("tv"));
+        assert!(!h.remove("tv"));
+        assert!(h.remove("default"));
+        assert!(!h.remove("default"));
+    }
+
+    #[test]
+    fn clear_releases_everyone() {
+        let mut h = IdleHolders::default();
+        h.add("tv");
+        h.add("default");
+        h.clear();
+        assert!(h.add("tv"));
     }
 }

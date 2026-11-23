@@ -66,6 +66,16 @@ export function getProxyBlockedReason(err: unknown): string | null {
   return "The proxy refused this request";
 }
 
+/** Check if an error is a network error (SoneError::Network). */
+export function isNetworkError(error: unknown): boolean {
+  try {
+    const parsed = typeof error === "string" ? JSON.parse(error) : error;
+    return parsed?.kind === "Network";
+  } catch {
+    return false;
+  }
+}
+
 export function getApiStatus(err: unknown): number | null {
   if (!isSoneError(err)) return null;
   if (err.kind !== "Api") return null;

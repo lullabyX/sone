@@ -19,9 +19,14 @@ import {
   allowExplicitAtom,
   allowAiAtom,
   queueEpochAtom,
+  bitPerfectAtom,
+  volumeAtom,
+  isPlayingAtom,
 } from "../atoms/playback";
+import { currentVideoAtom } from "../atoms/video";
+import { tvVolumeLockedPingAtom } from "../atoms/tv";
 import { getProxyBlockedReason } from "../lib/errorUtils";
-import type { Track } from "../types";
+import type { TidalVideo, Track } from "../types";
 
 // playNext drives the audio backend through invoke(); stub it so play_tidal_track
 // resolves and the repeat-all rebuild runs to completion. `playResult` lets a
@@ -513,6 +518,45 @@ describe("AI content filter", () => {
   });
 });
 
+describe("a locked volume says so", () => {
+  beforeEach(() => localStorage.clear()); // volumeAtom persists
+  it("setVolume under bit-perfect audio changes nothing and pings the TV indicator", async () => {
+    const { store, result } = setup();
+    act(() => {
+      store.set(bitPerfectAtom, true);
+      store.set(volumeAtom, 0.4);
+    });
+    await act(() => result.current.setVolume(0.3));
+    expect(store.get(volumeAtom)).toBe(0.4);
+    expect(store.get(tvVolumeLockedPingAtom)).toBe(1);
+  });
+  it("video volume under bit-perfect still changes and does not ping", async () => {
+    const { store, result } = setup();
+    act(() => {
+      store.set(bitPerfectAtom, true);
+      store.set(currentVideoAtom, {
+        id: 9,
+        title: "V",
+        duration: 100,
+      } as TidalVideo);
+    });
+    vi.mocked(invoke).mockClear();
+    await act(() => result.current.setVolume(0.3));
+    expect(store.get(volumeAtom)).toBe(0.3);
+    expect(store.get(tvVolumeLockedPingAtom)).toBe(0);
+    // The audio pipeline stays at unity for bit-perfect.
+    expect(invoke).not.toHaveBeenCalledWith("set_volume", expect.anything());
+  });
+  it("an unlocked volume reaches the audio pipeline", async () => {
+    const { store, result } = setup();
+    vi.mocked(invoke).mockClear();
+    await act(() => result.current.setVolume(0.3));
+    expect(store.get(volumeAtom)).toBe(0.3);
+    expect(invoke).toHaveBeenCalledWith("set_volume", { level: 0.3 });
+    expect(store.get(tvVolumeLockedPingAtom)).toBe(0);
+  });
+});
+
 describe("manual queue survives like TIDAL", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -855,5 +899,86 @@ describe("a dead clicked track", () => {
     await act(() => result.current.playFromSource(c[0], c, src("album", c)));
     expect(store.get(currentTrackAtom)?.id).toBe(100);
     expect(store.get(manualQueueAtom)).toEqual([]);
+  });
+});
+
+describe("tracks greyed out by their metadata", () => {
+  const notFound = { kind: "Api", message: { status: 404, body: "" } };
+  const grey = (id: number) => track({ id, streamReady: false });
+  const played = () =>
+    vi
+      .mocked(invoke)
+      .mock.calls.filter(([cmd]) => cmd === "play_tidal_track")
+      .map(([, args]) => (args as { trackId: number }).trackId);
+
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.mocked(invoke).mockClear();
+    playResult = () => Promise.resolve({});
+  });
+
+  it("a run of them in the queue plays the next playable track", async () => {
+    const { store, result } = setup();
+    store.set(queueAtom, [grey(1), grey(2), grey(3), grey(4), ...c]);
+    await act(() => result.current.playNext());
+    expect(played()).toEqual([10]);
+    expect(store.get(currentTrackAtom)?.id).toBe(10);
+    expect(ids(store.get(queueAtom))).toEqual([11, 12]);
+    expect(store.get(consecutiveFailCountAtom)).toBe(0);
+    expect(screen.queryByText(/Multiple tracks failed/)).toBeNull();
+    expect(screen.getAllByText("Track unavailable — skipping")).toHaveLength(1);
+  });
+
+  it("a run of them in the manual queue plays the next playable track", async () => {
+    const { store, result } = setup();
+    store.set(manualQueueAtom, [grey(1), grey(2), grey(3), track({ id: 100 })]);
+    store.set(queueAtom, c);
+    await act(() => result.current.playNext());
+    expect(store.get(currentTrackAtom)?.id).toBe(100);
+    expect(store.get(manualQueueAtom)).toEqual([]);
+    expect(ids(store.get(queueAtom))).toEqual([10, 11, 12]);
+    expect(screen.queryByText(/Multiple tracks failed/)).toBeNull();
+  });
+
+  it("an all-grey queue ends playback without the failure message", async () => {
+    const { store, result } = setup();
+    store.set(isPlayingAtom, true);
+    store.set(queueAtom, [grey(1), grey(2), grey(3), grey(4)]);
+    await act(() => result.current.playNext());
+    expect(played()).toEqual([]);
+    expect(store.get(queueAtom)).toEqual([]);
+    expect(store.get(isPlayingAtom)).toBe(false);
+    expect(screen.queryByText(/Multiple tracks failed/)).toBeNull();
+  });
+
+  it("repeat-all over an all-grey list stops instead of looping", async () => {
+    const { store, result } = setup();
+    const all = [grey(1), grey(2), grey(3)];
+    store.set(repeatAtom, 1);
+    store.set(isPlayingAtom, true);
+    store.set(playbackSourceAtom, {
+      type: "playlist",
+      id: "p",
+      name: "P",
+      tracks: all,
+    } as never);
+    store.set(queueAtom, all);
+    await act(() => result.current.playNext());
+    expect(played()).toEqual([]);
+    expect(store.get(isPlayingAtom)).toBe(false);
+  });
+
+  it("real load failures still stop playback after three", async () => {
+    playResult = () => Promise.reject(notFound);
+    const { store, result } = setup();
+    store.set(queueAtom, [track({ id: 1 }), grey(50), ...tracks(4).slice(1)]);
+    await act(() => result.current.playNext());
+    expect(played()).toEqual([1, 2, 3]);
+    expect(ids(store.get(queueAtom))).toEqual([4]);
+    expect(store.get(isPlayingAtom)).toBe(false);
+    expect(
+      screen.getByText("Multiple tracks failed to play — stopped"),
+    ).toBeTruthy();
   });
 });

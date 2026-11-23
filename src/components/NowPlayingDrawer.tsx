@@ -54,22 +54,18 @@ import { isContentBlocked } from "../lib/contentFilter";
 import { DISMISS_PRIORITY } from "../lib/dismissStack";
 import { useToast } from "../contexts/ToastContext";
 import { getInterpolatedPosition } from "../lib/playbackPosition";
-import {
-  getMixItems,
-  getTrackLyrics,
-  getTrackCredits,
-  getArtistBio,
-} from "../api/tidal";
+import { getTrackLyrics, getArtistBio } from "../api/tidal";
 import BioText from "./BioText";
 import { isTrackUnavailable } from "../lib/trackAvailability";
 import { COVER_TEXT_GAP, MAX_COVER_SIZE } from "../lib/coverFit";
 import { useFittedCoverSize } from "../hooks/useFittedCoverSize";
+import { useSuggestedTracks } from "../hooks/useSuggestedTracks";
+import { useTrackCredits } from "../hooks/useTrackCredits";
 import {
   getTidalImageUrl,
   getTrackDisplayTitle,
   type Track,
   type Lyrics,
-  type Credit,
 } from "../types";
 import TidalImage from "./TidalImage";
 import { TITLEBAR_HEIGHT } from "./TitleBar";
@@ -790,38 +786,7 @@ const SuggestedTab = memo(function SuggestedTab() {
   const { navigateToArtist, navigateToAlbum } = useNavigation();
   const { showToast } = useToast();
 
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!currentTrack) return;
-
-    let active = true;
-    setLoading(true);
-    setError(null);
-
-    const trackMixId = currentTrack.mixes?.TRACK_MIX;
-    if (trackMixId) {
-      getMixItems(trackMixId)
-        .then(({ tracks }) => {
-          if (active) setTracks(tracks);
-        })
-        .catch((err) => {
-          if (active) setError(String(err));
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-    } else {
-      setTracks([]);
-      setLoading(false);
-    }
-
-    return () => {
-      active = false;
-    };
-  }, [currentTrack?.id]);
+  const { tracks, loading, error } = useSuggestedTracks(currentTrack);
 
   // Stable callbacks passed to every row — hooks called once here, not per row
   const handlePlay = useCallback(
@@ -1221,35 +1186,13 @@ function SkeletonRow({ first = false }: { first?: boolean }) {
 const CreditsTab = memo(function CreditsTab() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const { navigateToArtist } = useNavigation();
-  const [credits, setCredits] = useState<Credit[]>([]);
-  const [creditsLoading, setCreditsLoading] = useState(true);
-  const [creditsError, setCreditsError] = useState<string | null>(null);
+  const {
+    credits,
+    loading: creditsLoading,
+    error: creditsError,
+  } = useTrackCredits(currentTrack?.id);
   const [bio, setBio] = useState<string | null>(null);
   const [bioLoading, setBioLoading] = useState(false);
-
-  useEffect(() => {
-    if (!currentTrack) return;
-
-    let active = true;
-    setCreditsLoading(true);
-    setCreditsError(null);
-    setCredits([]);
-
-    getTrackCredits(currentTrack.id)
-      .then((result) => {
-        if (active) setCredits(result);
-      })
-      .catch((err) => {
-        if (active) setCreditsError(String(err));
-      })
-      .finally(() => {
-        if (active) setCreditsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [currentTrack?.id]);
 
   useEffect(() => {
     const artistId = currentTrack?.artist?.id;

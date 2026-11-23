@@ -13,6 +13,7 @@ import {
 } from "../atoms/playback";
 import {
   userPlaylistsAtom,
+  allPlaylistsAtom,
   addedToFolderAtom,
   deletedPlaylistIdsAtom,
   updatedPlaylistsAtom,
@@ -49,6 +50,7 @@ import {
   playlistTracksPager,
   type PlayableSource,
 } from "../lib/trackSources";
+import { markPlaylistChanged } from "../components/tv/tvPlaylistEdits";
 import type { Track, Playlist, PlaylistOrFolder } from "../types";
 
 async function playableForSource(
@@ -432,7 +434,7 @@ export function useMcpBridge() {
         description: string | null;
       }>("mcp:playlist-updated", (e) => {
         const { uuid, title, description } = e.payload;
-        store.set(userPlaylistsAtom, (prev) =>
+        const edit = (prev: Playlist[]) =>
           prev.map((p) =>
             p.uuid === uuid
               ? {
@@ -441,8 +443,10 @@ export function useMcpBridge() {
                   ...(description != null ? { description } : {}),
                 }
               : p,
-          ),
-        );
+          );
+        store.set(userPlaylistsAtom, edit);
+        // What an open TV playlist page shows as its name and description.
+        store.set(allPlaylistsAtom, edit);
         store.set(updatedPlaylistsAtom, (prev) => {
           const next = new Map(prev);
           const existing = next.get(uuid) ?? {
@@ -455,6 +459,8 @@ export function useMcpBridge() {
           });
           return next;
         });
+        // Not marked changed: its tracks, and an open page's rows, are as
+        // they were.
         invalidateCache("user-playlists");
       }),
     );
@@ -493,6 +499,8 @@ export function useMcpBridge() {
           invalidateCache(`playlist:${uuid}`);
           invalidateCache(`playlist-page:${uuid}`);
           invalidateCache("user-playlists");
+          // An open TV playlist page reloads its rows.
+          markPlaylistChanged(uuid);
           // Refresh to re-sync exact count + cover art with the server
           setTimeout(refreshSidebarPlaylists, 3000);
         },

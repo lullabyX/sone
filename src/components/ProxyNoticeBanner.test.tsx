@@ -6,6 +6,7 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
+import { Provider, createStore } from "jotai";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -13,16 +14,19 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import ProxyNoticeBanner, {
-  proxyNotice,
-  noticeKey,
   PROXY_STATUS_EVENT,
   OPEN_SETTINGS_EVENT,
 } from "./ProxyNoticeBanner";
+import { proxyNotice, noticeKey } from "../hooks/useProxyNotice";
 
 beforeEach(() => {
   invoke.mockReset();
 });
 afterEach(() => cleanup());
+afterEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+});
 
 describe("proxyNotice", () => {
   it("reports only the states that stop the app working", () => {
@@ -505,5 +509,25 @@ describe("the banner", () => {
     render(<ProxyNoticeBanner />);
     await waitFor(() => expect(invoke).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("leaves desktop buttons unmarked", async () => {
+    invoke.mockImplementation((c: string) =>
+      Promise.resolve(
+        c === "get_proxy_status"
+          ? { state: "blocked", reason: "r" }
+          : undefined,
+      ),
+    );
+    render(
+      <Provider store={createStore()}>
+        <ProxyNoticeBanner />
+      </Provider>,
+    );
+    expect(
+      (
+        await screen.findByRole("button", { name: /turn off proxy/i })
+      ).hasAttribute("data-tv-focusable"),
+    ).toBe(false);
   });
 });

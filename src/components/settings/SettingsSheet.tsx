@@ -118,6 +118,7 @@ export default function SettingsSheet({
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 backdrop-blur-sm animate-fadeIn">
       <div
         ref={panelRef}
+        data-tv-sheet
         className="w-full max-w-[800px] h-[min(94vh,740px)] bg-th-elevated rounded-[18px] shadow-2xl flex flex-col overflow-hidden border border-th-border-subtle settings-modal-anim"
       >
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-th-border-subtle">

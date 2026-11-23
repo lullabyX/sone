@@ -2,7 +2,12 @@ import { Plus, Search, X, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useToast } from "../contexts/ToastContext";
-import { usePlaylists } from "../hooks/usePlaylists";
+import {
+  getRecentPlaylistIds,
+  MAX_RECENT_PLAYLISTS,
+  pushRecentPlaylistId,
+  usePlaylists,
+} from "../hooks/usePlaylists";
 import { allPlaylistsAtom, addedToFolderAtom } from "../atoms/playlists";
 import { authTokensAtom } from "../atoms/auth";
 import { getAllPlaylists } from "../api/tidal";
@@ -24,20 +29,8 @@ interface AddToPlaylistMenuProps {
   onClose: () => void;
 }
 
-// ─── Recent-playlist persistence ───────────────────────────────
-
-const RECENT_PLAYLISTS_KEY = "sone.recent-playlists.v1";
-const MAX_RECENT = 8;
 const DESC_MAX_LEN = 500;
 const DUPLICATE_TOAST_MS = 6000;
-
-function getRecentPlaylistIds(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_PLAYLISTS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
 
 /** ids requested but not added, keeping repeats (one removal per added id). */
 function skippedIds(requested: number[], added: number[]): number[] {
@@ -52,15 +45,6 @@ function skippedIds(requested: number[], added: number[]): number[] {
 
 function tracksLabel(n: number): string {
   return n === 1 ? "1 track" : `${n} tracks`;
-}
-
-function pushRecentPlaylistId(playlistId: string) {
-  const ids = getRecentPlaylistIds().filter((id) => id !== playlistId);
-  ids.unshift(playlistId);
-  if (ids.length > MAX_RECENT) ids.length = MAX_RECENT;
-  try {
-    localStorage.setItem(RECENT_PLAYLISTS_KEY, JSON.stringify(ids));
-  } catch {}
 }
 
 // ─── Create-playlist modal ─────────────────────────────────────
@@ -737,7 +721,7 @@ export default function AddToPlaylistMenu({
                   </span>
                 </div>
                 <div className="overflow-y-auto custom-scrollbar max-h-[240px] pb-2">
-                  {allPlaylists.slice(0, MAX_RECENT).map((p) => (
+                  {allPlaylists.slice(0, MAX_RECENT_PLAYLISTS).map((p) => (
                     <CompactPlaylistRow key={p.uuid} playlist={p} />
                   ))}
                 </div>

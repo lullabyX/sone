@@ -250,3 +250,61 @@ export function deriveAlterations(sp: SignalPath | null) {
     losslessPromotion,
   };
 }
+
+/** "FLAC 24/96": the source's codec and bit depth / rate. */
+export function signalSourceSummary(streamInfo: StreamInfo | null): string {
+  const bits = streamInfo?.bitDepth;
+  const rate = streamInfo?.sampleRate;
+  return [
+    streamInfo?.codec?.toUpperCase(),
+    bits && rate
+      ? `${bits}/${(rate / 1000).toFixed(rate % 1000 === 0 ? 0 : 1)}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The one-line verdict: what happens to the audio, most important first. */
+export function signalHeadline(
+  sp: SignalPath | null,
+  streamInfo: StreamInfo | null,
+): string {
+  const {
+    userVol,
+    normFactor,
+    userVolAltered,
+    normAltered,
+    isDirectAlsa,
+    isPristine,
+    lossyFormatChange,
+    losslessPromotion,
+  } = deriveAlterations(sp);
+  const sourceSummary = signalSourceSummary(streamInfo);
+  if (!sp || !sp.backend) return "Idle — no track playing";
+  if (!sp.dac && !sp.outputFormat) return "Pipeline starting…";
+  if (sp.dac?.state === "Closed")
+    return "DAC inactive — output may be routed elsewhere";
+  if (isPristine) {
+    return losslessPromotion
+      ? `${displayFormat(sp.decodedFormat)} → ${displayFormat(sp.outputFormat)} — lossless promotion, every source bit preserved`
+      : sourceSummary
+        ? `${sourceSummary} reaches your DAC untouched`
+        : "Source PCM reaches your DAC untouched";
+  }
+  if (sp.resampledFrom && sp.resampledTo)
+    return `Resampled ${formatRate(sp.resampledFrom)} → ${formatRate(sp.resampledTo)}`;
+  if (sp.formatFallbackFrom && sp.formatFallbackTo)
+    return `DAC refused ${sp.formatFallbackFrom} — fell back to ${sp.formatFallbackTo}`;
+  if (lossyFormatChange)
+    return `Bit-depth reduced ${displayFormat(sp.decodedFormat)} → ${displayFormat(sp.outputFormat)}`;
+  if (normAltered && userVolAltered)
+    return "Samples scaled by volume slider and ReplayGain";
+  if (normAltered) return `ReplayGain applied · ${gainFactorToDb(normFactor)}`;
+  if (userVolAltered)
+    return `Volume slider scaling samples · ${amplitudeToSliderPercent(userVol)}%`;
+  if (sp.osMixer && !isDirectAlsa) return `Routed through ${sp.osMixer.server}`;
+  if (!sp.bitPerfect)
+    return "Bit-perfect mode off — pipeline at unity, not guaranteed";
+  return "Pipeline pass-through";
+}

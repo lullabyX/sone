@@ -40,6 +40,8 @@ import {
   optimisticFavoriteMixesAtom,
 } from "../atoms/favorites";
 import { currentViewAtom } from "../atoms/navigation";
+import { tvSearchQueryAtom } from "../atoms/tv";
+import { resetHomeFeed } from "./useHomeFeed";
 import { clearAllOffsets } from "../lib/scrollMemory";
 import {
   clearCache,
@@ -94,6 +96,7 @@ export function useAuth() {
   const setAddedToFolder = useSetAtom(addedToFolderAtom);
   const setRenamedFolders = useSetAtom(renamedFoldersAtom);
   const setUpdatedPlaylists = useSetAtom(updatedPlaylistsAtom);
+  const setTvSearchQuery = useSetAtom(tvSearchQueryAtom);
 
   // NOTE: Auth loading effect has been moved to AppInitializer
   // to avoid running once per component that calls useAuth().
@@ -278,9 +281,11 @@ export function useAuth() {
       setAddedToFolder(new Map());
       setRenamedFolders(new Map());
       setUpdatedPlaylists(new Map());
-      // Navigation
+      // Navigation, Home feed, TV search
       clearAllOffsets();
       setCurrentView({ type: "home" });
+      resetHomeFeed();
+      setTvSearchQuery("");
       try {
         localStorage.removeItem(PLAYBACK_STATE_KEY);
         localStorage.removeItem(VOLUME_STATE_KEY);
@@ -321,6 +326,7 @@ export function useAuth() {
     setRenamedFolders,
     setUpdatedPlaylists,
     setCurrentView,
+    setTvSearchQuery,
   ]);
 
   const getUserPlaylists = useCallback(

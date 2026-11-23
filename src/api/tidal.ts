@@ -731,7 +731,9 @@ export async function getPlaylistTracksPage(
   );
 }
 
-/** Fetch recommended tracks for a playlist. Can return empty items. */
+/** Fetch recommended tracks for a playlist. Can return empty items.
+ *  Dropped with the playlist's pages, so a track added to it is not still
+ *  recommended from the cache. */
 export async function getPlaylistRecommendations(
   playlistId: string,
   offset: number = 0,
@@ -739,7 +741,7 @@ export async function getPlaylistRecommendations(
 ): Promise<PaginatedTracks> {
   return cached(
     `playlist-recs:${playlistId}:${offset}:${limit}`,
-    [`playlist-recs:${playlistId}`],
+    [`playlist-recs:${playlistId}`, `playlist:${playlistId}`],
     async () => {
       try {
         return await invoke<PaginatedTracks>("get_playlist_recommendations", {
@@ -1214,8 +1216,9 @@ export async function hasPkceDefaults(): Promise<boolean> {
   }
 }
 
-export async function startPkceLoginWindow(): Promise<void> {
-  return invoke("start_pkce_login_window");
+/** `zoom` (TV mode): open the sign-in window maximized, its page scaled. */
+export async function startPkceLoginWindow(zoom?: number): Promise<void> {
+  return invoke("start_pkce_login_window", { zoom: zoom ?? null });
 }
 
 export async function startPkceBrowserLogin(): Promise<
