@@ -35,7 +35,7 @@ it("the sheet fits the safe area", () => {
 it("publishes the fit height for the hosted dialog", () => {
   document.documentElement.style.fontSize = "24px"; // jsdom: innerWidth 1024, innerHeight 768
   const store = createStore();
-  store.set(tvOverscanAtom, 5);
+  store.set(tvOverscanAtom, { x: 5, y: 5 });
   const { container } = renderTv(
     <TvNativeLayer width={800}>
       <div />

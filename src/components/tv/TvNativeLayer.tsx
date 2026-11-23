@@ -30,10 +30,10 @@ export default function TvNativeLayer({
   const overscan = useAtomValue(tvOverscanAtom);
   const [{ zoom, fitH }] = useState(() => {
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    const z = tvNativeZoom(rem, window.innerWidth, width, overscan);
+    const z = tvNativeZoom(rem, window.innerWidth, width, overscan.x);
     return {
       zoom: z,
-      fitH: tvNativeFitHeight(window.innerHeight, z, overscan),
+      fitH: tvNativeFitHeight(window.innerHeight, z, overscan.y),
     };
   });
 

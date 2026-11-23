@@ -35,22 +35,36 @@ export const tvLyricsAtom = atomWithStorage("sone.tvLyrics.v1", false);
  *  desktop sign-in offers the way back. In memory only: gone on restart. */
 export const tvSignInReturnAtom = atom(false);
 
-/** Screen margin (overscan), in percent of the screen on each side, for TVs
- *  that cut off the edges of the picture. */
-export type TvOverscan = 0 | 2.5 | 5;
-const TV_OVERSCAN_STEPS: TvOverscan[] = [0, 2.5, 5];
+/** Screen margin (overscan) for TVs that cut off the edges of the picture,
+ *  in percent of the screen: `x` on the left and right, `y` at the top and
+ *  bottom. Set on the calibration screen (TvMarginCalibration). */
+export interface TvOverscan {
+  x: number;
+  y: number;
+}
+export const TV_OVERSCAN_MAX = 10;
+export const TV_OVERSCAN_STEP = 0.5;
+
+const LEGACY_OVERSCAN_KEY = "sone.tvOverscan.v1";
+
+/** The margin saved before calibration existed: one value for every side. */
+export function legacyTvOverscan(): TvOverscan {
+  try {
+    const v: unknown = JSON.parse(
+      localStorage.getItem(LEGACY_OVERSCAN_KEY) ?? "0",
+    );
+    return typeof v === "number" && v > 0 ? { x: v, y: v } : { x: 0, y: 0 };
+  } catch {
+    return { x: 0, y: 0 };
+  }
+}
 
 export const tvOverscanAtom = atomWithStorage<TvOverscan>(
-  "sone.tvOverscan.v1",
-  0,
+  "sone.tvOverscan.v2",
+  legacyTvOverscan(),
   undefined,
   { getOnInit: true },
 );
-
-export function nextTvOverscan(v: TvOverscan): TvOverscan {
-  const i = TV_OVERSCAN_STEPS.indexOf(v);
-  return TV_OVERSCAN_STEPS[(i + 1) % TV_OVERSCAN_STEPS.length];
-}
 
 /** TV text (and with it the whole interface, sized in rem) at the size
  *  for the screen, or larger for a small screen or a far couch. */

@@ -271,16 +271,16 @@ it("scales the whole interface by the text size setting", () => {
 });
 
 it("pads the TV surface by the screen margin and publishes it", () => {
-  store.set(tvOverscanAtom, 5);
+  store.set(tvOverscanAtom, { x: 4, y: 2.5 });
   const { container, unmount } = shell();
   expect(
     (container.querySelector(".tv-shell") as HTMLElement).style.padding,
-  ).toBe("5vh 5vw");
+  ).toBe("2.5vh 4vw");
   expect(document.documentElement.style.getPropertyValue("--tv-safe-x")).toBe(
-    "5vw",
+    "4vw",
   );
   expect(document.documentElement.style.getPropertyValue("--tv-safe-y")).toBe(
-    "5vh",
+    "2.5vh",
   );
   unmount();
   expect(document.documentElement.style.getPropertyValue("--tv-safe-x")).toBe(

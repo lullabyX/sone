@@ -21,7 +21,7 @@ import {
 import TvSettings from "./TvSettings";
 import type { TvNav } from "./TvNavContext";
 import { videoCoversAtom } from "../../atoms/ui";
-import { tvTextSizeAtom } from "../../atoms/tv";
+import { tvOverscanAtom, tvTextSizeAtom } from "../../atoms/tv";
 import { bitPerfectAtom, exclusiveModeAtom } from "../../atoms/playback";
 import { updateInfoAtom } from "../../atoms/updates";
 import { moveFocus } from "../../lib/spatialNav";
@@ -120,6 +120,39 @@ it("switches the text size between Normal and Large", () => {
   expect(row.textContent).toContain("Large");
   fireEvent.click(row);
   expect(store.get(tvTextSizeAtom)).toBe("normal");
+});
+
+it("calibrates the screen margin with the arrows, OK keeps it", () => {
+  const { store } = renderTv(<TvSettings />);
+  const row = screen.getByRole("button", { name: /Screen margin/ });
+  expect(row.textContent).toContain("Off");
+  fireEvent.click(row);
+  const frame = screen.getByLabelText(/^Screen margin:/);
+  expect(document.activeElement).toBe(frame);
+  for (const key of ["ArrowLeft", "ArrowLeft", "ArrowDown"]) {
+    fireEvent.keyDown(frame, { key });
+  }
+  // Live while calibrating: the interface already uses it.
+  expect(store.get(tvOverscanAtom)).toEqual({ x: 1, y: 0.5 });
+  fireEvent.keyDown(frame, { key: "Enter" });
+  expect(screen.queryByLabelText(/^Screen margin:/)).toBeNull();
+  expect(store.get(tvOverscanAtom)).toEqual({ x: 1, y: 0.5 });
+  expect(row.textContent).toContain("1 % × 0.5 %");
+});
+
+it("Back leaves calibration with the old margin, which stays within 0–10 %", () => {
+  const store = createStore();
+  store.set(tvOverscanAtom, { x: 9.5, y: 0 });
+  renderTv(<TvSettings />, { store });
+  fireEvent.click(screen.getByRole("button", { name: /Screen margin/ }));
+  const frame = screen.getByLabelText(/^Screen margin:/);
+  for (const key of ["ArrowLeft", "ArrowLeft", "ArrowLeft", "ArrowUp"]) {
+    fireEvent.keyDown(frame, { key });
+  }
+  expect(store.get(tvOverscanAtom)).toEqual({ x: 10, y: 0 });
+  fireEvent.keyDown(frame, { key: "BrowserBack" });
+  expect(screen.queryByLabelText(/^Screen margin:/)).toBeNull();
+  expect(store.get(tvOverscanAtom)).toEqual({ x: 9.5, y: 0 });
 });
 
 it("says when no device is found and looks again", async () => {

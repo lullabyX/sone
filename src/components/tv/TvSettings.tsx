@@ -19,7 +19,6 @@ import {
 import { themeAtom } from "../../atoms/theme";
 import { videoCoversAtom } from "../../atoms/ui";
 import {
-  nextTvOverscan,
   tvLyricsAtom,
   tvModeAtom,
   tvOverscanAtom,
@@ -35,6 +34,7 @@ import { TvAboutSection } from "./TvAbout";
 import { confirmMenu } from "./tvMenu";
 import { useTvInitialFocus, useTvNav } from "./TvNavContext";
 import { TvSettingsRow, TvSettingsSection } from "./TvSettingsParts";
+import TvMarginCalibration, { formatTvOverscan } from "./TvMarginCalibration";
 
 const QUALITY_TIERS = [
   { id: "HIGH", label: "High", spec: "AAC · up to 320 kbps" },
@@ -69,7 +69,8 @@ export default function TvSettings() {
   const bitPerfect = useAtomValue(bitPerfectAtom);
   const [theme, setTheme] = useAtom(themeAtom);
   const [lyricsOn, setLyricsOn] = useAtom(tvLyricsAtom);
-  const [overscan, setOverscan] = useAtom(tvOverscanAtom);
+  const overscan = useAtomValue(tvOverscanAtom);
+  const [calibrating, setCalibrating] = useState(false);
   const [textSize, setTextSize] = useAtom(tvTextSizeAtom);
   const setTvMode = useSetAtom(tvModeAtom);
   const { userName, logout } = useAuth();
@@ -371,11 +372,14 @@ export default function TvSettings() {
           subtitle="Shrink the picture if your TV cuts off its edges"
           value={
             <span className="text-[0.8rem] text-th-text-muted">
-              {overscan === 0 ? "Off" : `${overscan} %`}
+              {formatTvOverscan(overscan)}
             </span>
           }
-          onSelect={() => setOverscan(nextTvOverscan(overscan))}
+          onSelect={() => setCalibrating(true)}
         />
+        {calibrating && (
+          <TvMarginCalibration onClose={() => setCalibrating(false)} />
+        )}
         <TvSettingsRow
           title="More settings"
           subtitle="Scrobbling, Discord, network, custom colors and everything else"

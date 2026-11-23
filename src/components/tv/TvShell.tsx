@@ -96,8 +96,8 @@ export default function TvShell({ children }: { children: ReactNode }) {
   // their content by the same margin.
   useLayoutEffect(() => {
     const html = document.documentElement;
-    html.style.setProperty("--tv-safe-x", `${overscan}vw`);
-    html.style.setProperty("--tv-safe-y", `${overscan}vh`);
+    html.style.setProperty("--tv-safe-x", `${overscan.x}vw`);
+    html.style.setProperty("--tv-safe-y", `${overscan.y}vh`);
     return () => {
       html.style.removeProperty("--tv-safe-x");
       html.style.removeProperty("--tv-safe-y");
@@ -192,7 +192,7 @@ export default function TvShell({ children }: { children: ReactNode }) {
   return (
     <div
       className="tv-shell h-full w-full bg-th-base"
-      style={{ padding: `${overscan}vh ${overscan}vw` }}
+      style={{ padding: `${overscan.y}vh ${overscan.x}vw` }}
     >
       <div className="tv-safe relative h-full w-full">{children}</div>
     </div>
