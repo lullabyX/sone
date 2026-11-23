@@ -45,6 +45,7 @@ import {
   volumeAtom,
 } from "../atoms/playback";
 import { tvModeAtom, tvVolumeLockedPingAtom } from "../atoms/tv";
+import { getMixItems } from "../api/tidal";
 
 afterEach(() => {
   cleanup();
@@ -88,6 +89,31 @@ it("keeps the update check's answer for TV Settings", async () => {
   );
   await act(async () => {});
   expect(store.get(updateInfoAtom)).toEqual(info);
+});
+
+it("fetches a mix again once its outdated copy has been refreshed", async () => {
+  const mix = { mixId: "m1", tracks: [] };
+  vi.mocked(invoke).mockImplementation((cmd: string) =>
+    Promise.resolve(cmd === "get_mix_items" ? mix : undefined),
+  );
+  render(
+    <Provider store={createStore()}>
+      <ToastProvider>
+        <AppInitializer />
+      </ToastProvider>
+    </Provider>,
+  );
+  await act(async () => {});
+  const mixCalls = () =>
+    vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "get_mix_items");
+
+  await getMixItems("m1");
+  await getMixItems("m1");
+  expect(mixCalls()).toHaveLength(1);
+
+  act(() => handlers["mix-page-refreshed"]({ payload: "m1" }));
+  await getMixItems("m1");
+  expect(mixCalls()).toHaveLength(2);
 });
 
 describe("M mutes and unmutes", () => {
