@@ -644,29 +644,22 @@ pub async fn set_proxy_settings(
     outcome
 }
 
+/// Applies what the frontend wants held: `sleep` keeps the computer awake,
+/// `screen` keeps the display on. `seq` orders calls that land out of order.
 #[tauri::command]
-pub async fn inhibit_idle(
+pub async fn set_idle_inhibit(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-    holder: Option<String>,
+    sleep: bool,
+    screen: bool,
+    seq: u64,
 ) -> Result<(), SoneError> {
-    let holder = holder.as_deref().unwrap_or("default");
     state
         .idle_inhibitor
         .lock()
         .await
-        .acquire(holder, &window)
+        .set(seq, sleep, screen, &window)
         .await;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn uninhibit_idle(
-    state: State<'_, AppState>,
-    holder: Option<String>,
-) -> Result<(), SoneError> {
-    let holder = holder.as_deref().unwrap_or("default");
-    state.idle_inhibitor.lock().await.release(holder).await;
     Ok(())
 }
 

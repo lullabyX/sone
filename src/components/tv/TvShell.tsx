@@ -6,9 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomValue, useStore } from "jotai";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isPlayingAtom } from "../../atoms/playback";
 import {
   TV_TEXT_SCALE,
   tvOverscanAtom,
@@ -16,11 +14,7 @@ import {
   tvVolumeOnTvAtom,
 } from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
-import {
-  currentVideoAtom,
-  videoFullscreenAtom,
-  videoPlayingAtom,
-} from "../../atoms/video";
+import { videoFullscreenAtom } from "../../atoms/video";
 import { useHideMiniplayer } from "../../hooks/useMiniplayerWindow";
 import { useTvGamepad } from "./useTvGamepad";
 import { windowIsFullscreen } from "../../lib/windowFullscreen";
@@ -73,16 +67,11 @@ function updateScale() {
  * The root of every TV surface (sign-in and the TV interface), kept mounted
  * across sign-in and sign-out: it scales the UI with the screen, keeps the
  * window fullscreen, hides the idle pointer and the always-on-top miniplayer,
- * keeps the screen awake while something plays, turns gamepad input into
- * remote keys, and undoes all of it on exit.
+ * turns gamepad input into remote keys, and undoes all of it on exit.
  */
 export default function TvShell({ children }: { children: ReactNode }) {
   const store = useStore();
   const [cursorHidden, setCursorHidden] = useState(false);
-  const isPlaying = useAtomValue(isPlayingAtom);
-  const currentVideo = useAtomValue(currentVideoAtom);
-  const videoPlaying = useAtomValue(videoPlayingAtom);
-  const inhibit = isPlaying || (!!currentVideo && videoPlaying);
   const overscan = useAtomValue(tvOverscanAtom);
   const textSize = useAtomValue(tvTextSizeAtom);
   const volumeOnTv = useAtomValue(tvVolumeOnTvAtom);
@@ -193,14 +182,6 @@ export default function TvShell({ children }: { children: ReactNode }) {
     root.classList.toggle("tv-cursor-hidden", cursorHidden);
     return () => root.classList.remove("tv-cursor-hidden");
   }, [cursorHidden]);
-
-  useEffect(() => {
-    if (!inhibit) return;
-    invoke("inhibit_idle", { holder: "tv" }).catch(() => {});
-    return () => {
-      invoke("uninhibit_idle", { holder: "tv" }).catch(() => {});
-    };
-  }, [inhibit]);
 
   return (
     <div
