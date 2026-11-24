@@ -791,14 +791,6 @@ export default function MaximizedPlayer() {
     };
   }, []);
 
-  // Inhibit screensaver + system sleep while fullscreen
-  useEffect(() => {
-    invoke("inhibit_idle").catch(() => {});
-    return () => {
-      invoke("uninhibit_idle").catch(() => {});
-    };
-  }, []);
-
   useHideMiniplayer();
 
   // Trackless (MPRIS set-fullscreen with nothing playing) renders nothing, so

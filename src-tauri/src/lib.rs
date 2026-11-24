@@ -1191,8 +1191,7 @@ pub fn run() {
             commands::utility::get_proxy_status,
             commands::utility::test_proxy_connection,
             commands::utility::probe_proxy_reachability,
-            commands::utility::inhibit_idle,
-            commands::utility::uninhibit_idle,
+            commands::utility::set_idle_inhibit,
             // mcp
             commands::mcp::mcp_get_connection_info,
             commands::mcp::mcp_publish_state,

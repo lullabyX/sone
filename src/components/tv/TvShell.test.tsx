@@ -2,21 +2,14 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { act } from "@testing-library/react";
 import { createStore } from "jotai";
 import { useLayoutEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { isPlayingAtom } from "../../atoms/playback";
 import {
   tvOverscanAtom,
   tvTextSizeAtom,
   tvVolumeOnTvAtom,
 } from "../../atoms/tv";
 import { maximizedPlayerAtom } from "../../atoms/ui";
-import {
-  currentVideoAtom,
-  videoFullscreenAtom,
-  videoPlayingAtom,
-} from "../../atoms/video";
-import type { TidalVideo } from "../../types";
+import { videoFullscreenAtom } from "../../atoms/video";
 import TvShell from "./TvShell";
 import { mockInvoke, renderTv, setupTvTest, type TvStore } from "./tvTestUtils";
 
@@ -49,8 +42,6 @@ beforeEach(async () => {
   win.isFullscreen.mockImplementation(() => Promise.resolve(false));
   win.setFullscreen.mockImplementation(() => Promise.resolve());
   mockInvoke({
-    inhibit_idle: () => undefined,
-    uninhibit_idle: () => undefined,
     is_window_fullscreen: () => wmFullscreen(),
   });
 });
@@ -242,28 +233,6 @@ it("the safe area is not a stacking context", () => {
   expect(
     container.querySelector(".tv-safe")!.getAttribute("style") ?? "",
   ).not.toMatch(/contain|transform|z-index/);
-});
-
-it("inhibits idle while audio or a video plays, and releases after", async () => {
-  shell();
-  act(() => store.set(isPlayingAtom, true));
-  await flush();
-  expect(invoke).toHaveBeenCalledWith("inhibit_idle", { holder: "tv" });
-  act(() => store.set(isPlayingAtom, false));
-  await flush();
-  expect(invoke).toHaveBeenLastCalledWith("uninhibit_idle", { holder: "tv" });
-  act(() => {
-    store.set(currentVideoAtom, { id: 1 } as TidalVideo);
-    store.set(videoPlayingAtom, true);
-  });
-  await flush();
-  expect(invoke).toHaveBeenLastCalledWith("inhibit_idle", { holder: "tv" });
-});
-it("a stale videoPlaying after the video closed does not inhibit", async () => {
-  store.set(videoPlayingAtom, true); // currentVideoAtom stays null
-  shell();
-  await flush();
-  expect(invoke).not.toHaveBeenCalledWith("inhibit_idle", expect.anything());
 });
 
 it("hides an open miniplayer while in TV mode and brings it back on exit", async () => {

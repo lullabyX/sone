@@ -95,6 +95,7 @@ import { useMcpBridge } from "../hooks/useMcpBridge";
 import { useOverlayBridge } from "../hooks/useOverlayBridge";
 import { useMprisFullscreen } from "../hooks/useMprisFullscreen";
 import { useFullscreenEscape } from "../hooks/useFullscreenEscape";
+import { useIdleInhibit } from "../hooks/useIdleInhibit";
 import { useToast } from "../contexts/ToastContext";
 import {
   checkNetworkError,
@@ -1345,6 +1346,7 @@ export function AppInitializer() {
 
   useMprisFullscreen();
   useFullscreenEscape();
+  useIdleInhibit();
 
   // ================================================================
   //  KEYBOARD SHORTCUTS

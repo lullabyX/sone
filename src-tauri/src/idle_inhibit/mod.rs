@@ -1,14 +1,13 @@
-//! Cross-display-server idle/screen-blanking inhibition.
+//! Keeps the computer awake (sleep lock) and the screen on (screen lock), each
+//! held separately.
 //!
-//! Probes the active display server and runs every applicable layer additively:
-//! Wayland native (zwp_idle_inhibit), X11 native (screensaver+DPMS), D-Bus
-//! (ScreenSaver/GNOME/login1), and the XDG portal as a last-resort fallback.
+//! Screen: every applicable layer additively — Wayland native
+//! (zwp_idle_inhibit), X11 native (screensaver+DPMS), D-Bus
+//! (ScreenSaver/GNOME), and the XDG portal as a last-resort fallback.
 
 mod dbus;
 mod wayland;
 mod x11;
-
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayServer {
@@ -38,32 +37,27 @@ impl DisplayServer {
     }
 }
 
-/// Who currently wants the screen kept awake; the inhibition is held while
-/// any holder remains.
+/// Drops calls that finish after a newer one (the frontend sends one per state
+/// change, and they can land out of order).
 #[derive(Default)]
-pub struct IdleHolders(HashSet<String>);
+struct LatestOnly(u64);
 
-impl IdleHolders {
-    /// True when this is the first holder.
-    fn add(&mut self, h: &str) -> bool {
-        let was_empty = self.0.is_empty();
-        self.0.insert(h.to_string());
-        was_empty
-    }
-
-    /// True when this was the last holder.
-    fn remove(&mut self, h: &str) -> bool {
-        self.0.remove(h) && self.0.is_empty()
-    }
-
-    fn clear(&mut self) {
-        self.0.clear();
+impl LatestOnly {
+    fn accept(&mut self, seq: u64) -> bool {
+        if seq <= self.0 {
+            return false;
+        }
+        self.0 = seq;
+        true
     }
 }
 
+/// Two independent locks: `sleep` keeps the computer from suspending, `screen`
+/// keeps the display from blanking or locking.
 pub struct IdleInhibitor {
-    active: bool,
-    holders: IdleHolders,
+    latest: LatestOnly,
+    sleep: bool,
+    screen: bool,
     dbus: dbus::DbusInhibitor,
     x11: Option<x11::X11Inhibitor>,
     wayland: Option<wayland::WaylandInhibitor>,
@@ -72,26 +66,56 @@ pub struct IdleInhibitor {
 impl IdleInhibitor {
     pub fn new() -> Self {
         Self {
-            active: false,
-            holders: IdleHolders::default(),
+            latest: LatestOnly::default(),
+            sleep: false,
+            screen: false,
             dbus: dbus::DbusInhibitor::new(),
             x11: None,
             wayland: None,
         }
     }
 
-    /// Inhibit screen blanking + system sleep. Runs every applicable layer for
-    /// the detected display server — no short-circuit.
-    pub async fn inhibit(&mut self, window: &tauri::WebviewWindow) {
-        if self.active {
+    pub async fn set(
+        &mut self,
+        seq: u64,
+        sleep: bool,
+        screen: bool,
+        window: &tauri::WebviewWindow,
+    ) {
+        if !self.latest.accept(seq) {
             return;
         }
-        self.active = true;
+        self.set_sleep(sleep).await;
+        if screen {
+            self.hold_screen(window).await;
+        } else {
+            self.release_screen().await;
+        }
+    }
+
+    async fn set_sleep(&mut self, on: bool) {
+        if on == self.sleep {
+            return;
+        }
+        self.sleep = on;
+        if on {
+            self.dbus.hold_sleep().await;
+        } else {
+            self.dbus.release_sleep().await;
+        }
+    }
+
+    /// Runs every applicable layer for the detected display server — no
+    /// short-circuit.
+    async fn hold_screen(&mut self, window: &tauri::WebviewWindow) {
+        if self.screen {
+            return;
+        }
+        self.screen = true;
 
         let server = DisplayServer::detect();
-        log::info!("idle inhibit requested (display server: {server:?})");
+        log::info!("screen inhibit requested (display server: {server:?})");
 
-        // Layer 1: display-server native.
         match server {
             DisplayServer::Wayland => {
                 self.wayland = wayland::WaylandInhibitor::start(window);
@@ -102,55 +126,40 @@ impl IdleInhibitor {
             DisplayServer::Unknown => {}
         }
 
-        // Layer 2: D-Bus session (KDE/GNOME screen-off) — always attempt; harmless
-        // where unsupported. Returns whether a screen-keeping inhibition landed.
-        let dbus_screen = self.dbus.inhibit_screen().await;
+        let dbus_screen = self.dbus.hold_screen().await;
 
-        // Layer 3: D-Bus system suspend (logind) — always attempt.
-        self.dbus.inhibit_sleep().await;
-
-        // Layer 4: portal fallback — only if NOTHING screen-keeping succeeded.
         let native_screen = self.wayland.is_some() || self.x11.is_some();
         if !native_screen && !dbus_screen {
             log::warn!("no native/D-Bus screen inhibition succeeded; trying portal");
-            self.dbus.inhibit_portal().await;
+            self.dbus.hold_screen_portal().await;
         }
     }
 
-    pub async fn acquire(&mut self, holder: &str, window: &tauri::WebviewWindow) {
-        if self.holders.add(holder) {
-            self.inhibit(window).await;
-        }
-    }
-
-    pub async fn release(&mut self, holder: &str) {
-        if self.holders.remove(holder) {
-            self.uninhibit().await;
-        }
-    }
-
-    /// Releases for every holder (logout, exit).
-    pub async fn uninhibit(&mut self) {
-        self.holders.clear();
-        if !self.active {
+    async fn release_screen(&mut self) {
+        if !self.screen {
             return;
         }
-        self.active = false;
-
+        self.screen = false;
         if let Some(mut x) = self.x11.take() {
             x.stop();
         }
         if let Some(w) = self.wayland.take() {
             w.stop();
         }
-        self.dbus.release().await;
-        log::info!("idle inhibit released");
+        self.dbus.release_screen().await;
+        log::info!("screen inhibit released");
+    }
+
+    /// Releases both (logout, exit).
+    pub async fn uninhibit(&mut self) {
+        self.set_sleep(false).await;
+        self.release_screen().await;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DisplayServer, IdleHolders};
+    use super::{DisplayServer, LatestOnly};
 
     #[test]
     fn wayland_wins_when_both_set() {
@@ -173,22 +182,11 @@ mod tests {
     }
 
     #[test]
-    fn first_holder_starts_and_last_holder_stops() {
-        let mut h = IdleHolders::default();
-        assert!(h.add("tv"));
-        assert!(!h.add("default"));
-        assert!(!h.add("tv"));
-        assert!(!h.remove("tv"));
-        assert!(h.remove("default"));
-        assert!(!h.remove("default"));
-    }
-
-    #[test]
-    fn clear_releases_everyone() {
-        let mut h = IdleHolders::default();
-        h.add("tv");
-        h.add("default");
-        h.clear();
-        assert!(h.add("tv"));
+    fn only_newer_calls_are_applied() {
+        let mut l = LatestOnly::default();
+        assert!(l.accept(5));
+        assert!(!l.accept(5));
+        assert!(!l.accept(3));
+        assert!(l.accept(6));
     }
 }
