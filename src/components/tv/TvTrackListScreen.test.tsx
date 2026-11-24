@@ -860,8 +860,7 @@ describe("recommendations", () => {
       playlistId: "p",
       index: 249,
     });
-    // Renders 250 rows several times; under a full parallel run it can pass 5 s.
-  }, 20_000);
+  });
 
   it("leave out tracks already in the playlist", async () => {
     playlist(42, [t1, t2]);

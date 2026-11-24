@@ -5,6 +5,8 @@
  * provide an in-memory shim so themeFile tests can rely on it.
  */
 
+import { configure } from "@testing-library/react";
+
 function makeMemoryStorage(): Storage {
   const m = new Map<string, string>();
   return {
@@ -33,3 +35,7 @@ if (
     writable: true,
   });
 }
+
+// CI runners are slower than a desktop; the stock 1 s wait for findBy/waitFor
+// fails the heavier TV tests there at random.
+configure({ asyncUtilTimeout: 5000 });

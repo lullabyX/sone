@@ -11,5 +11,7 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    // Room for the heavier TV tests on a slow CI runner.
+    testTimeout: 20_000,
   },
 });
