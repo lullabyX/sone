@@ -434,7 +434,7 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), SoneError> {
         handle.shutdown().await;
     }
 
-    // Release the idle inhibitor if a track had held it.
+    // Release the sleep and screen locks playback had held.
     state.idle_inhibitor.lock().await.uninhibit().await;
 
     // Clear the Tidal session: tokens + cached country. Preserve login
