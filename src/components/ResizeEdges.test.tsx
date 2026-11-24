@@ -17,6 +17,13 @@ vi.mock("@tauri-apps/api/window", () => ({
     startResizeDragging,
   }),
 }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: () => Promise.resolve(() => {}),
+}));
+// No window-manager reading in tests, so it falls back to isFullscreen().
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: () => Promise.reject(new Error("no backend")),
+}));
 
 import ResizeEdges from "./ResizeEdges";
 
