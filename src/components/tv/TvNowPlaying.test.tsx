@@ -362,12 +362,22 @@ describe("TvNowPlaying animated cover", () => {
         album: { id: 3, title: "Al", cover: "c", videoCover: "11-22" },
       }),
     );
-  const video = (c: HTMLElement) =>
-    c.querySelector('video[src$="/1280x1280.mp4"]');
-
-  it("plays the motion cover", () => {
+  it("plays the motion cover", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) =>
+      Promise.resolve(
+        cmd === "get_video_cover_bytes" ? new ArrayBuffer(8) : undefined,
+      ),
+    );
+    URL.createObjectURL = vi.fn(() => "blob:tv-motion");
     const { container } = renderTv(<TvNowPlaying />, { store: motion() });
-    expect(video(container)).not.toBeNull();
+    expect(invoke).toHaveBeenCalledWith("get_video_cover_bytes", {
+      url: "https://resources.tidal.com/videos/11/22/1280x1280.mp4",
+    });
+    await waitFor(() =>
+      expect(
+        container.querySelector('video[src="blob:tv-motion"]'),
+      ).not.toBeNull(),
+    );
   });
 
   it("shows the still cover when animated covers are off", () => {
