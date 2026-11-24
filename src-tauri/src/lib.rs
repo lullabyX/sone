@@ -1150,6 +1150,7 @@ pub fn run() {
             commands::scrobble::disconnect_provider,
             // utility
             commands::utility::get_image_bytes,
+            commands::utility::get_video_cover_bytes,
             commands::utility::get_cache_stats,
             commands::utility::clear_disk_cache,
             commands::utility::quit_app,

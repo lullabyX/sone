@@ -85,6 +85,25 @@ pub async fn get_image_bytes(
     }
 }
 
+/// Animated-cover MP4 bytes for in-memory playback. Not disk-cached.
+#[tauri::command]
+pub async fn get_video_cover_bytes(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<tauri::ipc::Response, SoneError> {
+    if !url.starts_with("https://resources.tidal.com/videos/") {
+        return Err(SoneError::Parse(format!("not a video cover url: {url}")));
+    }
+    let http_client = state
+        .proxied_http
+        .client()
+        .map_err(|e| SoneError::ProxyBlocked { reason: e.cause })?;
+    let res = http_client.get(&url).send().await?.error_for_status()?;
+    let bytes = res.bytes().await?.to_vec();
+    log::debug!("[get_video_cover_bytes]: fetched {} bytes", bytes.len());
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 pub async fn get_cache_stats(
     state: State<'_, AppState>,
