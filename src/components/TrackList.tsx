@@ -51,6 +51,7 @@ interface TrackListProps {
   /** For "Remove from playlist" support */
   playlistId?: string;
   isUserPlaylist?: boolean;
+  /** Receives the zero-based playlist position, including when filtering. */
   onTrackRemoved?: (index: number) => void;
   /** When provided, shows a dedicated "add to this playlist" button (immediate action, no menu) */
   onAddToCurrentPlaylist?: (track: Track) => void;
@@ -384,7 +385,7 @@ const TrackRow = memo(function TrackRow({
         {contextMenuOpen && (
           <TrackContextMenu
             track={track}
-            index={index}
+            index={displayNumber != null ? displayNumber - 1 : index}
             anchorRef={dotsButtonRef}
             cursorPosition={contextMenuCursorPos}
             onClose={() => setContextMenuOpen(false)}
@@ -527,7 +528,8 @@ function VirtualTrackRows({
     // Resolved once and memoised on first read, so this relies on Layout's
     // element already being attached before any virtualized list first renders.
     initialOffset: () => scrollEl?.scrollTop ?? 0,
-    getItemKey: (i) => tracks[i]?.id ?? i,
+    // A playlist can contain the same song more than once.
+    getItemKey: (i) => `${tracks[i]?.id}-${trackDisplayNumbers?.[i] ?? i}`,
   });
 
   const virtualItems = virtualizer.getVirtualItems();
